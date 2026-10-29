@@ -1,0 +1,192 @@
+{
+  "avatars": [
+    {
+      "index": 1,
+      "name": "Violet",
+      "hex": "#7A5AF8",
+      "eyes": "#FFFFFF",
+      "body": "round",
+      "horns": "crescent",
+      "expression": "dots",
+      "contrast_on_white": 4.52,
+      "contrast_on_dark_181C22": 3.78,
+      "eye_contrast": 4.52
+    },
+    {
+      "index": 2,
+      "name": "Rose",
+      "hex": "#E0457B",
+      "eyes": "#FFFFFF",
+      "body": "squircle",
+      "horns": "cone",
+      "expression": "tall",
+      "contrast_on_white": 3.96,
+      "contrast_on_dark_181C22": 4.32,
+      "eye_contrast": 3.96
+    },
+    {
+      "index": 3,
+      "name": "Teal",
+      "hex": "#0F9488",
+      "eyes": "#FFFFFF",
+      "body": "pill",
+      "horns": "hook",
+      "expression": "look",
+      "contrast_on_white": 3.74,
+      "contrast_on_dark_181C22": 4.57,
+      "eye_contrast": 3.74
+    },
+    {
+      "index": 4,
+      "name": "Blue",
+      "hex": "#2F6FEB",
+      "eyes": "#FFFFFF",
+      "body": "bun",
+      "horns": "sweep",
+      "expression": "happy",
+      "contrast_on_white": 4.57,
+      "contrast_on_dark_181C22": 3.74,
+      "eye_contrast": 4.57
+    },
+    {
+      "index": 5,
+      "name": "Brown",
+      "hex": "#A0663A",
+      "eyes": "#FFFFFF",
+      "body": "ghost",
+      "horns": "nub",
+      "expression": "dots",
+      "contrast_on_white": 4.71,
+      "contrast_on_dark_181C22": 3.63,
+      "eye_contrast": 4.71
+    },
+    {
+      "index": 6,
+      "name": "Slate",
+      "hex": "#5E6B7D",
+      "eyes": "#FFFFFF",
+      "body": "dome",
+      "horns": "crescent",
+      "expression": "small",
+      "contrast_on_white": 5.42,
+      "contrast_on_dark_181C22": 3.16,
+      "eye_contrast": 5.42
+    },
+    {
+      "index": 7,
+      "name": "Mustard",
+      "hex": "#B98A00",
+      "eyes": "#FFFFFF",
+      "body": "blob",
+      "horns": "tiny",
+      "expression": "wink",
+      "contrast_on_white": 3.14,
+      "contrast_on_dark_181C22": 5.45,
+      "eye_contrast": 3.14
+    },
+    {
+      "index": 8,
+      "name": "Green",
+      "hex": "#2E9A4E",
+      "eyes": "#FFFFFF",
+      "body": "egg",
+      "horns": "sweep",
+      "expression": "tall",
+      "contrast_on_white": 3.59,
+      "contrast_on_dark_181C22": 4.76,
+      "eye_contrast": 3.59
+    },
+    {
+      "index": 9,
+      "name": "Orange",
+      "hex": "#E2701B",
+      "eyes": "#FFFFFF",
+      "body": "cloud",
+      "horns": "hook",
+      "expression": "look",
+      "contrast_on_white": 3.2,
+      "contrast_on_dark_181C22": 5.35,
+      "eye_contrast": 3.2
+    },
+    {
+      "index": 10,
+      "name": "Cyan",
+      "hex": "#0E93B8",
+      "eyes": "#FFFFFF",
+      "body": "onigiri",
+      "horns": "crescent",
+      "expression": "dots",
+      "contrast_on_white": 3.57,
+      "contrast_on_dark_181C22": 4.79,
+      "eye_contrast": 3.57
+    },
+    {
+      "index": 11,
+      "name": "Magenta",
+      "hex": "#B33BC9",
+      "eyes": "#FFFFFF",
+      "body": "hex",
+      "horns": "cone",
+      "expression": "sleepy",
+      "contrast_on_white": 4.79,
+      "contrast_on_dark_181C22": 3.57,
+      "eye_contrast": 4.79
+    },
+    {
+      "index": 12,
+      "name": "Olive",
+      "hex": "#7C8A1C",
+      "eyes": "#FFFFFF",
+      "body": "bean",
+      "horns": "cone",
+      "expression": "small",
+      "contrast_on_white": 3.81,
+      "contrast_on_dark_181C22": 4.49,
+      "eye_contrast": 3.81
+    }
+  ],
+  "avatar_rule": "shape = hash(bot_id) % 12; color = (hash(bot_id) / 12) % 12 (FNV-1a 32-bit). Fixed for the bot's life; not user-pickable.",
+  "ui": {
+    "light": {
+      "bg": "#FFFFFF",
+      "sidebar": "#F4F4F2",
+      "surface": "#FFFFFF",
+      "bubble-bot": "#F4F4F2",
+      "ink": "#111111",
+      "muted": "#555555",
+      "line": "#E4E4E0",
+      "primary": "#FF3737",
+      "primary-hover": "#F02A2A",
+      "primary-pressed": "#D61F1F",
+      "on-primary": "#FFFFFF",
+      "bubble-user": "#E02424",
+      "caution": "#B86E00",
+      "caution-bg": "#FFF6E5",
+      "caution-ink": "#5C3600"
+    },
+    "dark": {
+      "bg": "#181C22",
+      "sidebar": "#12151A",
+      "surface": "#20252D",
+      "bubble-bot": "#262C35",
+      "ink": "#F2F2F0",
+      "muted": "#A2A7AF",
+      "line": "#2F353E",
+      "primary": "#FF4A4A",
+      "primary-hover": "#FF6060",
+      "primary-pressed": "#E23535",
+      "on-primary": "#FFFFFF",
+      "bubble-user": "#D42A2A",
+      "caution": "#F0A020",
+      "caution-bg": "#2A2416",
+      "caution-ink": "#FFD98F"
+    }
+  },
+  "brand": {
+    "ink": "#111111",
+    "switch_red": "#FF3737",
+    "paper": "#FFFFFF",
+    "muted": "#555555",
+    "panel": "#F4F4F2"
+  }
+}

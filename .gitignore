@@ -1,0 +1,6 @@
+/target
+*.db
+*.db-*
+.env
+.DS_Store
+/app/src-tauri/gen/schemas

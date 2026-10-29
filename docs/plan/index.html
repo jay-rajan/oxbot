@@ -1,0 +1,651 @@
+<title>oxbot Build Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; milestones as a numbered track because order is the plan. Palette shared with the oxbot Rust guide (oxide/rust accent). */
+:root {
+  --bg: #F3F4F6; --surface: #FFFFFF; --ink: #1A1E24; --muted: #5A6371; --line: #D9DEE4;
+  --rust: #A8400F; --rust-soft: #F6E3D8; --ok: #23784A; --ok-soft: #DDF1E5; --warn: #8A5A00; --warn-soft: #FBEFD5; --danger: #B42318; --danger-soft: #FDE7E5;
+  --code-bg: #EDEFF2; --code-ink: #232831;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111419; --surface: #181C22; --ink: #E5E8EC; --muted: #9AA3AF; --line: #2A3039;
+  --rust: #F08A4B; --rust-soft: #3A2318; --ok: #62C98F; --ok-soft: #16301F; --warn: #E8B44C; --warn-soft: #362A12; --danger: #F97066; --danger-soft: #3B1714;
+  --code-bg: #0D1014; --code-ink: #D9DEE5; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #111419; --surface: #181C22; --ink: #E5E8EC; --muted: #9AA3AF; --line: #2A3039;
+  --rust: #F08A4B; --rust-soft: #3A2318; --ok: #62C98F; --ok-soft: #16301F; --warn: #E8B44C; --warn-soft: #362A12; --danger: #F97066; --danger-soft: #3B1714;
+  --code-bg: #0D1014; --code-ink: #D9DEE5; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+main { max-width: 860px; margin: 0 auto; display: grid; gap: 40px; }
+h1, h2, h3 { line-height: 1.2; margin: 0; text-wrap: balance; }
+h1 { font-size: 2.2rem; font-weight: 700; letter-spacing: -.01em; }
+h1 span { color: var(--rust); }
+h2 { font-size: 1.35rem; font-weight: 600; margin-bottom: 12px; }
+h3 { font-size: 1.05rem; font-weight: 600; margin: 18px 0 6px; }
+p { margin: 0 0 10px; max-width: 68ch; }
+a { color: var(--rust); }
+code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); color: var(--code-ink); padding: .08em .35em; border-radius: 4px; }
+pre { font-family: var(--mono); font-size: .82rem; background: var(--code-bg); color: var(--code-ink); padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 8px 0; line-height: 1.5; }
+.eyebrow { font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--rust); margin: 0 0 8px; }
+.lede { font-size: 1.1rem; color: var(--muted); max-width: 64ch; margin-top: 10px; }
+.status { display: inline-flex; gap: 8px; align-items: center; font-family: var(--mono); font-size: .78rem; background: var(--warn-soft); color: var(--warn); padding: 4px 10px; border-radius: 99px; margin-top: 14px; }
+ul { margin: 6px 0 10px; padding-left: 1.2em; } li { margin: 4px 0; max-width: 68ch; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: .74rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+.pill { font-family: var(--mono); font-size: .72rem; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.now { background: var(--ok-soft); color: var(--ok); } .next { background: var(--rust-soft); color: var(--rust); } .later { background: var(--code-bg); color: var(--muted); }
+figure { margin: 0; } figcaption { font-size: .88rem; color: var(--muted); margin-top: 8px; max-width: 68ch; }
+.diagram { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.diagram svg { display: block; width: 100%; height: auto; min-width: 640px; }
+.track { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; }
+.track > li { display: grid; grid-template-columns: 48px 1fr; gap: 14px; max-width: none; margin: 0; padding: 14px 0; border-top: 1px solid var(--line); }
+.track > li:first-child { border-top: 0; }
+.track .n { font-family: var(--mono); font-weight: 600; font-size: .95rem; color: var(--rust); background: var(--rust-soft); border-radius: 6px; height: 34px; display: grid; place-items: center; }
+.track .first .n { background: var(--ok); color: var(--surface); }
+.track h3 { margin: 4px 0 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.track .test { font-size: .9rem; color: var(--ok); }
+.track > li > div { min-width: 0; }
+.callout { border-left: 3px solid var(--rust); background: var(--surface); padding: 12px 16px; border-radius: 0 8px 8px 0; }
+.callout p:last-child { margin: 0; }
+.decide { counter-reset: d; list-style: none; padding: 0; display: grid; gap: 10px; }
+.decide li { counter-increment: d; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 12px 48px; position: relative; max-width: none; margin: 0; }
+.decide li::before { content: counter(d); position: absolute; left: 14px; top: 12px; font-family: var(--mono); font-weight: 600; color: var(--rust); }
+.decide b { display: block; }
+.small { font-size: .88rem; color: var(--muted); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.two > div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.two h3 { margin-top: 0; }
+:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+.redcard{border-left:4px solid var(--danger);background:var(--danger-soft);color:var(--ink);padding:12px 14px;border-radius:6px;margin:12px 0;font-size:.95em}
+.redcard b.r{color:var(--danger)}
+.redcard .btns{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+.redcard .btns span{border:1px solid var(--danger);color:var(--danger);border-radius:4px;padding:2px 10px;font-size:.9em}
+</style>
+
+<main>
+<header>
+  <p class="eyebrow">~/src/oxbot · build plan v1</p>
+  <h1><span>ox</span>bot</h1>
+  <p class="lede">GrokBot-style bots that run on your Mac with Claude, which you reach from an Android phone on your home Wi-Fi. Bots browse the web through a Chrome profile of their own, headless. Codex comes next.</p>
+  <span class="status">● 2.11.4 done: oxbot installs Claude Code, signed-in sites, the Assistant runs the team · next: Codex as a second backend (awaiting your OK)</span>
+</header>
+
+<section>
+  <h2>What you'll have at the end of v1</h2>
+  <ul>
+    <li>Open <b>oxbot</b> on your Android phone. It finds your Mac on Wi-Fi by itself.</li>
+    <li>Scan a QR code once to pair. After that, the phone just connects.</li>
+    <li>See your bots like chats in a messenger. Talk to one, and watch Claude work live.</li>
+    <li>Bots have their own instructions and schedules ("every day 8am"), and keep running when the phone is off.</li>
+    <li>Bots can use the web through <b>your oxbot Chrome profile</b>, with your logins, invisibly in the background.</li>
+    <li>Data goes only to Anthropic. Nothing passes through any other company's server.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Scope</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>When</th><th>What</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill now">v1 now</span></td><td>Claude only · Mac server · Android app (installed over USB) · pairing · bots + schedules · headless Chrome</td></tr>
+      <tr><td><span class="pill next">next</span></td><td>Codex + switching mid-conversation (design already researched)</td></tr>
+      <tr><td><span class="pill later">later</span></td><td>Play Store release · iPhone once you have the Apple licence · local model · away-from-home (WireGuard)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>How it fits together</h2>
+  <figure>
+  <div class="diagram">
+  <svg viewBox="0 0 900 380" role="img" aria-label="The Android oxbot app talks over home Wi-Fi to the oxbot server on the Mac. The server runs claude -p, which talks to Anthropic, and gives Claude a browser tool connected to one shared headless Chrome running the oxbot profile, which visits websites.">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+    <g font-family="JetBrains Mono, ui-monospace, monospace" font-size="12" fill="currentColor" style="color:var(--ink)">
+      <rect x="10" y="20" width="650" height="345" rx="10" fill="none" stroke="var(--ok)" stroke-dasharray="6 4"/>
+      <text x="24" y="42" fill="var(--ok)" font-weight="600">home network</text>
+
+      <rect x="30" y="140" width="140" height="80" rx="8" fill="var(--surface)" stroke="currentColor"/>
+      <text x="100" y="170" text-anchor="middle" font-weight="600">oxbot app</text>
+      <text x="100" y="190" text-anchor="middle" fill="var(--muted)">Android</text>
+      <text x="100" y="207" text-anchor="middle" fill="var(--muted)">Tauri 2 (Rust)</text>
+
+      <rect x="240" y="60" width="240" height="290" rx="8" fill="var(--surface)" stroke="var(--rust)" stroke-width="2"/>
+      <text x="256" y="84" font-weight="600" fill="var(--rust)">oxbot serve (Mac)</text>
+      <rect x="256" y="98" width="208" height="34" rx="4" fill="var(--code-bg)"/><text x="360" y="120" text-anchor="middle">WebSocket · TLS · pairing</text>
+      <rect x="256" y="140" width="208" height="34" rx="4" fill="var(--code-bg)"/><text x="360" y="162" text-anchor="middle">bots · schedules · SQLite</text>
+      <rect x="256" y="182" width="208" height="34" rx="4" fill="var(--code-bg)"/><text x="360" y="204" text-anchor="middle">runner (max 3 at once)</text>
+      <rect x="256" y="230" width="208" height="44" rx="4" fill="var(--code-bg)" stroke="currentColor" stroke-opacity=".4"/>
+      <text x="360" y="249" text-anchor="middle" font-weight="600">claude -p</text>
+      <text x="360" y="266" text-anchor="middle" fill="var(--muted)">+ browser tool (MCP)</text>
+      <rect x="256" y="288" width="208" height="48" rx="4" fill="var(--code-bg)" stroke="var(--rust)"/>
+      <text x="360" y="308" text-anchor="middle" font-weight="600">headless Chrome</text>
+      <text x="360" y="325" text-anchor="middle" fill="var(--muted)">oxbot profile, one tab per bot</text>
+
+      <rect x="720" y="210" width="165" height="56" rx="8" fill="var(--surface)" stroke="currentColor"/>
+      <text x="802" y="234" text-anchor="middle" font-weight="600">Anthropic</text>
+      <text x="802" y="252" text-anchor="middle" fill="var(--muted)">your Claude login</text>
+      <rect x="720" y="296" width="165" height="56" rx="8" fill="var(--surface)" stroke="currentColor"/>
+      <text x="802" y="320" text-anchor="middle" font-weight="600">websites</text>
+      <text x="802" y="338" text-anchor="middle" fill="var(--muted)">the bot visits</text>
+
+      <line x1="170" y1="170" x2="254" y2="118" stroke="currentColor" marker-start="url(#a)" marker-end="url(#a)"/>
+      <text x="150" y="128" font-size="11">Wi-Fi, encrypted</text>
+      <line x1="360" y1="216" x2="360" y2="228" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="360" y1="274" x2="360" y2="286" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="464" y1="250" x2="718" y2="238" stroke="currentColor" marker-end="url(#a)"/>
+      <text x="590" y="236" font-size="11" text-anchor="middle">prompts</text>
+      <line x1="464" y1="314" x2="718" y2="322" stroke="currentColor" marker-end="url(#a)"/>
+      <text x="590" y="310" font-size="11" text-anchor="middle">page visits</text>
+    </g>
+  </svg>
+  </div>
+  <figcaption>Everything except prompts to Anthropic and the pages a bot visits stays inside the dashed line. The Android app never talks to the internet.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Chrome, without setup per bot</h2>
+  <p>Every bot gets the browser automatically. You never configure it per bot.</p>
+  <ul>
+    <li><b>One-time login:</b> <code>oxbot chrome login</code> opens a <i>visible</i> Chrome window on the oxbot profile. You sign in to the sites the bots need (Substack, Gmail, …) yourself, then close it.</li>
+    <li><b>After that it's automatic:</b> when a bot needs the web, oxbot starts one headless Chrome on that profile, listening only on <code>127.0.0.1</code>. Every Claude run is handed the browser tool (Google's <code>chrome-devtools-mcp</code>) already pointed at it. Each bot works in its own tab, and Chrome shuts down when idle.</li>
+    <li><b>Many bots, one browser:</b> sharing one running Chrome avoids the "profile already in use" lock you'd hit with a Chrome per bot.</li>
+    <li><b>When a site needs you</b> (login expired, CAPTCHA): the bot stops and your phone shows "needs you". Run <code>oxbot chrome show</code> to bring that tab up visibly, sort it out, and the bot carries on. Bots never type your passwords.</li>
+    <li><b>Why not your everyday Chrome profile:</b> it's open and locked while you use Chrome, and Chrome 136+ blocks automation on the default profile. A separate profile also keeps the bots away from your banking and personal tabs.</li>
+    <li><b>Privacy:</b> the browser tool's Google usage stats, performance lookups and update checks are switched off (<code>--no-usage-statistics</code>, <code>--no-performance-crux</code>, <code>CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS</code>). The pages a bot visits do see the visit; that's the job.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Android app</h2>
+  <div class="two">
+    <div>
+      <h3>Tauri 2 (recommended)</h3>
+      <p>Rust inside the phone app too. The server and the app share one <code>oxbot-protocol</code> crate, so a message type is defined once. You keep learning Rust on both sides. QR scanning comes from Tauri's official barcode plugin. Networking and pinned TLS live in Rust; a small Kotlin plugin handles Wi-Fi discovery (Android's <code>NsdManager</code>). The same code can become the iPhone app later.</p>
+    </div>
+    <div>
+      <h3>Kotlin + Jetpack Compose</h3>
+      <p>Android's native toolkit: discovery and certificate pinning are built in, and it's the smoothest Android experience. But it's a second language, protocol types get written twice, and iPhone would be a separate app.</p>
+    </div>
+  </div>
+  <h3>Testing and the Play Store</h3>
+  <ul>
+    <li><b>Testing needs no account:</b> turn on USB debugging on your phone, and <code>cargo tauri android dev</code> installs it directly.</li>
+    <li><b>Play Store:</b> a one-time $25 developer account. New personal accounts must first run a closed test with <b>at least 12 testers for 14 days in a row</b> before publishing (<a href="https://support.google.com/googleplay/android-developer/answer/14151465">Google</a>). Start gathering testers early.</li>
+    <li><b>Mac setup (I'll walk you through it):</b> Android Studio for the SDK and NDK, and Rust's Android targets.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Repo changes and Rust standards</h2>
+  <h3>Cleanup</h3>
+  <ul>
+    <li>Remove <code>examples/</code>, <code>solutions/</code>, <code>docs/agents-sketch.rs</code> and the lesson package from <code>Cargo.toml</code>.</li>
+    <li>Move them, plus the guide builder, to <code>~/src/rust-lessons</code> so your ex01–ex02 work survives and the guide link keeps working. (Or delete them outright; your call below.)</li>
+  </ul>
+  <h3>Layout</h3>
+<pre>oxbot/
+├── Cargo.toml               workspace: shared versions, [workspace.lints], rust-version
+├── Cargo.lock               committed (it ships binaries)
+├── rust-toolchain.toml      stable + rustfmt + clippy + android targets
+├── rustfmt.toml
+├── crates/
+│   ├── oxbot-protocol/      wire types shared by server and app (serde)
+│   ├── oxbot-core/          bots, store (SQLite), scheduler, runner; lib, no I/O to network
+│   ├── oxbot-claude/        claude -p backend: spawn, parse stream-json, privacy env
+│   ├── oxbot-browser/       shared headless Chrome + MCP config
+│   └── oxbot/               the binary: serve, pair, devices, chrome login|show, doctor, chat
+├── app/                     Tauri 2 Android app (src-tauri/ is a workspace member)
+├── docs/                    design, research, plan
+├── README.md · PROMPTS.md · LICENSE-MIT · LICENSE-APACHE</pre>
+  <h3>Standards I'll hold to</h3>
+  <ul>
+    <li><b>Gate before every step is done:</b> <code>cargo fmt --check</code>, <code>cargo clippy --workspace --all-targets -- -D warnings</code>, <code>cargo test --workspace</code>.</li>
+    <li><b>Lints in one place:</b> <code>unsafe_code = "forbid"</code>, clippy <code>pedantic</code> on warn, and <code>unwrap_used</code>/<code>expect_used</code> warned outside tests.</li>
+    <li><b>Errors:</b> <code>thiserror</code> enums in libraries; <code>anyhow</code> only in the binary. No <code>panic!</code> on bad input.</li>
+    <li><b>Docs:</b> <code>//!</code> on every crate, <code>///</code> on public items, and <code>#![warn(missing_docs)]</code> in libs.</li>
+    <li><b>Tests:</b> unit tests in <code>mod tests</code>, integration tests in <code>tests/</code>, and recorded <code>claude</code> output as fixtures, so tests never spend your subscription.</li>
+    <li><b>Logging and naming:</b> <code>tracing</code> for logs (no <code>println!</code> in the server), and the API naming guidelines (<code>new</code>, <code>from_*</code>/<code>into_*</code>, <code>is_*</code>).</li>
+    <li><b>Licence:</b> dual MIT / Apache-2.0, the Rust community norm.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Milestones</h2>
+  <p class="small">Before each one, I'll show you its overview and wait for your OK.</p>
+  <ol class="track">
+    <li><span class="n">1</span><div><h3>Clean repo + workspace skeleton <span class="pill now">done</span></h3><p>Cleanup, crates created, lints and toolchain set, empty but compiling.</p><p class="test">Test: the gate passes.</p></div></li>
+    <li><span class="n">2</span><div><h3>Server + a Claude bot, on the laptop <span class="pill now">done</span></h3><p><code>oxbot serve</code> with a WebSocket API; one bot backed by a long-lived <code>claude -p</code> with privacy settings; history in SQLite. <code>oxbot chat &lt;bot&gt;</code> is a terminal client speaking the same protocol the phone will.</p><p class="test">Test: chat with a bot from Terminal and see streaming replies.</p></div></li>
+    <li><span class="n">3</span><div><h3>Phone link on the server</h3><p>Self-made TLS certificate, <code>oxbot pair</code> QR code, device tokens, <code>oxbot devices revoke</code>, Wi-Fi announcement (<code>_oxbot._tcp</code>).</p><p class="test">Test: the terminal client pairs over TLS with a pinned fingerprint.</p></div></li>
+    <li class="first"><span class="n">4</span><div><h3>Android app: the integration test you asked for <span class="pill now">first goal</span></h3><p>Find the Mac, scan the QR, list bots, chat with live output, catch up after the phone sleeps.</p><p class="test">Test: on your phone over Wi-Fi, ask a bot something and watch Claude answer.</p></div></li>
+    <li><span class="n">5</span><div><h3>GrokBot features</h3><p>Create and edit bots from the phone (name, instructions, tools, schedule); runs history; approvals ("bot wants to run X: allow?"); always on via LaunchAgent.</p><p class="test">Test: a bot runs on its own schedule with the phone off, and the result is waiting when you open the app.</p></div></li>
+    <li><span class="n">6</span><div><h3>Headless Chrome</h3><p><code>oxbot chrome login</code>, shared headless Chrome, the browser tool handed to every bot, "needs you" flow.</p><p class="test">Test: a bot opens your Substack dashboard headless and reports today's stats.</p></div></li>
+    <li><span class="n">→</span><div><h3>Next: Codex + switching</h3><p><code>codex app-server</code> backend, then <code>/use codex</code> mid-chat, as researched.</p></div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Done: Mac chat page, bot prompt, browser</h2>
+  <ul>
+    <li><code>oxbot serve --open</code> shows the chat page at <code>http://127.0.0.1:7878</code>, with bots, live replies, Stop, New bot and Sign in to sites.</li>
+    <li>Every bot gets oxbot's prompt with its full abilities, and is told to use the browser before saying it can't.</li>
+    <li>One hidden Chrome on the oxbot profile serves every bot. <code>oxbot chrome login</code> (or the page button) lets you sign in yourself.</li>
+    <li>Found by testing: Claude's safe mode turns the browser tool off, so bots ignore your personal Claude settings a different way. A hidden Chrome left behind by a crash is now cleaned up on start.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done: the app sees what the terminal sees</h2>
+  <ul>
+    <li><b>Live status</b> under the bot's name and at the bottom of the chat: Clauding…, Thinking…, Writing…, Using browser: navigate_page…</li>
+    <li><b>Activity panel:</b> the server's log, streamed over the WebSocket, with a badge for warnings. It shows Chrome starting, the browser tool installing, Claude's errors.</li>
+    <li><b>Browser chip:</b> ready, starts when needed, or sign-in window open. Bots browse in the sign-in window too, and oxbot quits it when you close its last tab.</li>
+    <li><b>Start now</b> in the New bot form (on by default). Empty chats say "Send a message to start".</li>
+    <li><b>Dev mode:</b> <code>scripts/dev.sh</code> (needs <code>brew install watchexec</code>).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done: oxbot.app</h2>
+  <ul>
+    <li>The server runs inside the app, using the same code as <code>oxbot serve</code>. Its window is the chat page. If <code>oxbot serve</code> is already running, the app shows that one instead.</li>
+    <li>Closing the window keeps oxbot in the menu bar: Open oxbot, Sign in to sites, Launch at login, Quit. Quitting stops every bot and the hidden Chrome.</li>
+    <li>Build it with <code>cd app/src-tauri &amp;&amp; cargo tauri build</code>, which makes <code>target/release/bundle/macos/oxbot.app</code> (12 MB). Add <code>--bundles dmg</code> from your own terminal for a disk image.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Next (2.12) overview: Codex as a second backend</h2>
+  <p>Your ask: setup finds Claude Code and Codex and asks you to pick a default. That needs oxbot to run bots on Codex too, so this is its own build. Nothing is built until you OK it.</p>
+  <ul>
+    <li><b>Setup:</b> checks both, shows which are installed and signed in, and asks you to choose a default backend (Settings → Setup; changeable later). With only one installed, it's the default.</li>
+    <li><b>Per bot:</b> each bot can use the default or a chosen backend; switching keeps the bot's chat history in oxbot.</li>
+    <li><b>New crate <code>oxbot-codex</code>:</b> runs the Codex CLI the way <code>oxbot-claude</code> runs Claude Code, with the same browser tool, the same safety rules (every action asks oxbot), oxbot's sign-in tool, and usage in Settings.</li>
+    <li><b>Data rule:</b> a Codex bot's chats go to OpenAI only; telemetry off. The research from the v2 design (<code>docs/research/</code>) is the starting point; I'll re-check the current Codex CLI before designing.</li>
+    <li><b>Design first:</b> I'll publish the detailed design with C4 diagrams for your OK before any code.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done (2.11.4): oxbot installs Claude Code and the browser tool itself</h2>
+  <p class="small"><b>Built and tested 2026-10-29.</b> In a throwaway home folder with no Claude Code: Install Claude Code ran Anthropic's installer and showed its progress; Sign in to Claude opened Claude's sign-in page (caught by a stand-in in the test). A real bot browsed and signed in using only the built-in Node.js 24.22.2 and browser tool, and oxbot never ran npm. The dmg grew from 12 MB to 109 MB. <b>Was:</b> Your words: "can i make installation easy for others … installing claude i mean. and the mcp". Today a friend has to install Claude Code and Node.js by hand before oxbot works.</p>
+  <h3>What a friend does</h3>
+  <ol>
+    <li>Opens oxbot. The setup screen lists what's missing.</li>
+    <li>Presses <b>Install Claude Code</b>. oxbot runs Anthropic's own installer (the native build from claude.ai, the same as <code>curl -fsSL https://claude.ai/install.sh | bash</code>) and shows its progress. No Terminal, no Node.</li>
+    <li>Presses <b>Sign in to Claude</b>. oxbot runs <code>claude auth login</code>, which opens Claude's sign-in page in their normal browser. They sign in with their own Claude plan.</li>
+    <li>oxbot checks with <code>claude auth status</code> and the setup screen turns green. Done: the browser tool is already inside oxbot.</li>
+  </ol>
+  <h3>How</h3>
+  <ul>
+    <li><b>Claude Code:</b> a button, not a silent install, because it runs a program from the internet (Anthropic's). oxbot fetches the installer only from <code>https://claude.ai</code> and shows what it's doing. If Claude Code is already installed, nothing changes.</li>
+    <li><b>Sign-in check:</b> <code>claude auth status --json</code> replaces today's guess from files. oxbot never sees the password or token.</li>
+    <li><b>The browser tool (MCP):</b> shipped inside oxbot.app: <code>chrome-devtools-mcp</code> at a fixed version, plus the small Node runtime it needs. No npm at first run, nothing fetched from npm, and friends don't install Node. The app grows by about 60–90 MB (Apple chip + Intel).</li>
+    <li><b>Chrome:</b> still the friend's own Google Chrome. oxbot can't install it, so the setup screen links to google.com/chrome.</li>
+    <li><b>Updates:</b> a new oxbot release brings a newer browser tool. Claude Code updates itself as it does today.</li>
+  </ul>
+  <h3>What changes in the code</h3>
+  <ul>
+    <li><code>oxbot/setup.rs</code>: <code>install_claude()</code> (download from claude.ai, run, stream progress), <code>sign_in_to_claude()</code> (<code>claude auth login</code>), sign-in check via <code>claude auth status</code>.</li>
+    <li><code>oxbot-protocol</code>: <code>ClientMsg::InstallClaude</code>, <code>ClientMsg::SignInClaude</code>, <code>ServerMsg::SetupProgress</code>.</li>
+    <li><code>oxbot-browser</code>: <code>ToolsConfig</code> points at the bundled tool and Node inside the app; npm only for <code>oxbot serve</code> dev runs.</li>
+    <li><code>scripts/make-dmg.sh</code>: fetch and pin Node (both chips) and <code>chrome-devtools-mcp</code> into the app's resources, with checksums.</li>
+    <li>Setup screen: Install and Sign in buttons with progress. The friends guide gets shorter. The C4 architecture page gets updated.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done (2.11.3): the Assistant runs the team</h2>
+  <p class="small"><b>Built and tested 2026-10-29</b> with real Claude (Haiku): asked to create "Weather Notes" and to have Reader say pong, the Assistant listed the team, showed the Create card, created the bot after Create, gave Reader the task (it showed in Reader's chat from Assistant) and reported "pong". "Don't create" made nothing. Tests with a stand-in Claude cover both, and that other bots can't give tasks. The Assistant is the bot with id <code>assistant</code>, so there's no <code>central</code> setting in <code>bot.toml</code>. <b>Was:</b> Your words: "there is an assistant in the app. Make it the central bot which can spawn other bots." Today the Assistant says it can't create bots, because it has no way to reach oxbot.</p>
+  <figure style="margin:8px 0 14px">
+  <div class="tbl" style="padding:14px">
+  <svg viewBox="0 0 780 300" role="img" aria-label="You chat with the Assistant. The Assistant calls oxbot's built-in tools: create a bot (after your OK on a card), list bots, give a bot a task, and read its reply. oxbot's hub creates and runs the other bots, which share the one browser." style="width:100%;max-width:780px;height:auto;display:block">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+    <rect x="10" y="110" width="110" height="56" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="65" y="143" font-size="14" text-anchor="middle" fill="currentColor">You</text>
+    <rect x="180" y="96" width="170" height="84" rx="10" fill="none" stroke="#D92B2B" stroke-width="2"/><text x="265" y="132" font-size="14" font-weight="600" text-anchor="middle" fill="currentColor">Assistant</text><text x="265" y="152" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".65">pinned at the top</text>
+    <line x1="120" y1="138" x2="176" y2="138" stroke="currentColor" marker-end="url(#ar)"/><text x="148" y="128" font-size="10" text-anchor="middle" fill="currentColor" fill-opacity=".7">chat</text>
+    <rect x="410" y="40" width="190" height="196" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="505" y="64" font-size="12" font-weight="600" text-anchor="middle" fill="currentColor">oxbot tools (built in)</text>
+    <text x="424" y="94" font-size="12" fill="currentColor">create_bot</text><text x="590" y="94" font-size="10" text-anchor="end" fill="#D92B2B">your OK</text>
+    <text x="424" y="124" font-size="12" fill="currentColor">list_bots</text>
+    <text x="424" y="154" font-size="12" fill="currentColor">give_task</text>
+    <text x="424" y="184" font-size="12" fill="currentColor">read_reply</text>
+    <text x="424" y="214" font-size="12" fill="currentColor">request_sign_in</text><text x="590" y="214" font-size="10" text-anchor="end" fill="currentColor" fill-opacity=".6">as today</text>
+    <line x1="350" y1="138" x2="406" y2="138" stroke="currentColor" marker-end="url(#ar)"/>
+    <rect x="660" y="40" width="110" height="44" rx="8" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="715" y="67" font-size="12" text-anchor="middle" fill="currentColor">Substack Notes</text>
+    <rect x="660" y="116" width="110" height="44" rx="8" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="715" y="143" font-size="12" text-anchor="middle" fill="currentColor">Search Gmail</text>
+    <rect x="660" y="192" width="110" height="44" rx="8" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/><text x="715" y="219" font-size="12" text-anchor="middle" fill="currentColor">new bot</text>
+    <line x1="600" y1="90" x2="656" y2="66" stroke="currentColor" marker-end="url(#ar)"/><line x1="600" y1="150" x2="656" y2="140" stroke="currentColor" marker-end="url(#ar)"/><line x1="600" y1="200" x2="656" y2="212" stroke="currentColor" marker-end="url(#ar)"/>
+    <text x="715" y="270" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".65">all share one browser</text>
+  </svg></div>
+  <figcaption class="small">The Assistant reaches oxbot through built-in tools, the same in-app route the sign-in tool uses. Nothing new leaves your Mac.</figcaption>
+  </figure>
+  <h3>What the Assistant can do</h3>
+  <ul>
+    <li><b>Create a bot:</b> it picks a name and writes the instructions from your chat, then a card asks you: "Assistant wants to create <i>Gmail Checker</i>", with the instructions shown. Nothing is created until you press Create.</li>
+    <li><b>See the team:</b> list every bot, what it's for, and whether it's working.</li>
+    <li><b>Give a bot a task:</b> it sends the bot a message. The message shows in that bot's chat, marked "from Assistant", so you can follow along. That bot still asks you before any send, post, delete or buy, and still asks you to sign in.</li>
+    <li><b>Read the reply:</b> it waits for that bot to finish and brings the answer back to your chat with the Assistant.</li>
+  </ul>
+  <h3>Limits</h3>
+  <ul>
+    <li>Only the Assistant has these tools. Other bots can't create bots or message each other, so there are no loops.</li>
+    <li>The Assistant can't delete, rename or change bots. You do that.</li>
+    <li>It can't send a task to itself, and it waits for at most one task at a time per bot.</li>
+    <li>The Assistant is pinned at the top of the sidebar and can't be deleted. A new oxbot gets one automatically.</li>
+  </ul>
+  <h3>What changes in the code</h3>
+  <ul>
+    <li><code>oxbot-core/tools.rs</code>: four more tools on the built-in <code>oxbot</code> tool server, offered only to the central bot.</li>
+    <li><code>oxbot-core/hub.rs</code>: <code>Hub::propose_bot</code> (card, then <code>create_bot</code>), <code>give_task</code> (sends with sender "Assistant"), <code>wait_for_reply</code>. The central bot is marked <code>central = true</code> in its <code>bot.toml</code>.</li>
+    <li><code>oxbot-protocol</code>: a new card kind <code>CreateBot {name, instructions}</code>; <code>BotInfo.central</code>.</li>
+    <li>Prompt: the Assistant's system prompt explains its team tools and that it should create a bot only when a job will repeat or needs its own memory.</li>
+    <li>UI: the Create card; the Assistant pinned first with a small "central" mark.</li>
+    <li>Tests with a fake Claude: create after OK, nothing on Deny, a task round trip, and other bots not offered the tools. Then a real run with Haiku. The C4 architecture page gets updated.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done (2.11.2): signed-in sites in the sidebar · Settings behind a gear</h2>
+  <p class="small"><b>Built and tested 2026-10-29</b> with a real bot and a local test site: after the sign-in, the site showed under Signed in; Sign out (asked twice) removed it and its cookies. A real-Chrome test signs out of substack.com and checks google.com stays signed in. <b>Was:</b> Your words: "move settings to gear icon. in the bottom nav lower part, make it say the signed in apps … User should be able to open it and sign out of the app one by one."</p>
+  <figure style="margin:8px 0 14px">
+  <div class="tbl" style="padding:14px">
+  <svg viewBox="0 0 760 360" role="img" aria-label="Sidebar mockup: wordmark with a plus and a gear at the top, the bot list in the middle, and a Signed in list at the bottom with Substack and Google. Clicking Substack shows Open and Sign out." style="width:100%;max-width:760px;height:auto;display:block">
+    <rect x="1" y="1" width="250" height="358" rx="10" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+    <text x="18" y="38" font-size="22" font-weight="700" fill="currentColor">Oxbot</text>
+    <text x="190" y="37" font-size="16" text-anchor="middle" fill="currentColor" fill-opacity=".7">⚙</text>
+    <text x="224" y="40" font-size="28" font-weight="600" text-anchor="middle" fill="#D92B2B">+</text>
+    <text x="18" y="62" font-size="11" fill="currentColor" fill-opacity=".6">Jayadev's MacBook Pro</text>
+    <rect x="10" y="76" width="232" height="34" rx="7" fill="currentColor" fill-opacity=".07"/>
+    <text x="22" y="98" font-size="13" font-weight="600" fill="currentColor">Substack Notes</text>
+    <text x="22" y="134" font-size="13" font-weight="600" fill="currentColor">Assistant</text>
+    <text x="22" y="166" font-size="13" font-weight="600" fill="currentColor">Search Gmail</text>
+    <line x1="10" x2="242" y1="236" y2="236" stroke="currentColor" stroke-opacity=".25"/>
+    <text x="18" y="258" font-size="11" letter-spacing=".06em" fill="currentColor" fill-opacity=".6">SIGNED IN</text>
+    <rect x="10" y="268" width="232" height="32" rx="7" fill="currentColor" fill-opacity=".07"/>
+    <circle cx="28" cy="284" r="9" fill="currentColor" fill-opacity=".15"/><text x="28" y="288" font-size="10" text-anchor="middle" fill="currentColor">S</text>
+    <text x="44" y="289" font-size="13" fill="currentColor">substack.com</text>
+    <circle cx="28" cy="320" r="9" fill="currentColor" fill-opacity=".15"/><text x="28" y="324" font-size="10" text-anchor="middle" fill="currentColor">G</text>
+    <text x="44" y="325" font-size="13" fill="currentColor">google.com</text>
+    <line x1="250" x2="300" y1="284" y2="284" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="3 3"/>
+    <rect x="300" y="236" width="300" height="104" rx="10" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+    <text x="318" y="262" font-size="13" font-weight="600" fill="currentColor">substack.com</text>
+    <text x="318" y="282" font-size="11" fill="currentColor" fill-opacity=".6">Signed in Oct 29 · shared by every bot</text>
+    <rect x="318" y="296" width="80" height="30" rx="8" fill="none" stroke="currentColor" stroke-opacity=".35"/><text x="358" y="316" font-size="12" text-anchor="middle" fill="#D92B2B">Open</text>
+    <rect x="408" y="296" width="96" height="30" rx="8" fill="none" stroke="currentColor" stroke-opacity=".35"/><text x="456" y="316" font-size="12" text-anchor="middle" fill="#D92B2B">Sign out</text>
+    <text x="318" y="200" font-size="11" fill="currentColor" fill-opacity=".6">Click a site:</text>
+    <text x="318" y="216" font-size="11" fill="currentColor" fill-opacity=".6">Open shows it in a Chrome window. Sign out asks once more, then clears it.</text>
+  </svg></div>
+  <figcaption class="small">Gear, then a large borderless + at the right of the top row; sites at the bottom. Clicking a site shows its panel.</figcaption>
+  </figure>
+  <h3>How it works</h3>
+  <ul>
+    <li><b>Which sites show:</b> the sites you signed in to through oxbot's sign-in window, recorded when a sign-in finishes. oxbot also checks the shared browser still holds sign-in cookies for each one, and drops it from the list if not. Not every site the bots visit: those leave tracking cookies and would clutter the list.</li>
+    <li><b>One name per site:</b> grouped by the site's main domain, so a sign-in at accounts.google.com shows as google.com. Uses the public list of web domains built into oxbot, with no network calls.</li>
+    <li><b>Open:</b> opens that site in the visible Chrome window, the same window as sign-in. Close it to go back to hidden.</li>
+    <li><b>Sign out:</b> asks once more, then deletes that site's cookies and stored data from the shared browser (DevTools <code>Storage.clearDataForOrigin</code> and <code>Network.deleteCookies</code>). Other sites stay signed in. If a bot is using the browser, it says so and you try again in a moment.</li>
+    <li><b>Gear:</b> opens Settings, which stays as it is: General and Activity tabs, and "Sign out of all sites".</li>
+  </ul>
+  <h3>What changes in the code</h3>
+  <ul>
+    <li><code>oxbot-protocol</code>: <code>ServerMsg::Sites</code>, <code>ClientMsg::OpenSite</code>, <code>ClientMsg::SignOutSite</code>, <code>SiteInfo {site, signed_in_ms}</code>.</li>
+    <li><code>oxbot-core</code>: a <code>sites</code> table, recorded on a finished sign-in; <code>Hub::sites</code>, <code>open_site</code>, <code>sign_out_site</code>.</li>
+    <li><code>oxbot-browser</code>: <code>Browser::cookie_domains</code> and <code>Browser::forget_site</code> over the DevTools guard; <code>site_of(host)</code> using the <code>psl</code> crate.</li>
+    <li>UI: gear button, Signed in list, site panel with a two-step Sign out.</li>
+    <li>Tests: hub tests for the list and sign-out, plus a real-Chrome test that signing out of one site keeps the other's cookies. The C4 architecture page gets updated.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done (2.11.1): look and sign-in fixes</h2>
+  <p class="small"><b>Built 2026-10-29.</b> 101 automated tests pass; the dmg is rebuilt.</p>
+  <ul class="small">
+    <li><b>Logo:</b> the "O"xbot wordmark (a round O as tall as the b, with red horns, then xbot in bold) in the sidebar. The app, menu bar and tab icon are the same O with horns on a black tile.</li>
+    <li><b>Minimal UI:</b> white backgrounds; white buttons with red text; no red outlines on text boxes or selected bots; "New bot" is a round + next to the wordmark.</li>
+    <li><b>Sign-in window opens by itself</b> the first time a bot needs a site. The card's "Open sign-in window" button is now only a fallback. <code>Hub::request_sign_in</code> → <code>open_sign_in</code>. Re-tested with a real bot: the window opens and comes to the front.</li>
+    <li><b>Quieter sidebar:</b> bot names only, no last-message preview; no green connection dot. Settings has General and Activity tabs, with the log on Activity.</li>
+    <li><b>Working and new messages:</b> a working bot's icon bobs (a gentle fade if your Mac is set to reduce motion). A green dot marks a bot with replies you haven't seen, until you open it. <code>BotInfo.last_reply_seq</code> from <code>Store::last_reply_seq</code>.</li>
+    <li><b>Honest sign-in results:</b> closing the window no longer tells the bot "signed in"; it checks, and if it's still signed out it says so and doesn't ask again until you do. A sign-in cancelled by an oxbot restart is no longer reported as "declined".</li>
+    <li><b>Hidden Chrome looks like normal Chrome:</b> it used to tell sites it was "HeadlessChrome", which many sites block. It now sends the normal Chrome name for the installed version (<code>user_agent_for</code> in <code>oxbot-browser/src/browser.rs</code>). The real-Chrome test checks it.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done (2.11): sign in once, stay signed in · names and colors · release to friends</h2>
+  <p class="small"><b>Built and tested 2026-10-29</b> with real Claude (Haiku) against a local test site with a login: the bot hit the sign-in page and asked; the window opened; after signing in, the bot read the feed; a second bot read it with no sign-in; Post showed a red card (Deny: nothing posted; Allow once: posted); the sign-in survived an oxbot restart; Sign out of all sites wiped it. Found and fixed on the way: Chrome lost a fresh sign-in when it was stopped seconds later, so oxbot now asks Chrome to close itself (<code>Browser.close</code>), which saves cookies first. 100 automated tests, including the shared browser against a real Chrome. Friends guide: <a href="https://claude.ai/artifact/YKkD4kyAeXF4CiwZPzbASw">oxbot Setup Guide</a>.</p>
+  <p class="small"><b>Your call (2026-10-29):</b> no connectors. Bots work through the browser only. You sign in to a site once and the bot stays signed in, so it never asks again. Then a Mac release you can hand to a few friends, without an Apple account. Nothing gets built until you OK this.</p>
+
+  <p class="small"><b>Your calls (2026-10-29):</b> build it; <b>one shared sign-in</b> for every bot, so nobody signs in twice; each message shows <b>who sent it</b>, and each person gets <b>their own color</b>.</p>
+  <h3>A. Sign in once</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>1. Bot hits a sign-in page</td><td>It stops and the chat shows a card: <b>"Gmail needs you to sign in"</b>, with the reason and one button, <b>Open sign-in window</b>.</td></tr>
+      <tr><td>2. You sign in</td><td>The bot's own Chrome comes up as a normal window on that page. You type your password and 2-step code into the real Google page. The bot never sees them.</td></tr>
+      <tr><td>3. Bot carries on</td><td>Press <b>I'm signed in</b> in oxbot, or just close the window. Chrome goes back to hidden and the bot finishes the task.</td></tr>
+      <tr><td>4. Next time</td><td>The bot's browser is <b>kept</b>, so it's still signed in: no card, no window. It lasts as long as the site keeps you signed in (Google: usually weeks).</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b>One shared browser:</b> every bot uses the same kept Chrome profile (<code>browser/profile</code> in oxbot's data folder), so a sign-in counts for all bots. Your everyday Chrome is never touched.</li>
+    <li><b>Bots take turns on it.</b> Two Chromes can't share one profile, so one bot uses the browser at a time. A bot that needs it while another is using it waits, and its chat says "Waiting for the browser (News is using it)". The browser is free again when that bot's reply finishes. When a different bot takes over, the tabs reset to a blank page.</li>
+    <li><b>No settings screen.</b> Settings gets one button, <b>Sign out of all sites</b>, which wipes the shared browser.</li>
+    <li><b>The sign-in tool lives inside oxbot.</b> Claude Code hosts it over the same link oxbot already uses (tested 2026-10-29), so there's no helper program and no extra network port.</li>
+    <li><b>Mostly rebuilt from code that was already built and tested on 2026-10-28</b> (the sign-in window and its Done button), without the modes, site lists and per-click cards you didn't want.</li>
+  </ul>
+
+  <h3>B. Safety, now that bots are signed in</h3>
+  <div class="redcard"><b class="r">Needs your OK: post on linkedin.com</b><br>Search Gmail wants to click <b>"Post"</b> on a site where you're signed in.<div class="btns"><span>Allow once</span><span>Deny</span></div></div>
+  <ul>
+    <li><b>Red card before a change on a signed-in site:</b> clicking buttons such as Send, Post, Publish, Reply, Delete, Buy, Pay, Submit or Confirm, or pressing Enter in a form. This is your "red lines for modifications" rule. Reading, scrolling, searching and opening links stay free.</li>
+    <li><b>oxbot judges "change" from the button's label</b>, so an odd label could slip past. As a second guard, the bot is told to ask before any change. Every action also shows as a line in the chat, so you can see what happened.</li>
+    <li><b>Passwords:</b> oxbot refuses any attempt by a bot to type into a password field. Signing in is always you, in the window.</li>
+    <li><b>Upload card stays</b> (a file from your Mac going to a site). Page and email text is still information, never instructions.</li>
+  </ul>
+
+  <h3>C. Who sent each message</h3>
+  <ul>
+    <li><b>The app picks the name:</b> on the Mac, the Mac account's name (e.g. "Jayadev"). Phones (milestone 3) will use the name given when the phone is paired. Nothing to type.</li>
+    <li><b>Each person gets their own color,</b> handed out in order the first time oxbot sees them, so two people never share one (up to 12). It's remembered, so you always keep your color. Your name and a color dot sit next to your messages.</li>
+    <li><b>Bots see the name too</b> (<code>[Jayadev] what's on my calendar?</code>), so they know who's asking and can answer that person.</li>
+    <li><b>Note:</b> with one shared sign-in, anyone in the house who can use oxbot can have a bot use the accounts signed in there.</li>
+  </ul>
+
+  <h3>D. Release to friends (Mac, no Apple account)</h3>
+  <ul>
+    <li><b>Universal build:</b> one app that runs on Apple-chip and Intel Macs, packed as <code>oxbot.dmg</code>.</li>
+    <li><b>Setup check on first open:</b> oxbot checks for Claude Code (and that it's signed in), Google Chrome and Node.js, and says in plain words what's missing and where to get it. A Finder-launched app doesn't see Terminal's paths, so oxbot looks in the usual install places too.</li>
+    <li><b>Friend guide page:</b> download, the "Open Anyway" step, the three things to install, and how to make a first bot.</li>
+    <li><b>Each friend uses their own Claude plan.</b> Nothing goes to you, or anywhere but Anthropic and the sites they visit.</li>
+    <li><b>Windows comes later</b>, as its own plan.</li>
+  </ul>
+
+  <h3>Tests</h3>
+  <ul>
+    <li>Automated: the change rules (Post asks, Search doesn't, a password field is refused); the sign-in card's Done and window-closed paths; the profile kept across restarts and wiped by Sign out; two bots taking turns; names and distinct colors.</li>
+    <li>Real run with Haiku against a local test site that has a login: sign in once, restart oxbot, still signed in; a red card on Post (Deny sends nothing, Allow once posts); the setup check with Chrome missing.</li>
+    <li>The gate (fmt, clippy, tests) and the architecture page's C4 diagrams updated.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done: sign in on demand</h2>
+  <p>Today a bot that hits a sign-in page stops and asks you to run <code>oxbot chrome login</code>. Instead, the bot asks for the sign-in itself, and the task carries on once you're in.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>1. Bot hits a sign-in page</td><td>It calls a new oxbot tool, <code>request_sign_in(url, why)</code>, for example Gmail's sign-in page, "to search your September mail".</td></tr>
+      <tr><td>2. oxbot shows you the page</td><td>The oxbot Chrome comes up as a visible window <b>on that exact page</b>. The app (and later your phone) shows "Gmail needs you to sign in", with the reason and a <b>Done</b> button.</td></tr>
+      <tr><td>3. You sign in</td><td>You type your password and 2-step code in the real Google page. Google remembers it in the oxbot profile.</td></tr>
+      <tr><td>4. The bot carries on</td><td>Press Done, or close the tab. The tool returns "signed in", and the bot retries and finishes the task. If you don't respond within 10 minutes, it says so and stops.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Why not let the bot type the password?</h3>
+  <ul>
+    <li><b>Anything the bot types passes through Claude,</b> so your password and codes would be sent to Anthropic. That breaks your data rule.</li>
+    <li><b>Google usually blocks sign-ins from automated browsers</b> ("This browser or app may not be secure"), and 2-step codes need you anyway.</li>
+    <li><b>Possible later, for simple sites:</b> oxbot itself fills a saved password from your Mac's Keychain, so the model never sees it. It won't work for Google, so it's not worth building first.</li>
+  </ul>
+  <h3>How it's built</h3>
+  <ul>
+    <li><b><code>oxbot mcp</code>:</b> a small tool server built into the oxbot binary (MCP over stdio). Every bot gets it next to the browser tool. It passes the request to the running oxbot over the WebSocket.</li>
+    <li><b>Protocol:</b> new messages <code>SignInNeeded {bot, url, why}</code> (server to app) and <code>SignInDone</code> (app to server).</li>
+    <li><b>Bot prompt:</b> "If a site needs sign-in, call request_sign_in with the page and the reason. It shows the page to the user and waits."</li>
+    <li><b>Tests:</b> the tool server over stdio; a fake bot asks, a fake app answers Done; and the timeout.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Superseded: safe browsing with My accounts (built 2026-10-28, then removed the same day)</h2>
+  <p class="small"><b>Built and tested 2026-10-28</b> with real Claude (Haiku): clean browsing; a red card with Deny (no purchase reached the test shop) and Allow once; the guard blocking a link to an unlisted site; Add to list; sign-in with Done and with closing the window, the bot carrying on mid-task; clean shutdown. 93 automated tests, including the guard against a real Chrome. One change from the design: oxbot hooks page loads for the whole browser, not tab by tab, because a brand-new tab slipped past the per-tab hook in testing.</p>
+  <p class="small"><b>Decision (Jay):</b> oxbot is used through its own app (desktop now, Android later). The chat page in a normal browser stays only for testing and dev mode, since it's the same code.</p>
+  <p><b>Today</b> every bot shares one signed-in Chrome. Any bot, reading any page or email, could act as you on any site. That Chrome also doesn't come back after a sign-in window closes mid-task, which is the Search Gmail bug. This design replaces both.</p>
+
+  <h3>1. Each bot picks how it browses</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Mode</th><th>Profile</th><th>Sign-in</th><th>Clicking, typing, forms</th></tr></thead>
+    <tbody>
+      <tr><td><b>Clean</b> (default)</td><td>A throwaway profile, deleted when the bot's Chrome stops (and any leftovers at startup). Nothing carries over.</td><td>Not offered. The bot is told it can't sign in, and to tell you to switch the bot to My accounts if a task needs it.</td><td>Free: there's no account to harm</td></tr>
+      <tr><td><b>My accounts</b></td><td>The bot's own saved profile, in <code>bots/&lt;bot&gt;/chrome-profile</code>. Other bots can't use it.</td><td>Sign in on demand, only to sites on the bot's list</td><td>Red approval card for each action</td></tr>
+      <tr><td><b>Off</b></td><td colspan="3">No browser at all.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>2. A Chrome per bot (this also fixes the sign-in bug)</h3>
+  <ul>
+    <li>Each bot gets its own hidden Chrome on its own fixed control port. It starts with the bot and stops gracefully with it, so sign-ins save. Bots idle for 15 minutes stop both Claude and Chrome, and resume on your next message. Each Chrome takes a few hundred MB, so idle ones shouldn't linger.</li>
+    <li><b>Sign-in:</b> that bot's Chrome reopens as a visible window <b>on the same port</b>. When you close the window, oxbot <b>restarts the hidden Chrome straight away</b> on that port, and the bot's browser tool reconnects by itself, even mid-task.</li>
+    <li><b>Banner buttons:</b> "Done, I'm signed in" and "Cancel". Closing the window counts as Done, not Cancel: the bot then checks the page itself.</li>
+    <li>If Chrome is briefly unreachable, the bot is told to wait and retry. "Can't connect" never means "sign in again".</li>
+  </ul>
+
+  <h3>3. Site list (My accounts bots)</h3>
+  <ul>
+    <li>Each bot has a list of sites it may open, for example <code>mail.google.com</code> for Search Gmail. Subdomains count only if you list the parent (<code>google.com</code>).</li>
+    <li><b>Asking to open a new site</b> (open page, new tab, sign-in) shows a red card: <i>Search Gmail wants to open linkedin.com with your accounts</i>, with <b>Allow once · Add to list · Deny</b>.</li>
+    <li><b>Backstop for links:</b> oxbot holds its own DevTools connection to the bot's Chrome. It blocks any page load to a site that isn't listed, even one reached by clicking a link or a redirect, and shows an "oxbot blocked this site" page. Embedded parts (fonts, images, Google's sign-in frames) still load, so listed sites keep working.</li>
+  </ul>
+
+  <h3>4. Red approval cards</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Browser tools</th><th>Clean</th><th>My accounts</th></tr></thead>
+    <tbody>
+      <tr><td>Reading: list or switch tabs, snapshot, screenshot, wait, network and console logs, hover, resize</td><td>Free</td><td>Free</td></tr>
+      <tr><td>Opening pages: navigate, new tab</td><td>Free</td><td>Free on listed sites; card otherwise</td></tr>
+      <tr><td>Acting: click, drag, fill, fill a form, type, press a key, accept a dialog, run a script in the page</td><td>Free</td><td><b>Card</b></td></tr>
+      <tr><td>Uploading a file from your Mac</td><td><b>Card</b></td><td><b>Card</b></td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">Uploads need a card in both modes, and may only come from the bot's own folder, because an upload could send any file on your Mac to a site (the browser tool doesn't check upload paths itself). Downloads and files the browser tool saves (screenshots, page dumps) go only to the bot's own folder (<code>--workspace</code>). Tools for extensions, apps and DevTools internals stay switched off.</p>
+  <div class="redcard" role="img" aria-label="Example red approval card">
+    <b class="r">⚠ Search Gmail wants to act with your account</b><br>
+    click on linkedin.com · "Start a post"<br>
+    <span class="small">Shows: the page title and address, the text it will type or the script it will run, and a screenshot of the page right now.</span>
+    <div class="btns"><span>Allow once</span><span>Allow for this task</span><span>Deny</span></div>
+  </div>
+  <ul>
+    <li><b>Enforced by Claude Code itself (tested today):</b> oxbot starts each bot with <code>--permission-prompt-tool stdio</code>. No browser tool is pre-allowed: <b>every</b> browser call goes through oxbot, which allows reading on its own, holds calls while a sign-in window is open, and turns acting into a card for you. On a test deny, the bot got "The user said no" and didn't retry. A page that says "ignore your rules" can't skip it.</li>
+    <li>No answer within 10 minutes counts as Deny. "Allow for this task" ends when the bot's reply finishes.</li>
+    <li>Each decision stays in the chat as a red line, for example "You allowed: click on linkedin.com". Cards show on the Mac page and the desktop app now, and on the phone after milestone 3.</li>
+  </ul>
+
+  <h3>5. Settings</h3>
+  <ul>
+    <li><b>New bot dialog:</b> name, instructions, Browser = Clean / My accounts / Off, plus the site list. <b>No id field:</b> oxbot makes it from the name ("Search Gmail" → <code>search-gmail</code>, then <code>search-gmail-2</code>). <b>No "Start now":</b> a new bot waits for your first message.</li>
+    <li><b>Bot settings</b> (gear next to each bot): change the mode, edit the list, "Forget sign-ins" (deletes that bot's profile).</li>
+    <li><b>No "Sign in to sites" anywhere</b> (page, menu bar, <code>oxbot chrome login</code>): sign-in only happens when a My accounts bot asks for it.</li>
+  </ul>
+
+  <h3>How it's built</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Crate</th><th>Changes</th></tr></thead>
+    <tbody>
+      <tr><td><code>oxbot-browser</code></td><td><code>Browsers</code> (one Chrome per bot, ports, profiles, hidden ↔ visible on the same port, immediate restart); <code>SiteGuard</code> (own DevTools connection, blocks unlisted page loads); throwaway profile cleanup.</td></tr>
+      <tr><td><code>oxbot-claude</code></td><td>Permission requests: parse <code>can_use_tool</code> into a <code>ClaudeEvent::Permission</code>, answer with allow or deny; <code>ClaudeConfig</code> gets the prompt flag.</td></tr>
+      <tr><td><code>oxbot-core</code></td><td>Bot settings (<code>browser</code>, <code>sites</code> in <code>bot.toml</code>); <code>policy</code> (which tool needs a card in which mode, site matching); approvals in the hub; prompt text per mode; idle stop.</td></tr>
+      <tr><td><code>oxbot-protocol</code></td><td><code>ApprovalNeeded</code> / <code>ApprovalResolved</code>, <code>Approve {id, once | task | add_site | deny}</code>, <code>UpdateBot</code>, <code>CancelSignIn</code>; <code>BotInfo</code> gains mode and sites.</td></tr>
+      <tr><td><code>oxbot</code> + app</td><td>Red cards and lines, settings panel, bot picker in the menu bar.</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b>Tests:</b> the tool policy table; site matching (subdomains, look-alikes such as <code>mail.google.com.evil.io</code>); fake Claude sending permission requests (allow, deny, timeout, allow for task); throwaway profile deleted; the sign-in window closing mid-task brings Chrome back on the same port; SiteGuard blocking a link to an unlisted site in a real Chrome.</li>
+    <li><b>Real runs with Haiku:</b> a Clean bot asked to sign in refuses; Search Gmail finds your LinkedIn mail; a click on a signed-in site shows the card, and Deny stops it.</li>
+  </ul>
+
+  <h3>What this doesn't fix</h3>
+  <ul>
+    <li><b>Wrong answers:</b> a page can still mislead the bot. Its prompt says page text is data, never instructions.</li>
+    <li><b>Leaking what's in the chat:</b> a page could trick a bot into opening a link carrying your words. Clean bots hold only what you typed to them; My accounts bots can only open listed sites.</li>
+    <li><b>Allowing too quickly:</b> the card is only as good as the look you give it. That's why it shows exactly what will be typed and a screenshot.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Done: always clean, never signed in · Settings · Two Horns</h2>
+  <p class="small"><b>Built and tested 2026-10-28</b> with Haiku: clean browsing; an upload card with Deny (nothing sent) and Allow once (sent); Gmail's sign-in page made the bot stop and say it only uses public pages; Settings showing real usage (5-hour session and weekly limits, tokens per bot). Also fixed: the bot-folder check failed when a folder had two names (macOS <code>/var</code> → <code>/private/var</code>). Gate: 76 tests.</p>
+  <ul class="small">
+    <li><b>Settings</b> replaces Activity at the bottom of the sidebar: Claude usage, Launch at login (desktop app), version, data folder, and the Activity log.</li>
+    <li><b>Brand:</b> Two Horns logo (app icon, menu bar, page), 12 ox avatars with a shape and color per bot, Switch red buttons, amber approval cards. <a href="https://claude.ai/artifact/QVYbSeveD9MukGaENpGykK">Branding page</a>.</li>
+  </ul>
+  <p>Your call: no browser options at all. Every bot gets a clean, throwaway browser that's never signed in to anything. That removes the riskiest part of oxbot: nothing a page or email says can use your accounts.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Goes</th><th>Stays</th></tr></thead>
+    <tbody>
+      <tr><td>Browser modes (My accounts, Off) and site lists</td><td>A clean Chrome per bot, deleted every time it stops</td></tr>
+      <tr><td>Sign-in on demand: the <code>request_sign_in</code> tool, the <code>oxbot mcp</code> tool server, sign-in window and banner</td><td>Every browser call checked by oxbot (only http/https pages, files only in the bot's folder, unknown tools refused)</td></tr>
+      <tr><td>Saved profiles, "Forget sign-ins", the bot Settings dialog</td><td>Red card before <b>uploading a file from your Mac</b> (Allow once / Deny): the one action that can still send your data out</td></tr>
+      <tr><td>Cards for clicks and typing (nothing to protect in a signed-out browser)</td><td>Downloads into the bot's folder; prompt: page text is information, never instructions</td></tr>
+      <tr><td>The site guard's blocking (nothing to fence off)</td><td>Red lines in the chat for anything oxbot refuses</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b>When a site needs sign-in,</b> the bot says plainly that it can't use logged-in sites and stops. It never asks for passwords.</li>
+    <li><b>New bot dialog:</b> just a name and what it should do.</li>
+    <li><b>Your bots:</b> Search Gmail can no longer read your Gmail. Its saved profile, and the old shared profile, get deleted once you've quit the running oxbot.</li>
+    <li><b>Tests:</b> update the rules and hub tests; a real run with Haiku (browse, a sign-in page, an upload card); the gate.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Milestone 3 overview: the phone link, tested with a stand-in phone</h2>
+  <p class="small">M2 done: a real reply streamed in 1.2s, and after a restart Claude resumed the same session and remembered. Live architecture: <a href="https://claude.ai/artifact/3mVTriA2zwH7yzSL9D98F6">oxbot Architecture</a>.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What I'll build</th></tr></thead>
+    <tbody>
+      <tr><td><b>Encryption</b></td><td>On first run, oxbot makes its own certificate (<code>rcgen</code>) and keeps it in its data folder. The server listens on your Wi-Fi with TLS (<code>rustls</code>). Clients trust only that certificate's fingerprint (pinning), so no certificate authority is involved.</td></tr>
+      <tr><td><b>Pairing</b></td><td><code>oxbot pair</code> prints a QR code in the terminal: <code>oxbot://pair?host=…&amp;port=7878&amp;fp=…&amp;code=…</code>. The code works once and expires after 5 minutes. The phone trades it for its own random token. The server stores only a hash of the token.</td></tr>
+      <tr><td><b>Devices</b></td><td><code>oxbot devices</code> lists paired phones and when each was last seen. <code>oxbot devices revoke &lt;name&gt;</code> cuts one off immediately. Every connection must sign in with its token first; unknown connections are closed.</td></tr>
+      <tr><td><b>Discovery</b></td><td>The server announces <code>_oxbot._tcp</code> on Wi-Fi (<code>mdns-sd</code>) with its name and fingerprint, so the app can list it without typing an IP.</td></tr>
+      <tr><td><b>Stand-in phone</b></td><td><code>oxbot connect "oxbot://pair?..."</code> does exactly what the app will: pairs, saves its token, connects over TLS with pinning, then chats. This proves the whole phone flow before any Android code.</td></tr>
+      <tr><td><b>Laptop chat</b></td><td><code>oxbot chat</code> keeps working on the laptop and signs in with a local token file only your user can read.</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><b>New crates:</b> <code>rustls</code>, <code>tokio-rustls</code>, <code>rcgen</code>, <code>sha2</code>, <code>qrcode</code>, <code>mdns-sd</code>, <code>rand</code>.</li>
+    <li><b>Protocol:</b> two new messages, <code>Pair {code, device_name}</code> and <code>Auth {device, token}</code>. The protocol version stays 1 because nothing has shipped yet.</li>
+    <li><b>macOS will ask once:</b> "Allow incoming network connections?" for <code>oxbot</code> the first time it listens on Wi-Fi, and possibly a Local Network prompt for discovery. Click Allow.</li>
+    <li><b>Your test:</b> run <code>oxbot serve</code>, then <code>oxbot pair</code>, and paste the link into <code>oxbot connect</code>. You'll be chatting over encrypted Wi-Fi. Then <code>oxbot devices revoke</code> and see the stand-in phone get refused.</li>
+    <li><b>Tests:</b> pairing, a wrong or expired code, a wrong fingerprint, revocation and discovery, all automated with the fake Claude.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Your calls</h2>
+  <ol class="decide">
+    <li><b>Codex backend (2.12):</b> go ahead with the design?</li>
+    <li><b>Switch to the new build:</b> quit the running oxbot so I can delete the old shared profile, then open the new oxbot.app.</li>
+    <li><b>Then milestone 3</b> (phone link), and your Android model and version.</li>
+</ol>
+</section>
+
+<p class="small">Research behind this plan: <code>docs/research/</code> (Claude CLI, Codex CLI, phone and LAN, switching). Full design: <code>docs/app-design.md</code>.</p>
+</main>

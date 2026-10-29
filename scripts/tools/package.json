@@ -1,0 +1,8 @@
+{
+  "name": "oxbot-built-in-tools",
+  "private": true,
+  "description": "The browser tool shipped inside oxbot.app. Installed by scripts/fetch-tools.sh with npm ci from the lockfile next to it.",
+  "dependencies": {
+    "chrome-devtools-mcp": "1.10.1"
+  }
+}

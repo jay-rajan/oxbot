@@ -1,0 +1,55 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+authors = ["Jayadev Rajan"]
+publish = false
+
+[workspace.dependencies]
+# Internal crates
+oxbot = { path = "crates/oxbot" }
+oxbot-protocol = { path = "crates/oxbot-protocol" }
+oxbot-core = { path = "crates/oxbot-core" }
+oxbot-claude = { path = "crates/oxbot-claude" }
+oxbot-browser = { path = "crates/oxbot-browser" }
+
+# External crates (versions checked 2026-10-27)
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["ws"] }
+clap = { version = "4.6.7", features = ["derive"] }
+dirs = "7.0.0"
+futures-util = "0.3.34"
+psl = "2.1.245"
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "process", "fs", "io-util", "io-std", "net", "sync", "time", "signal"] }
+tokio-tungstenite = "0.30.0"
+toml = "1.1.8"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+uuid = { version = "1.29.0", features = ["v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+strip = true
