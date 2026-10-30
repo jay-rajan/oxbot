@@ -448,11 +448,20 @@ impl Store {
         let mut events = Vec::new();
         for row in rows {
             let (seq, ts_ms, body) = row?;
+            // An event this version can't read (say, written by a newer
+            // oxbot) is skipped, so the rest of the chat still shows.
+            let kind = match serde_json::from_str(&body) {
+                Ok(kind) => kind,
+                Err(err) => {
+                    tracing::warn!(%bot, seq, %err, "skipping a stored event this version can't read");
+                    continue;
+                }
+            };
             events.push(BotEvent {
                 bot: bot.to_string(),
                 seq: u64::try_from(seq).unwrap_or(0),
                 ts_ms,
-                kind: serde_json::from_str(&body)?,
+                kind,
             });
         }
         Ok(events)
@@ -643,6 +652,43 @@ mod tests {
         store.delete_bot(&a).unwrap();
         assert_eq!(store.last_seq(&a).unwrap(), 0);
         assert_eq!(store.last_seq(&bot("b")).unwrap(), 1);
+    }
+
+    #[test]
+    fn an_event_this_version_cant_read_doesnt_hide_the_chat() {
+        let store = Store::open_in_memory().unwrap();
+        let a = bot("a");
+        store
+            .append(
+                &a,
+                EventKind::UserMessage {
+                    text: "hi".into(),
+                    from: None,
+                },
+            )
+            .unwrap();
+        store
+            .conn()
+            .execute(
+                "INSERT INTO events (bot, seq, ts_ms, body) VALUES ('a', 2, 0, '{\"kind\":\"from_the_future\"}')",
+                [],
+            )
+            .unwrap();
+        store
+            .append(
+                &a,
+                EventKind::AssistantMessage {
+                    text: "hello".into(),
+                },
+            )
+            .unwrap();
+        let seqs: Vec<u64> = store
+            .history(&a, 0)
+            .unwrap()
+            .iter()
+            .map(|e| e.seq)
+            .collect();
+        assert_eq!(seqs, [1, 3], "the unreadable one is skipped, the rest show");
     }
 
     #[test]
