@@ -162,3 +162,11 @@ Plan: /pr_test skill; e2e/ tests (TOML steps with `covers`), seed bots + seed.sq
 ## 67. 2026-10-30
 "ok" (to the /pr_test plan)
 → Built crates/oxbot-e2e: `oxbot-e2e pick|run|app|report|approve` and `oxbot-fake-claude` (scripted stand-in speaking Claude Code's stream-json, replies from e2e/claude/*.toml). Chrome over DevTools and Safari over safaridriver behind one driver; steps find things by the words on screen; a screenshot per step compared with e2e/baselines (changed = >0.15% of pixels, with a red diff picture); the Mac app check launches the built oxbot.app on seed data and finds its window and menu-bar icon (CGWindowList via swift, screencapture). oxbot test mode: OXBOT_E2E=1 (`?as=Name` Gate viewer, hidden sign-in windows, OXBOT_PERSON). e2e/: 10 tests, seed bots + seed.sql. Skill .claude/skills/pr_test (symlinked to ~/.claude/skills). First run found and fixed a real bug: Send stayed enabled on someone else's private bot.
+
+## 68. 2026-10-30
+"I think I want the prev logo with thick oxbot" → "Make 0 more slender and with eyes and nose" → "it does not look like an ox" → "slighly more round" → "befoe twas better. lets fix that. change everywhere"
+→ The O is now an ox head: red horns, ears out to the sides, eyes, a wide dark muzzle with nostrils, thin outline; thick xbot letters. Built from one generator into: wordmark (light, dark, themed for the sidebar, 56 px tall), app icon (black tile), menu-bar template, tab icon, Herder (ox head + red bell), app icon set and dmg, brand page, Setup Guide picture.
+
+## 69. 2026-10-30
+"I think I want the original one a dot with two horns followed by oxbot written as the logo. just make the circle bigger" → "have a slendor horn" → "mix the horn along the sides of the circle" → "it should come from the top." → "also leave a small gap" → "your pick is good. make the icons"
+→ Logo: slender red horns rising from the top of a bigger dot (r 118, was 88), a 16-unit gap, then "oxbot" in thick Roboto Mono Bold outlines. Generated from one script into the wordmark (light, dark, themed for the sidebar), app icon (black tile, white dot), menu-bar template, tab icon, Herder (with its bell), app icon set, dmg, /Applications/oxbot.app, brand page and the Setup Guide picture.
