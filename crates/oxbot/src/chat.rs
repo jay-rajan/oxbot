@@ -194,7 +194,7 @@ impl View {
                     );
                 }
             }
-            ServerMsg::Notice { message } => println!("   · {message}"),
+            ServerMsg::Notice { message, .. } => println!("   · {message}"),
             ServerMsg::Log(line) if line.level != "info" => {
                 println!("   [{}] {}", line.level, line.message);
             }

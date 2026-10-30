@@ -4,3 +4,4 @@
 .env
 .DS_Store
 /app/src-tauri/gen/schemas
+/e2e/.report-url

@@ -17,8 +17,8 @@
 //! | reading or writing files outside the bot's folder | refuse |
 //! | anything else (extensions, audits, page tools…) | refuse |
 //! | oxbot's own `request_sign_in` | run |
-//! | the Assistant's `list_bots`, `give_task`, `read_reply` | run |
-//! | the Assistant's `create_bot` | card with the name and instructions |
+//! | Herder's `list_bots`, `give_task`, `read_reply` | run |
+//! | Herder's `create_bot` | card with the name and instructions |
 //!
 //! Labels come from the page snapshot (`button "Post"`), so a change behind
 //! an oddly named button can slip past; the bot is also told to ask first.
@@ -190,7 +190,7 @@ fn browser_action(tool: &str) -> Option<&str> {
         .strip_prefix("__")
 }
 
-/// oxbot's own tools: sign-in and the Assistant's team tools run (oxbot
+/// oxbot's own tools: sign-in and Herder's team tools run (oxbot
 /// itself checks who may call them, see `tools`); creating a bot asks.
 fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     let runs = [
@@ -205,7 +205,12 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     (tool == tools::full_name(CREATE_BOT_TOOL)).then(|| {
         Verdict::Ask(Ask {
             kind: ApprovalKind::CreateBot,
-            action: "create a bot".to_owned(),
+            action: if input.get("private").and_then(Value::as_bool) == Some(true) {
+                "create a private bot"
+            } else {
+                "create a bot"
+            }
+            .to_owned(),
             target: tools::text_arg(input, "name").trim().to_owned(),
             site: "oxbot".to_owned(),
             detail: Some(tools::text_arg(input, "instructions").trim().to_owned()),

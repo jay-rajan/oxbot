@@ -1,0 +1,20 @@
+name = "The app opens and Herder replies"
+about = "The page loads with every bot, Herder leads the list, and a message gets a reply."
+smoke = true
+covers = []
+
+[[step]]
+expect = "Herder"
+note = "Herder is pinned first"
+[[step]]
+expect = "leads your bots"
+[[step]]
+click = "Herder"
+[[step]]
+send = "hello there"
+[[step]]
+wait_for = "Hello! I'm the stand-in Claude."
+note = "The reply arrives"
+[[step]]
+expect = "Jay"
+note = "The message shows who sent it"

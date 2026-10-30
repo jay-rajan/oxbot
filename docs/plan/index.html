@@ -276,6 +276,166 @@ figure { margin: 0; } figcaption { font-size: .88rem; color: var(--muted); margi
 </section>
 
 <section>
+  <h2>Done: /pr_test, end-to-end tests on every change</h2>
+  <div class="callout"><p><b>Built (2026-10-30).</b> <code>crates/oxbot-e2e</code> (the runner and the stand-in Claude), <code>e2e/</code> (10 tests, seed bots and <code>seed.sql</code>, stand-in replies), test mode in oxbot (<code>OXBOT_E2E=1</code>: <code>?as=Name</code> connects as a Gate person, sign-in windows stay hidden, <code>OXBOT_PERSON</code>), and the skill (<code>.claude/skills/pr_test</code>, linked into <code>~/.claude/skills</code>). First run: 10 of 10 pass in Chrome after fixing one real bug it found (Send stayed on for someone else's private bot); Safari skipped until "Allow Remote Automation" is on; the Mac app check passes with a picture of the real window. <a href="https://claude.ai/artifact/3sgjovsbc6vtU256AHBStL">First report</a>.</p></div>
+  <p class="small"><b>Approved 2026-10-30.</b> Your words (2026-10-30): "the skill will run the test which are relevant to the PR … These tests are end to end. have a local test even with its own sqllite db. seed data … it should create an artifact where the various screens are captured and flag if something is broken. I want to see the tests and the steps taken. If something is broken, you should fix it. PR could modify the test itself, but unless the PR intendedd to do so."</p>
+  <figure style="margin:8px 0 14px">
+  <div class="tbl" style="padding:14px">
+  <svg viewBox="0 0 780 250" role="img" aria-label="pr_test reads the change and its stated intent, picks the tests whose areas the change touches, builds oxbot, starts it on a fresh copy of the seed data with a stand-in Claude, drives the real page in hidden Chrome step by step with a screenshot per step, and publishes a report artifact. Failures are fixed in the code and the run repeats." style="width:100%;max-width:780px;height:auto;display:block">
+    <defs><marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+    <g font-size="12" fill="currentColor" text-anchor="middle">
+      <rect x="10" y="20" width="130" height="62" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="75" y="46">1. Read the change</text><text x="75" y="64" font-size="10.5" fill-opacity=".65">diff + commit/PR text</text>
+      <rect x="165" y="20" width="130" height="62" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="230" y="46">2. Pick tests</text><text x="230" y="64" font-size="10.5" fill-opacity=".65">by the areas touched</text>
+      <rect x="320" y="20" width="130" height="62" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="385" y="46">3. Fresh oxbot</text><text x="385" y="64" font-size="10.5" fill-opacity=".65">seed data, own SQLite</text>
+      <rect x="475" y="20" width="130" height="62" rx="10" fill="none" stroke="#D92B2B" stroke-width="2"/><text x="540" y="46">4. Drive the page</text><text x="540" y="64" font-size="10.5" fill-opacity=".65">hidden Chrome, a shot per step</text>
+      <rect x="630" y="20" width="140" height="62" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/><text x="700" y="46">5. Report artifact</text><text x="700" y="64" font-size="10.5" fill-opacity=".65">steps, screens, flags</text>
+      <line x1="140" y1="51" x2="163" y2="51" stroke="currentColor" marker-end="url(#arp)"/><line x1="295" y1="51" x2="318" y2="51" stroke="currentColor" marker-end="url(#arp)"/><line x1="450" y1="51" x2="473" y2="51" stroke="currentColor" marker-end="url(#arp)"/><line x1="605" y1="51" x2="628" y2="51" stroke="currentColor" marker-end="url(#arp)"/>
+      <rect x="320" y="150" width="285" height="62" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="5 4"/><text x="462" y="176">6. Something broke: find why, fix the code</text><text x="462" y="194" font-size="10.5" fill-opacity=".65">then run the failed tests again (and the rest)</text>
+      <path d="M540 82 L540 148" stroke="currentColor" fill="none" marker-end="url(#arp)"/><text x="590" y="120" font-size="10.5" fill-opacity=".7">a step fails</text>
+      <path d="M320 181 L385 181 L385 84" stroke="currentColor" fill="none" marker-end="url(#arp)" stroke-opacity="0"/>
+      <path d="M330 168 C 250 168, 300 100, 370 86" stroke="currentColor" fill="none" marker-end="url(#arp)"/><text x="255" y="140" font-size="10.5" fill-opacity=".7">rerun</text>
+    </g>
+  </svg></div>
+  <figcaption class="small">One command, <code>/pr_test</code> (or <code>/pr_test all</code>, or a PR number): pick, run, show, fix.</figcaption>
+  </figure>
+
+  <h3>What lives in the repo</h3>
+  <pre style="white-space:pre-wrap">e2e/
+  tests/                one file per test, plain TOML you can read
+    private-bot-locked.toml
+    sign-ins-home-and-yours.toml
+    herder-creates-a-bot.toml
+    …
+  seed/
+    bots/               bot folders (Herder, a shared bot, a private bot…)
+    seed.sql            history, people, signed-in sites, usage
+  claude/               scripted stand-in replies, per test (no real Claude, no cost)
+  sites/                tiny local websites to browse and sign in to (127.0.0.1 only)
+  baselines/            the last approved screenshot of each step
+crates/oxbot-e2e/       the runner (Rust): starts oxbot, drives Chrome, writes results
+.claude/skills/pr_test/SKILL.md</pre>
+
+  <h3>A test, as you'd read it</h3>
+  <pre style="white-space:pre-wrap">name   = "Someone else's private bot is locked"
+covers = ["crates/oxbot-core/src/hub.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "private"]
+as     = "Ann"            # connect as a Gate person (or the Farm)
+
+[[step]] do = "open"                      shot = "sidebar"
+[[step]] expect = "Bank · by Sam"         lock = true
+[[step]] do = "click"  text = "Bank"      shot = "locked chat"
+[[step]] expect = "Sam's private bot"     expect_not = "balance"   # no real chat text on screen
+[[step]] expect_disabled = "Message"</pre>
+  <p class="small">Steps are: open, click (by visible text), type, send, wait for, expect / expect not, expect disabled, and shot (screenshot). Each step records what it did, how long it took, and a screenshot.</p>
+
+  <h3>How a run works</h3>
+  <ol>
+    <li><b>Read the change:</b> what changed against <code>main</code> (or the PR, with <code>gh</code>), plus the commit messages and PR description, to state its <b>intent</b> in one line.</li>
+    <li><b>Pick tests:</b> a test runs when the change touches its <code>covers</code> list. A small <b>smoke</b> set (open the app, chat with Herder, Settings) always runs. <code>/pr_test all</code> runs everything. The report says why each test was picked or skipped.</li>
+    <li><b>Changed tests:</b> if the change edits a test, I check the stated intent. If the intent says so (for example "rename New bot to +"), the new test is used. If not, the run uses the <b>old</b> test from <code>main</code>, and the report flags the edit as unexplained. A change can't quietly weaken a test.</li>
+    <li><b>Fresh oxbot:</b> build it, copy the seed into a new throwaway folder, apply <code>seed.sql</code> to a new SQLite database, and start <code>oxbot serve</code> on a free local port. Claude is the scripted stand-in, so runs are free, fast and the same every time. The browser is a hidden Chrome with its own empty profile. Nothing touches your real oxbot, your sign-ins or the network.</li>
+    <li><b>Drive the page:</b> the runner speaks to Chrome directly (the same DevTools link oxbot already uses), runs each step, and takes a screenshot per step.</li>
+    <li><b>Compare:</b> each screenshot is compared with its approved baseline. A failed step is <b>broken</b>; a screen that looks different but passed is <b>changed</b>, shown side by side for you to approve or not. Approving updates the baseline.</li>
+    <li><b>Fix:</b> for anything broken, I find the cause and fix the <b>code</b> (not the test), then run the failed tests again, then the whole picked set. If the change meant to alter that behavior, I update the test and say so in the report.</li>
+    <li><b>Report artifact:</b> one page per run: the intent, the tests picked and why, then each test with its steps, a screenshot per step, timing, and Pass / Broken / Changed flags; what I fixed, with the diff; and anything left for you.</li>
+  </ol>
+
+  <h3>Your calls</h3>
+  <ol>
+    <li><b>Claude in tests.</b> My pick: the scripted stand-in by default (free, repeatable). <code>/pr_test real</code> also runs a few tests with real Claude (Haiku, on your plan) when you want to see actual bot behavior.</li>
+    <li><b>Which projects.</b> My pick: oxbot first. The skill reads a small <code>e2e/pr_test.toml</code> in each repo (how to build, start and seed), so onebox or na-maps can get the same later.</li>
+    <li><b>Screens that changed but passed.</b> My pick: flag them as "changed" for your approval, not as failures.</li>
+    <li><b>Fixing.</b> My pick: I fix and rerun automatically, but never commit; you see the fixes in the report and in git.</li>
+    <li><b>The Mac app.</b> My pick: all three layers above. Safari's driver needs a one-time switch you turn on (Safari → Settings → Advanced → "Show features for web developers", then Develop → "Allow Remote Automation"); until then layer 2 is skipped and the report says so.</li>
+  </ol>
+
+  <h3>The app is a browser page and a Mac app: how both get tested</h3>
+  <p>The Mac app is a thin shell: its window shows the <b>same page</b>, talking to the <b>same server</b>, over the same link. So the Chrome tests cover almost all of oxbot's behavior. Chrome is only the test harness on this Mac; users still only use the app. Three things differ, and each gets its own layer:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Layer</th><th>What it checks</th><th>How</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>1. Page + server</td><td>Every step above: bots, cards, sign-ins, privacy</td><td>Hidden Chrome drives the page</td><td>Every run</td></tr>
+      <tr><td>2. Same tests in WebKit</td><td>The app's window uses Safari's engine, not Chrome's: layout, fonts, dialogs can differ</td><td>The same steps through Safari's built-in driver (<code>safaridriver</code>, already on every Mac)</td><td>When the page (<code>ui/</code>) changes, or <code>all</code></td></tr>
+      <tr><td>3. App smoke</td><td>The built <code>oxbot.app</code> starts on the seed data, its window opens and shows the page, the tray icon is there, "Launch at login" switches</td><td>Start the built app with the seed folder, take a picture of its window with macOS's screenshot tool, and check its state through the page's link</td><td>When <code>app/</code>, icons or <code>make-dmg.sh</code> change, or <code>all</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">Still not covered: real sites like Gmail (the tests use the tiny local sites in <code>e2e/sites</code>), and clicking the tray menu itself, which macOS only lets a person do.</p>
+
+  <h3>First tests (from what's built)</h3>
+  <ul>
+    <li>Smoke: the app opens, Herder replies, Settings opens on each tab.</li>
+    <li>New bot, shared and private; "by Name" with no colored dot; the lock.</li>
+    <li>Someone else's private bot is locked and blurred; Herder won't use it for them.</li>
+    <li>Bot settings: rename, private/shared, two-step delete.</li>
+    <li>Sign-ins: home vs yours, site icons, two-step sign out.</li>
+    <li>Approval cards: a red card for a post, yes and no.</li>
+    <li>Unread dots and the working animation; clicking a bot lands on its last message.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Next overview: the Farm, Gates, and private bots</h2>
+  <p class="small"><b>Waiting for your OK.</b> Your words: "one machine is the main machine where all the compute works. and the other machines are satellite including laptop and phone. multiple people can create bot … everyone can interact with every bot unless locked." Then (2026-10-30): "they can set that bot to have isolation. Ie no shared access … The main machine can do whatever, even delete the bot" and "private use only theirs. Even if it mean logging in twice." Names: <b>Farm</b> (the main machine) and <b>Gate</b> (each laptop or phone). "Sam" below is a placeholder person.</p>
+  <div class="callout"><p><b>Part 1 done (2026-10-30): everything on the Farm.</b> Private bots (listed with a lock; locked and blurred for everyone but their maker, Herder included); a Chrome per person plus the home Chrome; private bots use only their maker's; bot settings (name, private, delete; maker or Farm only); a Private box when creating a bot; Settings → Sign-ins split into Home and Yours. 126 tests pass. Tested live: a private Haiku bot read Wikipedia in its maker's own Chrome while the home Chrome stayed off. <b>Next: part 2</b>, the Gates (pairing, the encrypted link, Gate mode in the app), then the live sign-in view on a Gate.</p></div>
+  <figure style="margin:8px 0 14px">
+  <div class="tbl" style="padding:14px">
+  <svg viewBox="0 0 780 360" role="img" aria-label="The Farm Mac runs every bot, Claude Code and one Chrome per person plus a shared home Chrome. Gates (a laptop and phones) connect to the Farm over home Wi-Fi, encrypted and paired. Shared bots use the home Chrome; a private bot uses only its owner's Chrome and is hidden from everyone else except the Farm." style="width:100%;max-width:780px;height:auto;display:block">
+    <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+    <rect x="200" y="16" width="380" height="234" rx="12" fill="none" stroke="#D92B2B" stroke-width="2"/>
+    <text x="390" y="42" font-size="14" font-weight="600" text-anchor="middle" fill="currentColor">Farm (Jay's Mac)</text>
+    <text x="390" y="60" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".65">all the work happens here · can open, rename or delete any bot</text>
+    <text x="220" y="90" font-size="12" fill="currentColor">Herder · leads your bots</text>
+    <text x="220" y="110" font-size="12" fill="currentColor">Substack Notes · by Jay</text>
+    <text x="220" y="130" font-size="12" fill="currentColor">Recipes · by Sam</text>
+    <text x="220" y="150" font-size="12" fill="currentColor">Bank Check · by Sam · private</text>
+    <line x1="220" y1="166" x2="560" y2="166" stroke="currentColor" stroke-opacity=".2"/>
+    <rect x="220" y="178" width="104" height="54" rx="8" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="272" y="200" font-size="11" text-anchor="middle" fill="currentColor">Home Chrome</text><text x="272" y="218" font-size="10" text-anchor="middle" fill="currentColor" fill-opacity=".65">shared bots</text>
+    <rect x="338" y="178" width="104" height="54" rx="8" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="390" y="200" font-size="11" text-anchor="middle" fill="currentColor">Jay's Chrome</text><text x="390" y="218" font-size="10" text-anchor="middle" fill="currentColor" fill-opacity=".65">Jay's private bots</text>
+    <rect x="456" y="178" width="104" height="54" rx="8" fill="none" stroke="#D92B2B" stroke-opacity=".8"/>
+    <text x="508" y="200" font-size="11" text-anchor="middle" fill="currentColor">Sam's Chrome</text><text x="508" y="218" font-size="10" text-anchor="middle" fill="currentColor" fill-opacity=".65">Sam's private bots</text>
+    <rect x="20" y="284" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="120" y="310" font-size="13" text-anchor="middle" fill="currentColor">Laptop (Gate)</text><text x="120" y="328" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".65">oxbot app, no bots of its own</text>
+    <rect x="290" y="284" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="390" y="310" font-size="13" text-anchor="middle" fill="currentColor">Jay's phone (Gate)</text><text x="390" y="328" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".65">paired as Jay</text>
+    <rect x="560" y="284" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="660" y="310" font-size="13" text-anchor="middle" fill="currentColor">Sam's iPhone (Gate)</text><text x="660" y="328" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity=".65">paired as Sam</text>
+    <line x1="140" y1="280" x2="230" y2="254" stroke="currentColor" marker-start="url(#ar2)" marker-end="url(#ar2)"/>
+    <line x1="390" y1="280" x2="390" y2="254" stroke="currentColor" marker-start="url(#ar2)" marker-end="url(#ar2)"/>
+    <line x1="640" y1="280" x2="550" y2="254" stroke="currentColor" marker-start="url(#ar2)" marker-end="url(#ar2)"/>
+    <text x="600" y="100" font-size="11" fill="currentColor" fill-opacity=".7">home Wi-Fi, encrypted,</text><text x="600" y="116" font-size="11" fill="currentColor" fill-opacity=".7">paired once per Gate</text>
+  </svg></div>
+  <figcaption class="small">The Farm does the work; every Gate is a window onto it. Each person has their own Chrome, and a private bot only ever uses its owner's.</figcaption>
+  </figure>
+  <h3>How it works</h3>
+  <ul>
+    <li><b>Farm:</b> the one Mac that runs the bots, Claude Code (on its owner's Claude plan) and the Chromes, and keeps all chats. Everything stays on it.</li>
+    <li><b>Gates:</b> a laptop or phone shows the same app but runs no bots. On first open the app asks: "Make this Mac the Farm" or "Connect to a Farm". A Gate finds the Farm on home Wi-Fi, pairs once with a code (QR on phones), and from then on connects encrypted, with the Farm's certificate pinned. No relay, no cloud.</li>
+    <li><b>People:</b> each Gate is paired as one person. Their name goes on their messages and the bots they make, in their color.</li>
+    <li><b>Shared bots</b> (the default): everyone sees and uses them. They use the <b>home Chrome</b>, so a site signed in there works for every shared bot (today's behavior).</li>
+    <li><b>Private bots:</b> the creator can make a bot private. Everyone still sees its <b>name with a lock</b>, but only its creator can open it: for anyone else the chat shows as blurred placeholder lines (nothing of the real chat is sent to them), the message box is off, and Herder tells them it's private and won't give it tasks for them. (Your call, 2026-10-30: "you can still see the bot name. but just that the bot is locked and the converstation blurred.") A private bot uses <b>only its owner's own Chrome</b>, never the home Chrome or anyone else's. If Sam's private bot needs Gmail, Sam signs in to Gmail in Sam's Chrome, even if Gmail is already signed in at home. That's the "logging in twice".</li>
+    <li><b>The Farm can do anything:</b> on the Farm itself, the owner sees every bot (private ones marked private), and can open, rename, make shared, or delete any of them. The Gates don't get this power, even the owner's own phone. Everyone in the house should know the Farm owner can read private chats.</li>
+    <li><b>Herder:</b> shared by everyone. A bot Herder creates belongs to whoever asked. Herder only works with a person's private bots when that person is the one asking.</li>
+    <li><b>Signing in from a Gate:</b> the sign-in window is a Chrome window on the Farm, so a person on their phone can't see it. oxbot shows that page live on the Gate (a stream from Chrome) and passes their taps and typing back. The password goes from their phone straight to their own Chrome over the paired, encrypted link. The bot is paused the whole time and never sees it.</li>
+    <li><b>Sign-ins in Settings:</b> "Your sign-ins" (your Chrome) and "Home sign-ins" (the home Chrome), each with icons, Open and Sign out. Bots made before this become shared bots by the Farm owner.</li>
+  </ul>
+  <h3>Your calls</h3>
+  <ol>
+    <li><b>Away from home.</b> My pick: home Wi-Fi only for now. Reaching the Farm from outside needs a relay or a VPN (such as Tailscale), which touches your data rule, so it's its own decision.</li>
+    <li><b>Who can sign out of the home Chrome.</b> My pick: anyone, since it's shared. Only you can sign out of your own Chrome.</li>
+  </ol>
+  <h3>What changes in the code</h3>
+  <ul>
+    <li><b>Milestone 3 work:</b> encryption, pairing, Gates and discovery, with each Gate tied to a person.</li>
+    <li><b>Bots:</b> <code>bot.toml</code> gains <code>private</code> (with <code>created_by</code>, already built). The server filters the bot list per person, and refuses messages, tasks and reads on a private bot from anyone but its owner or the Farm.</li>
+    <li><b>Browsers:</b> one Chrome profile per person at <code>browser/people/&lt;name&gt;-&lt;hash&gt;/</code>; the home one stays at <code>browser/profile</code>, so your sign-ins carry over untouched. Each starts only when a bot needs it, and is hidden when idle like today. The guard, sign-in windows and the sites list become per Chrome.</li>
+    <li><b>Live sign-in view:</b> Chrome's screencast plus input events relayed over the Gate link. This is the same channel the phone app needs anyway.</li>
+    <li><b>App:</b> the Mac app gains Gate mode (it connects to the Farm instead of starting its own server). A first-run choice between Farm and Gate. "Private" in a bot's menu, with a small lock next to its name for its owner.</li>
+    <li><b>Tests:</b> pairing; a Gate chatting as its person; a private bot hidden from and refusing others; a private bot unable to reach the home Chrome's cookies; the Farm deleting someone's private bot. Then a real run with a second Mac or a stand-in Gate. The C4 page gets the Farm and Gate picture.</li>
+  </ul>
+</section>
+
+<section>
   <h2>Done (2.11.4): oxbot installs Claude Code and the browser tool itself</h2>
   <p class="small"><b>Built and tested 2026-10-29.</b> In a throwaway home folder with no Claude Code: Install Claude Code ran Anthropic's installer and showed its progress; Sign in to Claude opened Claude's sign-in page (caught by a stand-in in the test). A real bot browsed and signed in using only the built-in Node.js 24.22.2 and browser tool, and oxbot never ran npm. The dmg grew from 12 MB to 109 MB. <b>Was:</b> Your words: "can i make installation easy for others … installing claude i mean. and the mcp". Today a friend has to install Claude Code and Node.js by hand before oxbot works.</p>
   <h3>What a friend does</h3>
@@ -304,7 +464,7 @@ figure { margin: 0; } figcaption { font-size: .88rem; color: var(--muted); margi
 </section>
 
 <section>
-  <h2>Done (2.11.3): the Assistant runs the team</h2>
+  <h2>Done (2.11.3): the Assistant runs the team (now called Herder)</h2>
   <p class="small"><b>Built and tested 2026-10-29</b> with real Claude (Haiku): asked to create "Weather Notes" and to have Reader say pong, the Assistant listed the team, showed the Create card, created the bot after Create, gave Reader the task (it showed in Reader's chat from Assistant) and reported "pong". "Don't create" made nothing. Tests with a stand-in Claude cover both, and that other bots can't give tasks. The Assistant is the bot with id <code>assistant</code>, so there's no <code>central</code> setting in <code>bot.toml</code>. <b>Was:</b> Your words: "there is an assistant in the app. Make it the central bot which can spawn other bots." Today the Assistant says it can't create bots, because it has no way to reach oxbot.</p>
   <figure style="margin:8px 0 14px">
   <div class="tbl" style="padding:14px">

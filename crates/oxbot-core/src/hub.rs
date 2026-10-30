@@ -1,10 +1,14 @@
 //! [`Hub`]: runs the bots.
 //!
-//! It keeps one `claude` child per bot that has been talked to, and one
-//! Chrome that every bot shares. The shared Chrome keeps the user's
-//! sign-ins, so bots take turns on it: a bot holds the browser from its
-//! first browser action until its reply ends, and another bot that needs it
-//! meanwhile waits.
+//! It keeps one `claude` child per bot that has been talked to, and a
+//! Chrome per owner: the home Chrome every shared bot uses, and each
+//! person's own Chrome for their private bots. A Chrome keeps its owner's
+//! sign-ins, so the bots on it take turns: a bot holds its browser from its
+//! first browser action until its reply ends, and another bot that needs the
+//! same one meanwhile waits.
+//!
+//! Who may see and change which bot is decided by [`Viewer`]: the Farm
+//! sees everything, anyone else sees shared bots and their own private ones.
 //!
 //! The hub turns Claude's output into stored [`EventKind`]s, answers
 //! Claude's permission requests by the rules in [`crate::policy`] (asking
@@ -36,11 +40,11 @@ use tokio::sync::{
     Mutex, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot,
 };
 
-use crate::bot::{Bot, BotError};
+use crate::bot::{Bot, BotError, Viewer};
 use crate::id::{BotId, BotIdError};
 use crate::policy::{self, PageFacts, Verdict};
 use crate::prompt::{Capabilities, system_prompt};
-use crate::store::{SavedSession, Store, StoreError};
+use crate::store::{HOME, SavedSession, Store, StoreError, now_ms};
 use crate::tools::{self, SIGN_IN_TOOL, TOOL_SERVER_NAME};
 use std::fmt::Write as _;
 
@@ -59,7 +63,7 @@ pub struct HubConfig {
     pub approval_timeout: Duration,
     /// How long a bot waits for the user to sign in.
     pub sign_in_timeout: Duration,
-    /// How long the Assistant waits for a bot to finish a task it gave.
+    /// How long Herder waits for a bot to finish a task it gave.
     pub task_timeout: Duration,
     /// Bots idle this long are stopped (and the browser, once nobody has
     /// used it this long); they resume on the next message.
@@ -103,6 +107,12 @@ pub enum HubError {
     /// This server gives bots no browser.
     #[error("this oxbot has no browser")]
     NoBrowser,
+    /// Not a web address.
+    #[error("{0} isn't a web address; try something like gmail.com")]
+    BadSite(String),
+    /// The person asking may not do this.
+    #[error("{0}")]
+    NotAllowed(String),
     /// A new bot's id isn't valid.
     #[error("bad bot id: {0}")]
     BadId(#[from] BotIdError),
@@ -126,7 +136,9 @@ struct Runtime {
     busy: bool,
     /// Held while a turn runs, so at most `max_concurrent_turns` run at once.
     permit: Option<OwnedSemaphorePermit>,
-    /// Held while this bot uses the shared browser (until its turn ends).
+    /// The browser this bot's Claude was started with.
+    browser: Option<Arc<Shared>>,
+    /// Held while this bot uses its browser (until its turn ends).
     lease: Option<OwnedMutexGuard<()>>,
     last_active: Instant,
     /// Tool call id → tool name, to read tool results.
@@ -135,13 +147,18 @@ struct Runtime {
     page: Option<(String, String)>,
     /// Element uid → words, from the latest page snapshot.
     elements: HashMap<String, String>,
+    /// Who sent the message this turn is answering. Herder's tools act for
+    /// them.
+    asker: Option<String>,
 }
 
 /// Cards waiting for the user, with who to tell.
 type Waiting<T, A> = std::sync::Mutex<BTreeMap<u64, (T, oneshot::Sender<A>)>>;
 
-/// The shared browser and who's using it.
+/// One owner's browser and who's using it.
 struct Shared {
+    /// Whose it is: [`HOME`] or a person's name.
+    owner: String,
     browser: Arc<Browser>,
     /// Held by the bot using the browser.
     lease: Arc<Mutex<()>>,
@@ -151,6 +168,18 @@ struct Shared {
     last: std::sync::Mutex<Option<BotId>>,
     /// When a bot last used it.
     last_used: std::sync::Mutex<Instant>,
+    /// A site its owner is signing in to from Settings (its host).
+    adding_site: std::sync::Mutex<Option<String>>,
+    /// Whether its signed-in sites were checked against its cookies yet.
+    sites_checked: std::sync::atomic::AtomicBool,
+}
+
+impl Shared {
+    /// `None` for the home browser, else its owner, as [`ServerMsg::Sites`]
+    /// names it.
+    fn owner_label(&self) -> Option<String> {
+        (self.owner != HOME).then(|| self.owner.clone())
+    }
 }
 
 /// Runs the bots. Share it as `Arc<Hub>`.
@@ -159,7 +188,10 @@ pub struct Hub {
     store: Store,
     config: HubConfig,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
-    shared: Option<Shared>,
+    /// Each owner's browser, made when first needed.
+    browsers: std::sync::Mutex<HashMap<String, Arc<Shared>>>,
+    /// This hub, for the tasks it starts.
+    me: std::sync::Weak<Hub>,
     approvals: Waiting<Approval, Answer>,
     sign_ins: Waiting<SignInRequest, bool>,
     next_id: AtomicU64,
@@ -178,6 +210,9 @@ impl std::fmt::Debug for Hub {
     }
 }
 
+/// The longest bot name, in characters.
+const MAX_NAME: usize = 60;
+
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -188,45 +223,23 @@ impl Hub {
     #[must_use]
     pub fn new(bots: Vec<Bot>, store: Store, config: HubConfig) -> Arc<Self> {
         let (updates, _) = broadcast::channel(1024);
-        let shared = config.browser.clone().and_then(|tools| {
-            let spec = BrowserSpec {
-                label: "shared".to_owned(),
-                profile_dir: tools.config().profile_dir.clone(),
-                downloads: config.bots_dir.clone(),
-            };
-            match Browser::new(tools, spec) {
-                Ok(browser) => Some(Shared {
-                    browser,
-                    lease: Arc::new(Mutex::new(())),
-                    holder: std::sync::Mutex::new(None),
-                    last: std::sync::Mutex::new(None),
-                    last_used: std::sync::Mutex::new(Instant::now()),
-                }),
-                Err(err) => {
-                    tracing::error!(%err, "no local port for Chrome; bots get no browser");
-                    None
-                }
-            }
-        });
-        let hub = Arc::new(Self {
+        tidy_sites(&store);
+        let hub = Arc::new_cyclic(|me| Self {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
             store,
             turns: Arc::new(Semaphore::new(config.max_concurrent_turns)),
             config,
             runtimes: Mutex::new(HashMap::new()),
-            shared,
+            browsers: std::sync::Mutex::new(HashMap::new()),
+            me: me.clone(),
             starting: std::sync::Mutex::new(HashSet::new()),
             approvals: std::sync::Mutex::new(BTreeMap::new()),
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
             updates,
         });
-        if let Some(shared) = &hub.shared {
-            tokio::spawn(watch_browser(
-                Arc::downgrade(&hub),
-                Arc::clone(&shared.browser),
-            ));
-        }
+        // The home browser exists from the start, as before.
+        let _ = hub.browser_for(HOME);
         tokio::spawn(stop_idle_bots(Arc::downgrade(&hub)));
         hub
     }
@@ -285,13 +298,81 @@ impl Hub {
         Ok(self.store.people()?)
     }
 
-    /// What the shared browser is doing.
+    /// What the home browser is doing.
     #[must_use]
     pub fn browser_state(&self) -> BrowserState {
-        match &self.shared {
-            None => BrowserState::Disabled,
-            Some(s) => browser_state(*s.browser.status().borrow()),
+        self.owner_state(HOME)
+    }
+
+    /// What `owner`'s browser is doing (`Off` until it's first needed).
+    fn owner_state(&self, owner: &str) -> BrowserState {
+        if self.config.browser.is_none() {
+            return BrowserState::Disabled;
         }
+        lock(&self.browsers)
+            .get(owner)
+            .map_or(BrowserState::Off, |s| {
+                browser_state(*s.browser.status().borrow())
+            })
+    }
+
+    /// `owner`'s browser ([`HOME`] or a person's name), made the first time
+    /// it's needed. `None` if bots get no browser.
+    fn browser_for(&self, owner: &str) -> Option<Arc<Shared>> {
+        let tools = self.config.browser.clone()?;
+        let mut browsers = lock(&self.browsers);
+        if let Some(shared) = browsers.get(owner) {
+            return Some(Arc::clone(shared));
+        }
+        let home_profile = tools.config().profile_dir.clone();
+        let (label, profile_dir) = if owner == HOME {
+            ("home".to_owned(), home_profile)
+        } else {
+            let folder = person_folder(owner);
+            let root = home_profile
+                .parent()
+                .map_or_else(|| home_profile.clone(), std::path::Path::to_path_buf);
+            (
+                folder.clone(),
+                root.join("people").join(folder).join("profile"),
+            )
+        };
+        let spec = BrowserSpec {
+            label,
+            profile_dir,
+            downloads: self.config.bots_dir.clone(),
+        };
+        let browser = match Browser::new(tools, spec) {
+            Ok(browser) => browser,
+            Err(err) => {
+                tracing::error!(%err, "no local port for Chrome; bots get no browser");
+                return None;
+            }
+        };
+        let shared = Arc::new(Shared {
+            owner: owner.to_owned(),
+            browser,
+            lease: Arc::new(Mutex::new(())),
+            holder: std::sync::Mutex::new(None),
+            last: std::sync::Mutex::new(None),
+            last_used: std::sync::Mutex::new(Instant::now()),
+            adding_site: std::sync::Mutex::new(None),
+            sites_checked: std::sync::atomic::AtomicBool::new(false),
+        });
+        browsers.insert(owner.to_owned(), Arc::clone(&shared));
+        drop(browsers);
+        tokio::spawn(watch_browser(self.me.clone(), Arc::clone(&shared)));
+        Some(shared)
+    }
+
+    /// The browser `bot` uses: its creator's own if it's private, else home.
+    fn browser_of(&self, bot: &Bot) -> Option<Arc<Shared>> {
+        self.browser_for(&bot.browser_owner()?)
+    }
+
+    /// Every browser made so far.
+    fn all_browsers(&self) -> Vec<Arc<Shared>> {
+        lock(&self.browsers).values().cloned().collect()
     }
 
     /// Every bot, with whether it's busy, its latest event number and the
@@ -315,7 +396,6 @@ impl Hub {
             .filter(|(_, r)| r.busy)
             .map(|(id, _)| id.clone())
             .collect();
-        let browser_state = self.browser_state();
         list.into_iter()
             .map(|b| {
                 Ok(BotInfo {
@@ -323,12 +403,207 @@ impl Hub {
                     last_seq: self.store.last_seq(&b.id)?,
                     last_reply_seq: self.store.last_reply_seq(&b.id)?,
                     central: b.is_central(),
+                    browser_state: b
+                        .browser_owner()
+                        .map_or(BrowserState::Off, |owner| self.owner_state(&owner)),
+                    created_by: b.created_by.clone(),
+                    private: b.private,
                     id: b.id.to_string(),
                     name: b.name,
-                    browser_state,
                 })
             })
             .collect()
+    }
+
+    /// Every bot as `viewer` gets it: a private bot they can't open is
+    /// listed (name, maker, lock) with nothing of what it's doing.
+    ///
+    /// # Errors
+    /// Fails if the database fails.
+    pub async fn bots_for(&self, viewer: &Viewer) -> Result<Vec<BotInfo>, HubError> {
+        Ok(viewer.redact(self.bots().await?))
+    }
+
+    /// The bot `id`, if `viewer` may see it. A bot they can't see answers
+    /// as if it didn't exist.
+    ///
+    /// # Errors
+    /// [`HubError::UnknownBot`] if there's no such bot or it's hidden.
+    pub fn bot_for(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
+        self.bot(id)
+            .ok()
+            .filter(|b| b.visible_to(viewer))
+            .ok_or_else(|| HubError::UnknownBot(id.to_owned()))
+    }
+
+    /// The bot `id`, if `viewer` may change it.
+    fn bot_to_manage(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
+        let bot = self.bot_for(id, viewer)?;
+        if !viewer.can_manage(bot.created_by.as_deref()) {
+            let who = bot.created_by.as_deref().unwrap_or("the Farm's owner");
+            return Err(HubError::NotAllowed(format!(
+                "Only {who} or the Farm can change {}.",
+                bot.name
+            )));
+        }
+        Ok(bot)
+    }
+
+    /// Applies `change` to bot `id` as it is now and saves it, all under the
+    /// bots lock, so two changes (a rename and a privacy change) can't
+    /// overwrite each other.
+    fn update_bot(&self, id: &BotId, change: impl FnOnce(&mut Bot)) -> Result<Bot, HubError> {
+        let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
+        let mut bot = bots
+            .get(id)
+            .cloned()
+            .ok_or_else(|| HubError::UnknownBot(id.to_string()))?;
+        change(&mut bot);
+        bot.save()?;
+        bots.insert(id.clone(), bot.clone());
+        Ok(bot)
+    }
+
+    /// Makes a bot private (only its creator and the Farm see it, and it
+    /// uses its creator's own browser) or shared again. A bot nobody is
+    /// recorded as making becomes `viewer`'s when it goes private.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's Herder, it's working, or
+    /// its file can't be written.
+    pub async fn set_private(
+        &self,
+        id: &str,
+        private: bool,
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed(
+                "Herder is shared by everyone.".to_owned(),
+            ));
+        }
+        if bot.private == private {
+            return Ok(());
+        }
+        if private && bot.created_by.is_none() && viewer.name.trim().is_empty() {
+            return Err(HubError::NotAllowed(
+                "A private bot needs to know whose it is.".to_owned(),
+            ));
+        }
+        // Held until its Claude is stopped, so a waiting message can't start
+        // it with the old browser.
+        self.claim(&bot.id).await?;
+        let changed = self.update_bot(&bot.id, |b| {
+            if private && b.created_by.is_none() {
+                b.created_by = Some(viewer.name.clone());
+            }
+            b.private = private;
+        });
+        if changed.is_ok() {
+            tracing::info!(bot = %bot.id, private, "changed who can see it");
+            // Its Claude was started with the other browser: start it again next time.
+            self.stop_claude(&bot.id).await;
+        }
+        lock(&self.starting).remove(&bot.id);
+        changed?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
+    /// Gives a bot a new name.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's Herder, the name is empty,
+    /// too long, on more than one line or taken, or its file can't be
+    /// written.
+    pub async fn rename_bot(&self, id: &str, name: &str, viewer: &Viewer) -> Result<(), HubError> {
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed("Herder keeps its name.".to_owned()));
+        }
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(HubError::NotAllowed("A bot needs a name.".to_owned()));
+        }
+        if name.chars().count() > MAX_NAME || name.chars().any(char::is_control) {
+            return Err(HubError::NotAllowed(format!(
+                "A bot's name is one line of at most {MAX_NAME} characters."
+            )));
+        }
+        let taken = self
+            .bots
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|b| b.id != bot.id && b.name.eq_ignore_ascii_case(name))
+            || name.eq_ignore_ascii_case(crate::bot::CENTRAL_NAME);
+        if taken {
+            return Err(HubError::NotAllowed(format!(
+                "There's already a bot called {name}."
+            )));
+        }
+        self.update_bot(&bot.id, |b| name.clone_into(&mut b.name))?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
+    /// Deletes a bot: stops it, saves its history as `history.jsonl` in its
+    /// folder, forgets the history, and moves the folder to oxbot's trash.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's Herder, it's working, or
+    /// its history or folder can't be saved or moved.
+    pub async fn delete_bot(&self, id: &str, viewer: &Viewer) -> Result<(), HubError> {
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed("Herder can't be deleted.".to_owned()));
+        }
+        // No message may start it while it's being deleted.
+        self.claim(&bot.id).await?;
+        let result = self.delete_claimed(&bot, viewer).await;
+        lock(&self.starting).remove(&bot.id);
+        result?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
+    async fn delete_claimed(&self, bot: &Bot, viewer: &Viewer) -> Result<(), HubError> {
+        self.deny_open_approvals(&bot.id);
+        self.cancel_sign_ins(&bot.id);
+        self.stop_claude(&bot.id).await;
+        // The trash keeps the whole bot, history included.
+        let history: String = self
+            .store
+            .history(&bot.id, 0)?
+            .iter()
+            .filter_map(|e| serde_json::to_string(e).ok())
+            .map(|line| line + "\n")
+            .collect();
+        let path = bot.dir.join("history.jsonl");
+        std::fs::write(&path, history).map_err(|source| crate::bot::BotError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        // Forget it in the database first: if that fails, nothing has moved
+        // and its id can't be reused with old history behind it.
+        self.store.delete_bot(&bot.id)?;
+        let trash = self
+            .config
+            .bots_dir
+            .parent()
+            .map_or_else(
+                || self.config.bots_dir.join(".."),
+                std::path::Path::to_path_buf,
+            )
+            .join("trash");
+        let moved = bot.move_to(&trash, now_ms())?;
+        self.bots
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&bot.id);
+        tracing::info!(bot = %bot.id, by = viewer.name, to = %moved.display(), "deleted a bot");
+        Ok(())
     }
 
     async fn announce_bots(&self) {
@@ -346,15 +621,59 @@ impl Hub {
         Ok(self.store.history(&bot.id, since)?)
     }
 
+    /// Like [`Hub::history`], for a bot `viewer` may see.
+    ///
+    /// # Errors
+    /// Fails if the bot doesn't exist, is hidden, or the database fails.
+    pub fn history_for(
+        &self,
+        bot: &str,
+        since: u64,
+        viewer: &Viewer,
+    ) -> Result<Vec<BotEvent>, HubError> {
+        let bot = self.bot_for(bot, viewer)?;
+        Ok(self.store.history(&bot.id, since)?)
+    }
+
     /// Creates a bot, picking its id from `name`, and tells every client.
     ///
     /// # Errors
     /// Fails if its files can't be written.
-    pub async fn create_bot(&self, name: &str, instructions: &str) -> Result<BotInfo, HubError> {
-        let name = if name.trim().is_empty() {
+    pub async fn create_bot(
+        &self,
+        name: &str,
+        instructions: &str,
+        created_by: Option<&str>,
+    ) -> Result<BotInfo, HubError> {
+        self.create_bot_with(name, instructions, created_by, false)
+            .await
+    }
+
+    /// Like [`Hub::create_bot`]; a `private` bot (which needs a creator) is
+    /// seen only by its creator and the Farm.
+    ///
+    /// # Errors
+    /// Fails if its files can't be written.
+    pub async fn create_bot_with(
+        &self,
+        name: &str,
+        instructions: &str,
+        created_by: Option<&str>,
+        private: bool,
+    ) -> Result<BotInfo, HubError> {
+        // One line, at most MAX_NAME characters.
+        let name: String = name
+            .split(char::is_control)
+            .flat_map(str::split_whitespace)
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(MAX_NAME)
+            .collect();
+        let name = if name.is_empty() {
             "New bot".to_owned()
         } else {
-            name.trim().to_owned()
+            name
         };
         let id = {
             let bots = self.bots.read().unwrap_or_else(PoisonError::into_inner);
@@ -362,12 +681,18 @@ impl Hub {
                 bots.contains_key(id) || self.config.bots_dir.join(id.as_str()).exists()
             })
         };
-        let bot = Bot::create(
+        let created_by = created_by.map(str::trim).filter(|c| !c.is_empty());
+        let mut bot = Bot::create_by(
             &self.config.bots_dir,
             id.clone(),
             &name,
             instructions.trim(),
+            created_by,
         )?;
+        if private && created_by.is_some() {
+            bot.private = true;
+            bot.save()?;
+        }
         self.bots
             .write()
             .unwrap_or_else(PoisonError::into_inner)
@@ -380,24 +705,26 @@ impl Hub {
             .ok_or_else(|| HubError::UnknownBot(id.to_string()))
     }
 
-    // ------------------------------------------------------------ the shared browser
+    // ------------------------------------------------------------ browsers
 
-    /// Gives `bot` the shared browser for the rest of its turn, waiting if
-    /// another bot has it. Returns `false` if the bot's turn ended while it
-    /// waited.
+    /// Gives `bot` its browser for the rest of its turn, waiting if another
+    /// bot on the same browser has it. Returns `false` if the bot's turn
+    /// ended while it waited.
     async fn take_browser(&self, bot: &BotId) -> Result<bool, HubError> {
-        let Some(shared) = &self.shared else {
-            return Ok(true);
+        let (shared, held) = {
+            let runtimes = self.runtimes.lock().await;
+            let Some(runtime) = runtimes.get(bot) else {
+                return Ok(true);
+            };
+            let Some(shared) = runtime.browser.clone() else {
+                return Ok(true);
+            };
+            (shared, runtime.lease.is_some())
         };
-        if self
-            .runtimes
-            .lock()
-            .await
-            .get(bot)
-            .is_some_and(|r| r.lease.is_some())
-        {
+        if held {
             *lock(&shared.last_used) = Instant::now();
-            return self.browser_running(shared).await.map(|()| true);
+            Self::browser_running(&shared).await;
+            return Ok(true);
         }
         let guard = if let Ok(guard) = Arc::clone(&shared.lease).try_lock_owned() {
             guard
@@ -427,26 +754,25 @@ impl Hub {
             *lock(&shared.last_used) = Instant::now();
             if previous.as_ref() == Some(bot) {
                 drop(runtimes);
-                self.browser_running(shared).await?;
-                return self.downloads_for(shared, bot).await.map(|()| true);
+                Self::browser_running(&shared).await;
+                return self.downloads_for(&shared, bot).await.map(|()| true);
             }
         }
-        self.browser_running(shared).await?;
+        Self::browser_running(&shared).await;
         shared.browser.reset_tabs().await;
-        self.downloads_for(shared, bot).await?;
-        tracing::info!(%bot, "has the browser");
+        self.downloads_for(&shared, bot).await?;
+        tracing::info!(%bot, browser = shared.owner, "has the browser");
         Ok(true)
     }
 
     /// Starts Chrome if it isn't running. A failure is only logged: the
     /// browser tool then tells the bot it can't connect.
-    async fn browser_running(&self, shared: &Shared) -> Result<(), HubError> {
+    async fn browser_running(shared: &Shared) {
         if *shared.browser.status().borrow() == BrowserStatus::Off
             && let Err(err) = shared.browser.ensure_running().await
         {
             tracing::warn!(%err, "couldn't start Chrome");
         }
-        Ok(())
     }
 
     async fn downloads_for(&self, shared: &Shared, bot: &BotId) -> Result<(), HubError> {
@@ -456,9 +782,9 @@ impl Hub {
     }
 
     /// Lets go of the browser if `runtime` holds it.
-    fn release_browser(&self, bot: &BotId, runtime: &mut Runtime) {
+    fn release_browser(bot: &BotId, runtime: &mut Runtime) {
         if runtime.lease.take().is_some()
-            && let Some(shared) = &self.shared
+            && let Some(shared) = &runtime.browser
         {
             let mut holder = lock(&shared.holder);
             if holder.as_ref() == Some(bot) {
@@ -468,22 +794,41 @@ impl Hub {
         }
     }
 
-    /// Signs the shared browser out of every site by deleting its profile.
+    /// `owner`'s browser, if no bot is using it right now.
+    fn idle_browser(&self, owner: &str) -> Result<Arc<Shared>, HubError> {
+        let shared = self.browser_for(owner).ok_or(HubError::NoBrowser)?;
+        if let Some(holder) = lock(&shared.holder).clone() {
+            return Err(HubError::BrowserBusy(self.bot_name(&holder)));
+        }
+        Ok(shared)
+    }
+
+    fn busy_error(&self, shared: &Shared) -> HubError {
+        let holder = lock(&shared.holder)
+            .clone()
+            .map_or_else(|| "A bot".to_owned(), |id| self.bot_name(&id));
+        HubError::BrowserBusy(holder)
+    }
+
+    /// Signs `owner`'s browser ([`HOME`] or a person) out of every site by
+    /// deleting its profile.
     ///
     /// # Errors
     /// [`HubError::BrowserBusy`] if a bot is using it, or the profile can't
     /// be deleted.
-    pub async fn sign_out_all(&self) -> Result<(), HubError> {
-        let shared = self.shared.as_ref().ok_or(HubError::NoBrowser)?;
+    pub async fn sign_out_all(&self, owner: &str) -> Result<(), HubError> {
+        let shared = self.browser_for(owner).ok_or(HubError::NoBrowser)?;
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
-            let holder = lock(&shared.holder)
-                .clone()
-                .map_or_else(|| "A bot".to_owned(), |id| self.bot_name(&id));
-            return Err(HubError::BrowserBusy(holder));
+            return Err(self.busy_error(&shared));
         };
         shared.browser.sign_out().await?;
         lock(&shared.last).take();
-        self.notice(
+        for site in self.store.sites(owner).unwrap_or_default() {
+            let _ = self.store.remove_site(owner, &site.site);
+        }
+        self.announce_sites(&shared);
+        self.notice_for(
+            shared.owner_label(),
             "Signed out of every site. Bots will ask you to sign in again where they need to.",
         );
         Ok(())
@@ -491,50 +836,112 @@ impl Hub {
 
     // ------------------------------------------------------------ sites
 
-    /// The sites the user signed in to through oxbot, newest first.
+    /// The sites `owner`'s browser signed in to through oxbot, newest first.
     #[must_use]
-    pub fn sites(&self) -> Vec<SiteInfo> {
-        self.store.sites().unwrap_or_else(|err| {
+    pub fn sites(&self, owner: &str) -> Vec<SiteInfo> {
+        let mut sites = self.store.sites(owner).unwrap_or_else(|err| {
             tracing::warn!(%err, "couldn't read the signed-in sites");
             Vec::new()
-        })
-    }
-
-    /// Checks the list against the browser's cookies, drops sites it's no
-    /// longer signed in to (say, the window closed before signing in), and
-    /// tells every client.
-    async fn refresh_sites(&self) {
-        if let Some(shared) = &self.shared {
-            match shared.browser.cookie_sites().await {
-                Ok(held) => {
-                    for site in self.sites() {
-                        if !held.contains(&site.site) {
-                            tracing::info!(
-                                site = site.site,
-                                "no sign-in cookies left; dropping it"
-                            );
-                            let _ = self.store.remove_site(&site.site);
-                        }
-                    }
-                }
-                Err(err) => tracing::debug!(%err, "couldn't check the browser's cookies"),
+        });
+        if let Some(shared) = self.browser_for(owner) {
+            let names: Vec<&str> = sites.iter().map(|s| s.site.as_str()).collect();
+            let icons = shared.browser.site_icons(&names);
+            for (site, icon) in sites.iter_mut().zip(icons) {
+                site.icon = icon;
             }
         }
+        sites
+    }
+
+    /// The site lists `viewer` gets: the home browser's, then their own.
+    #[must_use]
+    pub fn sites_for(&self, viewer: &Viewer) -> Vec<ServerMsg> {
+        let mut lists = vec![ServerMsg::Sites {
+            sites: self.sites(HOME),
+            owner: None,
+        }];
+        if !viewer.name.is_empty() {
+            lists.push(ServerMsg::Sites {
+                sites: self.sites(&viewer.name),
+                owner: Some(viewer.name.clone()),
+            });
+        }
+        lists
+    }
+
+    fn announce_sites(&self, shared: &Shared) {
         self.announce(ServerMsg::Sites {
-            sites: self.sites(),
+            sites: self.sites(&shared.owner),
+            owner: shared.owner_label(),
         });
     }
 
-    /// Shows `site` in the visible Chrome window, e.g. to check an account.
-    /// Closing the window goes back to hidden Chrome.
+    /// Opens a sign-in window on `url` in `owner`'s browser, for signing in
+    /// to a site before any bot asks. When the window closes, the site joins
+    /// that browser's list.
     ///
     /// # Errors
-    /// [`HubError::BrowserBusy`] while a bot is using the browser.
-    pub async fn open_site(&self, site: &str) -> Result<(), HubError> {
-        let shared = self.shared.as_ref().ok_or(HubError::NoBrowser)?;
-        if let Some(holder) = lock(&shared.holder).clone() {
-            return Err(HubError::BrowserBusy(self.bot_name(&holder)));
+    /// [`HubError::BrowserBusy`] while a bot is using that browser, or
+    /// [`HubError::BadSite`] if `url` isn't a web address.
+    pub async fn add_sign_in(&self, url: &str, owner: &str) -> Result<(), HubError> {
+        let url = url.trim();
+        let url = if url.contains("://") {
+            url.to_owned()
+        } else {
+            format!("https://{url}")
+        };
+        let host = web_host(&url).ok_or_else(|| HubError::BadSite(url.clone()))?;
+        let shared = self.idle_browser(owner)?;
+        *lock(&shared.adding_site) = Some(host);
+        shared.browser.open_window(&url).await?;
+        Ok(())
+    }
+
+    /// Checks a browser's list against its cookies, drops sites it's no
+    /// longer signed in to (say, the window closed before signing in), and
+    /// tells every client. Returns whether the cookies could be read.
+    async fn refresh_sites(&self, shared: &Shared) -> bool {
+        let checked = match shared.browser.cookie_sites().await {
+            Ok(held) => {
+                for site in self.store.sites(&shared.owner).unwrap_or_default() {
+                    if !held.contains(&site.site) {
+                        tracing::info!(
+                            site = site.site,
+                            browser = shared.owner,
+                            "no sign-in cookies left; dropping it"
+                        );
+                        let _ = self.store.remove_site(&shared.owner, &site.site);
+                    }
+                }
+                true
+            }
+            Err(err) => {
+                tracing::debug!(%err, "couldn't check the browser's cookies");
+                false
+            }
+        };
+        self.announce_sites(shared);
+        checked
+    }
+
+    /// Shows `site` in `owner`'s visible Chrome window, e.g. to check an
+    /// account. Closing the window goes back to hidden Chrome.
+    ///
+    /// # Errors
+    /// [`HubError::BrowserBusy`] while a bot is using that browser, or
+    /// [`HubError::BadSite`] if `site` isn't on its list.
+    pub async fn open_site(&self, site: &str, owner: &str) -> Result<(), HubError> {
+        // Only a site on that browser's list, never any address a client sends.
+        let known = self
+            .store
+            .sites(owner)
+            .unwrap_or_default()
+            .iter()
+            .any(|s| s.site == site);
+        if !known {
+            return Err(HubError::BadSite(site.to_owned()));
         }
+        let shared = self.idle_browser(owner)?;
         shared
             .browser
             .open_window(&format!("https://{site}"))
@@ -542,42 +949,42 @@ impl Hub {
         Ok(())
     }
 
-    /// Signs the shared browser out of `site` only.
+    /// Signs `owner`'s browser out of `site` only.
     ///
     /// # Errors
-    /// [`HubError::BrowserBusy`] while a bot is using the browser, or the
+    /// [`HubError::BrowserBusy`] while a bot is using that browser, or the
     /// browser's error.
-    pub async fn sign_out_site(&self, site: &str) -> Result<(), HubError> {
-        let shared = self.shared.as_ref().ok_or(HubError::NoBrowser)?;
+    pub async fn sign_out_site(&self, site: &str, owner: &str) -> Result<(), HubError> {
+        let shared = self.browser_for(owner).ok_or(HubError::NoBrowser)?;
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
-            let holder = lock(&shared.holder)
-                .clone()
-                .map_or_else(|| "A bot".to_owned(), |id| self.bot_name(&id));
-            return Err(HubError::BrowserBusy(holder));
+            return Err(self.busy_error(&shared));
         };
         shared.browser.forget_site(site).await?;
-        if let Err(err) = self.store.remove_site(site) {
+        if let Err(err) = self.store.remove_site(owner, site) {
             tracing::warn!(%err, "couldn't forget the site");
         }
         lock(&shared.last).take();
-        self.announce(ServerMsg::Sites {
-            sites: self.sites(),
-        });
-        self.notice(&format!(
-            "Signed out of {site}. Bots will ask you to sign in again if they need it."
-        ));
+        self.announce_sites(&shared);
+        self.notice_for(
+            shared.owner_label(),
+            &format!("Signed out of {site}. Bots will ask you to sign in again if they need it."),
+        );
         Ok(())
     }
 
     // ------------------------------------------------------------ sign-in
 
-    /// A bot asks the user to sign in at `url`. Shows every client a card and
-    /// waits until the user is done, gives up, or doesn't answer in time.
-    /// Returns whether they signed in, and what to tell the bot.
+    /// A bot asks the user to sign in at `url`. Shows its people a card and
+    /// waits until they're done, give up, or don't answer in time. Returns
+    /// whether they signed in, and what to tell the bot.
     pub async fn request_sign_in(&self, bot: &BotId, url: &str, why: &str) -> (bool, String) {
-        if self.shared.is_none() {
+        let Some(shared) = self
+            .bot(bot.as_str())
+            .ok()
+            .and_then(|b| self.browser_of(&b))
+        else {
             return (false, "This oxbot has no browser.".to_owned());
-        }
+        };
         let Some(site) = web_host(url) else {
             return (
                 false,
@@ -600,7 +1007,7 @@ impl Hub {
             bot: bot.to_string(),
             text: format!("Waiting for you to sign in to {site}…"),
         });
-        tracing::info!(%bot, site, "asking the user to sign in");
+        tracing::info!(%bot, site, browser = shared.owner, "asking the user to sign in");
         // Open the sign-in window right away; the card's button is the fallback.
         if let Err(err) = self.open_sign_in(id).await {
             tracing::warn!(%bot, site, %err, "couldn't open the sign-in window");
@@ -644,14 +1051,12 @@ impl Hub {
                 )
             }
         };
-        if let Some(shared) = &self.shared {
-            shared.browser.close_window().await;
-        }
+        shared.browser.close_window().await;
         if outcome == SignInOutcome::Done {
-            if let Err(err) = self.store.add_site(&site_of(&site)) {
+            if let Err(err) = self.store.add_site(&shared.owner, &site_of(&site)) {
                 tracing::warn!(%err, "couldn't remember the site");
             }
-            self.refresh_sites().await;
+            self.refresh_sites(&shared).await;
         }
         if let Err(err) = self.record(bot, EventKind::SignIn { site, outcome }) {
             tracing::warn!(%err, "couldn't record the sign-in");
@@ -659,16 +1064,20 @@ impl Hub {
         result
     }
 
-    /// The user opened the sign-in window for request `id`.
+    /// Opens the sign-in window for request `id`, in its bot's browser.
     ///
     /// # Errors
     /// Fails if there's no such request or Chrome can't start.
     pub async fn open_sign_in(&self, id: u64) -> Result<(), HubError> {
-        let shared = self.shared.as_ref().ok_or(HubError::NoBrowser)?;
         let request = lock(&self.sign_ins).get(&id).map(|(r, _)| r.clone());
         let Some(mut request) = request else {
             return Err(HubError::UnknownBot(format!("sign-in {id}")));
         };
+        let shared = self
+            .bot(&request.bot)
+            .ok()
+            .and_then(|b| self.browser_of(&b))
+            .ok_or(HubError::NoBrowser)?;
         shared.browser.open_window(&request.url).await?;
         request.window_open = true;
         if let Some(entry) = lock(&self.sign_ins).get_mut(&id) {
@@ -676,6 +1085,20 @@ impl Hub {
         }
         let _ = self.updates.send(ServerMsg::SignInNeeded(request));
         Ok(())
+    }
+
+    /// Whether `viewer` may see (and answer) sign-in request `id`.
+    #[must_use]
+    pub fn sign_in_visible(&self, id: u64, viewer: &Viewer) -> bool {
+        let bot = lock(&self.sign_ins).get(&id).map(|(r, _)| r.bot.clone());
+        bot.is_some_and(|b| self.bot_for(&b, viewer).is_ok())
+    }
+
+    /// Whether `viewer` may see (and answer) approval card `id`.
+    #[must_use]
+    pub fn approval_visible(&self, id: u64, viewer: &Viewer) -> bool {
+        let bot = lock(&self.approvals).get(&id).map(|(a, _)| a.bot.clone());
+        bot.is_some_and(|b| self.bot_for(&b, viewer).is_ok())
     }
 
     /// The user finished (`true`) or gave up on (`false`) a sign-in. Returns
@@ -697,12 +1120,23 @@ impl Hub {
             .collect()
     }
 
-    /// The sign-in window closed: requests whose window was open count as
-    /// done (the user closes it when they've signed in).
-    fn sign_in_window_closed(&self) {
+    /// A browser's sign-in window closed: requests on it whose window was
+    /// open count as done (the user closes it when they've signed in).
+    fn sign_in_window_closed(&self, shared: &Shared) {
+        if let Some(host) = lock(&shared.adding_site).take() {
+            if let Err(err) = self.store.add_site(&shared.owner, &site_of(&host)) {
+                tracing::warn!(%err, "couldn't remember the site");
+            }
+            self.announce_sites(shared);
+        }
         let ids: Vec<u64> = lock(&self.sign_ins)
             .iter()
-            .filter(|(_, (r, _))| r.window_open)
+            .filter(|(_, (r, _))| {
+                r.window_open
+                    && self
+                        .bot(&r.bot)
+                        .is_ok_and(|b| b.browser_owner().as_deref() == Some(shared.owner.as_str()))
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -760,12 +1194,35 @@ impl Hub {
         args: &Value,
     ) -> (bool, String) {
         let text = |key: &str| tools::text_arg(args, key).trim().to_owned();
+        // Herder acts for whoever sent the message it's answering, and sees
+        // only what they may see (never the Farm's view).
+        let asker = self
+            .runtimes
+            .lock()
+            .await
+            .get(bot)
+            .and_then(|r| r.asker.clone());
+        let asker = Viewer::gate(asker.unwrap_or_default());
         match tool {
             tools::SIGN_IN_TOOL => self.request_sign_in(bot, &text("url"), &text("why")).await,
-            tools::LIST_BOTS_TOOL => (true, self.team().await),
+            tools::LIST_BOTS_TOOL => (true, self.team(&asker).await),
             tools::CREATE_BOT_TOOL => {
                 // The user already said yes on the card (see `policy`).
-                match self.create_bot(&text("name"), &text("instructions")).await {
+                // The bot belongs to whoever asked Herder for it.
+                let private = args.get("private").and_then(Value::as_bool) == Some(true);
+                let created_by = Some(asker.name.as_str()).filter(|n| !n.is_empty());
+                if private && created_by.is_none() {
+                    return (
+                        false,
+                        "A private bot needs to know who it's for; ask the user to send their \
+                         request again."
+                            .to_owned(),
+                    );
+                }
+                match self
+                    .create_bot_with(&text("name"), &text("instructions"), created_by, private)
+                    .await
+                {
                     Ok(info) => (
                         true,
                         format!(
@@ -778,18 +1235,19 @@ impl Hub {
             }
             tools::GIVE_TASK_TOOL => {
                 let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(true);
-                self.give_task(bot, &text("bot"), &text("message"), wait)
+                self.give_task(bot, &asker, &text("bot"), &text("message"), wait)
                     .await
             }
-            tools::READ_REPLY_TOOL => self.read_reply(&text("bot")).await,
+            tools::READ_REPLY_TOOL => self.read_reply(&asker, &text("bot")).await,
             _ => (false, "unknown tool".to_owned()),
         }
     }
 
     // ------------------------------------------------------------ the team
 
-    /// Every bot, for the Assistant: id, name, what it's for, and status.
-    async fn team(&self) -> String {
+    /// The bots `asker` may use, for Herder: id, name, maker, what it's
+    /// for, and status.
+    async fn team(&self, asker: &Viewer) -> String {
         let busy: HashSet<BotId> = self
             .runtimes
             .lock()
@@ -808,6 +1266,15 @@ impl Hub {
         bots.sort_by(|a, b| a.name.cmp(&b.name));
         let mut out = String::new();
         for b in bots {
+            if !b.visible_to(asker) {
+                let who = b.created_by.as_deref().unwrap_or("someone");
+                let _ = writeln!(
+                    out,
+                    "- {} (id {}): private to {who}, locked. You can't see it or give it tasks.",
+                    b.name, b.id
+                );
+                continue;
+            }
             let purpose: String = b
                 .instructions
                 .split_whitespace()
@@ -822,9 +1289,16 @@ impl Hub {
                 "free"
             };
             let you = if b.is_central() { " (you)" } else { "" };
+            let maker = match (&b.created_by, b.private) {
+                (Some(who), true) => {
+                    format!(", private to {who} (only they open it; you can't give it tasks)")
+                }
+                (Some(who), false) => format!(", made by {who}"),
+                (None, _) => String::new(),
+            };
             let _ = writeln!(
                 out,
-                "- {} (id {}){you}: {status}. {}",
+                "- {} (id {}){you}{maker}: {status}. {}",
                 b.name,
                 b.id,
                 if purpose.is_empty() {
@@ -837,16 +1311,20 @@ impl Hub {
         out
     }
 
-    /// Sends `target` a task from the Assistant (`from`) and, if `wait`,
+    /// Sends `target` a task from Herder (`from`) and, if `wait`,
     /// waits for its reply.
     async fn give_task(
         self: &Arc<Self>,
         from: &BotId,
+        asker: &Viewer,
         target: &str,
         message: &str,
         wait: bool,
     ) -> (bool, String) {
-        let Ok(to) = self.bot(target) else {
+        if let Some(locked) = self.locked_message(target, asker) {
+            return (false, locked);
+        }
+        let Ok(to) = self.bot_for(target, asker) else {
             return (
                 false,
                 format!("There's no bot with id {target}. Use list_bots."),
@@ -855,9 +1333,12 @@ impl Hub {
         if &to.id == from {
             return (false, "That's you. Do the task yourself.".to_owned());
         }
+        if let Some(private) = private_message(&to) {
+            return (false, private);
+        }
         // Give up the browser first, so the other bot can use it.
         if let Some(runtime) = self.runtimes.lock().await.get_mut(from) {
-            self.release_browser(from, runtime);
+            Self::release_browser(from, runtime);
         }
         let mut updates = self.subscribe();
         let start = self.store.last_seq(&to.id).unwrap_or(0);
@@ -915,13 +1396,19 @@ impl Hub {
     }
 
     /// A bot's latest reply and whether it's still working.
-    async fn read_reply(&self, target: &str) -> (bool, String) {
-        let Ok(bot) = self.bot(target) else {
+    async fn read_reply(&self, asker: &Viewer, target: &str) -> (bool, String) {
+        if let Some(locked) = self.locked_message(target, asker) {
+            return (false, locked);
+        }
+        let Ok(bot) = self.bot_for(target, asker) else {
             return (
                 false,
                 format!("There's no bot with id {target}. Use list_bots."),
             );
         };
+        if let Some(private) = private_message(&bot) {
+            return (false, private);
+        }
         let busy = self
             .runtimes
             .lock()
@@ -940,6 +1427,18 @@ impl Hub {
             ),
             None => (true, format!("{} ({status}) hasn't replied yet.", bot.name)),
         }
+    }
+
+    /// What Herder hears about a bot that's private to someone else.
+    fn locked_message(&self, target: &str, asker: &Viewer) -> Option<String> {
+        let bot = self.bot(target).ok()?;
+        (!bot.visible_to(asker)).then(|| {
+            format!(
+                "{} is private to {}. Only they can use it; tell the user that.",
+                bot.name,
+                bot.created_by.as_deref().unwrap_or("someone else")
+            )
+        })
     }
 
     /// The text of `bot`'s latest reply after event `since`.
@@ -1030,7 +1529,7 @@ impl Hub {
             )
         };
         let page_url = page.as_ref().map(|(_, url)| url.as_str());
-        let facts = match &self.shared {
+        let facts = match self.browser_of(&bot) {
             Some(shared) if policy::needs_facts(&request.tool) => shared
                 .browser
                 .inspect(page_url, &policy::facts_script(&request.input))
@@ -1069,7 +1568,7 @@ impl Hub {
         page: Option<(String, String)>,
     ) -> Result<Decision, HubError> {
         let bot_id = &bot.id;
-        let screenshot = match &self.shared {
+        let screenshot = match self.browser_of(bot) {
             // A new bot has nothing to do with the page on screen.
             _ if ask.kind == ApprovalKind::CreateBot => None,
             Some(s) => {
@@ -1170,17 +1669,27 @@ impl Hub {
             .map_err(|_| HubError::Busy(bot.id.clone()))?;
 
         // Claim the bot, so a second message can't slip in while Claude starts.
-        {
-            let runtimes = self.runtimes.lock().await;
-            let mut starting = lock(&self.starting);
-            if runtimes.get(&bot.id).is_some_and(|r| r.busy) || starting.contains(&bot.id) {
-                return Err(HubError::Busy(bot.id));
-            }
-            starting.insert(bot.id.clone());
-        }
-        let result = self.deliver(&bot, text, from, permit).await;
+        self.claim(&bot.id).await?;
+        // It may have been made private, renamed or deleted while this
+        // message waited for a turn: use it as it is now.
+        let result = match self.bot(bot.id.as_str()) {
+            Ok(bot) => self.deliver(&bot, text, from, permit).await,
+            Err(err) => Err(err),
+        };
         lock(&self.starting).remove(&bot.id);
         result
+    }
+
+    /// Marks `bot` as starting, so no message, privacy change or delete can
+    /// run on it at the same time. Undo with `lock(&self.starting).remove`.
+    async fn claim(&self, bot: &BotId) -> Result<(), HubError> {
+        let runtimes = self.runtimes.lock().await;
+        let mut starting = lock(&self.starting);
+        if runtimes.get(bot).is_some_and(|r| r.busy) || starting.contains(bot) {
+            return Err(HubError::Busy(bot.clone()));
+        }
+        starting.insert(bot.clone());
+        Ok(())
     }
 
     async fn deliver(
@@ -1228,6 +1737,7 @@ impl Hub {
         runtime.busy = true;
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
+        runtime.asker = from.map(str::to_owned);
         drop(runtimes);
         self.announce_bots().await;
         Ok(())
@@ -1272,7 +1782,7 @@ impl Hub {
         for (_, runtime) in runtimes {
             runtime.process.shutdown().await;
         }
-        if let Some(shared) = &self.shared {
+        for shared in self.all_browsers() {
             shared.browser.shutdown().await;
         }
     }
@@ -1309,23 +1819,30 @@ impl Hub {
             tracing::info!(bot = %id, "idle; stopping Claude until the next message");
             self.stop_claude(&id).await;
         }
-        if let Some(shared) = &self.shared
-            && waiting.is_empty()
-            && lock(&shared.last_used).elapsed() >= self.config.idle_stop
-            && *shared.browser.status().borrow() == BrowserStatus::Ready
-            && let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned()
-        {
-            tracing::info!("browser idle; stopping Chrome until a bot needs it (sign-ins stay)");
-            shared.browser.shutdown().await;
-            lock(&shared.last).take();
+        if !waiting.is_empty() {
+            return;
+        }
+        for shared in self.all_browsers() {
+            if lock(&shared.last_used).elapsed() >= self.config.idle_stop
+                && *shared.browser.status().borrow() == BrowserStatus::Ready
+                && let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned()
+            {
+                tracing::info!(
+                    browser = shared.owner,
+                    "browser idle; stopping Chrome until a bot needs it (sign-ins stay)"
+                );
+                shared.browser.shutdown().await;
+                lock(&shared.last).take();
+            }
         }
     }
 
     /// Starts `bot`'s Claude and a task that turns its output into events.
     /// Resumes the saved session unless the system prompt has changed.
     async fn start_claude(self: &Arc<Self>, bot: &Bot) -> Result<Runtime, HubError> {
+        let shared = self.browser_of(bot);
         let caps = Capabilities {
-            browser: self.shared.is_some(),
+            browser: shared.is_some(),
         };
         let prompt = system_prompt(bot, caps);
         let session = match self.store.session(&bot.id)? {
@@ -1346,7 +1863,9 @@ impl Hub {
         config.ask_oxbot = true;
 
         let mut servers = serde_json::Map::new();
-        if let (Some(tools), Some(shared)) = (self.config.browser.clone(), &self.shared) {
+        // The bot takes turns on this browser even if Chrome didn't start now.
+        let browser = shared.clone();
+        if let (Some(tools), Some(shared)) = (self.config.browser.clone(), &shared) {
             if !tools.is_installed() {
                 self.notice("Setting up the browser for bots (first time only)…");
             }
@@ -1361,6 +1880,17 @@ impl Hub {
                         tools.mcp_server(shared.browser.port(), &bot.work_dir()),
                     );
                     servers.insert(TOOL_SERVER_NAME.to_owned(), tools::mcp_entry());
+                    // Once per run, drop remembered sites the browser has no cookies for.
+                    if !shared.sites_checked.swap(true, Ordering::Relaxed) {
+                        let hub = Arc::clone(self);
+                        let shared = Arc::clone(shared);
+                        tokio::spawn(async move {
+                            // Not checked after all: try again on the next start.
+                            if !hub.refresh_sites(&shared).await {
+                                shared.sites_checked.store(false, Ordering::Relaxed);
+                            }
+                        });
+                    }
                 }
                 Err(err) => {
                     tracing::warn!(%err, "starting without the browser");
@@ -1371,7 +1901,7 @@ impl Hub {
                 }
             }
         }
-        // The Assistant always gets its team tools, browser or not.
+        // Herder always gets its team tools, browser or not.
         if bot.is_central() {
             servers.insert(TOOL_SERVER_NAME.to_owned(), tools::mcp_entry());
         }
@@ -1398,11 +1928,13 @@ impl Hub {
             process,
             busy: false,
             permit: None,
+            browser,
             lease: None,
             last_active: Instant::now(),
             tool_names: HashMap::new(),
             page: None,
             elements: HashMap::new(),
+            asker: None,
         })
     }
 
@@ -1420,7 +1952,7 @@ impl Hub {
         self.cancel_sign_ins(&bot);
         let removed = self.runtimes.lock().await.remove(&bot);
         let was_busy = removed.is_some_and(|mut r| {
-            self.release_browser(&bot, &mut r);
+            Self::release_browser(&bot, &mut r);
             r.busy
         });
         if !started && was_busy {
@@ -1513,7 +2045,7 @@ impl Hub {
                     runtime.busy = false;
                     runtime.permit = None;
                     runtime.last_active = Instant::now();
-                    self.release_browser(bot, runtime);
+                    Self::release_browser(bot, runtime);
                 }
                 self.announce_bots().await;
                 self.announce_usage();
@@ -1539,8 +2071,15 @@ impl Hub {
 
     /// Tells every connected client something, without storing it.
     fn notice(&self, message: &str) {
+        self.notice_for(None, message);
+    }
+
+    /// Like [`Hub::notice`], for `owner` alone when it's about their own
+    /// browser (`None` for everyone).
+    fn notice_for(&self, owner: Option<String>, message: &str) {
         let _ = self.updates.send(ServerMsg::Notice {
             message: message.to_owned(),
+            owner,
         });
     }
 }
@@ -1553,17 +2092,20 @@ fn browser_state(status: BrowserStatus) -> BrowserState {
     }
 }
 
-/// Tells clients when the browser changes state, and counts a closed
+/// Tells clients when a browser changes state, and counts a closed
 /// sign-in window as "signed in".
-async fn watch_browser(hub: std::sync::Weak<Hub>, browser: Arc<Browser>) {
-    let mut status = browser.status();
-    drop(browser);
+async fn watch_browser(hub: std::sync::Weak<Hub>, shared: Arc<Shared>) {
+    let mut status = shared.browser.status();
+    let shared = Arc::downgrade(&shared);
     let mut before = *status.borrow();
     while status.changed().await.is_ok() {
         let now = *status.borrow_and_update();
         let Some(hub) = hub.upgrade() else { return };
+        let Some(shared) = shared.upgrade() else {
+            return;
+        };
         if before == BrowserStatus::SigningIn && now != BrowserStatus::SigningIn {
-            hub.sign_in_window_closed();
+            hub.sign_in_window_closed(&shared);
         }
         before = now;
         hub.announce_bots().await;
@@ -1634,7 +2176,63 @@ fn tool_label(name: &str) -> String {
     }
 }
 
-/// Plain names for the Assistant's team tools.
+/// The folder name for a person's own browser: their name made safe for a
+/// folder, plus a short hash of the exact name, so `Sam` and `sam` never
+/// share sign-ins.
+/// Herder doesn't relay private bots: what they do would land in Herder's
+/// chat, which everyone can read. `None` for a shared bot.
+fn private_message(bot: &Bot) -> Option<String> {
+    bot.private.then(|| {
+        format!(
+            "{} is private. Herder doesn't pass tasks to private bots or read their replies; \
+             tell the user to open {} in the sidebar and ask it there.",
+            bot.name, bot.name
+        )
+    })
+}
+
+fn person_folder(name: &str) -> String {
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let safe = safe.trim_matches('-');
+    let safe = if safe.is_empty() { "person" } else { safe };
+    // FNV-1a: stable across runs and Rust versions, unlike `DefaultHasher`.
+    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!(
+        "{}-{:08x}",
+        safe.chars().take(32).collect::<String>(),
+        hash >> 32
+    )
+}
+
+/// Names every remembered site by its main domain (sign-ins taken from old
+/// history are stored by host, e.g. `accounts.google.com`).
+fn tidy_sites(store: &Store) {
+    for owner in store.site_owners().unwrap_or_default() {
+        let Ok(sites) = store.sites(&owner) else {
+            continue;
+        };
+        for site in sites {
+            let main = site_of(&site.site);
+            if main != site.site {
+                let _ = store.remove_site(&owner, &site.site);
+                let _ = store.add_site_at(&owner, &main, site.signed_in_ms);
+            }
+        }
+    }
+}
+
+/// Plain names for Herder's team tools.
 fn team_label(name: &str) -> Option<&'static str> {
     let tool = name.strip_prefix(&format!("mcp__{TOOL_SERVER_NAME}__"))?;
     Some(match tool {
@@ -1682,6 +2280,15 @@ fn activity_label(activity: &Activity) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_person_gets_their_own_browser_folder() {
+        assert!(person_folder("Sam").starts_with("sam-"));
+        assert_ne!(person_folder("Sam"), person_folder("sam"));
+        assert_eq!(person_folder("Sam"), person_folder("Sam"));
+        assert!(person_folder("../..").starts_with("person-"));
+        assert!(!person_folder("a/b").contains('/'));
+    }
 
     #[test]
     fn tool_calls_get_readable_names() {

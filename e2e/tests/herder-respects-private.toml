@@ -1,0 +1,13 @@
+name = "Herder won't use someone else's private bot"
+about = "When Ann asks Herder to use Sam's private bot, Herder says it's private and nothing reaches the bot."
+covers = ["crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-core/src/policy.rs"]
+as = "Ann"
+
+[[step]]
+click = "Herder"
+[[step]]
+send = "please ask bank for the balance"
+[[step]]
+wait_for = "private to Sam"
+[[step]]
+expect_not = "SECRET-BALANCE"

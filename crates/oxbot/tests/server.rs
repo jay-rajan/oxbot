@@ -77,7 +77,7 @@ async fn next(ws: &mut Ws) -> ServerMsg {
 }
 
 /// Connects and reads the opening messages: hello, settings, setup, usage,
-/// people.
+/// people, and the home and own site lists.
 async fn connect(url: &str) -> (Ws, ServerHello, oxbot_protocol::AppSettings) {
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     let ServerMsg::Hello(hello) = next(&mut ws).await else {
@@ -89,7 +89,14 @@ async fn connect(url: &str) -> (Ws, ServerHello, oxbot_protocol::AppSettings) {
     assert!(matches!(next(&mut ws).await, ServerMsg::Setup(_)));
     assert!(matches!(next(&mut ws).await, ServerMsg::Usage(_)));
     assert!(matches!(next(&mut ws).await, ServerMsg::People { .. }));
-    assert!(matches!(next(&mut ws).await, ServerMsg::Sites { .. }));
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMsg::Sites { owner: None, .. }
+    ));
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMsg::Sites { owner: Some(_), .. }
+    ));
     (ws, hello, settings)
 }
 
@@ -263,6 +270,7 @@ async fn bots_are_created_from_a_name() {
     let (mut ws, _, _) = connect(&url).await;
 
     let create = ClientMsg::CreateBot {
+        private: false,
         name: "Daily News".into(),
         instructions: "Summarize the news.".into(),
     };

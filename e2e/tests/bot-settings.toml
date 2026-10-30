@@ -1,0 +1,30 @@
+name = "Bot settings: rename, make private, delete"
+about = "The ··· menu renames a bot, makes it private, and deletes it after a second press."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect = "Red lentil dal"
+note = "The seeded chat shows"
+[[step]]
+click = "Bot settings"
+[[step]]
+type = { into = "Name", text = "Family Recipes" }
+[[step]]
+click = "Private"
+[[step]]
+click = "Save"
+[[step]]
+wait_for = "private · @recipes"
+[[step]]
+expect = "Family Recipes"
+[[step]]
+click = "Bot settings"
+[[step]]
+click = "Delete bot"
+[[step]]
+click = "Yes, delete Family Recipes"
+[[step]]
+expect_not = "Family Recipes"
+note = "Gone from the list"

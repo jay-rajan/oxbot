@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use oxbot_browser::{Tools, ToolsConfig};
-use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, Store};
+use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, Store, Viewer};
 use oxbot_protocol::{
     Answer, Approval, ApprovalKind, EventKind, Outcome, ServerMsg, SignInOutcome,
 };
@@ -157,14 +157,19 @@ async fn new_bots_get_ids_from_their_names_and_work_without_a_restart() {
     let mut updates = hub.subscribe();
 
     let info = hub
-        .create_bot("Daily News", "Summarize the news.")
+        .create_bot("Daily News", "Summarize the news.", Some("Anu"))
         .await
         .unwrap();
     assert_eq!(info.id, "daily-news");
+    assert_eq!(
+        info.created_by.as_deref(),
+        Some("Anu"),
+        "the creator is kept"
+    );
     assert!(tmp.path().join("daily-news/instructions.md").exists());
     assert!(matches!(updates.recv().await.unwrap(), ServerMsg::Bots { bots } if bots.len() == 2));
 
-    let again = hub.create_bot("Daily News", "").await.unwrap();
+    let again = hub.create_bot("Daily News", "", None).await.unwrap();
     assert_eq!(again.id, "daily-news-2");
 
     hub.send("daily-news-2", "anything new?", None)
@@ -416,12 +421,12 @@ async fn signing_out_is_refused_while_a_bot_uses_the_browser() {
     let mut updates = hub.subscribe();
     let approval = card(&hub, &mut updates).await;
     assert!(matches!(
-        hub.sign_out_all().await,
+        hub.sign_out_all(oxbot_core::store::HOME).await,
         Err(HubError::BrowserBusy(_))
     ));
     hub.answer(approval.id, Answer::Deny);
     let _ = ending(&hub, &mut updates).await;
-    hub.sign_out_all().await.unwrap();
+    hub.sign_out_all(oxbot_core::store::HOME).await.unwrap();
     hub.shutdown().await;
 }
 
@@ -509,7 +514,204 @@ async fn the_assistant_gives_a_task_and_other_bots_cant() {
     });
     assert!(
         from_assistant,
-        "the task shows in the helper's chat, from the Assistant"
+        "the task shows in the helper's chat, from Herder"
     );
+    hub.shutdown().await;
+}
+
+fn ids(bots: &[oxbot_protocol::BotInfo]) -> Vec<&str> {
+    bots.iter().map(|b| b.id.as_str()).collect()
+}
+
+#[tokio::test]
+async fn a_private_bot_is_seen_only_by_its_maker_and_the_farm() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]);
+    let bank = hub
+        .create_bot_with("Bank", "Check my bank.", Some("Sam"), true)
+        .await
+        .unwrap();
+    assert!(bank.private);
+    hub.create_bot_with("Recipes", "", Some("Sam"), false)
+        .await
+        .unwrap();
+    let (sam, ann, farm) = (
+        Viewer::gate("Sam"),
+        Viewer::gate("Ann"),
+        Viewer::farm("Jay"),
+    );
+
+    // Ann sees its name and lock, but not what it does, and can't open it.
+    assert_eq!(ids(&hub.bots_for(&ann).await.unwrap()).len(), 3);
+    assert_eq!(ids(&hub.bots_for(&sam).await.unwrap()).len(), 3);
+    assert_eq!(ids(&hub.bots_for(&farm).await.unwrap()).len(), 3);
+    // To Ann it's as if it didn't exist.
+    assert!(matches!(
+        hub.bot_for("bank", &ann),
+        Err(HubError::UnknownBot(_))
+    ));
+    assert!(hub.history_for("bank", 0, &ann).is_err());
+    assert!(hub.history_for("bank", 0, &sam).is_ok());
+    assert!(hub.history_for("bank", 0, &farm).is_ok());
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn only_the_maker_or_the_farm_can_change_or_delete_a_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]);
+    hub.create_bot_with("Recipes", "", Some("Sam"), false)
+        .await
+        .unwrap();
+    let (sam, ann, farm) = (
+        Viewer::gate("Sam"),
+        Viewer::gate("Ann"),
+        Viewer::farm("Jay"),
+    );
+
+    assert!(matches!(
+        hub.set_private("recipes", true, &ann).await,
+        Err(HubError::NotAllowed(_))
+    ));
+    assert!(matches!(
+        hub.delete_bot("recipes", &ann).await,
+        Err(HubError::NotAllowed(_))
+    ));
+    hub.set_private("recipes", true, &sam).await.unwrap();
+    assert!(hub.bot("recipes").unwrap().private);
+    assert!(hub.bot_for("recipes", &ann).is_err(), "locked to Ann");
+    hub.rename_bot("recipes", "Sam's Recipes", &sam)
+        .await
+        .unwrap();
+    assert_eq!(hub.bot("recipes").unwrap().name, "Sam's Recipes");
+    // One line, not too long, not taken.
+    for bad in ["two\nlines", &"x".repeat(61), "herder"] {
+        assert!(
+            matches!(
+                hub.rename_bot("recipes", bad, &sam).await,
+                Err(HubError::NotAllowed(_))
+            ),
+            "{bad:?}"
+        );
+    }
+
+    // Herder belongs to everyone.
+    assert!(hub.set_private("assistant", true, &farm).await.is_err());
+    assert!(hub.delete_bot("assistant", &farm).await.is_err());
+    assert!(hub.rename_bot("assistant", "Boss", &farm).await.is_err());
+
+    // The Farm can delete anyone's bot, private or not; its files go to the trash.
+    let mut updates = hub.subscribe();
+    hub.send("recipes", "hi", Some("Sam")).await.unwrap();
+    let card = next(&mut updates, |m| match m {
+        ServerMsg::ApprovalNeeded(a) => Some(a),
+        _ => None,
+    })
+    .await;
+    assert!(
+        matches!(
+            hub.delete_bot("recipes", &farm).await,
+            Err(HubError::Busy(_))
+        ),
+        "not while it's working"
+    );
+    hub.answer(card.id, Answer::Deny);
+    let _ = reply_of(&hub, &mut updates, "recipes").await;
+    hub.delete_bot("recipes", &farm).await.unwrap();
+    assert!(hub.bot("recipes").is_err());
+    assert!(hub.history("recipes", 0).is_err());
+    let trash = tmp.path().join("trash");
+    let moved: Vec<_> = std::fs::read_dir(&trash).unwrap().flatten().collect();
+    assert_eq!(moved.len(), 1, "the folder is in the trash");
+    let kept = std::fs::read_to_string(moved[0].path().join("history.jsonl")).unwrap();
+    assert!(kept.contains("\"hi\""), "its history went with it: {kept}");
+    // A new bot with the same name starts with an empty history.
+    hub.create_bot("Recipes", "", Some("Ann")).await.unwrap();
+    assert_eq!(hub.history("recipes", 0).unwrap().len(), 0);
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn herder_never_relays_a_private_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]);
+    hub.set_private("helper", true, &Viewer::farm("Sam"))
+        .await
+        .unwrap();
+    assert_eq!(
+        hub.bot("helper").unwrap().created_by.as_deref(),
+        Some("Sam")
+    );
+    let mut updates = hub.subscribe();
+
+    hub.send("assistant", "ask the helper to say hi", Some("Ann"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(
+        said.starts_with("tool_ok=false helper is private to Sam"),
+        "{said}"
+    );
+    assert!(
+        hub.history("helper", 0).unwrap().is_empty(),
+        "nothing reached it"
+    );
+
+    // Not even for its maker: the reply would land in Herder's chat, which
+    // everyone can read.
+    hub.send("assistant", "ask the helper to say hi", Some("Sam"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(
+        said.starts_with("tool_ok=false helper is private. Herder doesn't pass"),
+        "{said}"
+    );
+    assert!(
+        hub.history("helper", 0).unwrap().is_empty(),
+        "nothing reached it"
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn herder_lists_only_the_bots_the_asker_may_see() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "list", &["assistant"]);
+    hub.create_bot_with("Bank", "", Some("Sam"), true)
+        .await
+        .unwrap();
+    hub.create_bot_with("Recipes", "", Some("Sam"), false)
+        .await
+        .unwrap();
+    let mut updates = hub.subscribe();
+
+    hub.send("assistant", "what bots are there?", Some("Ann"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(said.contains("Recipes (id recipes), made by Sam"), "{said}");
+    assert!(
+        said.contains("Bank (id bank): private to Sam, locked"),
+        "{said}"
+    );
+
+    hub.send("assistant", "what bots are there?", Some("Sam"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(said.contains("Bank (id bank), private to Sam"), "{said}");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn only_a_listed_site_opens() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]);
+    assert!(matches!(
+        hub.open_site("evil.example/phish", oxbot_core::store::HOME)
+            .await,
+        Err(HubError::BadSite(_))
+    ));
     hub.shutdown().await;
 }

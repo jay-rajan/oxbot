@@ -74,6 +74,10 @@ main { grid-template-columns: minmax(0, 1fr); }
 .c4legend .l-plan { background: var(--bg); border: 1.5px dashed var(--muted); }
 .c4legend .l-person { background: var(--ok-soft); border: 1.5px solid var(--ok); border-radius: 8px; }
 .c4legend .l-box { border: 1.5px dashed var(--ok); }
+.c4legend .l-stack { background: var(--surface); border: 1.5px solid var(--rust); box-shadow: 3px -3px 0 -1px var(--surface), 3px -3px 0 0 var(--rust); }
+.changed { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; max-width: 75ch; }
+.changed b { font-weight: 600; }
+.changed li { overflow-wrap: anywhere; }
 </style>
 
 <main>
@@ -85,9 +89,14 @@ main { grid-template-columns: minmax(0, 1fr); }
 </header>
 
 <section>
+  <h2>What changed</h2>
+  {{CHANGED}}
+</section>
+
+<section>
   <h2>C4 model</h2>
-  <p>Three zoom levels of the same system, following the C4 model: the context around oxbot, the processes on the Mac, then the parts inside the server. Drawn from the <code>c4</code> block in <code>model.json</code>.</p>
-  <div class="legend c4legend"><span><i class="l-person"></i>person</span><span><i class="l-sys"></i>oxbot</span><span><i class="l-built"></i>built</span><span><i class="l-plan"></i>planned</span><span><i class="l-ext"></i>external, or another container</span><span><i class="l-box"></i>boundary</span><span>dashed arrows: planned</span></div>
+  <p>Three zoom levels of the same system, following the C4 model: the context around oxbot, the processes on the Farm (the Mac that runs oxbot), then the parts inside the server. Drawn from the <code>c4</code> block in <code>model.json</code>.</p>
+  <div class="legend c4legend"><span><i class="l-person"></i>person</span><span><i class="l-sys"></i>oxbot</span><span><i class="l-built"></i>built</span><span><i class="l-plan"></i>planned</span><span><i class="l-ext"></i>external, or another container</span><span><i class="l-box"></i>boundary</span><span><i class="l-stack"></i>one per owner</span><span>dashed arrows: planned</span></div>
   <div class="c4">{{C4}}</div>
 </section>
 

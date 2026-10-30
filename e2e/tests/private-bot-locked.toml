@@ -1,0 +1,31 @@
+name = "Someone else's private bot is locked"
+about = "Ann sees Sam's private bot by name with a lock, but opening it shows only blurred placeholders: none of its chat, and no way to message it."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**"]
+as = "Ann"
+
+[[step]]
+expect = "Bank"
+note = "Listed by name"
+[[step]]
+expect = "by Sam"
+[[step]]
+click = "Bank"
+[[step]]
+expect = "Sam's private bot"
+[[step]]
+expect = "Only Sam can open it."
+[[step]]
+expect_not = "SECRET-BALANCE"
+note = "The seeded chat must not be on screen"
+[[step]]
+expect_js = "!document.documentElement.innerHTML.includes('SECRET-BALANCE')"
+note = "…nor anywhere in the page"
+[[step]]
+expect_disabled = "Private"
+note = "The message box is off"
+[[step]]
+expect_js = "document.getElementById('botMore').hidden"
+note = "No bot settings for Ann"
+[[step]]
+expect_disabled = "Send"
+note = "…and Send is off too"

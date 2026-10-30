@@ -1,0 +1,19 @@
+name = "Herder makes a bot after your OK"
+about = "Asking Herder for a bot shows a card; pressing Create makes it, by whoever asked."
+covers = ["crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "Herder"
+[[step]]
+send = "make a bot for the weather"
+[[step]]
+wait_for = "Don't create"
+[[step]]
+expect = "Weather Notes"
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "Created it."
+[[step]]
+expect_js = "[...document.querySelectorAll('.bot-item')].some(b => b.innerText.includes('Weather Notes') && b.innerText.includes('by Jay'))"
+note = "In the sidebar, made by Jay"

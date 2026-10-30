@@ -127,6 +127,9 @@ def c4_box(n):
         out.append(f'<path d="M{x},{y + 10} h{w * 0.35:.0f} l8,-10 h{w * 0.65 - 8:.0f} v{h} h{-w} z" {style}/>')
         top = y + 6
     else:
+        if n.get("stack"):  # several of the same thing: copies peek out behind
+            for off in (10, 5):
+                out.append(f'<rect x="{x + off}" y="{y - off}" width="{w}" height="{h}" rx="{8 if t == "component" else 6}" {style}/>')
         out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{8 if t == "component" else 6}" {style}/>')
     kind = C4_KIND[t] if t != "external" else "External"
     tag = f"[{kind}: {n['tech']}]" if n.get("tech") and t not in ("person", "system") else f"[{kind}]"
@@ -210,6 +213,7 @@ c4 = "".join(
 
 # ---------------------------------------------------------------- tables
 status_of = {c["id"]: c for c in model["components"]}
+mlabel = lambda m: f"M{m}" if str(m)[:1].isdigit() else str(m)
 pill = lambda s: f'<span class="pill {s}">{s}</span>'
 crate_rows = "".join(
     f'<tr><td><code>{e(c["name"])}</code><div class="small">{c["kind"]}</div></td>'
@@ -220,13 +224,16 @@ crate_rows = "".join(
     f'<td class="small">{", ".join(e(d) for d in c["external"]) or "–"}</td></tr>'
     for c in crates)
 other_rows = "".join(
-    f'<tr><td>{e(c["label"])}</td><td>{e(c["sub"])}</td><td>{pill(c["status"])}</td><td class="num">M{c["m"]}</td></tr>'
+    f'<tr><td>{e(c["label"])}</td><td>{e(c["sub"])}</td><td>{pill(c["status"])}</td><td class="num">{mlabel(c["m"])}</td></tr>'
     for c in model["components"] if c["kind"] != "crate")
 history = "".join(
-    f'<li><span class="n">M{h["m"]}</span><div><h3>{e(h["title"])} <span class="small">{h["date"]}</span></h3>'
+    f'<li><span class="n">{e(mlabel(h["m"]))}</span><div><h3>{e(h["title"])} <span class="small">{h["date"]}</span></h3>'
     f'<ul>{"".join(f"<li>{e(i)}</li>" for i in h["items"])}</ul></div></li>'
     for h in reversed(model["history"]))
 nx = model["next"]
+ch = model.get("changed", {})
+changed = (f'<p class="small">{e(ch.get("intro", ""))}</p><ul class="changed">'
+           + "".join(f'<li><b>{e(i["title"])}.</b> {e(i["text"])}</li>' for i in ch.get("items", [])) + "</ul>")
 tot_loc = sum(c["loc"] for c in crates)
 tot_tests = sum(c["tests"] for c in crates)
 
@@ -234,7 +241,7 @@ page = (HERE / "template.html").read_text()
 for k, v in {
     "{{MILESTONE}}": str(model["milestone"]), "{{UPDATED}}": model["updated"],
     "{{DIAGRAM}}": diagram, "{{C4}}": c4,"{{CRATES}}": crate_rows, "{{OTHERS}}": other_rows,
-    "{{HISTORY}}": history, "{{NEXT}}": f'<b>M{nx["m"]} · {e(nx["title"])}</b> {e(nx["text"])}',
+    "{{HISTORY}}": history, "{{CHANGED}}": changed, "{{NEXT}}": f'<b>{e(mlabel(nx["m"]))} · {e(nx["title"])}</b> {e(nx["text"])}',
     "{{NCRATES}}": str(len(crates)), "{{LOC}}": str(tot_loc), "{{TESTS}}": str(tot_tests),
 }.items():
     page = page.replace(k, v)

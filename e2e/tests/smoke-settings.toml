@@ -1,0 +1,20 @@
+name = "Settings opens on each tab"
+about = "The gear opens Settings; General, Sign-ins and Activity each show their content."
+smoke = true
+covers = []
+
+[[step]]
+click = "Settings"
+[[step]]
+expect = "Claude usage"
+[[step]]
+click = "Sign-ins"
+[[step]]
+expect = "wikipedia.org"
+note = "The home sign-in from the seed"
+[[step]]
+click = "Activity"
+[[step]]
+expect = "What oxbot is doing"
+[[step]]
+key = "Escape"

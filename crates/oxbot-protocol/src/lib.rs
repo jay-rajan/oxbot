@@ -80,6 +80,31 @@ pub enum ClientMsg {
         name: String,
         /// What the bot should do, in the user's words.
         instructions: String,
+        /// Only its creator (and the Farm) can see and use it.
+        #[serde(default)]
+        private: bool,
+    },
+    /// Make a bot private (only its creator and the Farm see it, and it
+    /// uses its creator's own browser) or shared. Its creator or the Farm
+    /// only.
+    SetPrivate {
+        /// Bot id.
+        bot: String,
+        /// Private or shared.
+        private: bool,
+    },
+    /// Give a bot a new name. Its creator or the Farm only.
+    RenameBot {
+        /// Bot id.
+        bot: String,
+        /// The new name.
+        name: String,
+    },
+    /// Delete a bot and its history (its folder goes to oxbot's trash).
+    /// Its creator or the Farm only; Herder can't be deleted.
+    DeleteBot {
+        /// Bot id.
+        bot: String,
     },
     /// The user's answer to an [`Approval`].
     Answer {
@@ -109,19 +134,38 @@ pub enum ClientMsg {
         /// The request's id.
         id: u64,
     },
-    /// Sign the shared browser out of every site (deletes its profile).
-    SignOutAll,
+    /// Sign a browser out of every site (deletes its profile).
+    SignOutAll {
+        /// Your own browser instead of the home one.
+        #[serde(default)]
+        mine: bool,
+    },
     /// Run the setup check again; the answer is a [`ServerMsg::Setup`].
     CheckSetup,
     /// Show a signed-in site in the visible Chrome window.
     OpenSite {
         /// The site, as [`SiteInfo::site`] names it.
         site: String,
+        /// In your own browser instead of the home one.
+        #[serde(default)]
+        mine: bool,
     },
-    /// Sign the shared browser out of one site; the others stay signed in.
+    /// Open a sign-in window on `url` so the user signs in to a site
+    /// before any bot needs it. Closing the window adds it to the list.
+    AddSignIn {
+        /// The site's address, e.g. `gmail.com` or `https://www.amazon.ca`.
+        url: String,
+        /// In your own browser (for your private bots) instead of the home one.
+        #[serde(default)]
+        mine: bool,
+    },
+    /// Sign a browser out of one site; the others stay signed in.
     SignOutSite {
         /// The site, as [`SiteInfo::site`] names it.
         site: String,
+        /// Your own browser instead of the home one.
+        #[serde(default)]
+        mine: bool,
     },
     /// Do a setup step for the user (install Claude Code, sign in to
     /// Claude). Progress comes as [`ServerMsg::SetupProgress`], then a new
@@ -201,11 +245,16 @@ pub enum ServerMsg {
     /// What's installed and what's missing (Claude Code, Chrome, Node.js).
     /// Sent after [`ServerMsg::Hello`] and after [`ClientMsg::CheckSetup`].
     Setup(SetupReport),
-    /// The sites the shared browser is signed in to. Sent after
-    /// [`ServerMsg::Hello`] and whenever the list changes.
+    /// The sites a browser is signed in to: the home browser (shared bots)
+    /// or one person's own (their private bots). Sent after
+    /// [`ServerMsg::Hello`] (home, then yours) and whenever a list changes.
     Sites {
         /// Newest sign-in first.
         sites: Vec<SiteInfo>,
+        /// Whose browser: `None` for home, else the person's name. A client
+        /// only gets home and its own person's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
     },
     /// A setup step oxbot is doing for the user, as it goes.
     SetupProgress {
@@ -226,6 +275,10 @@ pub enum ServerMsg {
     Notice {
         /// The message, for the user.
         message: String,
+        /// Whose it is, if it's about one person's own browser: only they
+        /// (and the Farm) get it. `None` for everyone.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
     },
     /// Something the client asked for went wrong.
     Error {
@@ -247,6 +300,10 @@ pub struct AppSettings {
     /// Who this client's messages are sent as, e.g. `Jayadev`.
     #[serde(default)]
     pub you: String,
+    /// Whether this client is on the Farm itself, which can see, change and
+    /// delete every bot, private ones included.
+    #[serde(default)]
+    pub farm: bool,
 }
 
 /// A bot asking the user to sign in to a site in the shared browser.
@@ -301,6 +358,9 @@ pub struct SiteInfo {
     pub site: String,
     /// When the user last signed in (ms since the Unix epoch).
     pub signed_in_ms: i64,
+    /// The site's icon, as Chrome saved it (a `data:image/png` URL), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// A setup step oxbot can do for the user.
@@ -425,7 +485,7 @@ pub enum ApprovalKind {
     Upload,
     /// A change on a site, e.g. clicking Send or Post (shown in red).
     Change,
-    /// The Assistant wants to create a new bot.
+    /// Herder (the central bot) wants to create a new bot.
     CreateBot,
 }
 
@@ -494,10 +554,17 @@ pub struct BotInfo {
     pub last_reply_seq: u64,
     /// What its browser is doing.
     pub browser_state: BrowserState,
-    /// Whether this is the central bot (the Assistant), which can create
+    /// Whether this is the central bot (Herder), which can create
     /// bots and give them tasks.
     #[serde(default)]
     pub central: bool,
+    /// Who created it (a person's name); `None` for bots from before oxbot
+    /// kept track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    /// Only its creator (and the Farm) can see and use it.
+    #[serde(default)]
+    pub private: bool,
 }
 
 /// One stored event in a bot's history.
@@ -606,8 +673,37 @@ mod tests {
             ClientMsg::CreateBot {
                 name: "X".into(),
                 instructions: String::new(),
+                private: false,
             }
         );
+    }
+
+    #[test]
+    fn sign_in_actions_mean_the_home_browser_unless_mine() {
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"add_sign_in","url":"gmail.com"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::AddSignIn {
+                url: "gmail.com".into(),
+                mine: false
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"sign_out_site","site":"x.com","mine":true}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::SignOutSite {
+                site: "x.com".into(),
+                mine: true
+            }
+        );
+        let json = serde_json::to_string(&ServerMsg::Sites {
+            sites: vec![],
+            owner: None,
+        })
+        .unwrap();
+        assert_eq!(json, r#"{"type":"sites","sites":[]}"#);
     }
 
     #[test]
@@ -648,6 +744,7 @@ mod tests {
             data_dir: "/d".into(),
             launch_at_login: None,
             you: "Jay".into(),
+            farm: true,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
@@ -677,7 +774,7 @@ mod tests {
         let msg: ClientMsg = serde_json::from_str(r#"{"type":"sign_in_done","id":2}"#).unwrap();
         assert_eq!(msg, ClientMsg::SignInDone { id: 2 });
         let msg: ClientMsg = serde_json::from_str(r#"{"type":"sign_out_all"}"#).unwrap();
-        assert_eq!(msg, ClientMsg::SignOutAll);
+        assert_eq!(msg, ClientMsg::SignOutAll { mine: false });
         let msg: ClientMsg =
             serde_json::from_str(r#"{"type":"run_setup","action":"install_claude"}"#).unwrap();
         assert_eq!(

@@ -157,7 +157,11 @@ async fn bots(action: BotsAction) -> anyhow::Result<()> {
             port,
         } => {
             if client::server_running(port).await {
-                let msg = ClientMsg::CreateBot { name, instructions };
+                let msg = ClientMsg::CreateBot {
+                    name,
+                    instructions,
+                    private: false,
+                };
                 match client::request(port, &msg).await? {
                     ServerMsg::Error { message } => bail!(message),
                     ServerMsg::BotCreated(info) => {

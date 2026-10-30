@@ -1,7 +1,7 @@
 //! oxbot's own tools for bots.
 //!
 //! - Every bot: `request_sign_in`.
-//! - The central bot (the Assistant) only: `list_bots`, `create_bot`,
+//! - The central bot (Herder) only: `list_bots`, `create_bot`,
 //!   `give_task` and `read_reply`, so it can run the team. Other bots aren't
 //!   shown them and can't call them, so bots can't set each other off.
 //!
@@ -70,8 +70,8 @@ fn tools(central: bool) -> Vec<Value> {
         list.extend([
             json!({
                 "name": LIST_BOTS_TOOL,
-                "description": "List the user's bots: each one's id, name, what it's for (the start of its \
-                    instructions) and whether it's working right now.",
+                "description": "List the bots the person asking you can use: each one's id, name, who made \
+                    it, what it's for (the start of its instructions) and whether it's working right now.",
                 "inputSchema": { "type": "object", "properties": {} }
             }),
             json!({
@@ -83,7 +83,8 @@ fn tools(central: bool) -> Vec<Value> {
                     "type": "object",
                     "properties": {
                         "name": { "type": "string", "description": "A short name, e.g. \"Gmail Checker\"." },
-                        "instructions": { "type": "string", "description": "What the bot is for and how it should work, written to the bot (\"You check…\"). A few short lines." }
+                        "instructions": { "type": "string", "description": "What the bot is for and how it should work, written to the bot (\"You check…\"). A few short lines." },
+                        "private": { "type": "boolean", "description": "Only for the person asking: hidden from everyone else, and it uses their own browser sign-ins. Only when they ask for a private bot." }
                     },
                     "required": ["name", "instructions"]
                 }
@@ -91,7 +92,7 @@ fn tools(central: bool) -> Vec<Value> {
             json!({
                 "name": GIVE_TASK_TOOL,
                 "description": "Send another bot a task. It shows in that bot's chat as a message from \
-                    Assistant, so the user can follow along. That bot still asks the user before any send, \
+                    Herder, so the user can follow along. That bot still asks the user before any send, \
                     post, delete or buy, and asks them to sign in when needed. By default waits (up to about \
                     10 minutes) and returns the bot's reply; with wait=false it returns at once and you can \
                     read_reply later.",
@@ -121,7 +122,7 @@ fn tools(central: bool) -> Vec<Value> {
 
 /// Answers one MCP (JSON-RPC) message for a bot. A notification gets an
 /// empty `{}` (Claude Code wants every message answered). `central` says
-/// whether the bot is the Assistant. `call(tool, arguments)` runs a tool and
+/// whether the bot is Herder, the central bot. `call(tool, arguments)` runs a tool and
 /// returns whether it worked and what to tell the bot.
 pub async fn handle<F, Fut>(msg: &Value, central: bool, call: F) -> Value
 where

@@ -118,3 +118,47 @@
 → 2.11.4 built: Setup offers Install Claude Code (Anthropic's installer) and Sign in to Claude (`claude auth login`; status from `claude auth status --json`), with live progress. The browser tool and a universal Node.js 24.22.2 ship inside oxbot.app (scripts/fetch-tools.sh, checksums pinned; chrome-devtools-mcp from scripts/tools/package-lock.json), so Node.js is no longer asked for. dmg 12 MB → 108 MB.
 → 2.11.2 built: gear opens Settings; "Signed in" list at the bottom of the sidebar (sites recorded on sign-in, main domain via the psl crate); each site can be opened or signed out of alone (DevTools Network.deleteCookies per cookie + Storage.clearDataForOrigin).
 → 2.11.3 built: the Assistant (id assistant) is central and pinned first; its oxbot tools list_bots, create_bot (card: Create / Don't create), give_task (shows in the other bot's chat from Assistant, waits for the reply), read_reply. Other bots can't use them. Tested with real Haiku.
+
+## 57. 2026-10-29
+"can you push the code under jay-rajan. in a new repositiry"
+→ First commit (no secrets found in a scan) pushed to a new private repo, github.com/jay-rajan/oxbot (branch main).
+
+## 58. 2026-10-29
+"i want the assistant to be called something like a leader" … "Herder is a better name. I want to have its own icon and resemblance to the main oxbot icon" / "go with your pick for now"
+→ The central bot is now Herder ("leads your bots"); icon: the O with red horns plus a red lead bell (docs/brand/svg/herder*.svg). An existing "Assistant" with its old default instructions is renamed on start (folder stays assistant; its model and any own instructions are kept). Prompts, tools and cards say Herder.
+
+## 59. 2026-10-29
+"i want oxbot config like this. one machine is the main machine where all the compute works. and the other machines are satellite including laptop and phone. multiple people can create bot. so each bot should have a name under it who created it" / "but everyone can interact with every bot unless locked."
+→ Plan for OK: main Mac + satellites (laptop in satellite mode, phones), devices paired to a person, created_by and locked on each bot; four calls listed on the plan page.
+
+## 60. 2026-10-29
+"Signed in sites shows empty now. settings should be in the bottom left"
+→ Migration 5 fills the Signed in list from finished sign-ins in the chat history (named by main domain; checked against the browser's cookies once per run). The gear moved to the bottom left of the sidebar; the + stays top right.
+
+## 61. 2026-10-29
+"the main icon of the dmg has not changed." / "i want that when you click on a message in nav, it should go the last message" / "still i dont see the name of the person who created the bots."
+→ The app already had the new icon; the dmg file and its disk now carry it too (make-dmg.sh: .VolumeIcon.icns + custom-icon flag, file icon via NSWorkspace). Opening a bot sticks the chat to its latest message while history loads (until you scroll). Bots record created_by (bot.toml, BotInfo): the person who pressed + or who asked Herder; the sidebar shows "by Name" with their color; older bots show this Mac's owner.
+
+## 62. 2026-10-29
+"can sign in use fav icons of the site? or first letter in the small space. I want a seperate tab in setting to add the individual sign in"
+→ Signed-in sites show the site's own icon, read from the shared Chrome's Favicons file on disk (read-only; nothing downloaded), else the first letter. Settings has a Sign-ins tab: type a site to sign in to it now (opens the sign-in window; closing it adds the site), plus every site with Open and a two-step Sign out. Tested with en.wikipedia.org.
+
+## 63. Farm, Gates and private bots (2026-10-30, plan only)
+"One person creates a bot. But then they can set that bot to have isolation. Ie no shared access. I am still looking for names for satellites. The main machine can do whatever, even delete the bot." Then: "yes. private use only theirs. Even if it mean logging in twice."
+Plan: main machine = Farm, satellites = Gates; private bots hidden from others, using only their owner's Chrome; a shared home Chrome for shared bots; the Farm can open, rename or delete any bot; live sign-in view on Gates.
+
+## 64. 2026-10-30
+"Farm +gate is good."
+→ Part 1 of the Farm/Gate plan, all on the Farm: bots can be private (bot.toml `private`); a private bot is hidden from everyone but its maker and the Farm, including from Herder when someone else asks, and uses only its maker's own Chrome (`browser/people/<name>-<hash>/`), never the home one (`browser/profile`, unchanged). Sites are kept per browser (migration 6). Maker or Farm can rename, make private/shared, or delete a bot (folder to `trash/`, history cleared). Server filters every update per person. UI: lock on private bots, ··· bot settings, Private box on New bot, Sign-ins tab with Home and Yours. 126 tests; live run with a private Haiku bot.
+
+## 65. 2026-10-30
+"you can still see the bot name. but just that the bot is locked and the converstation blurred. or none." / "Dont show blue button on the person who created. its confusin with the green unread"
+→ Private bots stay in everyone's list (name, maker, lock) with nothing of what they do (busy, counts zeroed). Opening one you can't use shows blurred placeholder lines drawn on the page (no chat is sent), "Name's private bot · Only Name can open it", and the message box off. Herder lists them as locked and refuses tasks. The colored dot next to "by Name" is gone.
+
+## 66. 2026-10-30 (plan only)
+"I want to kind of add skill to test the functionality on every change. But the test themselves reside locally. the idea is that the skill will run the test which are relevant to the PR … These tests are end to end. have a local test even with its own sqllite db. seed data … I do invoke pr_test which will take the applition and run it against the sqllite db … create an artifact where the various screens are captured and flag if something is broken. I want to see the tests and the steps taken. If something is broken, you should fix it. PR could modify the test itself, but unless the PR intendedd to do so." Then: "you can use browser for this. but this app is both browser as well as thick client. will this be a problem ?"
+Plan: /pr_test skill; e2e/ tests (TOML steps with `covers`), seed bots + seed.sql, scripted stand-in Claude, local test sites, baselines; Rust runner crate oxbot-e2e over CDP; picks tests by changed paths, guards unexplained test edits, fixes code and reruns, report artifact. Three layers: Chrome (page + server), Safari/WebKit (the app's engine), app smoke (built oxbot.app).
+
+## 67. 2026-10-30
+"ok" (to the /pr_test plan)
+→ Built crates/oxbot-e2e: `oxbot-e2e pick|run|app|report|approve` and `oxbot-fake-claude` (scripted stand-in speaking Claude Code's stream-json, replies from e2e/claude/*.toml). Chrome over DevTools and Safari over safaridriver behind one driver; steps find things by the words on screen; a screenshot per step compared with e2e/baselines (changed = >0.15% of pixels, with a red diff picture); the Mac app check launches the built oxbot.app on seed data and finds its window and menu-bar icon (CGWindowList via swift, screencapture). oxbot test mode: OXBOT_E2E=1 (`?as=Name` Gate viewer, hidden sign-in windows, OXBOT_PERSON). e2e/: 10 tests, seed bots + seed.sql. Skill .claude/skills/pr_test (symlinked to ~/.claude/skills). First run found and fixed a real bug: Send stayed enabled on someone else's private bot.

@@ -23,6 +23,20 @@ cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
 mkdir -p "$bundle/dmg"
 out="$bundle/dmg/oxbot_${version}_universal.dmg"
-hdiutil create -volname oxbot -srcfolder "$stage" -ov -format UDZO "$out"
-rm -rf "$stage"
+# The disk that opens shows the oxbot icon: build it writable, give its top
+# folder the icon, then compress it.
+icon="$app/Contents/Resources/icon.icns"
+cp "$icon" "$stage/.VolumeIcon.icns"
+rw="$stage.rw.dmg"
+hdiutil create -volname oxbot -srcfolder "$stage" -ov -format UDRW "$rw" >/dev/null
+mount=$(hdiutil attach "$rw" -nobrowse -noautoopen | sed -n 's|.*\(/Volumes/oxbot.*\)$|\1|p' | tail -1)
+SetFile -a C "$mount"
+SetFile -a V "$mount/.VolumeIcon.icns"
+hdiutil detach "$mount" -quiet
+rm -f "$out"
+hdiutil convert "$rw" -format UDZO -o "$out" >/dev/null
+rm -rf "$stage" "$rw"
+# The .dmg file itself gets the icon too (Finder shows it until the file is
+# uploaded somewhere that drops custom icons).
+osascript -l JavaScript -e "ObjC.import('AppKit'); \$.NSWorkspace.sharedWorkspace.setIconForFileOptions(\$.NSImage.alloc.initWithContentsOfFile('$icon'), '$out', 0)" >/dev/null
 echo "Built $out"

@@ -2548,6 +2548,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "psl",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -2600,6 +2601,24 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "oxbot-e2e"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "oxbot-core",
+ "png",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]

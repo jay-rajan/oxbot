@@ -1,0 +1,30 @@
+name = "Signing in for your private bots only"
+about = "Settings → Sign-ins can sign in for your own browser; the site lands under Yours, not Home."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/store.rs", "crates/oxbot-browser/**", "crates/oxbot/src/server.rs"]
+
+[[step]]
+click = "Settings"
+[[step]]
+click = "Sign-ins"
+[[step]]
+expect = "wikipedia.org"
+[[step]]
+click = "Only for my private bots"
+[[step]]
+type = { into = "gmail.com", text = "{server}/" }
+note = "Signs in to a local page (oxbot's own), never a real site"
+[[step]]
+click = "Sign in"
+[[step]]
+wait_ms = 2500
+[[step]]
+close_sign_in_window = true
+note = "As a person would after signing in"
+[[step]]
+wait_for = "127.0.0.1"
+[[step]]
+expect_js = "document.getElementById('mySiteRows').innerText.includes('127.0.0.1') && !document.getElementById('siteRows').innerText.includes('127.0.0.1')"
+note = "Under Yours, not Home"
+[[step]]
+expect_not = "bank.example"
+note = "Sam's sign-ins never show for Jay"

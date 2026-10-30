@@ -97,6 +97,9 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // their tools on this PATH, which works when oxbot was opened from Finder.
     let path = setup::search_path();
     let path_env = vec![("PATH".to_owned(), path.clone())];
+    // End-to-end test mode (`/pr_test`): sign-in windows stay hidden, the
+    // person can be set, and test connections may say who they are.
+    let e2e = std::env::var_os("OXBOT_E2E").is_some_and(|v| v == "1");
     let built_in = built_in_tool();
     if let Some(tool) = &built_in {
         tracing::info!(node = %tool.node.display(), "using the browser tool built into the app");
@@ -107,6 +110,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         Tools::new(ToolsConfig {
             env: path_env.clone(),
             built_in: built_in.clone(),
+            hidden_windows: e2e,
             ..ToolsConfig::in_home(home.root())
         })
     });
@@ -133,7 +137,11 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         ui_dir: options.ui_dir,
         data_dir: home.root().to_owned(),
         app: options.app,
-        local_person: setup::local_person(&device),
+        local_person: std::env::var("OXBOT_PERSON")
+            .ok()
+            .filter(|p| e2e && !p.trim().is_empty())
+            .unwrap_or_else(|| setup::local_person(&device)),
+        e2e,
         search_path: path,
         setup: Arc::default(),
         tool_built_in: built_in.is_some(),

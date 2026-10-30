@@ -1,0 +1,21 @@
+name = "Making a private bot"
+about = "Ticking Private makes a bot only its maker can open; it shows a lock and \"private\"."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Diary" }
+[[step]]
+click = "Private: only you"
+note = "The box under the instructions (matched on its first words, so wording tweaks don't break the test)"
+[[step]]
+expect = "It browses in your own browser"
+note = "The hint explains the private browser"
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "private · @diary"
+[[step]]
+expect_js = "[...document.querySelectorAll('.bot-item')].some(b => b.innerText.includes('Diary') && b.querySelector('.lock'))"
+note = "A lock next to its name"

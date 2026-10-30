@@ -1,0 +1,17 @@
+name = "A post needs your OK"
+about = "When a bot wants to click Post, a red card asks first; Deny means it doesn't."
+covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "post it"
+[[step]]
+wait_for = "Allow once"
+note = "The card appears"
+[[step]]
+expect = "Post"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "didn't post it"

@@ -1,0 +1,671 @@
+{
+  "repo": "oxbot",
+  "branch": "main (uncommitted)",
+  "base": "f360c1d",
+  "head_sha": "f360c1dcc48e9b14f98a5b9941c73649abff1ca1",
+  "date": "2026-10-30",
+  "artifact_url": "https://claude.ai/artifact/4Lp7dqgBCJqDsXbejXyyAX",
+  "diffstat": "20 files, +1,908 / −316 when reviewed (24 files, +2,542 / −544 by the time the report was written)",
+  "verdict": "Fix then merge",
+  "biggest_risk": "Private bots aren't private yet where it counts: Herder's shared chat, log lines and notices carry their content to everyone. Harmless while every connection is the Farm, but a blocker for Gates.",
+  "intent": {
+    "source": "PROMPTS.md entries 58–65",
+    "goal": "Let several people share one oxbot Mac (the Farm): every bot records who made it, and a bot can be made private so only its maker and the Farm see it and it uses only the maker's own Chrome. Alongside: the central bot is renamed Herder, and the signed-in sites list gets favicons, a Settings tab and per-browser lists.",
+    "changed": [
+      "Herder: Assistant renamed on start (instructions and model kept), new icon, prompts and tools say Herder.",
+      "Bots: created_by and private in bot.toml; rename, make private/shared, delete (to trash/) by the maker or the Farm.",
+      "Server: every update filtered per viewer; private bots shown locked and redacted to others; Herder refuses tasks to them.",
+      "Browsers: a Chrome profile per person (browser/people/<name>-<hash>/); sites kept per browser (migration 6).",
+      "Sign-ins: list rebuilt from chat history (migration 5), favicons from Chrome's Favicons file, Settings → Sign-ins tab.",
+      "UI and packaging: lock and blur for private bots, bot settings menu, open-at-latest-message, dmg volume icon."
+    ],
+    "out_of_scope": "Gates (laptop and phone satellites signing in as a person) are part 2. Today every connection is treated as the Farm.",
+    "match": "The diff matches the stated plan. One stated goal is only partly met: 'hidden … including from Herder' holds for Herder's tool calls but not for Herder's shared chat and memory (M1). 'Older bots show this Mac's owner' is done only in the UI (M10). Unrelated to the goal but small and listed in PROMPTS: dmg icon (61) and open-at-latest-message (61)."
+  },
+  "fixed": [
+    {
+      "id": "C1",
+      "files": [
+        "crates/oxbot-core/src/store.rs:155"
+      ],
+      "test": "No new test (a crash can't be injected mid-migration without restructuring). Existing migration tests pass.",
+      "result": "Each migration and its user_version bump now commit in one transaction."
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "severity": "critical",
+      "lenses": [
+        "Migrations",
+        "Compatibility",
+        "Correctness"
+      ],
+      "title": "Migration 6 rebuilds a table outside a transaction",
+      "file": "crates/oxbot-core/src/store.rs:155",
+      "problem": "Migration 6 runs CREATE, INSERT, DROP and RENAME as separate autocommits, then bumps user_version. A crash or force-quit between them leaves `sites_by_owner` behind at version 5.",
+      "why": "Every later start fails with \"table sites_by_owner already exists\", so the app never opens again on that Mac. Once 6 ships, the fix can't reach a database that's already stuck.",
+      "fix": "Run each migration plus its `PRAGMA user_version` in one transaction (SQLite DDL is transactional).",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M1",
+      "severity": "major",
+      "lenses": [
+        "Security",
+        "Prompt injection",
+        "Privacy",
+        "Correctness"
+      ],
+      "title": "Herder's shared chat and memory carry private bots' replies to everyone",
+      "file": "crates/oxbot-core/src/hub.rs:1222",
+      "problem": "The private-bot check only guards who may call give_task/read_reply. The reply text lands in Herder's history (which everyone can open) and in Herder's single Claude session, so another person can read it or ask Herder about it later. The create_bot card for a private bot is also Herder's, so anyone can see and approve it.",
+      "why": "Breaks the stated goal \"hidden … including from Herder\". Latent today (every connection is the Farm); real the day Gates connect.",
+      "fix": "Give Herder one session and history per person, or have Herder refuse to relay private-bot content (point the maker to the bot instead). Limit private create_bot cards to the asker and the Farm.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M2",
+      "severity": "major",
+      "lenses": [
+        "Maintainability",
+        "Single responsibility",
+        "Security",
+        "Privacy"
+      ],
+      "title": "The per-person update filter passes anything it doesn't list",
+      "file": "crates/oxbot/src/server.rs:554",
+      "problem": "`forward()` ends with `msg => Some(msg)`. `Log` and `Notice` already go to every client unfiltered: \"Signed out of {site}\" from a person's own browser, and log lines naming private bots, sites and browser owners. Any future ServerMsg with a bot id leaks by default.",
+      "why": "Privacy depends on remembering to add each new message type to a match. Nothing fails when someone forgets.",
+      "fix": "Make the match exhaustive (no wildcard), or give ServerMsg a `scope()` (Global / Bot / Owner) and filter on that. Send Log only to the Farm; give Notice an owner. Add a table test over every variant.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M3",
+      "severity": "major",
+      "lenses": [
+        "Prompt injection"
+      ],
+      "title": "An injected Herder can task the asker's private bot with no confirmation",
+      "file": "crates/oxbot-core/src/hub.rs:1222",
+      "problem": "A page Herder reads, or a shared bot's reply, can ask Herder to give_task the asker's private bot (allowed, since the asker is its maker). The target is told to treat `[Herder] …` as the user, and navigation needs no card, so data from that person's Chrome can be sent out by URL.",
+      "why": "Only prompt text guards this hop. Downgraded from Critical on review: before this change the same sign-ins lived in the shared Chrome where any injected bot could already use them.",
+      "fix": "Show a card before give_task to a private bot (real target and full message as plain text), or require one once Herder's turn has browsed or read a reply. Tell targets that relayed tasks may quote web text.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "M4",
+      "severity": "major",
+      "lenses": [
+        "Correctness"
+      ],
+      "title": "A queued message can start a just-made-private bot on the shared Chrome",
+      "file": "crates/oxbot-core/src/hub.rs:1570",
+      "problem": "With all turn slots busy, a send waits in `acquire_owned()` holding an old copy of the bot. Making the bot private meanwhile sees it as not busy and saves; the send then starts Claude from the stale copy, on the home Chrome. The same race after delete records events under the deleted id.",
+      "why": "Breaks \"private bots never use the home Chrome\" today, not only after Gates.",
+      "fix": "In `deliver`, reload the bot by id after claiming the slot and stop if it changed or is gone; have set_private and delete_bot mark the id as starting while they run. Add a test with max_concurrent_turns = 1.",
+      "confidence": "Medium",
+      "status": "fixed"
+    },
+    {
+      "id": "M5",
+      "severity": "major",
+      "lenses": [
+        "Performance",
+        "Migrations",
+        "Single responsibility",
+        "Maintainability"
+      ],
+      "title": "Every Herder tool call reads the bot's whole history to find who asked",
+      "file": "crates/oxbot-core/src/hub.rs:1345",
+      "problem": "`latest_sender` loads and parses all of a bot's events, holding the store lock, on every tool call (Herder is the busiest bot). Who Herder acts for is also derived from a log scan, not from the turn.",
+      "why": "Grows forever (about 0.2–1 s per call at 30k events, blocking other bots' writes). Raised as Critical by the performance lens; downgraded because it's milliseconds today.",
+      "fix": "Record the asker on the Runtime when `deliver` starts the turn and read it in `run_tool_inner`. At minimum, a `LIMIT 1` query walking seq backwards.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M6",
+      "severity": "major",
+      "lenses": [
+        "Compatibility"
+      ],
+      "title": "Going back to 2.11.4 after this breaks the sites list",
+      "file": "crates/oxbot-core/src/store.rs:75",
+      "problem": "After migration 6, 2.11.4's `ON CONFLICT(site)` no longer matches a key, so new sign-ins silently aren't saved, and its `DELETE … WHERE site=?` wipes sites across owners. 2.11.4 opens a newer database without complaint.",
+      "why": "Friends who reinstall the old dmg lose data quietly; every future schema change has the same problem.",
+      "fix": "Add a guard: refuse (or open read-only) when user_version is newer than the app knows. Say in the release notes that downgrading isn't supported.",
+      "confidence": "High",
+      "status": "skipped"
+    },
+    {
+      "id": "M7",
+      "severity": "major",
+      "lenses": [
+        "Migrations",
+        "Single responsibility"
+      ],
+      "title": "bot.toml is rewritten in place, so a bad write can turn a private bot shared",
+      "file": "crates/oxbot-core/src/bot.rs:306",
+      "problem": "`fs::write` writes in place, and `toml::to_string(..).unwrap_or_default()` writes an empty file if serialising fails. `private` is the last field, so a truncated file loads as shared.",
+      "why": "Privacy fails open, and bot.toml is now rewritten at runtime (rename, privacy, Herder rename), not just at creation.",
+      "fix": "Write bot.toml.tmp, fsync, rename over bot.toml; return the toml error instead of writing an empty file. Use `save()` in `rename_old_central` too.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M8",
+      "severity": "major",
+      "lenses": [
+        "Migrations",
+        "Privacy",
+        "Correctness",
+        "Compatibility"
+      ],
+      "title": "Delete is half-recoverable and can hand old history to a new bot",
+      "file": "crates/oxbot-core/src/hub.rs:541",
+      "problem": "The folder moves to trash/ first, then the history is deleted. If the DB step fails, the id is free and a new bot with the same name inherits the old history and session. When it works, history is gone for good while the folder is kept forever; Claude's own transcripts under ~/.claude/projects and a person's Chrome profile are never removed. The UI's seen-marks also break for a re-created id.",
+      "why": "Deleted private data survives in several places, and \"delete\" means different things for files and history.",
+      "fix": "Delete DB rows first (or export history.jsonl into the trashed folder), then move the folder. Purge trash after N days or add \"Empty trash\". Remove the Claude transcript folder. Drop `seen[id]` in the UI when a bot disappears.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M9",
+      "severity": "major",
+      "lenses": [
+        "Security",
+        "Migrations",
+        "Single responsibility",
+        "Maintainability"
+      ],
+      "title": "People are identified by display name, and the Farm is anyone who connects",
+      "file": "crates/oxbot-core/src/bot.rs:86",
+      "problem": "created_by, sites.owner and the Chrome profile folder all key on a free-text name; the profile hash is 32-bit FNV. Every WebSocket, including ones with no Origin, gets `farm_viewer()`. The home browser is the empty string, the same value as \"no name\".",
+      "why": "Before Gates: pairing as \"Jay\" would get Jay's private bots and cookies, and renaming a person orphans their bots and profile. Changing the key after private bots exist means rewriting every bot.toml.",
+      "fix": "Give each person a stable id at pairing, store that (not the name), and decide Farm from a credential, not from \"it connected\". Use an enum for the home browser.",
+      "confidence": "Medium",
+      "status": "needs-decision"
+    },
+    {
+      "id": "M10",
+      "severity": "major",
+      "lenses": [
+        "Maintainability",
+        "Single responsibility",
+        "Compatibility",
+        "Correctness"
+      ],
+      "title": "The visibility rules are copied into the page, and the copy disagrees",
+      "file": "crates/oxbot/ui/index.html:594",
+      "problem": "`canManage` and `isLocked` re-implement the Rust rules. `created_by || settings.you` treats every older bot as the viewer's own, while the server's `can_manage(None)` says no. The \"older bots show this Mac's owner\" rule exists only here.",
+      "why": "A Gate user will see menus the server refuses; the rules will drift further.",
+      "fix": "Send `can_manage` and `locked` per bot in the redacted BotInfo and fill created_by for old bots on the server; drop the JS logic.",
+      "confidence": "High"
+    },
+    {
+      "id": "M11",
+      "severity": "major",
+      "lenses": [
+        "Security"
+      ],
+      "title": "Anyone connected can sign the home browser out or open its sites",
+      "file": "crates/oxbot/src/server.rs:452",
+      "problem": "With `mine: false`, SignOutAll, SignOutSite, OpenSite and AddSignIn act on the home Chrome with no check of who asks. `open_site` also accepts any string, not just a stored site.",
+      "why": "Latent until Gates: a paired phone could wipe the household's sign-ins or open a signed-in bank page on the Farm's screen.",
+      "fix": "Allow home-browser changes only for the Farm; accept only sites present in that owner's list.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "M12",
+      "severity": "major",
+      "lenses": [
+        "Prompt injection"
+      ],
+      "title": "Relayed tasks and bot replies aren't marked as data",
+      "file": "crates/oxbot-core/src/hub.rs:1294",
+      "problem": "Replies reach Herder as `{name} replied:\\n{text}` with no delimiters, and targets are told to treat `[Herder] …` with the user's authority. Herder's prompt doesn't mention locked bots or whose turn it is.",
+      "why": "Makes M1 and M3 easier to trigger.",
+      "fix": "Wrap replies as `<bot_reply bot=\"id\">…</bot_reply>` (escape the closing tag), label relayed tasks on the target side, and update Herder's prompt for private bots.",
+      "confidence": "High"
+    },
+    {
+      "id": "M13",
+      "severity": "major",
+      "lenses": [
+        "Single responsibility",
+        "Maintainability"
+      ],
+      "title": "hub.rs is a god module (2,223 lines, +800 here)",
+      "file": "crates/oxbot-core/src/hub.rs",
+      "problem": "One `impl Hub` holds the bot registry, the browser pool, sites and favicons, sign-in queue, Herder's team tools, approvals, turns and labels. This change touched four of those groups. Some methods take a Viewer; others trust the caller to have checked.",
+      "why": "Every Gate feature will edit this file; any new caller can skip a permission check.",
+      "fix": "Split into hub/registry, browsers, sites, sign_in, approvals, team, labels with Hub as coordinator; make every person-facing method take `&Viewer` and the unfiltered ones `pub(crate)`.",
+      "confidence": "High"
+    },
+    {
+      "id": "M14",
+      "severity": "major",
+      "lenses": [
+        "Performance"
+      ],
+      "title": "Opening a bot replays its whole history, one frame and one sidebar redraw per event",
+      "file": "crates/oxbot/src/server.rs:349",
+      "problem": "Subscribe from seq 0 sends every event as its own message; the page calls `renderBots()` per event and the new stick-to-bottom forces a layout each time.",
+      "why": "A 30k-event Herder freezes the page for seconds on every launch and device.",
+      "fix": "Paginate (last ~200 plus load older on scroll), send one History batch, render it in a fragment, redraw the sidebar once.",
+      "confidence": "High"
+    },
+    {
+      "id": "M15",
+      "severity": "major",
+      "lenses": [
+        "Performance"
+      ],
+      "title": "The bot list scans every bot's history, and now runs on each connect",
+      "file": "crates/oxbot-core/src/store.rs:474",
+      "problem": "`last_reply_seq` filters with json_extract, which defeats MAX's index shortcut, for each bot on each `bots()`; `Client::new` now calls `bots()` just to learn what a connection may see.",
+      "why": "Pre-existing query, more callers: 50–200 ms holding the store lock, twice per turn plus each reconnect.",
+      "fix": "Keep last_seq and last_reply_seq per bot in memory (load once with GROUP BY, update in record()); build Client.visible from the in-memory map.",
+      "confidence": "High"
+    },
+    {
+      "id": "m1",
+      "severity": "minor",
+      "lenses": [
+        "Correctness"
+      ],
+      "title": "Sign-ins tab: closing the window lists the site even if you didn't sign in",
+      "file": "crates/oxbot-core/src/hub.rs:1039",
+      "problem": "A typo or a cancelled window still adds the site, and no cookie check follows. If opening the window fails, `adding_site` stays set and a later unrelated sign-in adds it.",
+      "fix": "Run refresh_sites after adding; clear adding_site when open_window fails.",
+      "confidence": "High"
+    },
+    {
+      "id": "m2",
+      "severity": "minor",
+      "lenses": [
+        "Correctness"
+      ],
+      "title": "The once-per-run cookie check can be used up by a failure",
+      "file": "crates/oxbot-core/src/hub.rs:1787",
+      "problem": "`sites_checked` flips before the check succeeds; it also launches hidden Chrome on the first bot start just to read cookies.",
+      "fix": "Set the flag only after cookie_sites() succeeds.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "m3",
+      "severity": "minor",
+      "lenses": [
+        "Security",
+        "Prompt injection",
+        "Correctness"
+      ],
+      "title": "Bot names have no limits and can be duplicates",
+      "file": "crates/oxbot-core/src/hub.rs:496",
+      "problem": "Rename only trims. A newline in a name forges lines in Herder's list_bots output; two bots can both be called Herder.",
+      "fix": "One line, about 60 characters, no control characters; reject case-insensitive duplicates and the reserved name.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "m4",
+      "severity": "minor",
+      "lenses": [
+        "Performance",
+        "Security",
+        "Single responsibility"
+      ],
+      "title": "Favicons open Chrome's file once per site, synchronously",
+      "file": "crates/oxbot-browser/src/browser.rs:614",
+      "problem": "Each site opens the Favicons database and scans it with a leading-wildcard LIKE, on the async runtime, on every sites broadcast. `%`/`_` aren't escaped and the file URI isn't encoded.",
+      "fix": "One query per browser, cached by site, in spawn_blocking; escape LIKE and encode the path.",
+      "confidence": "Medium",
+      "status": "fixed"
+    },
+    {
+      "id": "m5",
+      "severity": "minor",
+      "lenses": [
+        "Compatibility",
+        "Migrations"
+      ],
+      "title": "Migration 5 brings back sites you signed out of; tidy_sites runs every start",
+      "file": "crates/oxbot-core/src/store.rs:67",
+      "problem": "History still holds sign-ins you later signed out of, so they reappear until the cookie check. `tidy_sites` does remove-then-add, not atomically, on every start, swallowing errors.",
+      "fix": "Check cookies right after the upgrade; move tidy_sites into a one-off data migration in a transaction.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "m6",
+      "severity": "minor",
+      "lenses": [
+        "Migrations"
+      ],
+      "title": "The migration test doesn't start from a real version-4 database",
+      "file": "crates/oxbot-core/src/store.rs",
+      "problem": "It opens a v6 database and sets user_version back to 4, so the v4 → v6 table rebuild is never exercised.",
+      "fix": "Build a v4 database from SCHEMA plus the first four migrations, insert v4 rows, then open it.",
+      "confidence": "High"
+    },
+    {
+      "id": "m7",
+      "severity": "minor",
+      "lenses": [
+        "Migrations"
+      ],
+      "title": "Rename and make-private can overwrite each other",
+      "file": "crates/oxbot-core/src/hub.rs:456",
+      "problem": "Both clone the bot, await, then save the clone; a concurrent rename loses the name or restores the old privacy value.",
+      "fix": "Apply changes under the bots write lock (or a per-bot mutex) and save there.",
+      "confidence": "Medium",
+      "status": "fixed"
+    },
+    {
+      "id": "m8",
+      "severity": "minor",
+      "lenses": [
+        "Compatibility"
+      ],
+      "title": "The central bot is renamed to Herder on every start",
+      "file": "crates/oxbot-core/src/bot.rs:241",
+      "problem": "Someone who renames it back to Assistant gets Herder again next launch.",
+      "fix": "Rename once (store a marker) and mention it in release notes.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "m9",
+      "severity": "minor",
+      "lenses": [
+        "Compatibility"
+      ],
+      "title": "The version isn't bumped",
+      "file": "Cargo.toml:6",
+      "problem": "This build reports the same version as the shipped dmg, so nobody can tell whether migration 6 has run.",
+      "fix": "Bump the version and name the dmg from it.",
+      "confidence": "High"
+    },
+    {
+      "id": "m10",
+      "severity": "minor",
+      "lenses": [
+        "Single responsibility",
+        "Maintainability",
+        "Correctness"
+      ],
+      "title": "Bot creation has paired wrappers and writes bot.toml twice",
+      "file": "crates/oxbot-core/src/hub.rs:600",
+      "problem": "create_bot/create_bot_with and Bot::create/create_by; a private bot is saved shared, then saved again as private.",
+      "fix": "One `NewBot { name, instructions, created_by, private }` passed to a single Bot::create.",
+      "confidence": "High"
+    },
+    {
+      "id": "m11",
+      "severity": "minor",
+      "lenses": [
+        "Single responsibility",
+        "Maintainability"
+      ],
+      "title": "Data-folder paths are built inside the hub",
+      "file": "crates/oxbot-core/src/hub.rs:322",
+      "problem": "people/<folder>/profile and trash/ are computed with ad-hoc parent() fallbacks instead of in home.rs.",
+      "fix": "Add Home::person_profile(name) and Home::trash_dir(), pass them in HubConfig.",
+      "confidence": "High"
+    },
+    {
+      "id": "m12",
+      "severity": "minor",
+      "lenses": [
+        "Single responsibility",
+        "Maintainability"
+      ],
+      "title": "Access rules live in the bot-file module and reach into wire types",
+      "file": "crates/oxbot-core/src/bot.rs:86",
+      "problem": "Viewer::redact edits protocol BotInfo inside bot.rs; the server imports store::HOME.",
+      "fix": "Move Viewer and redact to core/access.rs; expose a typed browser owner from the hub.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "m13",
+      "severity": "minor",
+      "lenses": [
+        "Correctness"
+      ],
+      "title": "Stick-to-latest is a fixed 3 seconds",
+      "file": "crates/oxbot/ui/index.html:752",
+      "problem": "Slow history stops sticking; dragging the scrollbar isn't noticed, so the chat jumps back down.",
+      "fix": "Stick until the history reply arrives; detect pointerdown and upward scroll.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "m14",
+      "severity": "minor",
+      "lenses": [
+        "Privacy"
+      ],
+      "title": "Log lines carry names, sign-in domains and trash paths",
+      "file": "crates/oxbot-core/src/hub.rs:884",
+      "problem": "Browsing metadata sits in the in-memory log relay (see M2 for who receives it).",
+      "fix": "Log bot ids and an owner hash at info level; drop paths and person names.",
+      "confidence": "High"
+    },
+    {
+      "id": "m15",
+      "severity": "minor",
+      "lenses": [
+        "Privacy"
+      ],
+      "title": "Sign out leaves the site's history and favicons",
+      "file": "crates/oxbot-browser/src/browser.rs:332",
+      "problem": "Only cookies and origin storage for cookie hosts are cleared.",
+      "fix": "Call it \"sign out\", not \"forget\"; optionally clear the origin's history and icons.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "m16",
+      "severity": "minor",
+      "lenses": [
+        "Prompt injection"
+      ],
+      "title": "The create_bot card doesn't say who the bot is for",
+      "file": "crates/oxbot-core/src/policy.rs:205",
+      "problem": "Built from real arguments (good) but missing the owner, and anyone who can see Herder can approve it.",
+      "fix": "Show the owner; accept answers only from the asker or the Farm.",
+      "confidence": "High"
+    },
+    {
+      "id": "m17",
+      "severity": "minor",
+      "lenses": [
+        "Single responsibility"
+      ],
+      "title": "Store errors are swallowed in sign-out and site cleanup",
+      "file": "crates/oxbot-core/src/hub.rs:760",
+      "problem": "`let _ = store.remove_site(..)` in loops; failures vanish.",
+      "fix": "Store::clear_sites(owner) and rename_site in one transaction each, with logged errors.",
+      "confidence": "High"
+    },
+    {
+      "id": "m18",
+      "severity": "minor",
+      "lenses": [
+        "Single responsibility"
+      ],
+      "title": "Two site-list renderers and three copies of click-again-to-confirm",
+      "file": "crates/oxbot/ui/index.html:500",
+      "problem": "renderSites and fillSiteRows build the same rows; mineArmed, siteArmed and deleteArmed repeat one pattern.",
+      "fix": "A siteRow() helper and an armButton() helper; consider ES modules served beside the page.",
+      "confidence": "High"
+    },
+    {
+      "id": "m19",
+      "severity": "minor",
+      "lenses": [
+        "Maintainability"
+      ],
+      "title": "README still describes the Assistant",
+      "file": "README.md:14",
+      "problem": "No mention of Herder, private bots, the Farm or the Sign-ins tab (the architecture docs are up to date).",
+      "fix": "Rename to Herder and add a short Private bots paragraph.",
+      "confidence": "High",
+      "status": "fixed"
+    },
+    {
+      "id": "m20",
+      "severity": "minor",
+      "lenses": [
+        "Privacy"
+      ],
+      "title": "\"Private\" doesn't say the Farm can open it",
+      "file": "crates/oxbot-core/src/bot.rs",
+      "problem": "Matches the plan, but whoever sits at the Farm Mac can open any private bot.",
+      "fix": "UI copy: \"Private: only you and the Farm's owner\".",
+      "confidence": "Medium",
+      "status": "fixed"
+    },
+    {
+      "id": "m21",
+      "severity": "minor",
+      "lenses": [
+        "Compatibility"
+      ],
+      "title": "Sites is sent twice, told apart only by owner",
+      "file": "crates/oxbot-protocol/src/lib.rs:703",
+      "problem": "A client built against the old shape overwrites the home list with the person's list.",
+      "fix": "Document it in the protocol, or add a PersonSites variant.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "m22",
+      "severity": "minor",
+      "lenses": [
+        "Security"
+      ],
+      "title": "make-dmg.sh puts paths inside a JavaScript string",
+      "file": "scripts/make-dmg.sh",
+      "problem": "A path with a quote breaks or injects into the osascript call. Build machine only.",
+      "fix": "Pass paths as osascript arguments (run(argv)).",
+      "confidence": "High"
+    },
+    {
+      "id": "S1",
+      "severity": "suggestion",
+      "lenses": [
+        "Maintainability"
+      ],
+      "title": "Test the filter contract for every message type",
+      "file": "crates/oxbot/src/server.rs",
+      "problem": "The forward test picks variants by hand.",
+      "fix": "After M2, build one of each ServerMsg and assert a non-owner gets nothing about a private bot.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "S2",
+      "severity": "suggestion",
+      "lenses": [
+        "Compatibility"
+      ],
+      "title": "Release notes for this build",
+      "file": "PROMPTS.md",
+      "problem": "Users aren't told that Assistant became Herder, that downgrading isn't supported, or that \"private\" hides nothing until Gates exist.",
+      "fix": "Add three lines to the friends' release notes.",
+      "confidence": "High"
+    },
+    {
+      "id": "S3",
+      "severity": "suggestion",
+      "lenses": [
+        "Maintainability"
+      ],
+      "title": "Unknown or hidden client messages are dropped silently",
+      "file": "crates/oxbot/src/server.rs:480",
+      "problem": "`_ => Vec::new()` hides both a forgotten route and a hidden-bot request.",
+      "fix": "Exhaustive match; log hidden ids at debug.",
+      "confidence": "Medium"
+    },
+    {
+      "id": "S4",
+      "severity": "suggestion",
+      "lenses": [
+        "Single responsibility"
+      ],
+      "title": "Keep Client's visible set private",
+      "file": "crates/oxbot/src/server.rs:353",
+      "problem": "Several places insert into client.visible directly.",
+      "fix": "Change it only through Client::see, subscribe and created.",
+      "confidence": "High"
+    },
+    {
+      "id": "S5",
+      "severity": "suggestion",
+      "lenses": [
+        "Migrations"
+      ],
+      "title": "Log migration 5's one-time scan",
+      "file": "crates/oxbot-core/src/store.rs:67",
+      "problem": "A single full scan of events at first launch after the upgrade; seconds at 100× data.",
+      "fix": "A log line around it is enough.",
+      "confidence": "High"
+    }
+  ],
+  "scorecard": [
+    {
+      "lens": "Migrations and data model",
+      "score": "OK",
+      "was": "Weak",
+      "reason": "Migration 6 is now atomic (C1). bot.toml writes and name-keyed identity remain."
+    },
+    {
+      "lens": "Single responsibility",
+      "score": "Weak",
+      "reason": "hub.rs took on four unrelated jobs; visibility enforced in four places."
+    },
+    {
+      "lens": "Security",
+      "score": "OK",
+      "reason": "Every per-bot request is checked on the server; shared channels (Herder, logs, home browser) still leak."
+    },
+    {
+      "lens": "Prompt injection",
+      "score": "OK",
+      "reason": "Private-bot rules are in code; the Herder → bot hop has only a prompt guard."
+    },
+    {
+      "lens": "Maintainability + C4",
+      "score": "OK",
+      "reason": "New concepts are named and documented; one rule, five enforcement points."
+    },
+    {
+      "lens": "Correctness",
+      "score": "OK",
+      "reason": "Features work and are tested; a race can start a private bot on the shared Chrome."
+    },
+    {
+      "lens": "Rollout and compatibility",
+      "score": "OK",
+      "reason": "Upgrade is safe; rollback to 2.11.4 isn't."
+    },
+    {
+      "lens": "Performance at scale",
+      "score": "Weak",
+      "reason": "Two full-history scans on hot paths and unpaginated history on open."
+    },
+    {
+      "lens": "Privacy and supply chain",
+      "score": "OK",
+      "reason": "Nothing new leaves the Mac and no new crates; deleted data lingers."
+    }
+  ],
+  "c4": {
+    "verdict": "Partly. The privacy rule has one home (Viewer::can_see / can_manage), but it is enforced in the hub, the server's visible cache, forward(), Herder's tools and a JS copy, the broadcast is unfiltered by default, and Hub has every arrow.",
+    "container": "flowchart LR\n  P[People on the Farm]\n  G[Gates: laptop, phone<br/>planned]\n  APP[Desktop app<br/>Tauri]\n  UI[Chat page<br/>lock, blur, settings]\n  SRV[oxbot server<br/>WebSocket + Hub]\n  CC[Claude Code<br/>one per bot]\n  HC[Home Chrome<br/>shared bots]\n  PC[Per-person Chrome<br/>private bots]\n  DB[(SQLite<br/>events, people, sites per owner)]\n  BF[(Bot folders<br/>bot.toml, trash/)]\n  P -->|uses| APP\n  APP -->|hosts| UI\n  UI -->|messages, filtered per viewer| SRV\n  G -.->|future: as a person| SRV\n  SRV -->|spawns, tools| CC\n  CC -->|DevTools| HC\n  CC -->|DevTools| PC\n  SRV -->|guard, sign-in window| HC\n  SRV -->|guard, sign-in window| PC\n  SRV -->|read/write| DB\n  SRV -->|create, rename, trash| BF",
+    "component": "flowchart TB\n  subgraph server[server.rs]\n    WS[Connection<br/>viewer, visible set]\n    H[handle<br/>bot_for checks]\n    FW[forward<br/>per-type filter, default pass]\n  end\n  subgraph core[oxbot-core]\n    V[Viewer<br/>can_see, can_manage, redact]\n    B[Bot<br/>created_by, private, browser_owner]\n    HUB[Hub<br/>registry, browsers, sites, sign-ins,<br/>approvals, Herder tools, turns]\n    PR[prompt, tools, policy]\n    ST[store<br/>HOME = empty string]\n  end\n  UIJS[index.html<br/>canManage, isLocked in JS]\n  WS -->|client message| H\n  H -->|calls with Viewer| HUB\n  HUB -->|broadcast, unfiltered| FW\n  FW -->|can_see, redact| V\n  HUB -->|visibility, browser owner| B\n  B -->|rule| V\n  HUB -->|sites by owner name| ST\n  HUB -->|asker = latest message sender| ST\n  HUB -->|prompt, tool schema| PR\n  FW -->|filtered JSON| UIJS"
+  },
+  "coverage": "All nine lenses ran on the working tree as it was at the start (PROMPTS 58–65). The tree kept changing during the review (another session added PROMPTS 66 and edited docs/architecture, index.html and server.rs); those later edits weren't reviewed. Migrations, compatibility and supply chain applied fully: two migrations, protocol changes, one dependency edge (oxbot-browser → rusqlite, already in the workspace)."
+}

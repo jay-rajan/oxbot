@@ -1,0 +1,13 @@
+# How /pr_test builds and starts oxbot for end-to-end tests.
+build = ["cargo build -p oxbot -p oxbot-e2e"]
+server = "target/debug/oxbot"
+fake_claude = "target/debug/oxbot-fake-claude"
+tools = "target/tools-bundle"
+# The Farm's person in tests.
+person = "Jay"
+# Changes here also run the tests in Safari (the engine of the app's window).
+safari_when = ["crates/oxbot/ui/**"]
+# Changes here also run the Mac app check (needs the app built).
+app_when = ["app/**", "scripts/make-dmg.sh", "docs/brand/**"]
+app = "target/universal-apple-darwin/release/bundle/macos/oxbot.app"
+app_build = ["./scripts/make-dmg.sh"]

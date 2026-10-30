@@ -11,10 +11,17 @@ alone. Bots take turns on the browser. oxbot checks every browser step: a red ca
 anything that changes something (Send, Post, Delete, Buy…), a card before an upload from your
 Mac, and it refuses passwords, page scripts, non-web pages and files outside the bot's folder.
 
-The Assistant is the central bot: it can list your bots, create one (after you press Create on a
-card), give a bot a task and bring back its reply. Other bots can't. Messages show who sent
-them, each person in their own color; a working bot's icon moves, and a green dot marks unread
-replies.
+Herder (the central bot, once called the Assistant) leads your bots: it can list them, create
+one (after you press Create on a card), give a bot a task and bring back its reply. Other bots
+can't. Messages show who sent them, each person in their own color; a working bot's icon moves,
+and a green dot marks unread replies.
+
+Private bots: the Mac that runs the bots is the Farm. Every bot records who made it, and its
+maker can make it private. A private bot is listed for everyone (name, maker, a lock), but only
+its maker and the Farm's owner can open it, and it browses in its maker's own Chrome
+(Settings → Sign-ins → Yours), never the home one. Herder won't give private bots tasks or read
+their replies, since everyone can read Herder's chat. Phones and laptops joining as Gates come
+next; until then every connection is the Farm.
 
 Setup: oxbot installs Claude Code for you (Anthropic's installer) and signs you in
 (`claude auth login`); the browser tool and Node.js ship inside the app. You only need Google
@@ -70,6 +77,24 @@ cargo test --workspace
 
 Lints live in `[workspace.lints]` in `Cargo.toml`: no `unsafe`, clippy pedantic, no `unwrap`/`expect`
 outside tests. Libraries use `thiserror`; only the binary uses `anyhow`.
+
+## End-to-end tests (`/pr_test`)
+`e2e/` holds tests a person can read (`e2e/tests/*.toml`: open, click, type, send, expect…), seed data
+(`e2e/seed/`: bots plus `seed.sql` for a fresh SQLite database), the stand-in Claude's replies
+(`e2e/claude/`), and approved screenshots (`e2e/baselines/`). The runner, `crates/oxbot-e2e`, starts a
+throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in hidden Chrome (and Safari, the app's
+engine, when "Allow Remote Automation" is on), screenshots every step, and checks the built Mac app.
+
+```sh
+cargo build -p oxbot -p oxbot-e2e
+target/debug/oxbot-e2e pick --base main          # which tests this change needs, and why
+target/debug/oxbot-e2e run --out /tmp/run e2e/tests/*.toml
+target/debug/oxbot-e2e app --out /tmp/run        # the Mac app check (build it first)
+target/debug/oxbot-e2e report --out /tmp/run     # /tmp/run/index.html
+target/debug/oxbot-e2e approve --out /tmp/run    # make those screens the baselines
+```
+
+In Claude Code, `/pr_test` does all of it, fixes what broke, and publishes the report.
 
 ## Docs
 - `docs/plan/` build plan · `docs/architecture/` living architecture page (C4 diagrams)

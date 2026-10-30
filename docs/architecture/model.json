@@ -1,6 +1,6 @@
 {
-  "milestone": "2.11.4",
-  "updated": "2026-10-29",
+  "milestone": "Farm 1",
+  "updated": "2026-10-30",
   "components": [
     {
       "id": "desktop",
@@ -14,11 +14,11 @@
     },
     {
       "id": "app",
-      "label": "Android app",
-      "sub": "Tauri 2 (M4)",
+      "label": "Gates",
+      "sub": "laptop, phone: Gate mode (Farm part 2)",
       "kind": "app",
       "status": "planned",
-      "m": 4,
+      "m": "Farm 2",
       "x": 20,
       "y": 330
     },
@@ -55,7 +55,7 @@
     {
       "id": "oxbot-core",
       "label": "oxbot-core",
-      "sub": "hub \u00b7 team \u00b7 policy \u00b7 tools \u00b7 store",
+      "sub": "hub \u00b7 Herder's tools \u00b7 viewers \u00b7 policy \u00b7 store",
       "kind": "crate",
       "status": "built",
       "m": 2,
@@ -75,7 +75,7 @@
     {
       "id": "oxbot-browser",
       "label": "oxbot-browser",
-      "sub": "one shared Chrome \u00b7 signed-in sites",
+      "sub": "a Chrome per owner \u00b7 sites \u00b7 icons",
       "kind": "crate",
       "status": "built",
       "m": 2,
@@ -85,7 +85,7 @@
     {
       "id": "sqlite",
       "label": "SQLite",
-      "sub": "history, people, sites, usage",
+      "sub": "history, people, sites per owner, usage",
       "kind": "store",
       "status": "built",
       "m": 2,
@@ -114,8 +114,8 @@
     },
     {
       "id": "chrome",
-      "label": "shared Chrome",
-      "sub": "hidden, kept profile, sign in once",
+      "label": "Chromes",
+      "sub": "home + one per person, hidden",
       "kind": "external",
       "status": "built",
       "m": 2,
@@ -427,12 +427,37 @@
         "Signed-in state from claude auth status --json (loggedIn)",
         "Data rule unchanged: data goes only to Anthropic. The one new download is the Claude Code installer from claude.ai, only when you press Install"
       ]
+    },
+    {
+      "m": "Herder",
+      "date": "2026-10-29",
+      "title": "Herder, makers and site icons",
+      "items": [
+        "The central bot is now Herder (\"leads your bots\"), with its own icon. An old Assistant with default instructions is renamed on start; the id stays assistant",
+        "Bots record created_by (bot.toml, BotInfo): who pressed + or who asked Herder. The sidebar shows \"by Name\" in their color",
+        "Signed-in sites show the site's own icon, read read-only from Chrome's Favicons file (nothing downloaded), else the first letter",
+        "Settings gains a Sign-ins tab: type a site to sign in now, plus Open and a two-step Sign out per site. Migration 5 fills the list from past sign-ins"
+      ]
+    },
+    {
+      "m": "Farm 1",
+      "date": "2026-10-30",
+      "title": "Private bots and a Chrome per owner, on the Farm",
+      "items": [
+        "bot.toml private; Viewer {name, farm}: the Farm sees and manages every bot, others see shared bots and their own private ones. Herder acts for whoever sent its latest message, never with the Farm view",
+        "Hub.browsers: the home Chrome for shared bots, each person's own Chrome (browser/people/<name>-<hash>/profile) for their private bots; each with its own lease, sign-in window and watcher",
+        "Store migration 6: sites keyed (owner, site). Store::delete_bot clears a deleted bot's history, session and usage; its folder moves to trash/",
+        "Hub: bots_for, bot_for, history_for, set_private, rename_bot, delete_bot (maker or Farm; never Herder)",
+        "Protocol: SetPrivate, RenameBot, DeleteBot, CreateBot {private}; sign-in messages carry mine; ServerMsg::Sites names its owner; AppSettings.farm",
+        "Server: one Client {viewer, visible, subs} per connection; forward() filters every update. Every local connection is the Farm",
+        "UI: lock on private bots, \u00b7\u00b7\u00b7 bot settings, Private box on New bot, Sign-ins tab split into Home and Yours"
+      ]
     }
   ],
   "next": {
-    "m": 3,
-    "title": "Phone link on the server",
-    "text": "TLS with a pinned self-made certificate, oxbot pair QR code, device tokens and names (used as sender names), Wi-Fi announcement (_oxbot._tcp), and oxbot connect as a stand-in phone. Also planned, awaiting your OK: a Codex backend (setup finds Claude Code and Codex, you choose a default, switch per bot)."
+    "m": "Farm 2",
+    "title": "Gates",
+    "text": "A laptop or phone in Gate mode: runs no bots, finds the Farm on home Wi-Fi, pairs once with a code (QR on phones) over TLS with a pinned certificate, and connects as its person (Viewer::gate) instead of the Farm. Then a live sign-in view on a Gate. Also awaiting your OK: a Codex backend (2.12)."
   },
   "c4": {
     "note": "Nodes sit on a grid: col/row (+ span) map to x/y via 'grid'. Edges clip to box edges automatically; 'via' adds bends, 'from_pt'/'to_pt' pin ends, 'label_at' [x, y, anchor] places the label. Status: built | planned. Types: person, system, container, component, db, folder, external.",
@@ -441,11 +466,11 @@
         "id": "context",
         "title": "Level 1 \u00b7 System context",
         "intro": "oxbot from the outside: who uses it and what it talks to.",
-        "caption": "System context. You chat with oxbot; the Assistant runs your team of bots. oxbot reaches Anthropic only through the Claude Code CLI and drives one shared Chrome that you sign in to yourself, once. The browser tool ships inside the app; claude.ai is contacted only when you press Install Claude Code. npm is for running from source. Codex is planned.",
-        "aria": "C4 level 1 system context: Jay and others in the house use oxbot, where the Assistant bot runs the team. oxbot sends prompts to Anthropic through the Claude Code CLI and drives one shared, hidden Google Chrome over CDP, which loads websites. Jay signs in to sites himself in a visible Chrome window, once. When Jay presses Install, oxbot runs the Claude Code installer from claude.ai. npm is used only when running from source. OpenAI Codex is a planned second backend.",
+        "caption": "System context. People chat with oxbot; Herder runs the team. Each bot is shared or private to whoever made it. oxbot reaches Anthropic only through the Claude Code CLI and drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The Mac running oxbot is the Farm and sees everything. Gates (other people's laptops and phones) and Codex are planned. claude.ai is contacted only when you press Install Claude Code; npm only when running from source.",
+        "aria": "C4 level 1 system context: Jay, the Farm owner, and others in the house use oxbot, where Herder runs the team of bots. Bots are shared or private to their maker. oxbot sends prompts to Anthropic through the Claude Code CLI and drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. When Jay presses Install, oxbot runs the Claude Code installer from claude.ai. npm is used only when running from source. OpenAI Codex is a planned second backend; others' own laptops and phones (Gates) are planned.",
         "size": [
           960,
-          560
+          600
         ],
         "grid": {
           "x0": 20,
@@ -453,12 +478,22 @@
           "w": 220,
           "rows": [
             16,
-            205,
-            420
+            215,
+            460
           ]
         },
         "boundaries": [],
         "nodes": [
+          {
+            "id": "others",
+            "type": "person",
+            "col": 0,
+            "row": 0,
+            "h": 112,
+            "name": "Others in the house",
+            "tech": "Person",
+            "desc": "Chat, make shared or private bots. Own laptop or phone later (Gates)."
+          },
           {
             "id": "jay",
             "type": "person",
@@ -467,19 +502,19 @@
             "h": 112,
             "name": "Jay",
             "tech": "Person",
-            "desc": "Owner. Others in the house can chat too; each message shows who sent it."
+            "desc": "Owns the Farm, the Mac running oxbot: sees and manages every bot."
           },
           {
             "id": "oxbot",
             "type": "system",
             "col": 1,
             "row": 1,
-            "h": 125,
+            "h": 165,
             "x": 345,
             "w": 270,
             "name": "oxbot",
             "tech": "Software system",
-            "desc": "Always-on Claude bots on your Mac, led by the Assistant. Each bot has its own folder; all share one hidden Chrome. Data goes only to Anthropic (later OpenAI) and the sites bots visit; telemetry off."
+            "desc": "Always-on Claude bots on the Farm, led by Herder. Bots are shared or private to their maker; each has its own folder. Shared bots use the home Chrome, private ones their maker's. Data goes only to Anthropic (later OpenAI) and the sites bots visit."
           },
           {
             "id": "codex",
@@ -487,7 +522,7 @@
             "status": "planned",
             "col": 0,
             "row": 1,
-            "h": 125,
+            "h": 165,
             "name": "OpenAI Codex",
             "tech": "External system",
             "desc": "Codex CLI: a second bot backend, awaiting OK."
@@ -497,7 +532,7 @@
             "type": "external",
             "col": 2,
             "row": 1,
-            "h": 125,
+            "h": 165,
             "name": "npm registry",
             "tech": "External system",
             "desc": "Dev only: oxbot serve from source fetches chrome-devtools-mcp 1.10.1. The app has it built in."
@@ -507,7 +542,7 @@
             "type": "external",
             "col": 0,
             "row": 2,
-            "h": 120,
+            "h": 125,
             "name": "Anthropic",
             "tech": "Claude API",
             "desc": "Runs the model. With the sites bots visit (and OpenAI later), the only place user data goes."
@@ -517,17 +552,17 @@
             "type": "external",
             "col": 1,
             "row": 2,
-            "h": 120,
+            "h": 125,
             "name": "Google Chrome",
             "tech": "Installed app",
-            "desc": "One for all bots, hidden, kept profile. A visible window only while you sign in."
+            "desc": "Home Chrome for shared bots, one per person for private bots. Hidden; a window only while signing in."
           },
           {
             "id": "web",
             "type": "external",
             "col": 2,
             "row": 2,
-            "h": 120,
+            "h": 125,
             "name": "Websites",
             "tech": "External systems",
             "desc": "Pages the bots read and use. Signed in where you signed in once."
@@ -547,10 +582,10 @@
           {
             "from": "jay",
             "to": "oxbot",
-            "label": "chats with bots\n(page, app, terminal)",
+            "label": "chats, manages\nevery bot",
             "label_at": [
               490,
-              167,
+              175,
               "start"
             ]
           },
@@ -561,7 +596,7 @@
             "status": "planned",
             "label_at": [
               290,
-              258,
+              280,
               "middle"
             ]
           },
@@ -576,17 +611,17 @@
             "label": "prompts and replies\n(HTTPS, via Claude CLI)",
             "label_at": [
               196,
-              372,
+              410,
               "middle"
             ]
           },
           {
             "from": "oxbot",
             "to": "chrome",
-            "label": "drives (CDP);\nbots take turns",
+            "label": "drives (CDP);\nbots take turns\non each Chrome",
             "label_at": [
               490,
-              378,
+              408,
               "start"
             ]
           },
@@ -598,7 +633,7 @@
           {
             "from": "jay",
             "to": "chrome",
-            "label": "signs in to sites,\nonce (visible window)",
+            "label": "signs in to sites,\nonce per Chrome",
             "from_pt": [
               370,
               72
@@ -610,17 +645,17 @@
               ],
               [
                 335,
-                480
+                520
               ]
             ],
             "to_pt": [
               370,
-              480
+              520
             ],
             "label_at": [
-              327,
-              150,
-              "end"
+              343,
+              180,
+              "start"
             ]
           },
           {
@@ -629,8 +664,26 @@
             "label": "Install\nbutton",
             "label_at": [
               668,
-              176,
+              182,
               "middle"
+            ]
+          },
+          {
+            "from": "others",
+            "to": "oxbot",
+            "label": "chat, make bots\n(on the Farm today)",
+            "from_pt": [
+              240,
+              100
+            ],
+            "to_pt": [
+              345,
+              250
+            ],
+            "label_at": [
+              228,
+              158,
+              "end"
             ]
           }
         ]
@@ -639,11 +692,11 @@
         "id": "containers",
         "title": "Level 2 \u00b7 Containers",
         "intro": "The processes and data on the Mac. Every arrow inside the box stays on 127.0.0.1.",
-        "caption": "Containers. The server runs one Claude Code CLI per bot; each Claude starts chrome-devtools-mcp from the copy built into oxbot.app, and all of them drive the one shared Chrome, one bot at a time. oxbot's tools (sign-in for every bot, team tools for the Assistant) ride the same stream-json link as an in-process MCP server. The server keeps its own CDP connection to Chrome (the guard) to read pages for the safety rules, send downloads to the bot folder, take screenshots for cards and list or clear signed-in sites. Setup's Install button runs Claude's installer from claude.ai.",
-        "aria": "C4 level 2 containers on Jay's Mac: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON. The server stores history, sessions, people, signed-in sites and usage in SQLite, manages bot folders, spawns one Claude Code CLI per bot, hosts oxbot's tools (request_sign_in for all bots; list_bots, create_bot, give_task and read_reply for the Assistant) over the same stream-json link, and starts, shows and guards the one shared Chrome over CDP. When you press Install, the server runs the Claude Code installer from claude.ai. Claude Code talks to Anthropic over HTTPS and starts chrome-devtools-mcp, built into the app with its own Node, over MCP stdio; it drives the shared Chrome over CDP; Chrome loads websites. npm is used only when running from source. Planned: an Android app over Wi-Fi with TLS, and a Codex CLI backend talking to OpenAI.",
+        "caption": "Containers. The server runs one Claude Code CLI per bot, Herder included; each Claude starts chrome-devtools-mcp from the copy built into oxbot.app, which attaches to that bot's Chrome: the home Chrome for shared bots, the maker's own Chrome for a private bot. Bots on the same Chrome take turns. oxbot's tools (request_sign_in for every bot, team tools for Herder) ride the same stream-json link as an in-process MCP server. The server keeps its own CDP connection to each Chrome (the guard) to read pages for the safety rules, send downloads to the bot folder, take screenshots for cards and list or clear signed-in sites, and reads site icons from each profile. It filters every update per connection; every local connection is the Farm today. Gates are planned.",
+        "aria": "C4 level 2 containers on the Farm, Jay's Mac: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON. The server stores history, sessions, people, signed-in sites per browser owner and usage in SQLite, manages bot folders (bot.toml with maker and private, deleted bots moved to trash), spawns one Claude Code CLI per bot including Herder, hosts oxbot's tools (request_sign_in for all bots; list_bots, create_bot, give_task and read_reply for Herder) over the same stream-json link, and starts, shows and guards one Chrome per owner over CDP: the home Chrome for shared bots and one per person for private bots. Each connection only gets updates about bots its viewer may see. Claude Code talks to Anthropic over HTTPS and starts chrome-devtools-mcp over MCP stdio, which drives its bot's Chrome; Chrome loads websites. npm is used only when running from source. Planned: Gates (laptops and phones in Gate mode) over Wi-Fi with TLS, and a Codex CLI backend talking to OpenAI.",
         "size": [
-          972,
-          1176
+          990,
+          1236
         ],
         "grid": {
           "x0": 16,
@@ -652,10 +705,10 @@
           "rows": [
             12,
             200,
-            410,
-            630,
-            850,
-            1060
+            430,
+            670,
+            900,
+            1120
           ]
         },
         "boundaries": [
@@ -663,8 +716,8 @@
             "x": 6,
             "y": 160,
             "w": 960,
-            "h": 860,
-            "label": "Jay's Mac"
+            "h": 900,
+            "label": "The Farm (Jay's Mac)"
           }
         ],
         "nodes": [
@@ -677,7 +730,7 @@
             "h": 100,
             "name": "Jay",
             "tech": "Person",
-            "desc": "And others in the house. Phone later."
+            "desc": "Farm owner. Others in the house too."
           },
           {
             "id": "android",
@@ -685,27 +738,27 @@
             "status": "planned",
             "col": 3,
             "row": 0,
-            "h": 112,
-            "name": "Android app",
-            "tech": "Tauri mobile",
-            "desc": "Wi-Fi, TLS + pinned cert, QR pairing, device tokens, mDNS. M3\u2013M4."
+            "h": 125,
+            "name": "Gates",
+            "tech": "oxbot app, Gate mode",
+            "desc": "Laptop or phone: runs no bots. Pairs over home Wi-Fi (TLS); sees only what its person may."
           },
           {
             "id": "page",
             "type": "container",
             "col": 0,
             "row": 1,
-            "h": 120,
+            "h": 150,
             "name": "Chat page",
             "tech": "HTML, JS",
-            "desc": "The app's UI: the Assistant first, bots, live replies, cards, signed-in sites, setup buttons, Settings (gear). In a browser: testing only."
+            "desc": "The app's UI: Herder first, bots with a lock if private and \"by Name\", \u00b7\u00b7\u00b7 bot settings, cards, Settings: General, Sign-ins (Home, Yours), Activity."
           },
           {
             "id": "app",
             "type": "container",
             "col": 1,
             "row": 1,
-            "h": 120,
+            "h": 150,
             "name": "Desktop app",
             "tech": "Rust, Tauri 2",
             "desc": "Window, menu bar, Launch at login. Runs the server inside. Ships Node and chrome-devtools-mcp in Resources/tools."
@@ -715,7 +768,7 @@
             "type": "container",
             "col": 2,
             "row": 1,
-            "h": 120,
+            "h": 150,
             "name": "Terminal client",
             "tech": "Rust",
             "desc": "oxbot chat: chat from the terminal over the same WebSocket (tokio-tungstenite)."
@@ -725,10 +778,10 @@
             "type": "db",
             "col": 0,
             "row": 2,
-            "h": 130,
+            "h": 150,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people (name, color), signed-in sites, usage per bot, plan limits."
+            "desc": "events, sessions, people (name, color), sites per browser owner, usage per bot, plan limits."
           },
           {
             "id": "server",
@@ -736,50 +789,51 @@
             "col": 1,
             "row": 2,
             "span": 3,
-            "h": 130,
+            "h": 150,
             "name": "oxbot server",
             "tech": "Rust, tokio, axum \u00b7 oxbot serve",
-            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON). Holds the Hub: the Assistant and its team tools, bots take turns on the browser, safety rules on every browser call, cards, sign-in and signed-in sites, sender names, setup check and installs, Claude usage."
+            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON). Holds the Hub: Herder and its team tools, a Chrome per owner, safety rules on every browser call, cards, sign-in and sites, who sees which bot (each connection filtered by its viewer), setup and installs, Claude usage."
           },
           {
             "id": "claude",
             "type": "container",
             "col": 1,
             "row": 3,
-            "h": 130,
+            "h": 140,
             "name": "Claude Code CLI",
             "tech": "claude -p",
-            "desc": "One per bot, stream-json. Asks oxbot before tools; oxbot's tools arrive on the same link (sdk MCP): sign-in for all, team tools for the Assistant."
+            "desc": "One per bot, Herder included, stream-json. Asks oxbot before tools; oxbot's tools come on the same link: request_sign_in for all, team tools for Herder."
           },
           {
             "id": "folders",
             "type": "folder",
             "col": 3,
             "row": 3,
-            "h": 130,
+            "h": 140,
             "name": "Bot folders",
             "tech": "bots/<id>/",
-            "desc": "bot.toml (name, optional model), instructions.md, work/ (the bot's only files, incl. downloads/)."
+            "desc": "bot.toml (name, model, created_by, private), instructions.md, work/. Deleted bots move to trash/."
           },
           {
             "id": "devmcp",
             "type": "container",
             "col": 1,
             "row": 4,
-            "h": 130,
+            "h": 140,
             "name": "chrome-devtools-mcp",
             "tech": "Node, built in",
-            "desc": "One per bot, MCP stdio, started by Claude from the copy inside oxbot.app. All attach to the shared Chrome. Headers redacted, stats off."
+            "desc": "One per bot, MCP stdio, started by Claude from the copy inside oxbot.app. Attaches to its bot's Chrome. Headers redacted, stats off."
           },
           {
             "id": "chrome",
             "type": "container",
             "col": 2,
             "row": 4,
-            "h": 130,
-            "name": "Chrome",
-            "tech": "Google Chrome",
-            "desc": "One for all bots, kept profile in the data folder. Hidden; a window only while you sign in."
+            "h": 140,
+            "name": "Chromes",
+            "tech": "Google Chrome, one per owner",
+            "desc": "Home (browser/profile) for shared bots; each person's own (browser/people/\u2026) for their private bots. Hidden; a window to sign in.",
+            "stack": true
           },
           {
             "id": "anthropic",
@@ -817,7 +871,7 @@
             "status": "planned",
             "col": 3,
             "row": 4,
-            "h": 130,
+            "h": 140,
             "name": "Codex CLI",
             "tech": "codex",
             "desc": "Second bot backend. Setup finds it; you pick a default; switch per bot."
@@ -896,16 +950,16 @@
             "both": true,
             "from_pt": [
               190,
-              320
+              350
             ],
             "to_pt": [
               300,
-              410
+              430
             ],
             "label": "HTTP page, then\nWebSocket /ws (JSON)",
             "label_at": [
               176,
-              360,
+              383,
               "end"
             ]
           },
@@ -915,16 +969,16 @@
             "label": "runs it in-process\n(or attaches)",
             "label_at": [
               369,
-              360,
+              383,
               "start"
             ],
             "from_pt": [
               361,
-              320
+              350
             ],
             "to_pt": [
               361,
-              410
+              430
             ]
           },
           {
@@ -934,58 +988,58 @@
             "label": "WebSocket /ws\n(JSON)",
             "label_at": [
               619,
-              360,
+              383,
               "start"
             ],
             "from_pt": [
               611,
-              320
+              350
             ],
             "to_pt": [
               611,
-              410
+              430
             ]
           },
           {
             "from": "android",
             "to": "server",
             "status": "planned",
-            "label": "Wi-Fi: TLS +\npinned cert",
+            "label": "later: Wi-Fi, TLS +\npinned cert, paired",
             "label_at": [
               853,
-              360,
+              383,
               "end"
             ],
             "from_pt": [
               861,
-              124
+              137
             ],
             "to_pt": [
               861,
-              410
+              430
             ]
           },
           {
             "from": "server",
             "to": "sqlite",
-            "label": "history,\npeople"
+            "label": "history, people,\nsites per owner"
           },
           {
             "from": "server",
             "to": "folders",
-            "label": "creates,\nreads settings",
+            "label": "creates, renames,\nmoves to trash",
             "label_at": [
               853,
-              581,
+              621,
               "end"
             ],
             "from_pt": [
               861,
-              540
+              580
             ],
             "to_pt": [
               861,
-              630
+              670
             ]
           },
           {
@@ -994,16 +1048,16 @@
             "label": "spawns; stream-json:\npermission requests,\nsign-in + team tools (MCP)",
             "label_at": [
               369,
-              566,
+              606,
               "start"
             ],
             "from_pt": [
               361,
-              540
+              580
             ],
             "to_pt": [
               361,
-              630
+              670
             ]
           },
           {
@@ -1011,16 +1065,16 @@
             "to": "chrome",
             "from_pt": [
               611,
-              540
+              580
             ],
             "to_pt": [
               611,
-              850
+              900
             ],
-            "label": "starts, shows to\nsign in, quits;\nguard (CDP):\nreads pages,\ndownloads,\nscreenshots,\nsite cookies",
+            "label": "per owner: starts,\nshows to sign in,\nquits; guard (CDP):\nreads pages,\ndownloads,\nscreenshots,\nsite cookies;\nFavicons (read-only)",
             "label_at": [
               619,
-              630,
+              670,
               "start"
             ]
           },
@@ -1030,7 +1084,7 @@
             "label": "MCP stdio",
             "label_at": [
               369,
-              810,
+              860,
               "start"
             ]
           },
@@ -1039,22 +1093,22 @@
             "to": "anthropic",
             "from_pt": [
               266,
-              695
+              740
             ],
             "via": [
               [
                 111,
-                695
+                740
               ]
             ],
             "to_pt": [
               111,
-              1060
+              1120
             ],
             "label": "prompts and\nreplies (HTTPS)",
             "label_at": [
               119,
-              905,
+              955,
               "start"
             ]
           },
@@ -1069,7 +1123,7 @@
             "label": "dev only",
             "label_at": [
               369,
-              1026,
+              1086,
               "start"
             ]
           },
@@ -1079,7 +1133,7 @@
             "label": "HTTPS",
             "label_at": [
               619,
-              1026,
+              1086,
               "start"
             ]
           },
@@ -1089,22 +1143,22 @@
             "status": "planned",
             "from_pt": [
               736,
-              540
+              580
             ],
             "via": [
               [
                 736,
-                915
+                970
               ]
             ],
             "to_pt": [
               766,
-              915
+              970
             ],
             "label": "later: runs\nCodex bots",
             "label_at": [
               744,
-              796,
+              846,
               "start"
             ]
           },
@@ -1115,7 +1169,7 @@
             "label": "HTTPS",
             "label_at": [
               869,
-              1026,
+              1086,
               "start"
             ]
           },
@@ -1153,11 +1207,11 @@
         "id": "components",
         "title": "Level 3 \u00b7 Components of the oxbot server",
         "intro": "Inside the server process: the crates and modules, and who calls whom.",
-        "caption": "Components. The Hub is the center: the web server feeds it, Policy and Prompt advise it, Tools answers the requests that arrive through the Claude runner (sign-in for every bot, team tools for the Assistant), and it lends the one Browser to one bot at a time. Setup checks what's installed, finds the built-in browser tool and runs Claude's installer or sign-in when you press the buttons. Gray boxes are the other containers from level 2.",
-        "aria": "C4 level 3 components inside the oxbot server: the axum web server uses oxbot-protocol wire types, asks Setup what's installed (Setup can run the Claude Code installer from claude.ai and claude auth login) and passes client messages to the Hub. The Hub asks Policy about every browser tool call and create_bot, gets the prompt from Prompt, hands request_sign_in and the Assistant's team tools to Tools, records history, people, signed-in sites and usage through Store, reads bot folders through Bots, drives Claude through the Claude runner and lends the one shared Chrome to one bot at a time through Browser, which also lists and clears site cookies. Planned: a phone link with TLS pairing, and a Codex runner.",
+        "caption": "Components. The Hub is the center: the web server feeds it on behalf of each connection's viewer, Policy and Prompt advise it, Tools answers the requests that arrive through the Claude runner (request_sign_in for every bot; list_bots, create_bot, give_task, read_reply for Herder), and it lends each Chrome to one of its bots at a time. Bots decides who sees and manages what (Viewer). Setup checks what's installed and runs Claude's installer or sign-in. Gray boxes are the other containers from level 2; dashed ones are planned.",
+        "aria": "C4 level 3 components inside the oxbot server: the axum web server keeps one Client per connection with its viewer, visible bots and subscriptions, and forwards only updates that viewer may see; it uses oxbot-protocol wire types, asks Setup what's installed and passes client messages to the Hub. The Hub asks Policy about every browser tool call and create_bot, gets the prompt from Prompt, hands request_sign_in and Herder's team tools to Tools, records history, people, signed-in sites per owner and usage through Store, loads bot folders and checks viewers through Bots, drives Claude through the Claude runner and keeps a Chrome per owner through Browser, lending each to one bot at a time; Browser also lists and clears site cookies and reads site icons. Planned: a Gate link with TLS pairing for laptops and phones, and a Codex runner.",
         "size": [
           1172,
-          970
+          1000
         ],
         "grid": {
           "x0": 16,
@@ -1166,9 +1220,9 @@
           "rows": [
             12,
             190,
-            400,
-            610,
-            860
+            420,
+            640,
+            890
           ]
         },
         "boundaries": [
@@ -1176,7 +1230,7 @@
             "x": 6,
             "y": 150,
             "w": 1160,
-            "h": 650,
+            "h": 680,
             "label": "oxbot server (container)"
           }
         ],
@@ -1198,29 +1252,29 @@
             "col": 2,
             "row": 0,
             "h": 100,
-            "name": "Android app",
+            "name": "Gates",
             "tech": "Container",
-            "desc": "Phone client, M4."
+            "desc": "Laptops and phones. Farm part 2."
           },
           {
             "id": "protocol",
             "type": "component",
             "col": 0,
             "row": 1,
-            "h": 130,
+            "h": 150,
             "name": "Protocol",
             "tech": "oxbot-protocol",
-            "desc": "Wire types: ClientMsg, ServerMsg, Approval, SignInRequest, SiteInfo, SetupProgress, Usage\u2026 Shared with every client."
+            "desc": "Wire types: ClientMsg, ServerMsg, BotInfo (private, created_by), Sites {owner}, AppSettings.farm, Approval, SignInRequest\u2026 Shared with every client."
           },
           {
             "id": "web",
             "type": "component",
             "col": 1,
             "row": 1,
-            "h": 130,
+            "h": 150,
             "name": "Web server",
             "tech": "oxbot::server",
-            "desc": "axum WebSocket. Origin check (only the local page). Subscriptions, log relay, setup report and buttons, Launch at login."
+            "desc": "axum WebSocket, local page only. One Client {viewer, visible, subs} per connection; forward() drops other people's bots and sites. Local = the Farm."
           },
           {
             "id": "phonelink",
@@ -1228,17 +1282,17 @@
             "status": "planned",
             "col": 2,
             "row": 1,
-            "h": 130,
-            "name": "Phone link",
-            "tech": "oxbot (M3)",
-            "desc": "TLS with a pinned cert, QR pairing, device tokens, mDNS (_oxbot._tcp)."
+            "h": 150,
+            "name": "Gate link",
+            "tech": "oxbot (Farm part 2)",
+            "desc": "TLS with a pinned cert, pairing code or QR, device \u2192 person, mDNS. Connects as Viewer::gate."
           },
           {
             "id": "prompt",
             "type": "component",
             "col": 0,
             "row": 2,
-            "h": 130,
+            "h": 150,
             "name": "Prompt",
             "tech": "oxbot-core::prompt",
             "desc": "Page text is information, never instructions. Call request_sign_in when a site needs an account; never type passwords."
@@ -1249,17 +1303,17 @@
             "col": 1,
             "row": 2,
             "span": 2,
-            "h": 130,
+            "h": 150,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "Runs bots, 3 turns at once; the Assistant always there. Lends the browser to one bot at a time. give_task: frees the browser, messages a bot as Assistant, waits up to 10 min for the reply. Sign-in, signed-in sites, cards, names, usage."
+            "desc": "Runs bots, 3 turns at once; Herder always there and acts for whoever sent its latest message. browsers: owner \u2192 Chrome, each lent to one bot at a time. bots_for, set_private, rename, delete (to trash). Sign-in, sites, cards, usage."
           },
           {
             "id": "policy",
             "type": "component",
             "col": 3,
             "row": 2,
-            "h": 165,
+            "h": 170,
             "name": "Policy",
             "tech": "oxbot-core::policy",
             "desc": "Every browser call. Read, type: run. Change clicks and Enter: red card. Uploads: amber. create_bot: Create card. Refused: password fields, page scripts, non-web URLs, other files."
@@ -1269,27 +1323,27 @@
             "type": "component",
             "col": 0,
             "row": 3,
-            "h": 160,
+            "h": 175,
             "name": "Store",
             "tech": "oxbot-core::store",
-            "desc": "SQLite: history, sessions, people (name, color), signed-in sites, usage, plan limits."
+            "desc": "SQLite: history, sessions, people (name, color), sites keyed (owner, site), usage, plan limits. delete_bot clears a bot's history."
           },
           {
             "id": "bots",
             "type": "component",
             "col": 1,
             "row": 3,
-            "h": 160,
+            "h": 175,
             "name": "Bots",
             "tech": "oxbot-core::bot, id",
-            "desc": "Bot folders and settings; ids made from names. assistant is the central bot."
+            "desc": "Bot folders: created_by, private, trash. is_central: Herder. browser_owner. Viewer {name, farm}: the Farm sees all; others shared + own."
           },
           {
             "id": "runner",
             "type": "component",
             "col": 2,
             "row": 3,
-            "h": 160,
+            "h": 175,
             "name": "Claude runner",
             "tech": "oxbot-claude",
             "desc": "Spawns claude -p. Parses stream-json: text, tool results, permission requests, MCP messages, usage."
@@ -1299,10 +1353,11 @@
             "type": "component",
             "col": 3,
             "row": 3,
-            "h": 160,
+            "h": 175,
             "name": "Browser",
             "tech": "oxbot-browser",
-            "desc": "One shared Chrome, kept profile. Hidden; visible to sign in; quits with Browser.close. Guard (CDP): pages, downloads, screenshots, site cookies."
+            "desc": "One Browser per owner: home or a person's profile. Hidden; visible to sign in. Guard (CDP): pages, downloads, screenshots, cookies, sign out per site. Icons from Favicons, read-only.",
+            "stack": true
           },
           {
             "id": "sqlite",
@@ -1340,9 +1395,9 @@
             "col": 3,
             "row": 4,
             "h": 90,
-            "name": "Chrome",
-            "tech": "one, shared",
-            "desc": "kept profile"
+            "name": "Chromes",
+            "tech": "one per owner",
+            "desc": "home + people/<name>"
           },
           {
             "id": "tools",
@@ -1352,7 +1407,7 @@
             "h": 150,
             "name": "Tools",
             "tech": "oxbot-core::tools",
-            "desc": "In-process (sdk) MCP server. Every bot: request_sign_in. The Assistant also: list_bots, create_bot, give_task, read_reply."
+            "desc": "In-process (sdk) MCP server. Every bot: request_sign_in. Herder also: list_bots, create_bot, give_task, read_reply."
           },
           {
             "id": "setup",
@@ -1370,7 +1425,7 @@
             "status": "planned",
             "col": 4,
             "row": 3,
-            "h": 160,
+            "h": 175,
             "name": "Codex runner",
             "tech": "oxbot (later)",
             "desc": "Runs bots on OpenAI's Codex CLI. Default picked at setup; switch per bot."
@@ -1413,7 +1468,7 @@
             "from": "android",
             "to": "phonelink",
             "status": "planned",
-            "label": "wss, paired",
+            "label": "later: wss, paired",
             "label_at": [
               596,
               140,
@@ -1442,19 +1497,19 @@
           {
             "from": "web",
             "to": "hub",
-            "label": "subscribe, send,\nstop, answer cards",
+            "label": "per viewer: send,\nsubscribe, stop, cards,\nbot settings, sign-ins",
             "label_at": [
               348,
-              352,
+              360,
               "start"
             ],
             "from_pt": [
               340,
-              320
+              340
             ],
             "to_pt": [
               340,
-              400
+              420
             ]
           },
           {
@@ -1472,35 +1527,35 @@
             "to": "store",
             "from_pt": [
               290,
-              530
+              570
             ],
             "to_pt": [
               160,
-              610
+              640
             ],
             "label": "record,\nreplay",
             "label_at": [
               212,
-              562,
+              597,
               "end"
             ]
           },
           {
             "from": "hub",
             "to": "bots",
-            "label": "load",
+            "label": "load, who\nmay see",
             "label_at": [
               356,
-              575,
+              600,
               "start"
             ],
             "from_pt": [
               348,
-              530
+              570
             ],
             "to_pt": [
               348,
-              610
+              640
             ]
           },
           {
@@ -1509,16 +1564,16 @@
             "label": "send, events,\nMCP replies",
             "label_at": [
               596,
-              566,
+              600,
               "start"
             ],
             "from_pt": [
               588,
-              530
+              570
             ],
             "to_pt": [
               588,
-              610
+              640
             ]
           },
           {
@@ -1526,16 +1581,16 @@
             "to": "browser",
             "from_pt": [
               681,
-              522
+              560
             ],
             "to_pt": [
               770,
-              610
+              640
             ],
-            "label": "lend, sign-in,\nsites, guard",
+            "label": "lend per owner,\nsign-in, sites, guard",
             "label_at": [
               784,
-              583,
+              610,
               "start"
             ]
           },
@@ -1545,7 +1600,7 @@
             "label": "SQL",
             "label_at": [
               116,
-              830,
+              862,
               "start"
             ]
           },
@@ -1555,7 +1610,7 @@
             "label": "files",
             "label_at": [
               356,
-              830,
+              862,
               "start"
             ]
           },
@@ -1565,7 +1620,7 @@
             "label": "stream-json",
             "label_at": [
               596,
-              830,
+              862,
               "start"
             ]
           },
@@ -1575,25 +1630,25 @@
             "label": "CDP",
             "label_at": [
               836,
-              830,
+              862,
               "start"
             ]
           },
           {
             "from": "hub",
             "to": "tools",
-            "label": "sign-in,\nteam tools",
+            "label": "sign-in,\nHerder's tools",
             "from_pt": [
               660,
-              400
+              420
             ],
             "to_pt": [
               790,
               340
             ],
             "label_at": [
-              742,
-              368,
+              750,
+              372,
               "start"
             ]
           },
@@ -1632,25 +1687,29 @@
             "label": "later",
             "from_pt": [
               640,
-              400
+              420
             ],
             "to_pt": [
-              1068,
-              610
+              976,
+              720
             ],
             "label_at": [
-              1076,
-              500,
+              958,
+              600,
               "start"
             ],
             "via": [
               [
                 640,
-                386
+                410
               ],
               [
-                1068,
-                386
+                950,
+                410
+              ],
+              [
+                950,
+                720
               ]
             ]
           },
@@ -1661,7 +1720,7 @@
             "label": "spawns",
             "label_at": [
               1076,
-              830,
+              862,
               "start"
             ]
           },
@@ -1684,6 +1743,35 @@
             ]
           }
         ]
+      }
+    ]
+  },
+  "changed": {
+    "intro": "Since 2.11.4 (2026-10-29 to 10-30): Herder, bot owners and private bots, a Chrome per owner, and per-person filtering on the server. Everything below is built and runs on the Farm; Gates are planned.",
+    "items": [
+      {
+        "title": "Herder",
+        "text": "The central bot (id assistant, name Herder, Bot::is_central) is always there and pinned first. oxbot's in-process MCP server gives it list_bots, create_bot, give_task and read_reply (tools.rs; Hub::run_tool_inner, team, give_task, read_reply). Other bots get only request_sign_in. create_bot shows a Create card first (policy::decide_oxbot_tool). Herder acts for whoever sent its latest message and never gets the Farm view."
+      },
+      {
+        "title": "Bot owners and private bots",
+        "text": "bot.toml records created_by and private. Viewer {name, farm} decides visibility: the Farm (the Mac running oxbot) sees everything; anyone else sees shared bots and their own private ones. Hub::bots_for, bot_for and history_for answer per viewer; set_private, rename_bot and delete_bot need the maker or the Farm. Delete moves the folder to <home>/trash and clears its history (Store::delete_bot)."
+      },
+      {
+        "title": "A Chrome per owner",
+        "text": "The Hub keeps browsers: owner \u2192 Chrome. Shared bots use the home Chrome (<home>/browser/profile); a private bot uses only its maker's own (<home>/browser/people/<name>-<hash>/profile), via Bot::browser_owner and Hub::browser_for. Each Chrome has its own lease (its bots take turns), sign-in window and watcher."
+      },
+      {
+        "title": "Signed-in sites per browser",
+        "text": "SQLite sites table keyed (owner, site) (migration 6). Site icons are read read-only from each profile's Favicons file (oxbot-browser site_icon); sign out per site over CDP. Protocol: ServerMsg::Sites {sites, owner}; AddSignIn, OpenSite, SignOutSite and SignOutAll carry mine; SetPrivate, RenameBot, DeleteBot; CreateBot {private}; AppSettings.farm; BotInfo.private and created_by."
+      },
+      {
+        "title": "Filtering per connection",
+        "text": "Each WebSocket connection is a Client {viewer, visible, subs}; forward() drops anything about bots that viewer can't see and other people's site lists. Today every local connection is the Farm. Gates (laptops and phones paired over home Wi-Fi) are next, not built."
+      },
+      {
+        "title": "App",
+        "text": "Sidebar: a lock on private bots and \"by Name\" under each bot. A \u00b7\u00b7\u00b7 button opens bot settings (name, private or shared, delete). New bot has a Private box. Settings tabs: General, Sign-ins (Home and Yours), Activity."
       }
     ]
   }

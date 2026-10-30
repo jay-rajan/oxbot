@@ -18,7 +18,7 @@ pub mod prompt;
 pub mod store;
 pub mod tools;
 
-pub use bot::{Bot, BotError};
+pub use bot::{Bot, BotError, Viewer};
 pub use home::Home;
 pub use hub::{Hub, HubConfig, HubError};
 pub use id::{BotId, BotIdError, MAX_BOT_ID_LEN};

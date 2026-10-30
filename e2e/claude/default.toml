@@ -1,0 +1,36 @@
+# The stand-in Claude's replies. The first `when` found in the message
+# (any case) wins; the one without `when` is the fallback.
+
+[[reply]]
+when = "hello"
+say = "Hello! I'm the stand-in Claude."
+
+[[reply]]
+when = "make a bot"
+say = "I'll make that bot."
+tool = "create_bot"
+args = { name = "Weather Notes", instructions = "Tell me the weather when I ask." }
+after = "Created it. {result}"
+denied = "Okay, I didn't create it."
+
+[[reply]]
+when = "ask bank"
+tool = "give_task"
+args = { bot = "bank", message = "what's my balance?" }
+after = "{result}"
+
+[[reply]]
+when = "post it"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "1_3" }
+snapshot = "## Pages\n1: Jobs (https://jobs.example.com/apply) [selected]\n## Latest page snapshot\nuid=1_1 RootWebArea \"Jobs\"\n  uid=1_3 button \"Post\""
+after = "Posted."
+denied = "Okay, I didn't post it."
+
+[[reply]]
+when = "take your time"
+say = "Done, slowly."
+delay_ms = 3000
+
+[[reply]]
+say = "Got it."

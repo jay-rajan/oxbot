@@ -111,6 +111,21 @@ impl Browser {
         self.port
     }
 
+    /// The icon Chrome saved for `site` (a main domain) when a page of it
+    /// was open, as a `data:image/png` URL. Read from the profile on disk:
+    /// nothing is downloaded. `None` if Chrome has none.
+    #[must_use]
+    pub fn site_icon(&self, site: &str) -> Option<String> {
+        self.site_icons(&[site]).pop().flatten()
+    }
+
+    /// Like [`Browser::site_icon`] for several sites, reading Chrome's file
+    /// once. One entry per site, in order.
+    #[must_use]
+    pub fn site_icons(&self, sites: &[&str]) -> Vec<Option<String>> {
+        site_icons(&self.profile_dir.join("Default/Favicons"), sites)
+    }
+
     /// The kept profile folder.
     #[must_use]
     pub fn profile_dir(&self) -> &Path {
@@ -492,6 +507,9 @@ impl Browser {
             ])
             .arg(format!("--remote-debugging-port={}", self.port));
         if let Some(url) = window_url {
+            if self.tools.config().hidden_windows {
+                cmd.arg("--headless=new");
+            }
             cmd.arg(url);
         } else {
             // Hidden Chrome calls itself "HeadlessChrome", which many sites
@@ -511,7 +529,7 @@ impl Browser {
         })?;
         tracing::info!(
             browser = self.label,
-            hidden = window_url.is_none(),
+            hidden = window_url.is_none() || self.tools.config().hidden_windows,
             pid = child.id(),
             "Chrome started"
         );
@@ -597,6 +615,73 @@ fn regex_escape(text: &str) -> String {
             out.push('\\');
         }
         out.push(c);
+    }
+    out
+}
+
+/// The icon saved in Chrome's `Favicons` database for pages of `site` (or
+/// its subdomains), closest to 32 px, as a `data:image/png` URL.
+fn site_icons(db: &Path, sites: &[&str]) -> Vec<Option<String>> {
+    let none = || vec![None; sites.len()];
+    if !db.is_file() {
+        return none();
+    }
+    // Read-only and "immutable": oxbot never writes Chrome's files, and
+    // doesn't wait on Chrome's lock. `%`, `?` and `#` in the path would be
+    // read as part of the URI, so they're escaped.
+    let path = db
+        .display()
+        .to_string()
+        .replace('%', "%25")
+        .replace('?', "%3f")
+        .replace('#', "%23");
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        format!("file:{path}?immutable=1"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    ) else {
+        return none();
+    };
+    let Ok(mut query) = conn.prepare(
+        "SELECT b.image_data FROM icon_mapping m JOIN favicon_bitmaps b ON b.icon_id = m.icon_id
+         WHERE m.page_url LIKE 'http%://' || ?1 || '/%' ESCAPE '\\'
+            OR m.page_url LIKE 'http%://%.' || ?1 || '/%' ESCAPE '\\'
+         ORDER BY ABS(b.width - 32) LIMIT 1",
+    ) else {
+        return none();
+    };
+    sites
+        .iter()
+        .map(|site| {
+            // A site's own `%` and `_` match only themselves.
+            let pattern = site
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let png: Vec<u8> = query.query_row([pattern], |r| r.get(0)).ok()?;
+            png.starts_with(b"\x89PNG")
+                .then(|| format!("data:image/png;base64,{}", base64(&png)))
+        })
+        .collect()
+}
+
+/// Standard base64, for a small icon.
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
+            if i <= chunk.len() {
+                out.push(char::from(ABC[(n >> shift) as usize & 63]));
+            } else {
+                out.push('=');
+            }
+        }
     }
     out
 }
@@ -731,5 +816,40 @@ mod tests {
         assert_eq!(site_of("www.bbc.co.uk"), "bbc.co.uk");
         assert_eq!(site_of("127.0.0.1"), "127.0.0.1");
         assert_eq!(site_of("localhost"), "localhost");
+    }
+
+    #[test]
+    fn base64_matches_the_standard() {
+        assert_eq!(base64(b"Man"), "TWFu");
+        assert_eq!(base64(b"Ma"), "TWE=");
+        assert_eq!(base64(b"M"), "TQ==");
+        assert_eq!(base64(b""), "");
+    }
+
+    #[test]
+    fn a_site_icon_comes_from_chromes_favicons_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("Favicons");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE icon_mapping (page_url TEXT, icon_id INTEGER);
+             CREATE TABLE favicon_bitmaps (icon_id INTEGER, width INTEGER, image_data BLOB);
+             INSERT INTO icon_mapping VALUES ('https://jay.substack.com/p/1', 1);
+             INSERT INTO favicon_bitmaps VALUES (1, 16, X'89504E4701'), (1, 32, X'89504E4702');",
+        )
+        .unwrap();
+        drop(conn);
+        let icon = site_icons(&db, &["substack.com"]).pop().flatten().unwrap();
+        assert_eq!(
+            icon,
+            format!("data:image/png;base64,{}", base64(b"\x89PNG\x02"))
+        );
+        assert_eq!(site_icons(&db, &["google.com"]).pop().flatten(), None);
+        assert_eq!(
+            site_icons(&tmp.path().join("none"), &["substack.com"])
+                .pop()
+                .flatten(),
+            None
+        );
     }
 }

@@ -115,6 +115,9 @@ pub struct ToolsConfig {
     /// The browser tool and Node.js shipped inside the app. When set, oxbot
     /// uses them and never runs npm.
     pub built_in: Option<BuiltInTool>,
+    /// Keep sign-in windows hidden too (end-to-end tests, so no windows pop
+    /// up on the screen while they run).
+    pub hidden_windows: bool,
 }
 
 /// The browser tool shipped inside oxbot.app: a Node.js runtime and the
@@ -156,6 +159,7 @@ impl ToolsConfig {
             scratch_dir: root.join("scratch"),
             env: Vec::new(),
             built_in: None,
+            hidden_windows: false,
         }
     }
 

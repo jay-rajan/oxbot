@@ -62,7 +62,29 @@ const MIGRATIONS: &[&str] = &[
         site         TEXT PRIMARY KEY,
         signed_in_ms INTEGER NOT NULL
     );",
+    // 5: sign-ins from before the sites list, taken from the chat history
+    // (as hosts; the hub turns them into main domains).
+    "INSERT OR IGNORE INTO sites (site, signed_in_ms)
+        SELECT json_extract(body, '$.site'), MAX(ts_ms) FROM events
+        WHERE json_extract(body, '$.kind') = 'sign_in'
+          AND json_extract(body, '$.outcome') = 'done'
+          AND json_extract(body, '$.site') IS NOT NULL
+        GROUP BY json_extract(body, '$.site');",
+    // 6: each person has their own browser: sites belong to a browser's
+    // owner ('' is the home browser every shared bot uses).
+    "CREATE TABLE sites_by_owner (
+        owner        TEXT    NOT NULL DEFAULT '',
+        site         TEXT    NOT NULL,
+        signed_in_ms INTEGER NOT NULL,
+        PRIMARY KEY (owner, site)
+    );
+    INSERT INTO sites_by_owner (owner, site, signed_in_ms) SELECT '', site, signed_in_ms FROM sites;
+    DROP TABLE sites;
+    ALTER TABLE sites_by_owner RENAME TO sites;",
 ];
+
+/// The owner name of the home browser's sites.
+pub const HOME: &str = "";
 
 /// People's colors, in the order they're handed out: the first few are as
 /// far apart as possible. All are mid-tones that read on white and on dark.
@@ -107,7 +129,7 @@ fn person(name: &str, color: i64) -> Person {
     }
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
@@ -130,13 +152,17 @@ impl Store {
         Self::setup(Connection::open_in_memory()?)
     }
 
-    fn setup(conn: Connection) -> Result<Self, StoreError> {
+    fn setup(mut conn: Connection) -> Result<Self, StoreError> {
         conn.execute_batch(SCHEMA)?;
         let done: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         let done = usize::try_from(done).unwrap_or(0);
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(done) {
-            conn.execute_batch(sql)?;
-            conn.execute_batch(&format!("PRAGMA user_version = {}", i + 1))?;
+            // A migration and its version bump commit together, so a crash
+            // mid-way (6 rebuilds a table) leaves the database as it was.
+            let tx = conn.transaction()?;
+            tx.execute_batch(sql)?;
+            tx.execute_batch(&format!("PRAGMA user_version = {}", i + 1))?;
+            tx.commit()?;
         }
         Ok(Self {
             conn: Mutex::new(conn),
@@ -191,45 +217,85 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Remembers that the user signed in to `site` (a main domain) now.
+    /// Remembers that `owner`'s browser ([`HOME`] for the home one) signed
+    /// in to `site` (a main domain) now.
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn add_site(&self, site: &str) -> Result<(), StoreError> {
+    pub fn add_site(&self, owner: &str, site: &str) -> Result<(), StoreError> {
+        self.add_site_at(owner, site, now_ms())
+    }
+
+    /// Remembers a sign-in to `site` at `when_ms`; a later one wins.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn add_site_at(&self, owner: &str, site: &str, when_ms: i64) -> Result<(), StoreError> {
         self.conn().execute(
-            "INSERT INTO sites (site, signed_in_ms) VALUES (?1, ?2)
-             ON CONFLICT(site) DO UPDATE SET signed_in_ms = excluded.signed_in_ms",
-            params![site, now_ms()],
+            "INSERT INTO sites (owner, site, signed_in_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(owner, site) DO UPDATE SET signed_in_ms = MAX(signed_in_ms, excluded.signed_in_ms)",
+            params![owner, site, when_ms],
         )?;
         Ok(())
     }
 
-    /// Forgets `site`. Returns whether it was there.
+    /// Forgets `site` for `owner`'s browser. Returns whether it was there.
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn remove_site(&self, site: &str) -> Result<bool, StoreError> {
-        Ok(self
-            .conn()
-            .execute("DELETE FROM sites WHERE site = ?1", [site])?
-            > 0)
+    pub fn remove_site(&self, owner: &str, site: &str) -> Result<bool, StoreError> {
+        Ok(self.conn().execute(
+            "DELETE FROM sites WHERE owner = ?1 AND site = ?2",
+            params![owner, site],
+        )? > 0)
     }
 
-    /// The sites the user signed in to, newest first.
+    /// The sites `owner`'s browser signed in to, newest first.
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn sites(&self) -> Result<Vec<SiteInfo>, StoreError> {
+    pub fn sites(&self, owner: &str) -> Result<Vec<SiteInfo>, StoreError> {
         let conn = self.conn();
-        let mut stmt =
-            conn.prepare("SELECT site, signed_in_ms FROM sites ORDER BY signed_in_ms DESC, site")?;
-        let rows = stmt.query_map([], |r| {
+        let mut stmt = conn.prepare(
+            "SELECT site, signed_in_ms FROM sites WHERE owner = ?1
+             ORDER BY signed_in_ms DESC, site",
+        )?;
+        let rows = stmt.query_map([owner], |r| {
             Ok(SiteInfo {
                 site: r.get(0)?,
                 signed_in_ms: r.get(1)?,
+                icon: None,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every browser owner with remembered sites ([`HOME`] included).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn site_owners(&self) -> Result<Vec<String>, StoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT DISTINCT owner FROM sites ORDER BY owner")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Forgets everything about a deleted bot: its history, session and usage.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn delete_bot(&self, bot: &BotId) -> Result<(), StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for table in ["events", "sessions", "usage"] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE bot = ?1"),
+                [bot.as_str()],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Stores a new event for `bot` and returns it with its number.
@@ -464,6 +530,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxbot_protocol::SignInOutcome;
 
     #[test]
     fn each_person_keeps_their_own_color() {
@@ -485,16 +552,97 @@ mod tests {
     }
 
     #[test]
+    fn sign_ins_from_before_the_sites_list_are_found_in_the_history() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("oxbot.db");
+        {
+            // A database from before migration 5, with two sign-ins in it.
+            let store = Store::open(&path).unwrap();
+            let bot = bot("a");
+            for (site, outcome) in [
+                ("substack.com", SignInOutcome::Done),
+                ("mail.example.com", SignInOutcome::Cancelled),
+            ] {
+                store
+                    .append(
+                        &bot,
+                        EventKind::SignIn {
+                            site: site.into(),
+                            outcome,
+                        },
+                    )
+                    .unwrap();
+            }
+            let conn = store.conn();
+            conn.execute_batch("DELETE FROM sites; PRAGMA user_version = 4;")
+                .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let names: Vec<String> = store
+            .sites(HOME)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.site)
+            .collect();
+        assert_eq!(names, ["substack.com"], "only finished sign-ins count");
+    }
+
+    #[test]
     fn signed_in_sites_are_kept_until_signed_out() {
         let store = Store::open_in_memory().unwrap();
-        store.add_site("substack.com").unwrap();
-        store.add_site("google.com").unwrap();
-        store.add_site("substack.com").unwrap(); // signing in again updates it
-        let names: Vec<String> = store.sites().unwrap().into_iter().map(|s| s.site).collect();
+        store.add_site(HOME, "substack.com").unwrap();
+        store.add_site(HOME, "google.com").unwrap();
+        store.add_site(HOME, "substack.com").unwrap(); // signing in again updates it
+        let names: Vec<String> = store
+            .sites(HOME)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.site)
+            .collect();
         assert_eq!(names.len(), 2);
-        assert!(store.remove_site("google.com").unwrap());
-        assert!(!store.remove_site("google.com").unwrap());
-        assert_eq!(store.sites().unwrap()[0].site, "substack.com");
+        assert!(store.remove_site(HOME, "google.com").unwrap());
+        assert!(!store.remove_site(HOME, "google.com").unwrap());
+        assert_eq!(store.sites(HOME).unwrap()[0].site, "substack.com");
+    }
+
+    #[test]
+    fn each_browser_keeps_its_own_sites() {
+        let store = Store::open_in_memory().unwrap();
+        store.add_site(HOME, "google.com").unwrap();
+        store.add_site("Sam", "google.com").unwrap();
+        store.add_site("Sam", "bank.example").unwrap();
+        assert_eq!(store.sites(HOME).unwrap().len(), 1);
+        assert_eq!(store.sites("Sam").unwrap().len(), 2);
+        assert!(store.remove_site("Sam", "google.com").unwrap());
+        assert_eq!(store.sites(HOME).unwrap().len(), 1, "home keeps its own");
+        assert_eq!(store.site_owners().unwrap(), ["", "Sam"]);
+    }
+
+    #[test]
+    fn a_deleted_bot_leaves_nothing_behind() {
+        let store = Store::open_in_memory().unwrap();
+        let a = bot("a");
+        store
+            .append(
+                &a,
+                EventKind::UserMessage {
+                    text: "hi".into(),
+                    from: None,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                &bot("b"),
+                EventKind::UserMessage {
+                    text: "hi".into(),
+                    from: None,
+                },
+            )
+            .unwrap();
+        store.delete_bot(&a).unwrap();
+        assert_eq!(store.last_seq(&a).unwrap(), 0);
+        assert_eq!(store.last_seq(&bot("b")).unwrap(), 1);
     }
 
     #[test]

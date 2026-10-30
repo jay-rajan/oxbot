@@ -36,7 +36,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .brand { display: flex; align-items: center; gap: 9px; padding: 2px 6px; }
 .brand .wordmark { height: 44px; width: auto; display: block; color: var(--ink); }
 .brand .wordmark .wm-red { fill: var(--rust); stroke: var(--rust); }
-.new-bot { background: none; color: var(--btn-ink); border: 0; border-radius: 8px; width: 40px; height: 40px; padding: 0; display: grid; place-items: center; font: 600 2rem/1 var(--body); cursor: pointer; flex: none; }
+.new-bot { margin-left: auto; background: none; color: var(--btn-ink); border: 0; border-radius: 8px; width: 40px; height: 40px; padding: 0; display: grid; place-items: center; font: 600 2rem/1 var(--body); cursor: pointer; flex: none; }
 .new-bot:hover { background: var(--hover); } .new-bot:active { background: var(--btn-pressed); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
 .dot.on { background: var(--ok); } .dot.off { background: var(--err); }
@@ -51,7 +51,24 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .head-avatar { width: 30px; height: 30px; }
 .bot-item .meta { min-width: 0; }
 .bot-item .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bot-item .central { display: block; font-size: .72rem; color: var(--muted); }
+.bot-item .central { display: flex; align-items: center; gap: 5px; font-size: .72rem; color: var(--muted); }
+.maker-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
+.lock { width: 11px; height: 11px; flex: none; color: var(--muted); display: inline-block; vertical-align: -1px; }
+.bot-item .name { display: flex; align-items: center; gap: 5px; }
+.bot-item .name span { overflow: hidden; text-overflow: ellipsis; }
+.locked-view { margin: auto; position: relative; width: min(520px, 100%); display: grid; gap: 10px; padding: 8px 0; }
+.locked-view .ghostline { height: 34px; border-radius: 14px; background: var(--bubble-bot); filter: blur(5px); opacity: .9; }
+.locked-view .ghostline.me { justify-self: end; background: var(--me); opacity: .35; }
+.locked-view .note { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 6px; text-align: center; color: var(--ink); font-size: .9rem; }
+.locked-view .note .lock { width: 22px; height: 22px; color: var(--ink); }
+.locked-view .note small { color: var(--muted); }
+.head-more { margin-left: auto; background: none; border: 0; color: var(--muted); width: 34px; height: 34px; border-radius: 8px; font: 700 1.1rem/1 var(--body); letter-spacing: .05em; padding: 0; }
+.head-more:hover { background: var(--hover); color: var(--ink); }
+.site-who { font-size: .68rem; color: var(--muted); margin-left: 4px; }
+.for-pick { display: flex; gap: 14px; flex-wrap: wrap; font-size: .85rem; color: var(--ink); }
+.for-pick label { display: flex; flex-direction: row; gap: 6px; align-items: center; color: var(--ink); font-size: .85rem; }
+svg.herder { width: 100%; height: 100%; display: block; }
+svg.herder .hd-ink { stroke: var(--ink); fill: none; } svg.herder .hd-red { fill: var(--rust); stroke: var(--rust); }
 .card.newbot { border: 1px solid var(--line); background: var(--surface); }
 .card.newbot h3 { color: var(--ink); }
 .unread { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
@@ -62,7 +79,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 @media (prefers-reduced-motion: reduce) { .avatar.working svg { animation: fade 1.6s ease-in-out infinite; } }
 .side-btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 8px 10px; text-align: left; }
 .side-btn:hover { background: var(--hover); }
-.gear { margin-left: auto; position: relative; background: none; border: 0; color: var(--muted); width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; flex: none; padding: 0; }
+.side-foot { display: flex; align-items: center; padding-top: 2px; }
+.gear { position: relative; background: none; border: 0; color: var(--muted); width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; flex: none; padding: 0; }
 .gear svg { width: 20px; height: 20px; }
 .gear:hover { background: var(--hover); color: var(--ink); }
 .gear .badge { position: absolute; top: 1px; right: -2px; margin: 0; }
@@ -75,6 +93,17 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .site:focus-visible { outline: 2px solid var(--focus); }
 .site .mono { width: 22px; height: 22px; border-radius: 50%; background: var(--hover); color: var(--muted); display: grid; place-items: center; font: 600 .7rem/1 var(--body); text-transform: uppercase; }
 .site-panel { padding: 4px 6px 8px 37px; display: grid; gap: 6px; }
+.site .mono.has-icon, .site-row .mono.has-icon { background: none; }
+.mono img { width: 16px; height: 16px; display: block; }
+.add-site, dialog form.add-site { display: flex; gap: 8px; flex-wrap: wrap; padding: 0; }
+.add-site input { flex: 1 1 200px; min-width: 0; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.add-site input:focus-visible { outline: none; border-color: var(--focus); }
+.site-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.site-row { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.site-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.site-row small { color: var(--muted); font-size: .75rem; }
+.site-row .mono { width: 22px; height: 22px; border-radius: 50%; background: var(--hover); color: var(--muted); display: grid; place-items: center; font: 600 .7rem/1 var(--body); text-transform: uppercase; }
+.site-row button { font-size: .8rem; padding: 5px 10px; }
 .site-panel .when { color: var(--muted); font-size: .75rem; }
 .site-panel .btns { display: flex; gap: 6px; flex-wrap: wrap; }
 .site-panel button { font-size: .8rem; padding: 5px 10px; }
@@ -210,15 +239,16 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <body>
 <div class="app">
   <aside class="side" id="side">
-    <div class="brand"><svg class="wordmark" viewBox="200 385 1410 505" role="img" aria-label="oxbot"><defs><mask id="wm-mask"><rect x="-1000" y="-1000" width="4000" height="4000" fill="#fff"/><circle cx="450" cy="712" r="157" fill="#000"/></mask></defs><g mask="url(#wm-mask)"><g transform="translate(450.0 552.0) scale(0.851) translate(-512 -502)"><g transform="translate(512 640) scale(0.78) translate(-512 -640)" class="wm-red" fill="#FF3737" stroke="#FF3737" stroke-width="20" stroke-linejoin="round"><path d="M458 592 C290 606 196 500 214 236 C256 440 350 488 458 500 Z"/><path transform="translate(1024 0) scale(-1 1)" d="M458 592 C290 606 196 500 214 236 C256 440 350 488 458 500 Z"/></g></g></g><circle class="wm-ring" cx="450" cy="712" r="127.0" fill="none" stroke="currentColor" stroke-width="66"/><g transform="translate(65.5 0)"><path class="wm-ink" fill="currentColor" stroke="currentColor" stroke-width="12" stroke-linejoin="round" d="M676.5 715.4 628.5 646.1H567.2L641.4 755L564.3 868H626L676.7 795.4L727.7 868H789.3L712.2 755L786.6 646.1H725.3Z M1020.9 759.3V755Q1020.9 734.9 1017.4 717.3Q1013.8 699.6 1006.4 685.5Q1001.7 676.7 995.5 669.2Q989.4 661.7 981.8 656.4Q972.3 649.4 960.3 645.7Q948.4 642 934 642Q923.5 642 914.6 644.2Q905.7 646.3 898.1 650.6Q892.8 653.5 888.1 657.5Q883.3 661.5 879.2 666.2V553H822.2V868H873.5L876.2 844.4Q879.7 848.9 883.5 852.7Q887.4 856.5 892 859.6Q900.4 865.7 910.9 868.9Q921.5 872.1 934.4 872.1Q948.6 872.1 960.3 868.5Q972.1 864.9 981.6 858.2Q992 851 999.7 840.1Q1007.4 829.2 1012.1 815.9Q1016.4 803.8 1018.7 789.6Q1020.9 775.3 1020.9 759.3ZM963.9 755V759.3Q963.9 767.9 963.2 775.9Q962.5 783.9 960.9 790.7Q958.8 799.9 954.8 807.2Q950.8 814.5 944.5 819Q939.9 822.3 933.8 824.1Q927.6 826 920.1 826Q911.2 826 904.4 823.9Q897.5 821.9 892.4 818Q888.1 814.9 884.9 810.7Q881.7 806.5 879.2 801.3V713Q881.1 709.1 883.3 705.7Q885.6 702.3 888.3 699.6Q893.8 694.1 901.6 691.2Q909.4 688.4 919.6 688.4Q927.2 688.4 933.2 690.1Q939.1 691.8 943.8 695.3Q951 700.9 954.6 707.5Q958.2 714.2 960.5 722.6Q962.3 729.8 963.1 738Q963.9 746.2 963.9 755Z M1059.2 755V759.3Q1059.2 783.7 1066.2 804.3Q1073.2 824.9 1086.7 840.1Q1100.1 855.3 1119.6 863.8Q1139.2 872.3 1164.2 872.3Q1189.1 872.3 1208.5 863.8Q1228 855.3 1241.4 840.1Q1254.7 824.9 1261.7 804.3Q1268.6 783.7 1268.6 759.3V755Q1268.6 730.8 1261.7 710.2Q1254.7 689.6 1241.4 674.4Q1227.8 659.2 1208.3 650.6Q1188.9 642 1163.8 642Q1138.8 642 1119.4 650.6Q1100.1 659.2 1086.7 674.4Q1073.2 689.6 1066.2 710.2Q1059.2 730.8 1059.2 755ZM1116.3 759.3V755Q1116.3 741.5 1118.9 729.4Q1121.6 717.3 1127.3 708Q1133.1 698.8 1142.1 693.5Q1151.1 688.1 1163.8 688.1Q1176.8 688.1 1185.8 693.5Q1194.8 698.8 1200.5 708Q1206.1 717.3 1208.7 729.4Q1211.4 741.5 1211.4 755V759.3Q1211.4 773.3 1208.7 785.5Q1206.1 797.7 1200.5 806.7Q1194.8 815.9 1185.8 821.2Q1176.8 826.6 1164.2 826.6Q1151.3 826.6 1142.2 821.2Q1133.1 815.9 1127.3 806.7Q1121.6 797.7 1118.9 785.5Q1116.3 773.3 1116.3 759.3Z M1417.7 591.8H1360.7V646.1H1310V688.1H1360.7V789Q1360.7 811 1366.4 826.7Q1372.1 842.4 1382.8 852.4Q1393.3 862.7 1408.1 867.5Q1423 872.3 1441.3 872.3Q1450.7 872.3 1460.4 871.4Q1470.2 870.5 1479.2 868.8Q1488.2 867.2 1496.2 864.6Q1504.2 862.1 1510.2 858.6L1504.6 819.4Q1500.7 820.4 1495.3 821.4Q1489.9 822.5 1483.7 823.3Q1477.3 824.3 1470.5 824.9Q1463.6 825.5 1457 825.5Q1448 825.5 1440.7 823.5Q1433.5 821.4 1428.3 816.5Q1423.2 811.8 1420.4 803.7Q1417.7 795.6 1417.7 783.5V688.1H1500.5V646.1H1417.7Z"/></g></svg><button class="gear" id="settingsBtn" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-dasharray="2.83 2.83"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg><span class="badge" id="warnBadge" hidden>0</span></button><button class="new-bot" id="newBot" type="button" aria-label="New bot" title="New bot">+</button></div>
+    <div class="brand"><svg class="wordmark" viewBox="200 385 1410 505" role="img" aria-label="oxbot"><defs><mask id="wm-mask"><rect x="-1000" y="-1000" width="4000" height="4000" fill="#fff"/><circle cx="450" cy="712" r="157" fill="#000"/></mask></defs><g mask="url(#wm-mask)"><g transform="translate(450.0 552.0) scale(0.851) translate(-512 -502)"><g transform="translate(512 640) scale(0.78) translate(-512 -640)" class="wm-red" fill="#FF3737" stroke="#FF3737" stroke-width="20" stroke-linejoin="round"><path d="M458 592 C290 606 196 500 214 236 C256 440 350 488 458 500 Z"/><path transform="translate(1024 0) scale(-1 1)" d="M458 592 C290 606 196 500 214 236 C256 440 350 488 458 500 Z"/></g></g></g><circle class="wm-ring" cx="450" cy="712" r="127.0" fill="none" stroke="currentColor" stroke-width="66"/><g transform="translate(65.5 0)"><path class="wm-ink" fill="currentColor" stroke="currentColor" stroke-width="12" stroke-linejoin="round" d="M676.5 715.4 628.5 646.1H567.2L641.4 755L564.3 868H626L676.7 795.4L727.7 868H789.3L712.2 755L786.6 646.1H725.3Z M1020.9 759.3V755Q1020.9 734.9 1017.4 717.3Q1013.8 699.6 1006.4 685.5Q1001.7 676.7 995.5 669.2Q989.4 661.7 981.8 656.4Q972.3 649.4 960.3 645.7Q948.4 642 934 642Q923.5 642 914.6 644.2Q905.7 646.3 898.1 650.6Q892.8 653.5 888.1 657.5Q883.3 661.5 879.2 666.2V553H822.2V868H873.5L876.2 844.4Q879.7 848.9 883.5 852.7Q887.4 856.5 892 859.6Q900.4 865.7 910.9 868.9Q921.5 872.1 934.4 872.1Q948.6 872.1 960.3 868.5Q972.1 864.9 981.6 858.2Q992 851 999.7 840.1Q1007.4 829.2 1012.1 815.9Q1016.4 803.8 1018.7 789.6Q1020.9 775.3 1020.9 759.3ZM963.9 755V759.3Q963.9 767.9 963.2 775.9Q962.5 783.9 960.9 790.7Q958.8 799.9 954.8 807.2Q950.8 814.5 944.5 819Q939.9 822.3 933.8 824.1Q927.6 826 920.1 826Q911.2 826 904.4 823.9Q897.5 821.9 892.4 818Q888.1 814.9 884.9 810.7Q881.7 806.5 879.2 801.3V713Q881.1 709.1 883.3 705.7Q885.6 702.3 888.3 699.6Q893.8 694.1 901.6 691.2Q909.4 688.4 919.6 688.4Q927.2 688.4 933.2 690.1Q939.1 691.8 943.8 695.3Q951 700.9 954.6 707.5Q958.2 714.2 960.5 722.6Q962.3 729.8 963.1 738Q963.9 746.2 963.9 755Z M1059.2 755V759.3Q1059.2 783.7 1066.2 804.3Q1073.2 824.9 1086.7 840.1Q1100.1 855.3 1119.6 863.8Q1139.2 872.3 1164.2 872.3Q1189.1 872.3 1208.5 863.8Q1228 855.3 1241.4 840.1Q1254.7 824.9 1261.7 804.3Q1268.6 783.7 1268.6 759.3V755Q1268.6 730.8 1261.7 710.2Q1254.7 689.6 1241.4 674.4Q1227.8 659.2 1208.3 650.6Q1188.9 642 1163.8 642Q1138.8 642 1119.4 650.6Q1100.1 659.2 1086.7 674.4Q1073.2 689.6 1066.2 710.2Q1059.2 730.8 1059.2 755ZM1116.3 759.3V755Q1116.3 741.5 1118.9 729.4Q1121.6 717.3 1127.3 708Q1133.1 698.8 1142.1 693.5Q1151.1 688.1 1163.8 688.1Q1176.8 688.1 1185.8 693.5Q1194.8 698.8 1200.5 708Q1206.1 717.3 1208.7 729.4Q1211.4 741.5 1211.4 755V759.3Q1211.4 773.3 1208.7 785.5Q1206.1 797.7 1200.5 806.7Q1194.8 815.9 1185.8 821.2Q1176.8 826.6 1164.2 826.6Q1151.3 826.6 1142.2 821.2Q1133.1 815.9 1127.3 806.7Q1121.6 797.7 1118.9 785.5Q1116.3 773.3 1116.3 759.3Z M1417.7 591.8H1360.7V646.1H1310V688.1H1360.7V789Q1360.7 811 1366.4 826.7Q1372.1 842.4 1382.8 852.4Q1393.3 862.7 1408.1 867.5Q1423 872.3 1441.3 872.3Q1450.7 872.3 1460.4 871.4Q1470.2 870.5 1479.2 868.8Q1488.2 867.2 1496.2 864.6Q1504.2 862.1 1510.2 858.6L1504.6 819.4Q1500.7 820.4 1495.3 821.4Q1489.9 822.5 1483.7 823.3Q1477.3 824.3 1470.5 824.9Q1463.6 825.5 1457 825.5Q1448 825.5 1440.7 823.5Q1433.5 821.4 1428.3 816.5Q1423.2 811.8 1420.4 803.7Q1417.7 795.6 1417.7 783.5V688.1H1500.5V646.1H1417.7Z"/></g></svg><button class="new-bot" id="newBot" type="button" aria-label="New bot" title="New bot">+</button></div>
     <div class="server" id="server">Connecting…</div>
     <nav class="bots" id="bots" aria-label="Bots"></nav>
     <section class="sites" aria-labelledby="sitesTitle"><h4 id="sitesTitle">Signed in</h4><ul id="sites"></ul></section>
+    <div class="side-foot"><button class="gear" id="settingsBtn" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-dasharray="2.83 2.83"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg><span class="badge" id="warnBadge" hidden>0</span></button></div>
   </aside>
   <main class="chat">
     <header class="chat-head">
       <button class="menu" id="menu" type="button" aria-label="Show bots">☰</button>
-      <span class="avatar head-avatar" id="botAvatar" hidden></span><div><h1 id="botName">oxbot</h1><div class="status" id="botStatus"></div></div>
+      <span class="avatar head-avatar" id="botAvatar" hidden></span><div><h1 id="botName">oxbot</h1><div class="status" id="botStatus"></div></div><button class="head-more" id="botMore" type="button" aria-label="Bot settings" title="Bot settings" hidden>···</button>
     </header>
     <div class="setup" id="setupBox" hidden><h3>oxbot needs a few things first</h3><ul class="checks" id="setupChecks"></ul><div class="btns"><button class="primary" type="button" id="setupAgain">Check again</button></div></div>
     <div class="cards" id="cards" aria-live="assertive"></div>
@@ -236,15 +266,26 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <h2>New bot</h2>
     <label>Name<input id="nbName" required placeholder="Daily News" autocomplete="off"></label>
     <label>What should it do?<textarea id="nbInstr" placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."></textarea></label>
-    <p class="hint">It browses in the shared browser, which stays signed in to sites you've signed in to, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.</p>
+    <label class="check"><input type="checkbox" id="nbPrivate"> Private: only you and the Farm's owner can see and use it, with your own sign-ins</label>
+    <p class="hint" id="nbHint">It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.</p>
     <div class="row"><button class="ghost" type="button" id="nbCancel">Cancel</button><button class="primary" type="submit">Create</button></div>
+  </form>
+</dialog>
+
+<dialog id="botDlg" aria-labelledby="bdTitle">
+  <form id="botForm">
+    <h2 id="bdTitle">Bot settings</h2>
+    <label>Name<input id="bdName" required autocomplete="off"></label>
+    <label class="check"><input type="checkbox" id="bdPrivate"> Private</label>
+    <p class="hint" id="bdHint"></p>
+    <div class="row"><button class="ghost" type="button" id="bdDelete">Delete bot</button><span style="flex:1"></span><button class="ghost" type="button" id="bdCancel">Cancel</button><button class="primary" type="submit">Save</button></div>
   </form>
 </dialog>
 
 <dialog id="appDlg" class="wide" aria-labelledby="appTitle">
   <div class="settings">
     <header class="settings-head"><h2 id="appTitle">Settings</h2><button class="ghost" id="appClose" type="button">Close</button></header>
-    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
+    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Sign-ins</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
 
     <div id="setGeneral" role="tabpanel">
     <section>
@@ -266,7 +307,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 
     <section>
       <h3>Browser</h3>
-      <p class="hint">Every bot shares one browser. It stays signed in to the sites you sign in to, so you sign in once. Bots take turns on it.</p>
+      <p class="hint">Shared bots use the home browser. It stays signed in to the sites signed in there, so you sign in once. Bots take turns on it. Private bots use their maker's own browser instead (Sign-ins tab).</p>
       <div class="btns"><button class="deny red" type="button" id="signOutAll">Sign out of all sites</button></div>
     </section>
 
@@ -285,6 +326,26 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       </dl>
     </section>
 
+    </div>
+
+    <div id="setSignins" role="tabpanel" hidden>
+    <section>
+      <h3>Sign in to a site</h3>
+      <p class="hint">Sign in now, before a bot needs it. A Chrome window opens on the site; sign in yourself, then close the window.</p>
+      <div class="for-pick" role="radiogroup" aria-label="Sign in for"><label><input type="radio" name="siteFor" value="home" checked> For shared bots</label><label><input type="radio" name="siteFor" value="mine"> Only for my private bots</label></div>
+      <form class="add-site" id="addSiteForm"><input id="addSiteUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="gmail.com" aria-label="Site address"><button class="primary" type="submit">Sign in</button></form>
+    </section>
+    <section>
+      <h3>Home</h3>
+      <p class="hint">Every shared bot uses these sign-ins.</p>
+      <ul class="site-rows" id="siteRows"></ul>
+    </section>
+    <section>
+      <h3>Yours</h3>
+      <p class="hint">Only your private bots use these. Nobody else's bots can. Signing in here is separate from home, even for the same site.</p>
+      <ul class="site-rows" id="mySiteRows"></ul>
+      <div class="btns"><button class="ghost" type="button" id="signOutMine">Sign out of all your sites</button></div>
+    </section>
     </div>
 
     <div id="setActivity" role="tabpanel" hidden>
@@ -321,7 +382,11 @@ const AVATARS = ["<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 3 100 94
 const AVATAR_COLORS = ["#7A5AF8", "#E0457B", "#0F9488", "#2F6FEB", "#A0663A", "#5E6B7D", "#B98A00", "#2E9A4E", "#E2701B", "#0E93B8", "#B33BC9", "#7C8A1C"];
 // FNV-1a: the same bot id always gets the same shape and color.
 function hash(s) { let h = 0x811c9dc5; for (const c of new TextEncoder().encode(s)) { h ^= c; h = Math.imul(h, 0x01000193) >>> 0; } return h; }
+// Herder, the central bot, wears the oxbot mark with a lead bell.
+const HERDER = "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"herder\" aria-hidden=\"true\" viewBox=\"40 120 944 904\"><defs><mask id=\"herder-mask\"><rect x=\"-1000\" y=\"-1000\" width=\"4000\" height=\"4000\" fill=\"#fff\"/><circle cx=\"512\" cy=\"600\" r=\"226\" fill=\"#000\"/></mask></defs><g mask=\"url(#herder-mask)\"><g transform=\"translate(512.0 370.0) scale(1.223) translate(-512 -502)\"><g transform=\"translate(512 640) scale(0.78) translate(-512 -640)\" class=\"hd-red\" stroke-width=\"20\" stroke-linejoin=\"round\"><path d=\"M458 592 C290 606 196 500 214 236 C256 440 350 488 458 500 Z\"/><path transform=\"translate(1024 0) scale(-1 1)\" d=\"M458 592 C290 606 196 500 214 236 C256 440 350 488 458 500 Z\"/></g></g></g><circle cx=\"512\" cy=\"600\" r=\"182.0\" fill=\"none\" class=\"hd-ink\" stroke-width=\"96\"/><path d=\"M440 868 Q440 820 512 820 Q584 820 584 868 L606 960 H418 Z\" class=\"hd-red\"/><circle cx=\"512\" cy=\"990\" r=\"26\" class=\"hd-red\"/><line x1=\"512\" y1=\"790\" x2=\"512\" y2=\"826\" class=\"hd-ink\" stroke-width=\"30\"/></svg>";
 function avatar(id) {
+  const b = bots.get(id);
+  if (b && b.info.central) return HERDER;
   const h = hash(id);
   return AVATARS[h % AVATARS.length].replaceAll("{C}", AVATAR_COLORS[Math.floor(h / AVATARS.length) % AVATAR_COLORS.length]);
 }
@@ -329,7 +394,9 @@ document.querySelector("link[rel=icon]").href = "data:image/svg+xml," + encodeUR
 
 // ---------- connection
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  // Test mode only: /?as=Name connects as that person (the server ignores it otherwise).
+  const as = new URLSearchParams(location.search).get("as");
+  ws = new WebSocket(`ws://${location.host}/ws${as ? "?as=" + encodeURIComponent(as) : ""}`);
   ws.onopen = () => {
     retry = 0; setConn(true);
     send({ type: "list_bots" });
@@ -356,15 +423,18 @@ function onMessage(m) {
       logLines.length = 0; renderLogs();
       approvals.clear(); signIns.clear(); renderCards(); // open cards are re-sent after hello
       break;
-    case "settings": settings = m; renderSettings(); break;
+    case "settings": settings = m; renderSettings(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
     case "usage": usage = m; renderUsage(); break;
     case "approval_needed": approvals.set(m.id, m); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); renderCards(); break;
     case "sign_in_needed": signIns.set(m.id, m); renderCards(); break;
     case "sign_in_resolved": signIns.delete(m.id); renderCards(); break;
-    case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); break;
+    case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); break;
     case "setup": setup = m; renderSetup(); break;
-    case "sites": sites = m.sites; if (openSite && !sites.some((x) => x.site === openSite)) openSite = null; renderSites(); break;
+    case "sites":
+      if (m.owner) mySites = m.sites; else sites = m.sites;
+      if (openSite && !allSites().some((x) => x.key === openSite)) openSite = null;
+      renderSites(); renderSiteRows(); break;
     case "setup_progress": setupRuns.set(m.action, { text: m.text, running: m.running }); renderSetup(); break;
     case "bot_created": pendingSelect = m.id; if (bots.has(m.id)) { pendingSelect = null; select(m.id); } break;
     case "activity": {
@@ -375,6 +445,9 @@ function onMessage(m) {
     case "browser": break;
     case "log": addLog(m); break;
     case "bots": {
+      // A bot that's gone (deleted, or now private to someone else) leaves the list.
+      // Its "seen" mark goes too: a new bot can get the same id and starts counting from 1.
+      for (const id of [...bots.keys()]) if (!m.bots.some((x) => x.id === id)) { bots.delete(id); forgetSeen(id); if (current === id) current = null; }
       for (const info of m.bots) {
         const b = bot(info.id); b.info = info; b.busy = info.busy;
         if (!(info.id in seen)) markSeen(info.id); // first time: old replies aren't new
@@ -414,6 +487,7 @@ let seen = {};
 try { seen = JSON.parse(store.get("oxbot.seen") || "{}") || {}; } catch { seen = {}; }
 function viewing(id) { return id === current && document.visibilityState === "visible"; }
 function unread(id) { const b = bots.get(id); return !!b && id !== current && (b.info.last_reply_seq || 0) > (seen[id] || 0); }
+function forgetSeen(id) { if (id in seen) { delete seen[id]; store.set("oxbot.seen", JSON.stringify(seen)); } }
 function markSeen(id) {
   const b = bots.get(id); if (!b) return;
   seen[id] = Math.max(seen[id] || 0, b.info.last_reply_seq || 0);
@@ -421,49 +495,119 @@ function markSeen(id) {
 }
 document.addEventListener("visibilitychange", () => { if (current && viewing(current)) { markSeen(current); renderBots(); } });
 
-// ---------- signed-in sites: open one, or sign out of it alone
-let sites = [], openSite = null, siteArmed = null;
+// ---------- signed-in sites: open one, or sign out of it alone.
+// Home sites (shared bots) and your own (your private bots) are separate.
+let sites = [], mySites = [], openSite = null, siteArmed = null;
+function allSites() {
+  return [...sites.map((s) => ({ ...s, mine: false, key: "home:" + s.site })), ...mySites.map((s) => ({ ...s, mine: true, key: "me:" + s.site }))];
+}
 function renderSites() {
   const ul = $("sites"); ul.textContent = "";
-  if (!sites.length) {
+  const list = allSites();
+  if (!list.length) {
     const li = document.createElement("li"); li.className = "empty-sites";
     li.textContent = "None yet. When a bot needs you to sign in, the site shows here.";
     ul.appendChild(li); return;
   }
-  for (const s of sites) {
+  for (const s of list) {
     const li = document.createElement("li");
     const b = document.createElement("button"); b.type = "button"; b.className = "site";
-    b.setAttribute("aria-expanded", String(openSite === s.site));
-    const mono = document.createElement("span"); mono.className = "mono"; mono.textContent = s.site.replace(/^www\./, "")[0] || "?";
+    b.setAttribute("aria-expanded", String(openSite === s.key));
     const name = document.createElement("span"); name.textContent = s.site;
-    b.append(mono, name);
-    b.onclick = () => { openSite = openSite === s.site ? null : s.site; clearArm(); renderSites(); };
+    if (s.mine) { const who = document.createElement("span"); who.className = "site-who"; who.textContent = "yours"; name.appendChild(who); }
+    b.append(siteMark(s), name);
+    b.onclick = () => { openSite = openSite === s.key ? null : s.key; clearArm(); renderSites(); };
     li.appendChild(b);
-    if (openSite === s.site) {
+    if (openSite === s.key) {
       const panel = div("site-panel");
-      const when = div("when"); when.textContent = `Signed in ${new Date(s.signed_in_ms).toLocaleDateString([], { month: "short", day: "numeric" })} · every bot uses it`;
+      const when = div("when");
+      when.textContent = `Signed in ${new Date(s.signed_in_ms).toLocaleDateString([], { month: "short", day: "numeric" })} · ${s.mine ? "only your private bots use it" : "every shared bot uses it"}`;
       const btns = div("btns");
       const open = document.createElement("button"); open.type = "button"; open.className = "primary"; open.textContent = "Open";
-      open.onclick = () => send({ type: "open_site", site: s.site });
+      open.onclick = () => send({ type: "open_site", site: s.site, mine: s.mine });
       const out = document.createElement("button"); out.type = "button"; out.className = "primary";
-      out.textContent = siteArmed === s.site ? `Yes, sign out of ${s.site}` : "Sign out";
+      out.textContent = siteArmed === s.key ? `Yes, sign out of ${s.site}` : "Sign out";
       out.onclick = () => {
-        if (siteArmed !== s.site) { siteArmed = s.site; renderSites(); siteArmTimer = setTimeout(() => { clearArm(); renderSites(); }, 5000); return; }
-        clearArm(); send({ type: "sign_out_site", site: s.site }); openSite = null;
+        if (siteArmed !== s.key) { siteArmed = s.key; renderSites(); siteArmTimer = setTimeout(() => { clearArm(); renderSites(); }, 5000); return; }
+        clearArm(); send({ type: "sign_out_site", site: s.site, mine: s.mine }); openSite = null;
       };
       btns.append(open, out); panel.append(when, btns); li.appendChild(panel);
     }
     ul.appendChild(li);
   }
 }
+// The site's own icon (from that browser's saved icons), else its first letter.
+function siteMark(s) {
+  const mono = document.createElement("span"); mono.className = "mono";
+  if (s.icon && s.icon.startsWith("data:image/")) {
+    const img = document.createElement("img"); img.src = s.icon; img.alt = ""; mono.appendChild(img);
+    mono.classList.add("has-icon");
+  } else mono.textContent = s.site.replace(/^www\./, "")[0] || "?";
+  return mono;
+}
+
+// Settings → Sign-ins: home and your own sites, each with Open and a two-step Sign out.
+function renderSiteRows() {
+  fillSiteRows($("siteRows"), sites, false);
+  fillSiteRows($("mySiteRows"), mySites, true);
+  $("signOutMine").hidden = !mySites.length;
+}
+function fillSiteRows(ul, list, mine) {
+  ul.textContent = "";
+  if (!list.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "None yet."; ul.appendChild(li); return; }
+  for (const s of list) {
+    const key = (mine ? "me:" : "home:") + s.site;
+    const li = document.createElement("li"); li.className = "site-row";
+    const name = document.createElement("span"); name.className = "name";
+    const when = document.createElement("small");
+    when.textContent = `since ${new Date(s.signed_in_ms).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+    name.append(document.createTextNode(s.site), when);
+    const open = document.createElement("button"); open.type = "button"; open.className = "ghost"; open.textContent = "Open";
+    open.onclick = () => send({ type: "open_site", site: s.site, mine });
+    const out = document.createElement("button"); out.type = "button"; out.className = "ghost";
+    out.textContent = siteArmed === key ? "Yes, sign out" : "Sign out";
+    out.onclick = () => {
+      if (siteArmed !== key) { siteArmed = key; renderSiteRows(); siteArmTimer = setTimeout(() => { clearArm(); renderSiteRows(); }, 5000); return; }
+      clearArm(); send({ type: "sign_out_site", site: s.site, mine });
+    };
+    li.append(siteMark(s), name, open, out); ul.appendChild(li);
+  }
+}
+$("addSiteForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const url = $("addSiteUrl").value.trim();
+  if (!url) return;
+  const mine = document.querySelector("input[name=siteFor]:checked").value === "mine";
+  send({ type: "add_sign_in", url, mine });
+  $("addSiteUrl").value = "";
+  toast(`Opening ${url} in ${mine ? "your own" : "the home"} Chrome window. Sign in there, then close the window.`);
+});
+let mineArmed = false, mineArmTimer = null;
+$("signOutMine").onclick = () => {
+  if (!mineArmed) { mineArmed = true; $("signOutMine").textContent = "Yes, sign out of all your sites"; mineArmTimer = setTimeout(() => { mineArmed = false; $("signOutMine").textContent = "Sign out of all your sites"; }, 5000); return; }
+  clearTimeout(mineArmTimer); mineArmed = false; $("signOutMine").textContent = "Sign out of all your sites";
+  send({ type: "sign_out_all", mine: true });
+};
 let siteArmTimer = null;
 function clearArm() { siteArmed = null; clearTimeout(siteArmTimer); }
 renderSites();
 
 // ---------- sidebar
+const LOCK = '<svg class="lock" viewBox="0 0 12 12" aria-label="Private" role="img"><rect x="2" y="5.2" width="8" height="5.8" rx="1.3" fill="currentColor"/><path d="M3.9 5.4V3.9a2.1 2.1 0 0 1 4.2 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+// Whether you may rename, delete or change who sees a bot: its maker, or anyone on the Farm.
+function canManage(b) {
+  if (!b || b.info.central || !settings) return false;
+  const maker = b.info.created_by || settings.you;
+  return !!settings.farm || maker === settings.you;
+}
+// A private bot someone else made: listed by name, but it won't open.
+function isLocked(b) {
+  if (!b || !b.info.private || !settings || settings.farm) return false;
+  return (b.info.created_by || "") !== settings.you;
+}
 function renderBots() {
   const nav = $("bots"); nav.textContent = "";
-  // The Assistant (central bot) first, then the rest in the server's order.
+  // Herder (the central bot) first, then the rest in the server's order.
   const order = [...bots].sort(([, x], [, y]) => (y.info.central ? 1 : 0) - (x.info.central ? 1 : 0));
   for (const [id, b] of order) {
     const el = document.createElement("button");
@@ -471,8 +615,15 @@ function renderBots() {
     el.innerHTML = `<span class="avatar${b.busy ? " working" : ""}"></span><span class="meta"><div class="name"></div></span>${unread(id) ? '<span class="unread" title="New messages"></span>' : ""}`;
     if (b.busy) el.title = "Working…";
     el.querySelector(".avatar").innerHTML = avatar(id);
-    el.querySelector(".name").textContent = b.info.name || id;
-    if (b.info.central) { const tag = document.createElement("span"); tag.className = "central"; tag.textContent = "runs your team"; el.querySelector(".meta").appendChild(tag); }
+    const label = document.createElement("span"); label.textContent = b.info.name || id;
+    el.querySelector(".name").appendChild(label);
+    if (b.info.private) { el.querySelector(".name").insertAdjacentHTML("beforeend", LOCK); el.title = el.title || "Private"; }
+    // Under the name: Herder's job, or who made the bot (older bots: this Mac's owner).
+    const tag = document.createElement("span"); tag.className = "central";
+    const maker = b.info.created_by || (settings && settings.you);
+    if (b.info.central) tag.textContent = "leads your bots";
+    else if (maker) tag.textContent = `by ${maker}`;
+    if (tag.textContent) el.querySelector(".meta").appendChild(tag);
     el.onclick = () => { select(id); $("side").classList.remove("open"); };
     nav.appendChild(el);
   }
@@ -481,19 +632,25 @@ function renderBots() {
 function select(id) {
   current = id; store.set("oxbot.bot", id); markSeen(id);
   const b = bot(id);
-  if (!b.subscribed) { b.subscribed = true; send({ type: "subscribe", bot: id, since: b.lastSeq }); }
+  if (!b.subscribed && !isLocked(b)) { b.subscribed = true; send({ type: "subscribe", bot: id, since: b.lastSeq }); }
   $("botName").textContent = b.info.name || id;
   $("botAvatar").innerHTML = avatar(id); $("botAvatar").hidden = false;
-  renderLog(); renderBots(); updateStatus(); renderCards(); $("input").focus();
+  renderLog(); renderBots(); updateStatus(); renderCards(); stickToBottom(); $("input").focus();
 }
 
 function updateStatus() {
   const b = current && bots.get(current);
   if (!b) return;
-  $("botStatus").textContent = b.busy ? (b.activity || "Clauding…") : `@${b.info.id}`;
-  $("botAvatar").classList.toggle("working", !!b.busy);
-  $("stop").hidden = !b.busy;
-  $("send").disabled = b.busy;
+  $("botStatus").textContent = b.busy ? (b.activity || "Clauding…") : b.info.central ? "leads your bots" : `${b.info.private ? "private · " : ""}@${b.info.id}`;
+  $("botMore").hidden = !canManage(b);
+  $("botName").textContent = b.info.name || b.info.id;
+  // Someone else's private bot: nothing to send, nothing to stop.
+  const locked = isLocked(b);
+  $("input").disabled = locked; $("input").placeholder = locked ? "Private" : "Message";
+  if (locked) $("botStatus").textContent = `private to ${b.info.created_by || "someone"}`;
+  $("botAvatar").classList.toggle("working", !!b.busy && !locked);
+  $("stop").hidden = !b.busy || locked;
+  $("send").disabled = b.busy || locked;
 }
 
 // ---------- Settings tabs: General and Activity
@@ -510,9 +667,22 @@ for (const t of document.querySelectorAll(".settings .tabs button")) {
 function renderLog() {
   const log = $("log"); log.textContent = "";
   const b = bots.get(current);
+  if (isLocked(b)) {
+    // Nothing of the chat is sent here: these blurred lines are only a picture.
+    const v = div("locked-view");
+    for (const [w, me] of [[70, false], [45, true], [85, false], [55, true], [65, false]]) {
+      const g = div("ghostline" + (me ? " me" : "")); g.style.width = w + "%"; v.appendChild(g);
+    }
+    const note = div("note"); const maker = b.info.created_by || "its maker";
+    note.innerHTML = LOCK;
+    const t = document.createElement("div"); t.textContent = `${maker}'s private bot`;
+    const sm = document.createElement("small"); sm.textContent = `Only ${maker} can open it.`;
+    note.append(t, sm); v.appendChild(note); log.appendChild(v); return;
+  }
   if (!b || (b.events.length === 0 && !b.stream)) {
     const p = document.createElement("div"); p.className = "empty";
-    p.textContent = "Send a message to start. The bot follows its instructions, browses the web in the shared browser, and keeps files in its own folder.";
+    const where = b && b.info.private ? `${b.info.created_by || "its maker"}'s own browser` : "the home browser";
+    p.textContent = `Send a message to start. The bot follows its instructions, browses the web in ${where}, and keeps files in its own folder.`;
     log.appendChild(p); return;
   }
   for (const e of b.events) appendEvent(e, false);
@@ -571,10 +741,21 @@ function showStream(text) {
   scrollDown();
 }
 
+// Opening a bot sticks the chat to its latest message while its history
+// loads in, until the user scrolls up themselves.
+let stickUntil = 0;
 function scrollDown(force) {
   const log = $("log");
-  if (force || log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = log.scrollHeight;
+  if (force || Date.now() < stickUntil || log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = log.scrollHeight;
 }
+function stickToBottom() {
+  stickUntil = Date.now() + 3000;
+  scrollDown(true);
+  // Pictures and code blocks can grow the chat after it's drawn.
+  requestAnimationFrame(() => scrollDown(true));
+}
+for (const ev of ["wheel", "touchmove", "keydown"]) $("log").addEventListener(ev, () => { stickUntil = 0; }, { passive: true });
+$("log").addEventListener("load", () => scrollDown(), true); // a picture finished loading
 function div(cls) { const d = document.createElement("div"); d.className = cls; return d; }
 
 // Small, safe Markdown: escape everything, then add code, bold and links.
@@ -608,12 +789,52 @@ $("input").addEventListener("input", grow);
 $("stop").onclick = () => current && send({ type: "cancel", bot: current });
 $("menu").onclick = () => $("side").classList.toggle("open");
 
-$("newBot").onclick = () => { $("newForm").reset(); $("newDlg").showModal(); $("nbName").focus(); };
+const NB_SHARED = "It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
+const NB_PRIVATE = "Only you and the Farm's owner see it, and Herder can't give it tasks. It browses in your own browser, so it asks you to sign in to sites even if home is signed in. Anything that sends, posts or deletes asks you first.";
+$("newBot").onclick = () => { $("newForm").reset(); $("nbHint").textContent = NB_SHARED; $("newDlg").showModal(); $("nbName").focus(); };
+$("nbPrivate").onchange = () => { $("nbHint").textContent = $("nbPrivate").checked ? NB_PRIVATE : NB_SHARED; };
 $("nbCancel").onclick = () => $("newDlg").close();
 $("newForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  send({ type: "create_bot", name: $("nbName").value.trim(), instructions: $("nbInstr").value.trim() });
+  send({ type: "create_bot", name: $("nbName").value.trim(), instructions: $("nbInstr").value.trim(), private: $("nbPrivate").checked });
   $("newDlg").close();
+});
+
+// Bot settings (its maker, or the Farm): name, private or shared, delete.
+let deleteArmed = false, deleteTimer = null;
+function privacyHint(isPrivate, b) {
+  const maker = b.info.created_by || (settings && settings.you) || "its maker";
+  return isPrivate
+    ? `Only ${maker} and the Farm's owner see it, and Herder can't give it tasks. It uses ${maker}'s own sign-ins, never home's.`
+    : "Everyone sees and uses it. It uses the home sign-ins.";
+}
+function resetDelete() { clearTimeout(deleteTimer); deleteArmed = false; $("bdDelete").textContent = "Delete bot"; }
+$("botMore").onclick = () => {
+  const b = current && bots.get(current); if (!b) return;
+  $("bdName").value = b.info.name || b.info.id;
+  $("bdPrivate").checked = !!b.info.private;
+  $("bdPrivate").disabled = b.busy;
+  $("bdHint").textContent = privacyHint(!!b.info.private, b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
+  resetDelete();
+  $("botDlg").showModal();
+};
+$("bdPrivate").onchange = () => { const b = bots.get(current); if (b) $("bdHint").textContent = privacyHint($("bdPrivate").checked, b); };
+$("bdCancel").onclick = () => $("botDlg").close();
+$("bdDelete").onclick = () => {
+  const b = bots.get(current); if (!b) return;
+  if (!deleteArmed) {
+    deleteArmed = true; $("bdDelete").textContent = `Yes, delete ${b.info.name}`;
+    deleteTimer = setTimeout(resetDelete, 5000); return;
+  }
+  resetDelete(); send({ type: "delete_bot", bot: b.info.id }); $("botDlg").close();
+};
+$("botForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const b = bots.get(current); if (!b) return;
+  const name = $("bdName").value.trim();
+  if (name && name !== b.info.name) send({ type: "rename_bot", bot: b.info.id, name });
+  if ($("bdPrivate").checked !== !!b.info.private) send({ type: "set_private", bot: b.info.id, private: $("bdPrivate").checked });
+  $("botDlg").close();
 });
 
 // Cards: sign-ins, changes (red) and uploads (amber). Nothing happens until the user answers.
@@ -637,7 +858,7 @@ function renderCards() {
   for (const a of approvals.values()) {
     const who = nameOf(a.bot);
     if (a.kind === "create_bot") {
-      // The Assistant wants to make a bot: show its name and instructions.
+      // Herder wants to make a bot: show its name and instructions.
       const card = div("card newbot");
       const h = document.createElement("h3"); h.textContent = `${who} wants to create a bot: ${a.target}`;
       const where = div("where"); where.textContent = "It will follow these instructions. You can change or remove it later.";
