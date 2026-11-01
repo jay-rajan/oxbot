@@ -17,6 +17,7 @@ oxbot-protocol = { path = "crates/oxbot-protocol" }
 oxbot-core = { path = "crates/oxbot-core" }
 oxbot-claude = { path = "crates/oxbot-claude" }
 oxbot-browser = { path = "crates/oxbot-browser" }
+oxbot-gate = { path = "crates/oxbot-gate" }
 
 # External crates (versions checked 2026-10-27)
 anyhow = "1.0.104"
@@ -37,6 +38,21 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4"] }
+
+# The Gate link: TLS with the Farm's own certificate (versions checked 2026-10-30).
+# `ring` rather than aws-lc so it cross-compiles for Android without cmake.
+if-addrs = "0.15.0"
+mdns-sd = "0.21.6"
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
+ring = "0.17.14"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+# The Gate's HTTP client (already in the build through axum).
+bytes = "1.12.1"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

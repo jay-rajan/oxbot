@@ -104,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
             open,
             no_browser,
         } => serve(port, open, !no_browser, relay).await,
-        Command::Chat { bot, port } => chat::run(&format!("ws://127.0.0.1:{port}/ws"), &bot).await,
+        Command::Chat { bot, port } => chat::run(&oxbot::secret::local_ws_url(port), &bot).await,
         Command::Bots { action } => bots(action).await,
         Command::Pair | Command::Devices => not_yet(3),
         Command::Doctor => not_yet(5),
@@ -127,6 +127,12 @@ async fn serve(
         ..ServerOptions::new(port)
     };
     let server = runtime::start(options).await?;
+    // The link carries the Farm secret: whoever opens it is the Farm. It goes
+    // to this terminal only, never to the log the apps show.
+    #[allow(clippy::print_stdout, reason = "CLI output")]
+    {
+        println!("Open oxbot: {}", server.page_url());
+    }
     if open {
         let _ = std::process::Command::new("open")
             .arg(server.page_url())

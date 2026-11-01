@@ -1,0 +1,247 @@
+<title>Gate review fixes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; steps as a numbered track because they are a real sequence. */
+:root{
+  --bg:#f7f8f6; --fg:#1d2320; --muted:#5d6762; --line:#d9ded9; --panel:#eef1ee;
+  --accent:#2f6b4f; --warn:#9a5b12; --warn-bg:#fbf1e3;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#151917; --fg:#e4e9e5; --muted:#9aa49e; --line:#2c332f; --panel:#1d2320;
+  --accent:#7cc4a0; --warn:#e6b26a; --warn-bg:#2b2318; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#151917; --fg:#e4e9e5; --muted:#9aa49e; --line:#2c332f; --panel:#1d2320;
+  --accent:#7cc4a0; --warn:#e6b26a; --warn-bg:#2b2318; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--sans);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:30px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:19px;font-weight:600;margin:0 0 10px;text-wrap:balance}
+h3{font-size:15px;font-weight:600;margin:0}
+p{margin:0 0 10px} ul{margin:0;padding-left:20px} li{margin:4px 0}
+code{font-family:var(--mono);font-size:13px;background:var(--panel);padding:1px 5px;border-radius:4px}
+.sub{color:var(--muted);margin:6px 0 0}
+.eyebrow{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.wait{border:1px solid var(--warn);background:var(--warn-bg);border-radius:8px;padding:12px 16px}
+.wait b{color:var(--warn)}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.rules div{border-top:2px solid var(--accent);padding-top:8px;min-width:0}
+.rules b{display:block}
+.rules span{color:var(--muted);font-size:14px}
+pre.mermaid{background:var(--panel);border-radius:8px;padding:12px;overflow-x:auto;margin:0}
+figure{margin:0} figcaption{color:var(--muted);font-size:13px;margin-top:6px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--muted);font-size:13px}
+ol.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:14px;counter-reset:s}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:34px 1fr;gap:10px;margin:0}
+ol.steps li::before{content:counter(s);font:600 14px var(--mono);color:var(--bg);background:var(--accent);
+  width:26px;height:26px;border-radius:50%;display:grid;place-items:center;margin-top:1px}
+ol.steps li>div{min-width:0}
+.test{color:var(--muted);font-size:14px;margin:4px 0 0}
+</style>
+
+<main>
+.done{border:1px solid var(--accent);border-radius:8px;padding:12px 16px}
+.done b{color:var(--accent)}
+.files{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.files div{border-top:2px solid var(--line);padding-top:8px;min-width:0}
+.files code{white-space:normal;overflow-wrap:anywhere}
+.tag{font:500 11px var(--mono);border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--muted);white-space:nowrap}
+.ask{border-left:3px solid var(--warn);padding-left:12px}
+.ask b{color:var(--warn)}
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">oxbot · Gate review · fix plan</div>
+  <h1>Fixing what you ticked</h1>
+  <p class="sub">4 decisions and 19 Majors from the <a href="https://claude.ai/artifact/7DnXGi63pmGgaXduB8jmeW">Gate review</a>. M25 is now <a href="https://github.com/jay-rajan/oxbot/issues/10">issue #10</a>. Not ticked, so left alone: M6, M9, M23, M24 and the Minors.</p>
+</header>
+
+<div class="done"><b>Built 2026-10-31.</b> All 23 ticked items are fixed and nothing is committed. Checks: 172 Rust tests, 12/12 end-to-end tests in Chrome, and the Android app builds. Still to do: try it on your Pixel. <a href="#built">What was built ↓</a></div>
+
+<section>
+  <h2>1. Who counts as the Farm <span class="tag">D1</span></h2>
+  <p>Today any page or program on the Mac that reaches 127.0.0.1 is treated as you, the Farm.</p>
+  <ul>
+    <li>When the server starts, it makes a random <b>Farm secret</b> and saves it in the oxbot data folder, readable only by your Mac account.</li>
+    <li>The Mac app reads the secret and opens its window with it. The page keeps it for that window only and sends it when it connects.</li>
+    <li>The <code>oxbot chat</code> terminal reads the same file. <code>oxbot serve</code> prints a link with the secret, the way Jupyter does.</li>
+    <li>Without the secret, a local connection is refused, so a bot clicking a link to 127.0.0.1 gets nothing.</li>
+    <li>Each new pairing shows in every Farm window ("Pixel paired for Sam, just now").</li>
+  </ul>
+  <p class="test">I'm dropping the native Mac pop-up. The secret already limits pairing to the real oxbot window, and bots never drive that window. Say if you still want the pop-up.</p>
+</section>
+
+<section class="ask">
+  <h2>2. Which networks phones can use <span class="tag">D2</span> <span class="tag">M19</span></h2>
+  <p><b>Your note:</b> "how do we know its home. This should be a setting option".</p>
+  <ul>
+    <li>Settings → Gates gets <b>Networks phones can use</b>, with an <b>Add this network</b> button. The Farm recognizes a network by its router's hardware address (MAC), so a café can't copy it by using the same Wi-Fi name. The list shows the Wi-Fi name next to it when the Mac can read it.</li>
+    <li>The door opens only while the Mac is on a listed network. It checks when the network changes and every 30 seconds.</li>
+    <li>When the list is empty, the door stays shut and the Gates tab says why.</li>
+    <li>It only accepts devices on your local network: private addresses, no internet ones.</li>
+    <li>The door closes when no phones are paired and no code is showing.</li>
+    <li><code>OXBOT_GATE_PORT=off</code> turns it off completely.</li>
+    <li>The name phones see on the network is a setting too (default: the Mac's name).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>3. Red cards and Herder per person <span class="tag">D3</span> <span class="tag">D4</span></h2>
+  <ul>
+    <li>Each card remembers who asked. Only that person (on any of their phones) and you on the Farm see it and can answer. Sam's phone no longer sees your cards.</li>
+    <li>Herder keeps one conversation per person, each with its own Claude session and its own chat history. Sam asking "what did Jay ask?" finds nothing.</li>
+    <li>Shared bots stay one conversation, because sharing is the point. Each line shows who said it (see M22).</li>
+  </ul>
+</section>
+
+<section class="ask">
+  <h2>4. Chats on the phone, with limits <span class="tag">M7</span> <span class="tag">M8</span></h2>
+  <p><b>Your note on M7:</b> "the phone should get the SQLite DB for conversation over the network. keep reasonable limits".</p>
+  <ul>
+    <li>The phone keeps its own small SQLite copy of the chats it can see, filled from the Farm over the encrypted link.</li>
+    <li>Away from home, you can still read past chats. Sending is off until you're back.</li>
+    <li>Limits: the latest <b>300 messages per bot</b> and nothing older than <b>30 days</b>, only bots this phone's person can see, and file contents never copied.</li>
+    <li>On reconnect it fetches only what's new.</li>
+    <li>"Forget this Farm" or Remove on the Mac wipes the copy.</li>
+    <li>M7 itself: the Farm page can no longer be loaded twice at once.</li>
+    <li>M8: a message typed while offline stays in the box with "Not connected yet". It isn't silently lost.</li>
+  </ul>
+  <p class="test">The copy sits in the app's private storage, like the pairing. Moving the key into the Keystore (#10) will protect both later.</p>
+</section>
+
+<section>
+  <h2>5. The door itself <span class="tag">M1–M5</span> <span class="tag">M12</span> <span class="tag">M16</span> <span class="tag">M21</span> <span class="tag">M22</span></h2>
+  <div class="tw"><table>
+    <tr><th>Fix</th><th>What changes</th></tr>
+    <tr><td>M1, M2</td><td>Closing the door really stops it and frees the port. Two quick "Show code" clicks open it once.</td></tr>
+    <tr><td>M3</td><td>At most 64 connections being set up at a time. 5 s to finish the handshake, plus time limits on the open routes.</td></tr>
+    <tr><td>M4, M5</td><td>The Farm drops a phone after 60 s of silence, and the "online" mark always clears.</td></tr>
+    <tr><td>M12</td><td>A database error says "try again" instead of making the phone forget its pairing.</td></tr>
+    <tr><td>M16</td><td>The phone uses a proper HTTP library (hyper, already in the build) instead of hand-written code.</td></tr>
+    <tr><td>M21</td><td>A phone is paired for someone from the people the Farm knows, ignoring case, or a new name with no brackets, 40 characters at most.</td></tr>
+    <tr><td>M22</td><td>Message text can't fake a "[Jay]" line. Each turn has one sender header the text can't imitate.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>6. Tidy-up <span class="tag">M10</span> <span class="tag">M11</span> <span class="tag">M13–M15</span> <span class="tag">M17</span> <span class="tag">M18</span> <span class="tag">M20</span></h2>
+  <ul>
+    <li><b>M10:</b> <code>door.rs</code> is split into <code>door/</code> with separate files for identity, pairing codes, listener, network check, discovery and HTTP. Pairing codes become a small type with a test clock.</li>
+    <li><b>M11:</b> <code>Hub::store()</code> goes away. Gates get their own narrow Hub methods.</li>
+    <li><b>M13:</b> the link format, fingerprint and certificate name live only in <code>oxbot-gate</code>, which the Farm uses too.</li>
+    <li><b>M14:</b> the Android settings (no backup, local-network permission, camera) move into a small local Tauri plugin, so <code>tauri android init</code> can't wipe them.</li>
+    <li><b>M15:</b> README gets Gates and the Android build steps, and the C4 diagrams gain the door and the phone.</li>
+    <li><b>M17:</b> tests cover code expiry, 5 wrong tries, cancel, close and reopen, opening twice, the network setting, card owners, Herder per person, the phone's chat copy and the Gates tab end to end.</li>
+    <li><b>M18:</b> one reconnect loop on the phone, not two.</li>
+    <li><b>M20:</b> the phone's saved pairing gets a version and is written safely, so a crash can't leave half a file.</li>
+  </ul>
+</section>
+
+<section id="built">
+  <h2>What was built</h2>
+  <figure>
+<pre class="mermaid">
+flowchart LR
+  phone["Pixel: oxbot app<br/>gate.rs + gate.html"] -- "TLS, pinned cert,<br/>Bearer key" --> door
+  subgraph Farm["Farm Mac: oxbot server"]
+    door["Gate door<br/>door/listener + http"] --> router["page + /ws<br/>server.rs"]
+    win["oxbot window<br/>#k=Farm secret"] -- "/ws?k=" --> router
+    router -- "Client: inbound/outbound<br/>own Herder as assistant" --> hub["Hub<br/>cards by asker,<br/>Herder per person"]
+    watch["door/network<br/>router MAC, every 30 s"] -- "open / close" --> door
+  end
+  phone -. "away from home" .-> copy["chats.db<br/>oxbot-gate::copy"]
+</pre>
+    <figcaption>A phone reaches the Hub only through the door. The door opens only on a listed network. Only a window that shows the Farm secret counts as the Farm.</figcaption>
+  </figure>
+  <div class="files">
+    <div><b><code>crates/oxbot/src/door/</code></b> (M10 split)
+      <ul>
+        <li><code>mod.rs</code>: <code>Door::start</code>, <code>refresh</code>, <code>apply</code>, <code>open_now</code> and <code>close_now</code> behind one async lock (M1, M2). Also <code>add_network</code>, <code>remove_network</code>, <code>set_name</code>, <code>start_pairing</code>, <code>pair</code>, <code>check_key</code>, and the <code>Online</code> guard (M5).</li>
+        <li><code>network.rs</code>: <code>Settings</code> (door.json) and <code>mac_probe</code> (route, arp, ipconfig). <code>is_private_peer</code> lets only local devices in (D2).</li>
+        <li><code>listener.rs</code>: <code>TlsListener</code> allows at most 64 connections and 5 s per handshake. <code>Conn</code> closes after 60 s idle (M3, M4).</li>
+        <li><code>pairing.rs</code>: <code>PairingCodes</code> takes the time as an input, so expiry and tries can be tested (M17).</li>
+        <li><code>http.rs</code>: <code>pair</code> and <code>require_key</code>. A database error answers 503, so the phone keeps its pairing (M12).</li>
+        <li><code>identity.rs</code> and <code>discovery.rs</code>: the certificate, and the mDNS announcement.</li>
+      </ul></div>
+    <div><b><code>crates/oxbot/src/secret.rs</code></b> (D1)
+      <ul>
+        <li><code>farm_key</code>: the 0600 file. <code>local_ws_url</code> is used by chat and bots. <code>random_hex</code>, <code>same</code> and <code>write_private</code> (atomic).</li>
+        <li><code>server.rs</code> <code>ws_upgrade</code>: a local connection is the Farm only with <code>?k=</code>.</li>
+        <li>The desktop app opens its window with <code>#k=</code>. The page keeps the secret for that window only.</li>
+      </ul></div>
+    <div><b><code>crates/oxbot-core</code></b> (D3, D4, M11, M21, M22)
+      <ul>
+        <li><code>hub.rs</code>:
+          <ul>
+            <li><code>Approval.asker</code> comes from the turn's person, including the person a Herder task acts for (<code>send_for</code>). <code>answers()</code> checks it.</li>
+            <li><code>herder_for(person)</code> and <code>as_herder</code>: each person's Herder uses the Farm Herder's instructions.</li>
+            <li><code>gate_person</code>, <code>add_gate</code>, <code>gate_by_key</code>, <code>gates</code>, <code>remove_gate</code>. <code>store()</code> is gone.</li>
+            <li><code>sender_line</code>: a line starting with <code>[</code> gets <code>\[</code>.</li>
+          </ul></li>
+        <li><code>bot.rs</code>: <code>personal_herder_id</code> and <code>is_personal_herder</code>.</li>
+      </ul></div>
+    <div><b><code>crates/oxbot/src/server.rs</code></b>
+      <ul>
+        <li><code>Client.herder</code>, with <code>inbound</code> and <code>outbound</code>: each person sees their own Herder as <code>assistant</code>, and no one else's.</li>
+        <li><code>handle_door</code> handles the network list and the name. <code>EVERY_GATE</code> cuts every phone when the door closes.</li>
+      </ul></div>
+    <div><b><code>crates/oxbot-gate</code></b> (M13, M16, M7 note)
+      <ul>
+        <li><code>PairLink::to_link</code> and <code>CERT_NAME</code> are now the only definitions the Farm uses.</li>
+        <li><code>request</code> uses hyper, so a cut-off answer is an error. <code>GateError::Busy</code> means try again.</li>
+        <li><code>copy.rs</code> <code>ChatCopy</code>: <code>record</code>, <code>tidy</code> (300 messages, 30 days), <code>replay</code>, <code>wipe</code>.</li>
+      </ul></div>
+    <div><b>Phone app</b> (M7, M14, M18, M20)
+      <ul>
+        <li><code>gate.rs</code>:
+          <ul>
+            <li>The pairing is saved with a version and written safely (<code>Saved</code>, <code>write_whole</code>).</li>
+            <li>The last page is cached. The chat copy is filled from the link and replayed when offline.</li>
+            <li>Forget wipes everything.</li>
+          </ul></li>
+        <li><code>gate.html</code>: one <code>open()</code> at a time, and its retry listeners are removed once the Farm's page is up.</li>
+        <li><code>scripts/android-apply.sh</code>, <code>android-build.sh</code> and <code>app/src-tauri/android/</code>, plus a <code>cargo test</code> that checks them.</li>
+      </ul></div>
+    <div><b>Page</b> (<code>ui/index.html</code>; D1, D2, M8)
+      <ul>
+        <li>The Farm secret is read from <code>#k=</code>.</li>
+        <li>Settings → Gates has "Networks phones can use": the door's status, <b>Add this network</b>, a two-step Remove, and the name phones see. Pairing stays off until a network is listed.</li>
+        <li>A message typed while offline stays in the box.</li>
+      </ul></div>
+    <div><b>Tests and docs</b> (M17, M15)
+      <ul>
+        <li><code>tests/gate.rs</code>, 8 tests:
+          <ul>
+            <li>the door opens only on a listed network, and frees its port when it closes;</li>
+            <li>leaving the network closes the door and drops phones;</li>
+            <li>two codes asked for at once open the door once;</li>
+            <li>names are made safe;</li>
+            <li>each person has their own Herder.</li>
+          </ul></li>
+        <li>Unit tests for cards, sender lines and the chat copy.</li>
+        <li><code>tests/server.rs</code>: being on this Mac isn't enough to be the Farm.</li>
+        <li>The e2e Gates test adds the network first.</li>
+        <li>README: Gates and the Android build.</li>
+      </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>Checks</h2>
+  <ul>
+    <li>Done: <code>fmt</code>, <code>clippy</code> (pedantic) and 172 Rust tests, up from 148.</li>
+    <li>Done: 12 of 12 end-to-end tests in Chrome. The Gates test now adds the network first.</li>
+    <li>Done: the Android app builds with the chat copy, and the new APK is ready to install.</li>
+    <li>Still to do: on the Pixel, add your home network on the Mac, then try reading chats away from Wi-Fi and a card that only you see.</li>
+    <li>Nothing is committed.</li>
+  </ul>
+  <p class="test">One side effect: the bots' instructions changed (the line about who's talking), so each bot starts a fresh Claude session on its next message. Chat history stays.</p>
+</section>
+</main>

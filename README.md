@@ -1,7 +1,7 @@
 # oxbot
 
-Always-on Claude bots on your Mac, used through the oxbot desktop app (and, later, an Android
-app on your home Wi-Fi). Data goes only to Anthropic (and, later, OpenAI for Codex): no relay
+Always-on Claude bots on your Mac, used through the oxbot desktop app and the oxbot Android app
+on your home Wi-Fi. Data goes only to Anthropic (and, later, OpenAI for Codex): no relay
 servers, no push services, telemetry off.
 
 Status: desktop app on the Mac (milestone 2.11.4). All bots share one hidden Chrome that keeps
@@ -20,8 +20,21 @@ Private bots: the Mac that runs the bots is the Farm. Every bot records who made
 maker can make it private. A private bot is listed for everyone (name, maker, a lock), but only
 its maker and the Farm's owner can open it, and it browses in its maker's own Chrome
 (Settings → Sign-ins → Yours), never the home one. Herder won't give private bots tasks or read
-their replies, since everyone can read Herder's chat. Phones and laptops joining as Gates come
-next; until then every connection is the Farm.
+their replies.
+
+Gates: phones (the Android app) use the Farm's bots over home Wi-Fi, as the person they were
+paired for. In Settings → Gates the Farm lists the networks phones may use ("Add this network";
+oxbot knows a network by its router, not its name), then shows a one-time code and QR code for a
+person; the phone scans it once. The phone talks only to the Farm's Gate door (port 7879, TLS with
+the Farm's own certificate, which the phone pins), and only while the Mac is on a listed network.
+A Gate is never the Farm: it sees shared bots and its person's own, answers only the red cards
+from its person's requests, and gets its person's own Herder. Away from home the phone shows its
+own copy of its chats (the latest 300 messages per bot, 30 days). Remove a phone in Settings →
+Gates and it's cut off at once. `OXBOT_GATE_PORT=off` turns the door off.
+
+Who is the Farm: only oxbot's own windows. The app opens its window with the Farm secret (a key
+in the data folder, readable only by your Mac account); `oxbot chat` and `oxbot bots` read it;
+`oxbot serve` prints a link with it. Other pages and programs on the Mac can't act as the Farm.
 
 Setup: oxbot installs Claude Code for you (Anthropic's installer) and signs you in
 (`claude auth login`); the browser tool and Node.js ship inside the app. You only need Google
@@ -44,10 +57,25 @@ Plan: https://claude.ai/artifact/32dqY3emzXCfBj9QGkF5rZ · Architecture: https:/
 | `crates/oxbot-core` | Bots, store, hub, tool rules (policy), prompts (no networking) |
 | `crates/oxbot-claude` | Runs `claude -p` with privacy settings |
 | `crates/oxbot-browser` | The shared, hidden Chrome with a kept profile, and its sign-in window |
-| `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page |
-| `app/src-tauri` | The desktop app (Tauri 2) |
+| `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the Gate door (`src/door/`) |
+| `crates/oxbot-gate` | The Gate side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
+| `app/src-tauri` | The desktop app and the Android Gate app (Tauri 2) |
 
-The Android app (Tauri 2) joins in milestone 4.
+## Android app (a Gate)
+The phone app is only ever a Gate: no server, bots or Chrome are compiled in. Tools (once):
+Homebrew `openjdk@17` and `android-commandlinetools`, then the SDK in `~/Library/Android/sdk`
+(platform-tools, `platforms;android-36`, `build-tools;36.0.0`, an NDK) and
+`rustup target add aarch64-linux-android`.
+
+```sh
+scripts/android-build.sh       # puts oxbot's Android settings back, then builds the debug APK
+adb install -r app/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+oxbot's Android settings (no backups, the local-network and camera permissions, MainActivity
+asking for local network access) live in `app/src-tauri/android/` and `scripts/android-apply.sh`,
+because `cargo tauri android init` rewrites `gen/android`. `cargo test` fails if they're missing
+there.
 
 ## Desktop app
 `sh scripts/make-dmg.sh` builds the universal app with the browser tool and Node.js inside

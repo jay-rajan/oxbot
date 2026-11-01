@@ -1,0 +1,17 @@
+name = "A Gate can't pair other Gates"
+about = "Someone connected as a Gate person (Ann) has no QR button and no Gates tab in Settings: only the Farm pairs phones."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/door/**"]
+as = "Ann"
+
+[[step]]
+expect_js = "document.getElementById('gateBtn').hidden"
+note = "No QR button"
+[[step]]
+click = "Settings"
+[[step]]
+expect = "Claude usage"
+[[step]]
+expect_js = "document.getElementById('gatesTab').hidden"
+note = "No Gates tab"
+[[step]]
+key = "Escape"

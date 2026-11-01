@@ -9,11 +9,13 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
+use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
+use oxbot_core::hub::answers;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
     AppSettings, ClientMsg, LogLine, ServerHello, ServerMsg, SetupAction, SetupReport,
@@ -42,7 +44,7 @@ pub struct AppState {
     /// What the desktop app lets the page control (`None` for `oxbot serve`).
     pub app: Option<Arc<dyn AppControls>>,
     /// Who messages from this Mac come from (the Mac account's first name).
-    /// Phones will send as the name they were paired with.
+    /// Gates send as the person they were paired for.
     pub local_person: String,
     /// The `PATH` oxbot's programs use (see [`crate::setup::search_path`]).
     pub search_path: String,
@@ -56,6 +58,12 @@ pub struct AppState {
     /// End-to-end test mode: a connection may say who it is with `?as=Name`
     /// (always a Gate person, never the Farm).
     pub e2e: bool,
+    /// The Gate door phones and laptops connect through (`None` in tests
+    /// that don't need it).
+    pub door: Option<Arc<crate::door::Door>>,
+    /// The Farm secret (see [`crate::secret`]): a connection from this Mac
+    /// is the Farm only if it shows this.
+    pub farm_key: String,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -88,8 +96,8 @@ impl AppState {
         }
     }
 
-    /// Who a connection from this Mac is: the Farm's own person. (Gates
-    /// will connect as the person they were paired with.)
+    /// Who the Farm's own window is: the Farm's own person. (Gates connect
+    /// through the Gate door as the person they were paired for.)
     #[must_use]
     pub fn farm_viewer(&self) -> Viewer {
         Viewer::farm(self.local_person.clone())
@@ -140,6 +148,8 @@ impl AppState {
             tool_built_in: false,
             setup_running: Arc::default(),
             e2e: false,
+            door: None,
+            farm_key: crate::secret::random_hex::<32>(),
         }
     }
 }
@@ -153,6 +163,24 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
         .with_state(state)
+}
+
+/// The Gate door's routes: `POST /pair` for anyone with the code, and the
+/// page and WebSocket for paired Gates only (see [`crate::door`]).
+pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
+    Router::new()
+        .route("/", get(index))
+        .route("/ws", get(ws_upgrade))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(door),
+            crate::door::http::require_key,
+        ))
+        .with_state(state)
+        .merge(
+            Router::new()
+                .route("/pair", post(crate::door::http::pair))
+                .with_state(Arc::clone(door)),
+        )
 }
 
 /// Serves until `shutdown` resolves.
@@ -184,21 +212,40 @@ async fn ws_upgrade(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
     State(state): State<AppState>,
+    gate: Option<Extension<crate::door::http::GateAuth>>,
 ) -> Response {
+    // Through the Gate door: the key was checked; always the Gate's person.
+    if let Some(Extension(auth)) = gate {
+        let viewer = Viewer::gate(auth.gate.person.clone());
+        let id = auth.gate.id;
+        return ws.on_upgrade(move |socket| connection(socket, state, viewer, Some(id)));
+    }
     // Browsers send an Origin header and let any web page open WebSockets to
-    // localhost. Only the oxbot page itself may connect; programs without an
-    // Origin (the terminal client, the phone app) are let through.
+    // localhost. Only the oxbot page itself may connect.
     if let Some(origin) = headers.get(header::ORIGIN)
         && !is_local_origin(origin.to_str().unwrap_or(""))
     {
         tracing::warn!(?origin, "refused a WebSocket from another website");
         return (StatusCode::FORBIDDEN, "oxbot only accepts its own page").into_response();
     }
+    // Being on this Mac isn't enough to be the Farm: it takes the Farm
+    // secret, which only oxbot's own windows and tools have.
+    let farm = query
+        .get("k")
+        .is_some_and(|k| crate::secret::same(k.trim(), &state.farm_key));
     let viewer = match query.get("as").map(|n| n.trim()) {
+        _ if farm => state.farm_viewer(),
         Some(name) if state.e2e && !name.is_empty() => Viewer::gate(name),
-        _ => state.farm_viewer(),
+        _ => {
+            tracing::warn!("refused a local connection without the Farm secret");
+            return (
+                StatusCode::UNAUTHORIZED,
+                "Open oxbot from its app, or with the link `oxbot serve` printed.",
+            )
+                .into_response();
+        }
     };
-    ws.on_upgrade(move |socket| connection(socket, state, viewer))
+    ws.on_upgrade(move |socket| connection(socket, state, viewer, None))
 }
 
 /// Whether a browser Origin is the oxbot page on this Mac.
@@ -215,6 +262,9 @@ fn is_local_origin(origin: &str) -> bool {
 struct Client {
     /// Who's connected.
     viewer: Viewer,
+    /// Their own Herder's id. They see it as `assistant`, and see no other
+    /// Herder (see [`Hub::herder_for`]).
+    herder: String,
     /// The bots they may see, kept up to date from bot-list updates.
     visible: std::collections::HashSet<String>,
     /// Bot id → last `seq` sent.
@@ -222,9 +272,15 @@ struct Client {
 }
 
 impl Client {
+    #[cfg(test)]
     fn new(viewer: Viewer, bots: &[oxbot_protocol::BotInfo]) -> Self {
+        Self::with_herder(viewer, bots, DEFAULT_BOT.to_owned())
+    }
+
+    fn with_herder(viewer: Viewer, bots: &[oxbot_protocol::BotInfo], herder: String) -> Self {
         let mut client = Self {
             viewer,
+            herder,
             visible: std::collections::HashSet::new(),
             subs: HashMap::new(),
         };
@@ -247,14 +303,159 @@ impl Client {
     fn sees(&self, bot: &str) -> bool {
         self.visible.contains(bot)
     }
+
+    /// A bot id as this client said it, as the Hub knows it: `assistant`
+    /// is their own Herder.
+    fn inner(&self, bot: String) -> String {
+        if bot == DEFAULT_BOT {
+            self.herder.clone()
+        } else {
+            bot
+        }
+    }
+
+    /// A bot id as the Hub knows it, as this client sees it; `None` for
+    /// someone else's Herder.
+    fn outer(&self, bot: &str) -> Option<String> {
+        if bot == self.herder {
+            Some(DEFAULT_BOT.to_owned())
+        } else if bot == DEFAULT_BOT || is_personal_herder(bot) {
+            None
+        } else {
+            Some(bot.to_owned())
+        }
+    }
+
+    /// The message with bot ids as this client says them.
+    fn inbound(&self, msg: ClientMsg) -> ClientMsg {
+        match msg {
+            ClientMsg::Subscribe { bot, since } => ClientMsg::Subscribe {
+                bot: self.inner(bot),
+                since,
+            },
+            ClientMsg::Send { bot, text } => ClientMsg::Send {
+                bot: self.inner(bot),
+                text,
+            },
+            ClientMsg::Cancel { bot } => ClientMsg::Cancel {
+                bot: self.inner(bot),
+            },
+            ClientMsg::SetPrivate { bot, private } => ClientMsg::SetPrivate {
+                bot: self.inner(bot),
+                private,
+            },
+            ClientMsg::RenameBot { bot, name } => ClientMsg::RenameBot {
+                bot: self.inner(bot),
+                name,
+            },
+            ClientMsg::DeleteBot { bot } => ClientMsg::DeleteBot {
+                bot: self.inner(bot),
+            },
+            other => other,
+        }
+    }
+
+    /// The message with bot ids as this client sees them, or `None` if it's
+    /// about someone else's Herder.
+    fn outbound(&self, msg: ServerMsg) -> Option<ServerMsg> {
+        Some(match msg {
+            ServerMsg::Event(mut e) => {
+                e.bot = self.outer(&e.bot)?;
+                ServerMsg::Event(e)
+            }
+            ServerMsg::Delta { bot, text } => ServerMsg::Delta {
+                bot: self.outer(&bot)?,
+                text,
+            },
+            ServerMsg::Activity { bot, text } => ServerMsg::Activity {
+                bot: self.outer(&bot)?,
+                text,
+            },
+            ServerMsg::Browser { bot, state } => ServerMsg::Browser {
+                bot: self.outer(&bot)?,
+                state,
+            },
+            ServerMsg::BotCreated(mut b) => {
+                b.id = self.outer(&b.id)?;
+                ServerMsg::BotCreated(b)
+            }
+            ServerMsg::ApprovalNeeded(mut a) => {
+                a.bot = self.outer(&a.bot)?;
+                ServerMsg::ApprovalNeeded(a)
+            }
+            ServerMsg::SignInNeeded(mut r) => {
+                r.bot = self.outer(&r.bot)?;
+                ServerMsg::SignInNeeded(r)
+            }
+            ServerMsg::Bots { bots } => ServerMsg::Bots {
+                bots: bots
+                    .into_iter()
+                    .filter_map(|mut b| {
+                        b.id = self.outer(&b.id)?;
+                        Some(b)
+                    })
+                    .collect(),
+            },
+            ServerMsg::Usage(mut usage) => {
+                usage.bots = usage
+                    .bots
+                    .into_iter()
+                    .filter_map(|mut b| {
+                        b.bot = self.outer(&b.bot)?;
+                        Some(b)
+                    })
+                    .collect();
+                ServerMsg::Usage(usage)
+            }
+            other => other,
+        })
+    }
 }
 
-async fn connection(socket: WebSocket, state: AppState, viewer: Viewer) {
+/// Which Herder `viewer` talks to: the Farm's own person (on the Mac or a
+/// phone) uses the Farm's; anyone else gets their own.
+fn herder_for(state: &AppState, viewer: &Viewer) -> String {
+    if viewer.farm || viewer.name.is_empty() || viewer.name == state.local_person {
+        return DEFAULT_BOT.to_owned();
+    }
+    match state.hub.herder_for(&viewer.name) {
+        Ok(id) => id.to_string(),
+        Err(err) => {
+            // No Herder at all rather than someone else's.
+            tracing::warn!(%err, person = viewer.name, "couldn't make a Herder for a person");
+            String::from("-")
+        }
+    }
+}
+
+/// One client's connection. `gate` is the Gate's id when it came through
+/// the Gate door: it shows as online meanwhile, and is cut off if removed.
+async fn connection(socket: WebSocket, state: AppState, viewer: Viewer, gate: Option<String>) {
+    let door = state.door.clone().filter(|_| gate.is_some());
+    let mut removals = door.as_ref().map(|d| d.removals());
+    // Online until this connection ends, however it ends.
+    let _online = match (&door, &gate) {
+        (Some(door), Some(id)) => Some(door.online(id)),
+        _ => None,
+    };
+    serve_client(socket, &state, viewer, gate.as_deref(), removals.as_mut()).await;
+}
+
+async fn serve_client(
+    socket: WebSocket,
+    state: &AppState,
+    viewer: Viewer,
+    gate: Option<&str>,
+    mut removals: Option<&mut broadcast::Receiver<String>>,
+) {
+    let state = state.clone();
     let (mut sink, mut stream) = socket.split();
     // Subscribe before replaying history, so nothing falls in the gap.
     let mut updates = state.hub.subscribe();
     let (out_tx, mut out_rx) = mpsc::channel::<ServerMsg>(64);
-    let mut client = Client::new(viewer, &state.hub.bots().await.unwrap_or_default());
+    let herder = herder_for(&state, &viewer);
+    let mut client =
+        Client::with_herder(viewer, &state.hub.bots().await.unwrap_or_default(), herder);
 
     let mut logs = state.logs.as_ref().map(|l| l.subscribe());
     let mut first = vec![
@@ -269,6 +470,15 @@ async fn connection(socket: WebSocket, state: AppState, viewer: Viewer) {
         first.push(ServerMsg::People { people });
     }
     first.extend(state.hub.sites_for(&client.viewer));
+    // Only once there are Gates, so clients that don't know Gates (an older
+    // `oxbot chat`) never see the message on a Farm that has none.
+    if let Some(door) = state.door.as_ref().filter(|_| client.viewer.farm) {
+        let gates = door.gates();
+        if !gates.is_empty() {
+            first.push(ServerMsg::Gates { gates });
+        }
+        first.push(ServerMsg::Door(door.state()));
+    }
     // The log names every bot, site and person: the Farm's only.
     if let Some(relay) = state.logs.as_ref().filter(|_| client.viewer.farm) {
         first.extend(relay.recent().into_iter().map(ServerMsg::Log));
@@ -278,7 +488,7 @@ async fn connection(socket: WebSocket, state: AppState, viewer: Viewer) {
             .hub
             .pending_approvals()
             .into_iter()
-            .filter(|a| client.sees(&a.bot))
+            .filter(|a| client.sees(&a.bot) && answers(a, &client.viewer))
             .map(ServerMsg::ApprovalNeeded),
     );
     first.extend(
@@ -289,8 +499,11 @@ async fn connection(socket: WebSocket, state: AppState, viewer: Viewer) {
             .filter(|r| client.sees(&r.bot))
             .map(ServerMsg::SignInNeeded),
     );
-    for msg in &first {
-        if send(&mut sink, msg).await.is_err() {
+    for msg in first {
+        let Some(msg) = client.outbound(msg) else {
+            continue;
+        };
+        if send(&mut sink, &msg).await.is_err() {
             return;
         }
     }
@@ -314,8 +527,19 @@ async fn connection(socket: WebSocket, state: AppState, viewer: Viewer) {
             },
             Some(msg) = out_rx.recv() => vec![msg],
             Some(line) = next_log(logs.as_mut()) => forward(ServerMsg::Log(line), &mut client).into_iter().collect(),
+            removed = next_removal(removals.as_deref_mut()) => {
+                if gate.is_some() && (gate == Some(removed.as_str()) || removed == crate::door::EVERY_GATE) {
+                    tracing::info!(gate = removed, "closing a removed Gate's connection");
+                    let _ = sink.send(Message::Close(None)).await;
+                    return;
+                }
+                continue;
+            }
         };
         for msg in outgoing {
+            let Some(msg) = client.outbound(msg) else {
+                continue;
+            };
             if send(&mut sink, &msg).await.is_err() {
                 return;
             }
@@ -338,6 +562,20 @@ async fn next_log(rx: Option<&mut broadcast::Receiver<LogLine>>) -> Option<LogLi
     }
 }
 
+/// The next removed Gate's id; never resolves without a door.
+async fn next_removal(rx: Option<&mut broadcast::Receiver<String>>) -> String {
+    let Some(rx) = rx else {
+        return std::future::pending().await;
+    };
+    loop {
+        match rx.recv().await {
+            Ok(id) => return id,
+            Err(broadcast::error::RecvError::Lagged(_)) => {}
+            Err(broadcast::error::RecvError::Closed) => return std::future::pending().await,
+        }
+    }
+}
+
 /// Handles one client message; returns what to send back right away.
 async fn handle(
     msg: ClientMsg,
@@ -346,10 +584,18 @@ async fn handle(
     out: &mpsc::Sender<ServerMsg>,
 ) -> Vec<ServerMsg> {
     let viewer = client.viewer.clone();
+    let msg = client.inbound(msg);
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
             message: e.to_string(),
         }]
+    };
+    if !viewer.farm && farm_only(&msg) {
+        return error(&"Only the Farm can do that.");
+    }
+    let msg = match handle_farm(msg, state).await {
+        Ok(reply) => return reply,
+        Err(other) => other,
     };
     match msg {
         ClientMsg::ListBots => match state.hub.bots().await {
@@ -418,12 +664,39 @@ async fn handle(
             }
             Vec::new()
         }
+        other => handle_sign_ins(other, state, &viewer).await,
+    }
+}
+
+/// The Farm's own jobs: pairing and removing Gates, the Mac's setup
+/// (Farm-only ones are checked by the caller). Gives other messages back.
+async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>, ClientMsg> {
+    let error = |e: &dyn std::fmt::Display| {
+        vec![ServerMsg::Error {
+            message: e.to_string(),
+        }]
+    };
+    Ok(match msg {
+        ClientMsg::StartPairing { .. }
+        | ClientMsg::CancelPairing
+        | ClientMsg::RemoveGate { .. }
+        | ClientMsg::AddDoorNetwork
+        | ClientMsg::RemoveDoorNetwork { .. }
+        | ClientMsg::SetDoorName { .. } => {
+            let Some(door) = &state.door else {
+                return Ok(error(&"This oxbot has no Gate door."));
+            };
+            match handle_door(msg, door).await {
+                Ok(reply) => reply,
+                Err(e) => error(&format!("{e:#}")),
+            }
+        }
         ClientMsg::SetLaunchAtLogin { on } => {
             let Some(app) = &state.app else {
-                return error(&"Launch at login is only in the oxbot app.");
+                return Ok(error(&"Launch at login is only in the oxbot app."));
             };
             match app.set_launch_at_login(on) {
-                Ok(()) => vec![ServerMsg::Settings(state.settings_for(&viewer))],
+                Ok(()) => vec![ServerMsg::Settings(state.settings())],
                 Err(e) => error(&e),
             }
         }
@@ -433,16 +706,56 @@ async fn handle(
                 .setup_running
                 .swap(true, std::sync::atomic::Ordering::SeqCst)
             {
-                return vec![ServerMsg::Notice {
+                return Ok(vec![ServerMsg::Notice {
                     message: "A setup step is already running.".to_owned(),
                     owner: None,
-                }];
+                }]);
             }
             tokio::spawn(run_setup(state.clone(), action));
             Vec::new()
         }
-        other => handle_sign_ins(other, state, &viewer).await,
-    }
+        other => return Err(other),
+    })
+}
+
+/// The door's jobs: pairing, removing Gates, and which networks phones may
+/// use.
+async fn handle_door(msg: ClientMsg, door: &crate::door::Door) -> anyhow::Result<Vec<ServerMsg>> {
+    Ok(match msg {
+        ClientMsg::StartPairing { person } => {
+            vec![ServerMsg::Pairing(door.start_pairing(&person).await?)]
+        }
+        ClientMsg::CancelPairing => {
+            door.cancel_pairing().await;
+            vec![ServerMsg::PairingClosed]
+        }
+        ClientMsg::RemoveGate { id } => {
+            door.remove(&id).await?;
+            Vec::new()
+        }
+        ClientMsg::AddDoorNetwork => vec![ServerMsg::Door(door.add_network().await?)],
+        ClientMsg::RemoveDoorNetwork { id } => {
+            vec![ServerMsg::Door(door.remove_network(&id).await?)]
+        }
+        ClientMsg::SetDoorName { name } => vec![ServerMsg::Door(door.set_name(&name).await?)],
+        _ => Vec::new(),
+    })
+}
+
+/// What only the Farm itself may do: pair and remove Gates, pick the
+/// networks phones use, change the Mac's setup.
+fn farm_only(msg: &ClientMsg) -> bool {
+    matches!(
+        msg,
+        ClientMsg::StartPairing { .. }
+            | ClientMsg::CancelPairing
+            | ClientMsg::RemoveGate { .. }
+            | ClientMsg::AddDoorNetwork
+            | ClientMsg::RemoveDoorNetwork { .. }
+            | ClientMsg::SetDoorName { .. }
+            | ClientMsg::RunSetup { .. }
+            | ClientMsg::SetLaunchAtLogin { .. }
+    )
 }
 
 /// Sends `text` to `bot` from `from`, reporting a failure to the client.
@@ -573,7 +886,10 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         ServerMsg::Activity { ref bot, .. } | ServerMsg::Browser { ref bot, .. } => {
             client.sees(bot).then_some(msg)
         }
-        ServerMsg::ApprovalNeeded(ref a) => client.sees(&a.bot).then_some(msg),
+        // A card goes to the person whose request raised it, and the Farm.
+        ServerMsg::ApprovalNeeded(ref a) => {
+            (client.sees(&a.bot) && answers(a, &client.viewer)).then_some(msg)
+        }
         ServerMsg::SignInNeeded(ref r) => client.sees(&r.bot).then_some(msg),
         ServerMsg::Sites { ref owner, .. } => (owner.is_none()
             || owner.as_deref() == Some(client.viewer.name.as_str()))
@@ -582,8 +898,13 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             usage.bots.retain(|b| client.sees(&b.bot));
             Some(ServerMsg::Usage(usage))
         }
-        // The log names every bot, site and person: the Farm's only.
-        ServerMsg::Log(_) => client.viewer.farm.then_some(msg),
+        // The log names every bot, site and person; pairing is the Farm's
+        // job: the Farm's only.
+        ServerMsg::Log(_)
+        | ServerMsg::Pairing(_)
+        | ServerMsg::PairingClosed
+        | ServerMsg::Gates { .. }
+        | ServerMsg::Door(_) => client.viewer.farm.then_some(msg),
         ServerMsg::Notice { ref owner, .. } => (owner.is_none()
             || client.viewer.farm
             || owner.as_deref() == Some(client.viewer.name.as_str()))
@@ -749,5 +1070,87 @@ mod tests {
         ann.subs.insert("shared".into(), 0);
         ann.see(&[info("shared", Some("Sam"), true)]);
         assert!(ann.subs.is_empty() && !ann.sees("shared"));
+    }
+
+    fn card(bot: &str, asker: Option<&str>) -> ServerMsg {
+        ServerMsg::ApprovalNeeded(oxbot_protocol::Approval {
+            id: 1,
+            bot: bot.into(),
+            kind: oxbot_protocol::ApprovalKind::Change,
+            action: "click".into(),
+            target: "Buy".into(),
+            site: "shop.example".into(),
+            page: None,
+            detail: None,
+            screenshot: None,
+            asker: asker.map(Into::into),
+        })
+    }
+
+    #[test]
+    fn a_card_goes_to_who_asked_and_the_farm() {
+        let bots = [info("shared", None, false)];
+        let mut jay = Client::new(Viewer::gate("Jay"), &bots);
+        let mut sam = Client::new(Viewer::gate("Sam"), &bots);
+        let mut farm = Client::new(Viewer::farm("Jay"), &bots);
+        assert!(forward(card("shared", Some("Jay")), &mut jay).is_some());
+        assert!(forward(card("shared", Some("Jay")), &mut farm).is_some());
+        assert!(
+            forward(card("shared", Some("Jay")), &mut sam).is_none(),
+            "Sam can't answer Jay's card"
+        );
+        assert!(
+            forward(card("shared", None), &mut sam).is_none(),
+            "nobody asked: the Farm's"
+        );
+        assert!(forward(card("shared", None), &mut farm).is_some());
+    }
+
+    #[test]
+    fn each_person_sees_only_their_own_herder_as_assistant() {
+        let anns = oxbot_core::bot::personal_herder_id("Ann").to_string();
+        let sams = oxbot_core::bot::personal_herder_id("Sam").to_string();
+        let mut herders = [
+            info(DEFAULT_BOT, None, false),
+            info(&anns, Some("Ann"), true),
+            info(&sams, Some("Sam"), true),
+        ];
+        for h in &mut herders {
+            h.central = true;
+        }
+        let bots = [herders.to_vec(), vec![info("recipes", None, false)]].concat();
+        let ann = Client::with_herder(Viewer::gate("Ann"), &bots, anns.clone());
+        let farm = Client::with_herder(Viewer::farm("Jay"), &bots, DEFAULT_BOT.to_owned());
+
+        let Some(ServerMsg::Bots { bots: seen }) =
+            ann.outbound(ServerMsg::Bots { bots: bots.clone() })
+        else {
+            panic!("a list")
+        };
+        let ids: Vec<&str> = seen.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, [DEFAULT_BOT, "recipes"]);
+        let Some(ServerMsg::Bots { bots: seen }) = farm.outbound(ServerMsg::Bots { bots }) else {
+            panic!("a list")
+        };
+        assert_eq!(seen.iter().filter(|b| b.central).count(), 1);
+
+        // What Ann says to `assistant` goes to her own Herder, and back.
+        let ClientMsg::Send { bot, .. } = ann.inbound(ClientMsg::Send {
+            bot: DEFAULT_BOT.into(),
+            text: "hi".into(),
+        }) else {
+            panic!("a send")
+        };
+        assert_eq!(bot, anns);
+        let Some(ServerMsg::Event(e)) = ann.outbound(event(&anns, 1)) else {
+            panic!("her Herder's event")
+        };
+        assert_eq!(e.bot, DEFAULT_BOT);
+        assert!(ann.outbound(event(&sams, 1)).is_none(), "not Sam's");
+        assert!(
+            ann.outbound(event(DEFAULT_BOT, 1)).is_none(),
+            "not the Farm's"
+        );
+        assert!(farm.outbound(event(&anns, 1)).is_none());
     }
 }

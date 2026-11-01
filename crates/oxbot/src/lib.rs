@@ -4,14 +4,17 @@
 //! - [`server`]: `oxbot serve`, the WebSocket server
 //! - [`chat`]: `oxbot chat`, the terminal client
 //! - [`client`]: one-shot requests from CLI commands to a running server
+//! - [`door`]: the Gate door phones and laptops pair and connect through
 //! - [`logs`]: relays the server's log to the apps
 //! - [`runtime`]: starts and stops a whole server (CLI and desktop app)
 //! - [`setup`]: what oxbot needs on the Mac, and where to find it
 
 pub mod chat;
 pub mod client;
+pub mod door;
 pub mod logs;
 pub mod runtime;
+pub mod secret;
 pub mod server;
 pub mod setup;
 

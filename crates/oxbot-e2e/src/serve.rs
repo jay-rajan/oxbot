@@ -49,6 +49,9 @@ impl Server {
         cmd.args(["serve", "--port", &port.to_string()])
             .env("OXBOT_HOME", home)
             .env("OXBOT_E2E", "1")
+            // Any free port for the Gate door, so tests never clash with a
+            // real oxbot (or each other) on 7879.
+            .env("OXBOT_GATE_PORT", "0")
             .env("OXBOT_PERSON", &config.person)
             .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
             .env("OXBOT_FAKE_SCRIPT", script)
@@ -81,10 +84,17 @@ impl Server {
         bail!("oxbot didn't start; see {}", server.log.display())
     }
 
-    /// The page's address, e.g. `http://127.0.0.1:5123/?as=Ann`.
+    /// The page's address, e.g. `http://127.0.0.1:5123/?as=Ann`. The
+    /// Farm's own page (no `as=`) carries the Farm secret, as the app's
+    /// window does.
     #[must_use]
     pub fn url(&self, path: &str) -> String {
-        format!("http://127.0.0.1:{}{path}", self.port)
+        let base = format!("http://127.0.0.1:{}{path}", self.port);
+        if path.contains("as=") {
+            return base;
+        }
+        let key = std::fs::read_to_string(self.home.join("farm-key")).unwrap_or_default();
+        format!("{base}#k={}", key.trim())
     }
 
     /// The last lines of its log.

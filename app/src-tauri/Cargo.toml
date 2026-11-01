@@ -1,12 +1,16 @@
 [package]
 name = "oxbot-desktop"
-description = "oxbot as a Mac app: the server runs inside it, the chat page is its window, and it stays in the menu bar."
+description = "The oxbot app: on a Mac the Farm (server inside, chat page as its window, menu bar icon); on Android a Gate onto the Farm."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish.workspace = true
+
+[lib]
+name = "oxbot_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
 name = "oxbot-desktop"
@@ -17,13 +21,28 @@ tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 anyhow.workspace = true
+tracing.workspace = true
+
+# The Mac app: the Farm. None of this is built for a phone.
+[target.'cfg(not(target_os = "android"))'.dependencies]
 oxbot.workspace = true
 oxbot-protocol.workspace = true
 tauri = { version = "2.12.5", features = ["tray-icon", "image-png"] }
 tauri-plugin-autostart = "2.7.0"
 tokio.workspace = true
-tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# The phone app: a Gate only.
+[target.'cfg(target_os = "android")'.dependencies]
+futures-util.workspace = true
+oxbot-gate.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12.5", features = [] }
+# Reads the pairing QR code on the phone itself (pure Rust): no Google
+# Play services or ML Kit, which would talk to Google.
+rqrr = { version = "0.11.0", default-features = false }
+tokio.workspace = true
 
 [lints]
 workspace = true

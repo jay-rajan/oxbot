@@ -14,6 +14,7 @@
 //! | typing into a password or code field | refuse: the user signs in |
 //! | running scripts in a page | refuse |
 //! | opening anything but a web page (`file:`, `chrome:`…) | refuse |
+//! | opening a page on this Mac or the home network (oxbot's own page, the Gate door, routers) | refuse |
 //! | reading or writing files outside the bot's folder | refuse |
 //! | anything else (extensions, audits, page tools…) | refuse |
 //! | oxbot's own `request_sign_in` | run |
@@ -25,7 +26,7 @@
 
 use std::path::Path;
 
-use oxbot_browser::{MCP_SERVER_NAME, web_host};
+use oxbot_browser::{MCP_SERVER_NAME, is_home_network, web_host};
 use oxbot_protocol::ApprovalKind;
 use serde_json::Value;
 
@@ -291,6 +292,11 @@ pub fn decide(
                 return Verdict::Allow; // back, forward, reload
             }
             let url = str_of(input, "url");
+            if is_home_network(url) {
+                return Verdict::Deny(format!(
+                    "oxbot doesn't open pages on this Mac or the home network ({url}), only on the web."
+                ));
+            }
             if url == "about:blank" || web_host(url).is_some() {
                 Verdict::Allow
             } else {
@@ -902,6 +908,11 @@ mod tests {
     #[test]
     fn only_web_pages_can_be_opened() {
         for url in [
+            // oxbot's own page and Gate door, and the home network.
+            "http://127.0.0.1:7878/",
+            "http://localhost:7878/",
+            "https://192.168.2.10:7879/pair",
+            "http://jays-mac.local/",
             "file:///etc/passwd",
             "chrome://settings",
             "javascript:alert(1)",

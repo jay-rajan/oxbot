@@ -20,7 +20,7 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 
 pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
-pub use web::web_host;
+pub use web::{is_home_network, web_host};
 
 /// npm package for the browser tool.
 pub const MCP_PACKAGE: &str = "chrome-devtools-mcp";

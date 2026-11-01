@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oxbot_claude::{LimitWindow, TurnUsage};
-use oxbot_protocol::{BotEvent, BotUsage, EventKind, Person, PlanLimit, SiteInfo, Usage};
+use oxbot_protocol::{BotEvent, BotUsage, EventKind, GateInfo, Person, PlanLimit, SiteInfo, Usage};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::id::BotId;
@@ -81,6 +81,16 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO sites_by_owner (owner, site, signed_in_ms) SELECT '', site, signed_in_ms FROM sites;
     DROP TABLE sites;
     ALTER TABLE sites_by_owner RENAME TO sites;",
+    // 7: Gates (phones and laptops) paired with this Farm. Only a hash of
+    // each Gate's key is kept, so a copy of the database can't pose as one.
+    "CREATE TABLE gates (
+        id           TEXT    PRIMARY KEY,
+        person       TEXT    NOT NULL,
+        name         TEXT    NOT NULL,
+        key_hash     TEXT    NOT NULL UNIQUE,
+        paired_ms    INTEGER NOT NULL,
+        last_seen_ms INTEGER NOT NULL
+    );",
 ];
 
 /// The owner name of the home browser's sites.
@@ -127,6 +137,17 @@ fn person(name: &str, color: i64) -> Person {
         name: name.to_owned(),
         color: PEOPLE_COLORS[i].to_owned(),
     }
+}
+
+fn gate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GateInfo> {
+    Ok(GateInfo {
+        id: row.get(0)?,
+        person: row.get(1)?,
+        name: row.get(2)?,
+        paired_ms: row.get(3)?,
+        last_seen_ms: row.get(4)?,
+        online: false,
+    })
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -279,6 +300,78 @@ impl Store {
         let mut stmt = conn.prepare("SELECT DISTINCT owner FROM sites ORDER BY owner")?;
         let rows = stmt.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Remembers a newly paired Gate. `key_hash` is the hash of its key.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn add_gate(
+        &self,
+        id: &str,
+        person: &str,
+        name: &str,
+        key_hash: &str,
+    ) -> Result<GateInfo, StoreError> {
+        let now = now_ms();
+        self.conn().execute(
+            "INSERT INTO gates (id, person, name, key_hash, paired_ms, last_seen_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![id, person, name, key_hash, now],
+        )?;
+        Ok(GateInfo {
+            id: id.to_owned(),
+            person: person.to_owned(),
+            name: name.to_owned(),
+            paired_ms: now,
+            last_seen_ms: now,
+            online: false,
+        })
+    }
+
+    /// The Gate holding the key with this hash, if it's still paired; marks
+    /// it as seen now.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn gate_by_key(&self, key_hash: &str) -> Result<Option<GateInfo>, StoreError> {
+        let conn = self.conn();
+        let now = now_ms();
+        conn.execute(
+            "UPDATE gates SET last_seen_ms = ?2 WHERE key_hash = ?1",
+            params![key_hash, now],
+        )?;
+        Ok(conn
+            .query_row(
+                "SELECT id, person, name, paired_ms, last_seen_ms FROM gates WHERE key_hash = ?1",
+                params![key_hash],
+                gate_row,
+            )
+            .optional()?)
+    }
+
+    /// Every paired Gate, oldest first.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn gates(&self) -> Result<Vec<GateInfo>, StoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, person, name, paired_ms, last_seen_ms FROM gates ORDER BY paired_ms, id",
+        )?;
+        let gates = stmt.query_map([], gate_row)?.collect::<Result<_, _>>()?;
+        Ok(gates)
+    }
+
+    /// Forgets a Gate; its key stops working. Returns whether it was paired.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn remove_gate(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .conn()
+            .execute("DELETE FROM gates WHERE id = ?1", params![id])?
+            > 0)
     }
 
     /// Forgets everything about a deleted bot: its history, session and usage.
@@ -583,7 +676,7 @@ mod tests {
                     .unwrap();
             }
             let conn = store.conn();
-            conn.execute_batch("DELETE FROM sites; PRAGMA user_version = 4;")
+            conn.execute_batch("DELETE FROM sites; DROP TABLE gates; PRAGMA user_version = 4;")
                 .unwrap();
         }
         let store = Store::open(&path).unwrap();
@@ -625,6 +718,23 @@ mod tests {
         assert!(store.remove_site("Sam", "google.com").unwrap());
         assert_eq!(store.sites(HOME).unwrap().len(), 1, "home keeps its own");
         assert_eq!(store.site_owners().unwrap(), ["", "Sam"]);
+    }
+
+    #[test]
+    fn a_removed_gate_s_key_stops_working() {
+        let store = Store::open_in_memory().unwrap();
+        store.add_gate("g1", "Jay", "Pixel", "hash-1").unwrap();
+        store.add_gate("g2", "Sam", "Laptop", "hash-2").unwrap();
+        assert_eq!(store.gate_by_key("hash-1").unwrap().unwrap().person, "Jay");
+        assert!(store.gate_by_key("nope").unwrap().is_none());
+        assert_eq!(store.gates().unwrap().len(), 2);
+        assert!(store.remove_gate("g1").unwrap());
+        assert!(store.gate_by_key("hash-1").unwrap().is_none());
+        assert!(!store.remove_gate("g1").unwrap());
+        assert!(
+            store.add_gate("g3", "Ann", "Phone", "hash-2").is_err(),
+            "keys are unique"
+        );
     }
 
     #[test]

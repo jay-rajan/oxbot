@@ -18,7 +18,11 @@ use tokio_tungstenite::tungstenite::Message;
 pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
     let (ws, _) = tokio_tungstenite::connect_async(url)
         .await
-        .with_context(|| format!("couldn't reach oxbot at {url}. Is `oxbot serve` running?"))?;
+        .with_context(|| {
+            // Without the Farm secret in the query.
+            let at = url.split('?').next().unwrap_or(url);
+            format!("couldn't reach oxbot at {at}. Is `oxbot serve` running?")
+        })?;
     let (mut sink, mut stream) = ws.split();
 
     let send =
@@ -39,7 +43,12 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
             frame = stream.next() => {
                 let Some(frame) = frame else { bail!("server closed the connection") };
                 if let Message::Text(text) = frame? {
-                    let msg: ServerMsg = serde_json::from_str(&text)?;
+                    // A newer server may send kinds this version doesn't know:
+                    // skip them rather than stop.
+                    let Ok(msg) = serde_json::from_str::<ServerMsg>(&text) else {
+                        tracing::debug!("skipped a message this version doesn't know");
+                        continue;
+                    };
                     if let ServerMsg::Hello(hello) = &msg
                         && !hello.is_compatible()
                     {
@@ -200,6 +209,10 @@ impl View {
             }
             // The terminal client shows replies only; the page shows status and logs.
             ServerMsg::Log(_)
+            | ServerMsg::Pairing(_)
+            | ServerMsg::PairingClosed
+            | ServerMsg::Gates { .. }
+            | ServerMsg::Door(_)
             | ServerMsg::Activity { .. }
             | ServerMsg::Browser { .. }
             | ServerMsg::BotCreated(_)

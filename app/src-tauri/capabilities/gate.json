@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "gate",
+  "description": "The phone app's own page: talk to the app's Gate link.",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

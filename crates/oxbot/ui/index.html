@@ -98,6 +98,16 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .add-site, dialog form.add-site { display: flex; gap: 8px; flex-wrap: wrap; padding: 0; }
 .add-site input { flex: 1 1 200px; min-width: 0; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .add-site input:focus-visible { outline: none; border-color: var(--focus); }
+.pairing { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+.pairing .qr { width: 220px; max-width: 100%; aspect-ratio: 1; background: #fff; border-radius: 10px; padding: 6px; box-sizing: border-box; }
+.pairing .qr svg { width: 100%; height: 100%; display: block; }
+.pairing .pair-text { flex: 1 1 200px; min-width: 0; display: grid; gap: 6px; }
+.pairing .pair-text p { margin: 0; }
+.pairing .code { font: 600 1.4rem ui-monospace, Menlo, monospace; letter-spacing: .08em; color: var(--ink); }
+.gate-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); justify-self: center; }
+.gate-dot.on { background: #2E9A4E; }
+.door-status { display: flex; gap: 8px; align-items: center; margin: 0 0 8px; }
+.door-status .gate-dot { flex: none; }
 .site-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .site-row { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); }
 .site-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; }
@@ -174,6 +184,10 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .deny.red { background: var(--err); }
 /* setup */
+.offline { margin: 10px max(18px, env(safe-area-inset-right)) 0 18px; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); display: flex; gap: 10px; align-items: center; font-size: .9rem; }
+.offline-dot { width: 9px; height: 9px; border-radius: 50%; background: #E2701B; flex: none; animation: offpulse 1.6s ease-in-out infinite; }
+@keyframes offpulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .offline-dot { animation: none; } }
 .setup { margin: 12px max(18px, env(safe-area-inset-right)) 0 18px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; background: var(--surface); }
 .setup h3 { margin: 0; font-size: .98rem; }
 .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -232,8 +246,11 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
   .app { grid-template-columns: 1fr; }
   .side { position: fixed; inset: 0 auto 0 0; width: min(300px, 85vw); z-index: 5; transform: translateX(-100%); transition: transform .2s; }
   .side.open { transform: none; box-shadow: 0 0 40px rgb(0 0 0 / .3); }
+  .side.open + .scrim { display: block; }
   .menu { display: block; }
 }
+/* behind the open sidebar on a phone: a tap here closes it */
+.scrim { display: none; position: fixed; inset: 0; z-index: 4; background: rgb(0 0 0 / .25); }
 </style>
 </head>
 <body>
@@ -243,14 +260,16 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div class="server" id="server">Connecting…</div>
     <nav class="bots" id="bots" aria-label="Bots"></nav>
     <section class="sites" aria-labelledby="sitesTitle"><h4 id="sitesTitle">Signed in</h4><ul id="sites"></ul></section>
-    <div class="side-foot"><button class="gear" id="settingsBtn" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-dasharray="2.83 2.83"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg><span class="badge" id="warnBadge" hidden>0</span></button></div>
+    <div class="side-foot"><button class="gear" id="settingsBtn" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-dasharray="2.83 2.83"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg><span class="badge" id="warnBadge" hidden>0</span></button><button class="gear" id="gateBtn" type="button" aria-label="Add a Gate (pair a phone or laptop)" title="Add a Gate: pair a phone or laptop" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5" stroke-linecap="round"/><rect x="5.8" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none"/><rect x="16.3" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none"/><rect x="5.8" y="16.3" width="1.9" height="1.9" fill="currentColor" stroke="none"/></svg></button></div>
   </aside>
+  <div class="scrim" id="scrim" aria-hidden="true"></div>
   <main class="chat">
     <header class="chat-head">
       <button class="menu" id="menu" type="button" aria-label="Show bots">☰</button>
       <span class="avatar head-avatar" id="botAvatar" hidden></span><div><h1 id="botName">oxbot</h1><div class="status" id="botStatus"></div></div><button class="head-more" id="botMore" type="button" aria-label="Bot settings" title="Bot settings" hidden>···</button>
     </header>
     <div class="setup" id="setupBox" hidden><h3>oxbot needs a few things first</h3><ul class="checks" id="setupChecks"></ul><div class="btns"><button class="primary" type="button" id="setupAgain">Check again</button></div></div>
+    <div class="offline" id="offline" role="status" hidden><span class="offline-dot" aria-hidden="true"></span><span id="offlineText">Not connected.</span></div>
     <div class="cards" id="cards" aria-live="assertive"></div>
     <div class="log" id="log" aria-live="polite"></div>
     <form class="composer" id="composer">
@@ -285,7 +304,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <dialog id="appDlg" class="wide" aria-labelledby="appTitle">
   <div class="settings">
     <header class="settings-head"><h2 id="appTitle">Settings</h2><button class="ghost" id="appClose" type="button">Close</button></header>
-    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Sign-ins</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
+    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Sign-ins</button><button type="button" role="tab" data-tab="setGates" aria-selected="false" id="gatesTab" hidden>Gates</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
 
     <div id="setGeneral" role="tabpanel">
     <section>
@@ -348,6 +367,35 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     </section>
     </div>
 
+    <div id="setGates" role="tabpanel" hidden>
+    <section>
+      <h3>Networks phones can use</h3>
+      <p class="door-status" id="doorStatus"><i class="gate-dot" id="doorDot" aria-hidden="true"></i><span id="doorWhy">Checking…</span></p>
+      <ul class="site-rows" id="netRows"></ul>
+      <div class="btns"><button class="primary" type="button" id="netAdd" hidden>Add this network</button></div>
+      <p class="hint">Phones connect only while this Mac is on one of these networks, never on a café's or an office's. oxbot knows a network by its router, so another Wi-Fi with the same name doesn't count.</p>
+      <form class="add-site" id="doorNameForm"><input id="doorName" type="text" maxlength="60" autocomplete="off" spellcheck="false" placeholder="Name phones see" aria-label="The name phones see for this Mac"><button class="ghost" type="submit">Save name</button></form>
+    </section>
+    <section>
+      <h3>Add a Gate</h3>
+      <p class="hint">A Gate is a phone or laptop that uses this Mac's bots over your home Wi-Fi. It acts as the person you pick: their private bots, their own sign-ins. It can never do what only this Mac can.</p>
+      <form class="add-site" id="pairForm"><input id="pairPerson" type="text" list="pairPeople" autocomplete="off" spellcheck="false" placeholder="Who it's for" aria-label="Who the Gate is for"><datalist id="pairPeople"></datalist><button class="primary" type="submit">Show pairing code</button></form>
+      <div class="pairing" id="pairBox" hidden>
+        <div class="qr" id="pairQr" aria-label="QR code to scan with the oxbot app on the phone"></div>
+        <div class="pair-text">
+          <p>In the oxbot app on the phone, tap <b>Scan the Farm's code</b> and point it here.</p>
+          <p class="code" id="pairCode"></p>
+          <p class="hint" id="pairWhen"></p>
+          <div class="btns"><button class="ghost" type="button" id="pairCopy">Copy link</button><button class="ghost" type="button" id="pairCancel">Cancel</button></div>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h3>Paired</h3>
+      <ul class="site-rows" id="gateRows"></ul>
+    </section>
+    </div>
+
     <div id="setActivity" role="tabpanel" hidden>
     <section>
       <p class="hint">What oxbot is doing, newest last.</p>
@@ -363,6 +411,22 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 const $ = (id) => document.getElementById(id);
 const bots = new Map();      // id -> { info, events: [], lastSeq, busy, subscribed, stream, activity }
 let current = null, ws = null, retry = 0, pendingSelect = null, toastTimer = null;
+let connected = false, everConnected = false, retryTimer = null;
+// The Farm secret: oxbot opens its own window with #k=…, and only a page
+// that shows it counts as the Farm. Kept for this window only, and taken out
+// of the address bar so it isn't copied along with the link.
+const farmKey = (() => {
+  let key = "";
+  try {
+    const m = location.hash.match(/(?:^#|&)k=([0-9a-f]{32,})/);
+    if (m) {
+      key = m[1];
+      sessionStorage.setItem("oxbotFarmKey", key);
+      history.replaceState(null, "", location.pathname + location.search);
+    } else key = sessionStorage.getItem("oxbotFarmKey") || "";
+  } catch { /* storage blocked: the key works until this page reloads */ }
+  return key;
+})();
 let startedMs = null, warnings = 0, settings = null, usage = null;
 const approvals = new Map(); // id -> approval card
 const signIns = new Map();   // id -> sign-in request
@@ -396,17 +460,55 @@ document.querySelector("link[rel=icon]").href = "data:image/svg+xml," + encodeUR
 function connect() {
   // Test mode only: /?as=Name connects as that person (the server ignores it otherwise).
   const as = new URLSearchParams(location.search).get("as");
-  ws = new WebSocket(`ws://${location.host}/ws${as ? "?as=" + encodeURIComponent(as) : ""}`);
+  const q = new URLSearchParams();
+  if (as) q.set("as", as); else if (farmKey) q.set("k", farmKey);
+  // In the phone app (a Gate) the app itself carries the connection to the
+  // Farm, encrypted and checked; the page only sees a WebSocket-like object.
+  ws = window.oxbotGate
+    ? window.oxbotGate.socket()
+    : new WebSocket(`ws://${location.host}/ws${q.size ? "?" + q : ""}`);
   ws.onopen = () => {
-    retry = 0; setConn(true);
+    retry = 0; everConnected = true; setConn(true);
     send({ type: "list_bots" });
     for (const [id, b] of bots) if (b.subscribed) send({ type: "subscribe", bot: id, since: b.lastSeq });
   };
-  ws.onclose = () => { setConn(false); setTimeout(connect, Math.min(10000, 500 * 2 ** retry++)); };
+  ws.onclose = () => {
+    setConn(false);
+    // A phone off home Wi-Fi tries again often, and at once when the network
+    // or the app comes back (below).
+    clearTimeout(retryTimer);
+    // A phone in the background can't reach the network anyway: wait until
+    // it's opened again (visibilitychange below) instead of draining battery.
+    if (window.oxbotGate && document.hidden) return;
+    retryTimer = setTimeout(connect, Math.min(window.oxbotGate ? 5000 : 10000, 500 * 2 ** retry++));
+  };
   ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch (err) { console.error(err); } };
 }
-function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
-function setConn(on) { if (!on) $("server").textContent = "Reconnecting…"; }
+/** Sends if connected; says whether it went. */
+function send(msg) {
+  if (!ws || ws.readyState !== 1) return false;
+  ws.send(JSON.stringify(msg));
+  return true;
+}
+function setConn(on) {
+  connected = on;
+  if (!on) $("server").textContent = "Reconnecting…";
+  // Shown once a connection was lost (or never came), not while first connecting.
+  $("offline").hidden = on || (!everConnected && retry === 0);
+  $("offlineText").textContent = window.oxbotGate
+    ? `Not connected to ${window.oxbotGate.farm || "the Farm"}. Waiting for home Wi-Fi…`
+    : !farmKey && !new URLSearchParams(location.search).get("as")
+      ? "This window isn't oxbot's own. Open oxbot from its app, or with the link `oxbot serve` printed."
+      : "Lost the connection to oxbot. Reconnecting…";
+  updateStatus();
+}
+/** Tries now instead of waiting out the back-off (network or app is back). */
+function reconnectNow() {
+  if (ws && ws.readyState !== 3) return;
+  clearTimeout(retryTimer); retry = 0; connect();
+}
+window.addEventListener("online", reconnectNow);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectNow(); });
 
 function bot(id) {
   if (!bots.has(id)) bots.set(id, { info: { id, name: id, busy: false, last_seq: 0 }, events: [], lastSeq: 0, busy: false, subscribed: false, stream: null, activity: null });
@@ -477,6 +579,10 @@ function onMessage(m) {
       if (m.bot === current) { showStream(b.stream); showTyping(); }
       break;
     }
+    case "pairing": pairing = m; clearInterval(pairTimer); pairTimer = setInterval(() => { if (pairing && pairing.expires_ms < Date.now()) pairing = null; renderGates(); if (!pairing) clearInterval(pairTimer); }, 15000); renderGates(); break;
+    case "pairing_closed": pairing = null; clearInterval(pairTimer); renderGates(); break;
+    case "gates": gates = m.gates; renderGates(); break;
+    case "door": door = m; renderGates(); break;
     case "notice": toast(m.message); break;
     case "error": toast(m.message, true); break;
   }
@@ -573,6 +679,102 @@ function fillSiteRows(ul, list, mine) {
     li.append(siteMark(s), name, open, out); ul.appendChild(li);
   }
 }
+// Gates: pairing phones and laptops (the Farm only).
+let gates = [], pairing = null, pairTimer = null, gateArmed = null, gateArmTimer = null;
+let door = null, netArmed = null, netArmTimer = null;
+/** The door and the networks phones may use. */
+function renderDoor() {
+  $("doorDot").className = "gate-dot" + (door && door.open ? " on" : "");
+  $("doorWhy").textContent = !door ? "Checking…"
+    : door.open ? `Open: phones can connect while this Mac is on ${door.current ? door.current.label : "this network"}.`
+    : door.why;
+  const here = door && door.current;
+  const listed = !!(here && door.networks.some((n) => n.id === here.id));
+  $("netAdd").hidden = !here || listed;
+  if (here) $("netAdd").textContent = `Add this network (${here.label})`;
+  const ul = $("netRows"); ul.textContent = "";
+  if (door && !door.networks.length) {
+    const li = document.createElement("li"); li.className = "hint";
+    li.textContent = "None yet. Add the network this Mac is on at home.";
+    ul.appendChild(li);
+  }
+  for (const n of door ? door.networks : []) {
+    const li = document.createElement("li"); li.className = "site-row";
+    const name = document.createElement("span"); name.className = "name";
+    const when = document.createElement("small");
+    when.textContent = n.here ? "this Mac is on it now" : `router ${n.id}`;
+    name.append(document.createTextNode(n.label), when);
+    const rm = document.createElement("button"); rm.type = "button"; rm.className = "ghost";
+    rm.textContent = netArmed === n.id ? "Yes, remove" : "Remove";
+    rm.onclick = () => {
+      if (netArmed !== n.id) { netArmed = n.id; renderDoor(); clearTimeout(netArmTimer); netArmTimer = setTimeout(() => { netArmed = null; renderDoor(); }, 5000); return; }
+      netArmed = null; send({ type: "remove_door_network", id: n.id });
+    };
+    const dot = document.createElement("i"); dot.className = "gate-dot" + (n.here ? " on" : "");
+    li.append(dot, name, document.createElement("span"), rm); ul.appendChild(li);
+  }
+  if (door && document.activeElement !== $("doorName")) $("doorName").value = door.name;
+  // Pairing needs a network phones may use.
+  const pairBtn = $("pairForm").querySelector("button");
+  pairBtn.disabled = !listed;
+  pairBtn.title = listed ? "" : "Add this network above first";
+}
+function renderGates() {
+  const farm = !!(settings && settings.farm);
+  $("gatesTab").hidden = !farm;
+  $("gateBtn").hidden = !farm;
+  if (!farm) return;
+  renderDoor();
+  const dl = $("pairPeople"); dl.textContent = "";
+  for (const name of people.keys()) { const o = document.createElement("option"); o.value = name; dl.appendChild(o); }
+  if (!$("pairPerson").value && settings.you) $("pairPerson").placeholder = `Who it's for, e.g. ${settings.you}`;
+  $("pairBox").hidden = !pairing;
+  if (pairing) {
+    $("pairQr").innerHTML = pairing.qr_svg.replace(/^<\?xml[^>]*>/, "");
+    $("pairCode").textContent = pairing.code;
+    const mins = Math.max(0, Math.ceil((pairing.expires_ms - Date.now()) / 60000));
+    $("pairWhen").textContent = `For ${pairing.person}. Works once, for ${mins} more minute${mins === 1 ? "" : "s"}. On the phone you can also paste the link.`;
+  }
+  const ul = $("gateRows"); ul.textContent = "";
+  if (!gates.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "No Gates yet."; ul.appendChild(li); return; }
+  for (const g of gates) {
+    const li = document.createElement("li"); li.className = "site-row";
+    const dot = document.createElement("i"); dot.className = "gate-dot" + (g.online ? " on" : "");
+    dot.title = g.online ? "Connected now" : "Not connected";
+    const name = document.createElement("span"); name.className = "name";
+    const when = document.createElement("small");
+    const seen = g.online ? "connected now" : `last seen ${new Date(g.last_seen_ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+    when.textContent = `${g.person} · ${seen}`;
+    name.append(document.createTextNode(g.name), when);
+    const rm = document.createElement("button"); rm.type = "button"; rm.className = "ghost";
+    rm.textContent = gateArmed === g.id ? "Yes, remove" : "Remove";
+    rm.onclick = () => {
+      if (gateArmed !== g.id) { gateArmed = g.id; renderGates(); clearTimeout(gateArmTimer); gateArmTimer = setTimeout(() => { gateArmed = null; renderGates(); }, 5000); return; }
+      gateArmed = null; send({ type: "remove_gate", id: g.id });
+    };
+    const spacer = document.createElement("span");
+    li.append(dot, name, spacer, rm); ul.appendChild(li);
+  }
+}
+$("pairForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const person = $("pairPerson").value.trim() || (settings && settings.you) || "";
+  if (!person) { toast("Say who the Gate is for.", true); return; }
+  send({ type: "start_pairing", person });
+});
+$("pairCancel").onclick = () => send({ type: "cancel_pairing" });
+$("netAdd").onclick = () => send({ type: "add_door_network" });
+$("doorNameForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  send({ type: "set_door_name", name: $("doorName").value.trim() });
+  $("doorName").blur();
+  toast("Saved. Phones see the new name the next time they look.");
+});
+$("pairCopy").onclick = async () => {
+  if (!pairing) return;
+  try { await navigator.clipboard.writeText(pairing.link); toast("Link copied. Send it to the phone some private way, e.g. AirDrop."); }
+  catch { toast("Couldn't copy the link.", true); }
+};
 $("addSiteForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const url = $("addSiteUrl").value.trim();
@@ -650,7 +852,7 @@ function updateStatus() {
   if (locked) $("botStatus").textContent = `private to ${b.info.created_by || "someone"}`;
   $("botAvatar").classList.toggle("working", !!b.busy && !locked);
   $("stop").hidden = !b.busy || locked;
-  $("send").disabled = b.busy || locked;
+  $("send").disabled = b.busy || locked || !connected;
 }
 
 // ---------- Settings tabs: General and Activity
@@ -778,7 +980,11 @@ $("composer").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const text = $("input").value.trim();
   if (!text || !current) return;
-  send({ type: "send", bot: current, text });
+  // Offline: the message stays in the box, to send once oxbot is back.
+  if (!connected || !send({ type: "send", bot: current, text })) {
+    toast("Not connected yet. Your message is still here: send it once you're back on.", true);
+    return;
+  }
   $("input").value = ""; grow();
 });
 $("input").addEventListener("keydown", (ev) => {
@@ -788,6 +994,9 @@ function grow() { const t = $("input"); t.style.height = "auto"; t.style.height 
 $("input").addEventListener("input", grow);
 $("stop").onclick = () => current && send({ type: "cancel", bot: current });
 $("menu").onclick = () => $("side").classList.toggle("open");
+// On a phone the sidebar covers the chat: a tap outside it, or Escape, closes it.
+$("scrim").onclick = () => $("side").classList.remove("open");
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("side").classList.contains("open") && !document.querySelector("dialog[open]")) $("side").classList.remove("open"); });
 
 const NB_SHARED = "It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
 const NB_PRIVATE = "Only you and the Farm's owner see it, and Herder can't give it tasks. It browses in your own browser, so it asks you to sign in to sites even if home is signed in. Anything that sends, posts or deletes asks you first.";
@@ -964,6 +1173,11 @@ $("settingsBtn").onclick = () => {
   renderSettings(); renderUsage(); renderLogs();
   $("appDlg").showModal();
 };
+$("gateBtn").onclick = () => {
+  $("settingsBtn").onclick();
+  $("gatesTab").click();
+  if (!pairing) { $("pairPerson").value = $("pairPerson").value || (settings && settings.you) || ""; $("pairPerson").focus(); $("pairPerson").select(); }
+};
 $("appClose").onclick = () => $("appDlg").close();
 $("launchAtLogin").onchange = (ev) => send({ type: "set_launch_at_login", on: ev.target.checked });
 
@@ -978,6 +1192,7 @@ function renderSettings() {
     you.append(dot, document.createTextNode(`${settings.you} (from this Mac's account; each person gets their own color)`));
   }
   $("loginSection").hidden = settings.launch_at_login === null || settings.launch_at_login === undefined;
+  renderGates();
   $("launchAtLogin").checked = !!settings.launch_at_login;
 }
 

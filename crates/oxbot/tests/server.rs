@@ -45,13 +45,18 @@ async fn start_with(dir: &std::path::Path, app: Option<Arc<dyn AppControls>>) ->
     };
     let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("ws://{}/ws", listener.local_addr().unwrap());
     let state = AppState {
         data_dir: dir.to_owned(),
         app,
         local_person: "Jay".to_owned(),
         ..AppState::new(hub, "test-mac")
     };
+    // The Farm's own window carries the Farm secret.
+    let url = format!(
+        "ws://{}/ws?k={}",
+        listener.local_addr().unwrap(),
+        state.farm_key
+    );
     tokio::spawn(server::serve(listener, state, std::future::pending()));
     url
 }
@@ -217,7 +222,9 @@ async fn the_page_is_served_and_other_websites_are_refused() {
     let url = start(tmp.path()).await;
     let addr = url
         .trim_start_matches("ws://")
-        .trim_end_matches("/ws")
+        .split('/')
+        .next()
+        .unwrap()
         .to_owned();
 
     let mut tcp = tokio::net::TcpStream::connect(&addr).await.unwrap();
@@ -247,6 +254,35 @@ async fn the_page_is_served_and_other_websites_are_refused() {
             .await
             .is_ok()
     );
+}
+
+#[tokio::test]
+async fn being_on_this_mac_is_not_enough_to_be_the_farm() {
+    let tmp = tempfile::tempdir().unwrap();
+    let url = start(tmp.path()).await;
+    let bare = url.split('?').next().unwrap().to_owned();
+    // No secret, or a wrong one: refused, whatever the Origin says.
+    assert!(
+        tokio_tungstenite::connect_async(bare.as_str())
+            .await
+            .is_err()
+    );
+    let wrong = format!("{bare}?k={}", "1".repeat(64));
+    assert!(
+        tokio_tungstenite::connect_async(wrong.as_str())
+            .await
+            .is_err()
+    );
+    // A test connection naming a person only works in test mode.
+    let named = format!("{bare}?as=Mallory");
+    assert!(
+        tokio_tungstenite::connect_async(named.as_str())
+            .await
+            .is_err()
+    );
+    // With it: the Farm.
+    let (_, _, settings) = connect(&url).await;
+    assert!(settings.farm);
 }
 
 /// The reply to a create and the list for everyone, which can arrive in

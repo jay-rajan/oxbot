@@ -30,6 +30,9 @@ pub struct ServerOptions {
     pub ui_dir: Option<PathBuf>,
     /// What the desktop app lets the page control.
     pub app: Option<Arc<dyn AppControls>>,
+    /// The Gate door's port (0 picks a free one; default `OXBOT_GATE_PORT`
+    /// or 7879). `None` leaves the door out: `OXBOT_GATE_PORT=off`.
+    pub gate_port: Option<u16>,
 }
 
 impl ServerOptions {
@@ -44,7 +47,21 @@ impl ServerOptions {
             logs: None,
             ui_dir: std::env::var_os("OXBOT_UI_DIR").map(PathBuf::from),
             app: None,
+            gate_port: gate_port(std::env::var("OXBOT_GATE_PORT").ok().as_deref()),
         }
+    }
+}
+
+/// The Gate door's port from `OXBOT_GATE_PORT`: a number, `off` for no
+/// door at all, or unset for 7879.
+fn gate_port(setting: Option<&str>) -> Option<u16> {
+    match setting.map(str::trim) {
+        Some("off" | "no" | "none" | "false") => None,
+        Some(port) => Some(port.parse().unwrap_or_else(|_| {
+            tracing::warn!(port, "OXBOT_GATE_PORT isn't a port or `off`; using 7879");
+            crate::door::DEFAULT_GATE_PORT
+        })),
+        None => Some(crate::door::DEFAULT_GATE_PORT),
     }
 }
 
@@ -58,21 +75,29 @@ pub struct RunningServer {
     pub hub: Arc<Hub>,
     /// Its data folder.
     pub home: Home,
+    /// The Gate door, if this server has one.
+    pub door: Option<Arc<crate::door::Door>>,
+    farm_key: String,
     stop: oneshot::Sender<()>,
     task: JoinHandle<std::io::Result<()>>,
 }
 
 impl RunningServer {
-    /// The chat page's address, e.g. `http://127.0.0.1:7878`.
+    /// The chat page's address with the Farm secret, e.g.
+    /// `http://127.0.0.1:7878/#k=…`. Whoever opens it is the Farm: show it
+    /// only in oxbot's own window or to the person at this Mac.
     #[must_use]
     pub fn page_url(&self) -> String {
-        format!("http://{}", self.addr)
+        format!("http://{}/#k={}", self.addr, self.farm_key)
     }
 
     /// Stops serving, then stops the bots and the browser.
     pub async fn stop(self) {
         tracing::info!("shutting down");
         let _ = self.stop.send(());
+        if let Some(door) = &self.door {
+            door.stop().await;
+        }
         if let Ok(Err(err)) = self.task.await {
             tracing::warn!(%err, "server stopped with an error");
         }
@@ -128,7 +153,24 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     };
     let hub = Hub::new(bots, store, config);
 
+    let farm_key =
+        crate::secret::farm_key(home.root()).context("couldn't make or read the Farm secret")?;
     let device = server_name();
+    let door = options.gate_port.map(|port| {
+        // Tests have no real network: they get a fixed one to allow.
+        let probe = if e2e {
+            crate::door::network::fixed_probe("e2e-network", "Test network")
+        } else {
+            crate::door::network::mac_probe()
+        };
+        crate::door::Door::new(
+            home.root().join("gate"),
+            port,
+            device.clone(),
+            Arc::clone(&hub),
+            probe,
+        )
+    });
     let state = AppState {
         hub: Arc::clone(&hub),
         server_name: device.clone(),
@@ -146,8 +188,15 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         setup: Arc::default(),
         tool_built_in: built_in.is_some(),
         setup_running: Arc::default(),
+        door: door.clone(),
+        farm_key: farm_key.clone(),
     };
     state.refresh_setup().await;
+    // The door opens when the Mac is on an allowed network and a Gate is
+    // paired, and keeps checking.
+    if let Some(door) = &door {
+        door.start(server::door_router(state.clone(), door)).await;
+    }
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(server::serve(listener, state, async {
         let _ = stopped.await;
@@ -157,6 +206,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         addr,
         hub,
         home,
+        door,
+        farm_key,
         stop,
         task,
     })
@@ -187,7 +238,9 @@ pub fn server_name() -> String {
         .unwrap_or_else(|| "oxbot".to_owned())
 }
 
-fn now_ms() -> i64 {
+/// Now, in ms since the Unix epoch.
+#[must_use]
+pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
@@ -205,6 +258,7 @@ mod tests {
         let options = ServerOptions {
             home: Some(Home::new(tmp.path())),
             browser: false,
+            gate_port: None,
             ..ServerOptions::new(0)
         };
         let server = start(options).await.unwrap();

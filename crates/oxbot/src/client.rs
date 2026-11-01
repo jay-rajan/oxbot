@@ -41,10 +41,10 @@ pub async fn request_until(
     wait: Duration,
     is_answer: impl Fn(&ServerMsg) -> bool,
 ) -> anyhow::Result<ServerMsg> {
-    let url = format!("ws://127.0.0.1:{port}/ws");
+    let url = crate::secret::local_ws_url(port);
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
         .await
-        .with_context(|| format!("couldn't reach oxbot at {url}"))?;
+        .with_context(|| format!("couldn't reach oxbot on port {port}"))?;
     ws.send(Message::Text(serde_json::to_string(msg)?.into()))
         .await?;
     let reply = tokio::time::timeout(wait, async {

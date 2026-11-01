@@ -23,6 +23,37 @@ use crate::id::{BotId, BotIdError};
 pub const DEFAULT_BOT: &str = "assistant";
 /// The central bot's name.
 pub const CENTRAL_NAME: &str = "Herder";
+/// How a person's own Herder's id starts: `assistant--sam-1a2b3c`. Ids made
+/// from names never have two dashes in a row, so no other bot gets one.
+pub const PERSONAL_HERDER_PREFIX: &str = "assistant--";
+
+/// Whether `id` is a person's own Herder (not the Farm's, `assistant`).
+#[must_use]
+pub fn is_personal_herder(id: &str) -> bool {
+    id.starts_with(PERSONAL_HERDER_PREFIX)
+}
+
+/// The id of `person`'s own Herder: their name made safe, plus a short hash
+/// of it (ignoring case), so different names never share one.
+#[must_use]
+pub fn personal_herder_id(person: &str) -> BotId {
+    let key = person.trim().to_lowercase();
+    let slug: String = key
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(20)
+        .collect();
+    // FNV-1a: stable across versions and machines, unlike the std hasher.
+    let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    let id = if slug.is_empty() {
+        format!("{PERSONAL_HERDER_PREFIX}{:06x}", hash & 0xff_ffff)
+    } else {
+        format!("{PERSONAL_HERDER_PREFIX}{slug}-{:06x}", hash & 0xff_ffff)
+    };
+    BotId::new(id).unwrap_or_else(|_| unreachable!("only a-z, 0-9 and dashes, at most 38 long"))
+}
 /// Names and instructions the central bot had before it was Herder.
 const OLD_NAMES: &[&str] = &["Assistant"];
 const OLD_INSTRUCTIONS: &[&str] = &[
@@ -171,9 +202,16 @@ fn io_err(path: &Path) -> impl FnOnce(io::Error) -> BotError + '_ {
 }
 
 impl Bot {
-    /// Whether this is the central bot, Herder.
+    /// Whether this is Herder: the Farm's (`assistant`) or a person's own.
     #[must_use]
     pub fn is_central(&self) -> bool {
+        self.is_main_herder() || is_personal_herder(self.id.as_str())
+    }
+
+    /// Whether this is the Farm's Herder, whose instructions every person's
+    /// Herder shares.
+    #[must_use]
+    pub fn is_main_herder(&self) -> bool {
         self.id.as_str() == DEFAULT_BOT
     }
 
@@ -347,7 +385,7 @@ pub fn load_all(bots_dir: &Path) -> Result<Vec<Bot>, BotError> {
 /// Fails if the folders or files can't be written.
 pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
     fs::create_dir_all(bots_dir).map_err(io_err(bots_dir))?;
-    if !load_all(bots_dir)?.iter().any(Bot::is_central) {
+    if !load_all(bots_dir)?.iter().any(Bot::is_main_herder) {
         let id = BotId::new(DEFAULT_BOT).map_err(|source| BotError::BadId {
             path: bots_dir.join(DEFAULT_BOT),
             source,
@@ -362,7 +400,7 @@ pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
 /// was renamed already, so a name the user put back by hand stays.
 /// Instructions the user wrote are kept.
 fn rename_old_central(bots_dir: &Path) -> Result<(), BotError> {
-    let Some(mut bot) = load_all(bots_dir)?.into_iter().find(Bot::is_central) else {
+    let Some(mut bot) = load_all(bots_dir)?.into_iter().find(Bot::is_main_herder) else {
         return Ok(());
     };
     let marker = bot.dir.join(".renamed-to-herder");
@@ -383,6 +421,20 @@ fn rename_old_central(bots_dir: &Path) -> Result<(), BotError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_persons_herder_id_is_theirs_alone() {
+        let ann = personal_herder_id("Ann");
+        assert!(is_personal_herder(ann.as_str()));
+        assert_eq!(ann, personal_herder_id(" ann "));
+        assert_ne!(ann, personal_herder_id("Anne"));
+        assert_ne!(personal_herder_id("José"), personal_herder_id("Jos"));
+        assert!(is_personal_herder(personal_herder_id("王芳").as_str()));
+        assert!(personal_herder_id(&"x".repeat(80)).as_str().len() <= crate::MAX_BOT_ID_LEN);
+        // A bot named by a person never gets a Herder's id.
+        let id = BotId::from_name("Assistant -- Ann", |_| false);
+        assert!(!is_personal_herder(id.as_str()));
+    }
 
     #[test]
     fn default_bot_is_created_once() {

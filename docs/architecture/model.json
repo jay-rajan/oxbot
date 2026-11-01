@@ -1,11 +1,11 @@
 {
-  "milestone": "Farm 1",
-  "updated": "2026-10-30",
+  "milestone": "Farm 2",
+  "updated": "2026-10-31",
   "components": [
     {
       "id": "desktop",
       "label": "oxbot.app",
-      "sub": "Tauri 2 \u00b7 menu bar \u00b7 browser tool built in",
+      "sub": "Tauri 2 \u00b7 menu bar \u00b7 the Farm",
       "kind": "app",
       "status": "built",
       "m": 2,
@@ -13,19 +13,9 @@
       "y": 135
     },
     {
-      "id": "app",
-      "label": "Gates",
-      "sub": "laptop, phone: Gate mode (Farm part 2)",
-      "kind": "app",
-      "status": "planned",
-      "m": "Farm 2",
-      "x": 20,
-      "y": 330
-    },
-    {
       "id": "terminal",
       "label": "oxbot chat + page",
-      "sub": "terminal \u00b7 127.0.0.1:7878",
+      "sub": "terminal \u00b7 127.0.0.1:7878 \u00b7 Farm key",
       "kind": "app",
       "status": "built",
       "m": 2,
@@ -33,9 +23,39 @@
       "y": 225
     },
     {
+      "id": "phone",
+      "label": "Gate app",
+      "sub": "Android \u00b7 Tauri 2 \u00b7 home Wi-Fi",
+      "kind": "app",
+      "status": "built",
+      "m": "Farm 2",
+      "x": 480,
+      "y": 18
+    },
+    {
+      "id": "oxbot-gate",
+      "label": "oxbot-gate",
+      "sub": "pairing \u00b7 pinned TLS \u00b7 chat copy",
+      "kind": "crate",
+      "status": "built",
+      "m": "Farm 2",
+      "x": 250,
+      "y": 18
+    },
+    {
+      "id": "door",
+      "label": "Gate door",
+      "sub": "in oxbot \u00b7 TLS :7879 \u00b7 pairing",
+      "kind": "module",
+      "status": "built",
+      "m": "Farm 2",
+      "x": 480,
+      "y": 128
+    },
+    {
       "id": "oxbot",
       "label": "oxbot",
-      "sub": "serve \u00b7 page \u00b7 chat \u00b7 setup",
+      "sub": "serve \u00b7 page \u00b7 chat \u00b7 Gate door",
       "kind": "crate",
       "status": "built",
       "m": 2,
@@ -85,7 +105,7 @@
     {
       "id": "sqlite",
       "label": "SQLite",
-      "sub": "history, people, sites per owner, usage",
+      "sub": "history, people, sites per owner, usage, gates",
       "kind": "store",
       "status": "built",
       "m": 2,
@@ -145,16 +165,28 @@
   ],
   "edges": [
     {
-      "from": "app",
-      "to": "oxbot",
-      "label": "wss \u00b7 paired (M3)",
-      "status": "planned"
+      "from": "phone",
+      "to": "door",
+      "label": "TLS \u00b7 pinned \u00b7 paired key",
+      "status": "built"
     },
     {
-      "from": "app",
-      "to": "oxbot-protocol",
+      "from": "phone",
+      "to": "oxbot-gate",
       "label": "uses",
-      "status": "planned"
+      "status": "built"
+    },
+    {
+      "from": "oxbot",
+      "to": "oxbot-gate",
+      "label": "link format",
+      "status": "built"
+    },
+    {
+      "from": "oxbot",
+      "to": "door",
+      "label": "opens",
+      "status": "built"
     },
     {
       "from": "oxbot",
@@ -452,12 +484,27 @@
         "Server: one Client {viewer, visible, subs} per connection; forward() filters every update. Every local connection is the Farm",
         "UI: lock on private bots, \u00b7\u00b7\u00b7 bot settings, Private box on New bot, Sign-ins tab split into Home and Yours"
       ]
+    },
+    {
+      "m": "Farm 2",
+      "date": "2026-10-31",
+      "title": "Gates: phones on home Wi-Fi",
+      "items": [
+        "Gate door (oxbot::door): TLS on port 7879 with the Farm's own self-signed certificate (rcgen, ring); phones pin its SHA-256 fingerprint from the pairing QR code",
+        "Pairing: one-time codes (8 characters, 10 minutes, 5 tries) shown in Settings \u2192 Gates for a chosen person; POST /pair returns a key; SQLite keeps only its hash (gates table)",
+        "Every other door request needs Authorization: Bearer <key> and acts as Viewer::gate(person), never the Farm",
+        "The door opens only on a network listed in Settings \u2192 Gates (router MAC address, gate/door.json) and while a phone is paired or a code is showing; checked every 30 s. Private-address peers only, 64 connections max, 5 s handshake, 60 s idle. mDNS _oxbot._tcp while open. OXBOT_GATE_PORT=off turns it off",
+        "Farm key (oxbot::secret): a random key in <data>/farm-key (0600). A local connection is the Farm only with it (/ws?k=); the app opens its window with #k=, oxbot chat and bots read the file, oxbot serve prints a link. No key, no connection (test mode ?as= aside)",
+        "oxbot-gate crate: the pairing link oxbot://pair?h=&f=&c=&n=, a pinned-TLS client (rustls ring + hyper http1), pair, fetch page, connect WebSocket; ChatCopy keeps the phone's own SQLite copy (latest 300 messages per bot, 30 days, only bots that person may open) for reading away from home",
+        "Android app (app/src-tauri, Tauri 2): Gate only, the server isn't built for Android. Loads the Farm's page over the pinned link; window.oxbotGate.socket() stands in for the WebSocket over Tauri channels; 15 s heartbeat; QR read on the phone with rqrr (no Google services); pairing saved in farm.json, backups off",
+        "Per person: approval cards go only to their asker and the Farm; each person has a private Herder (assistant--<slug>-<hash>) with the Farm Herder's instructions and model, shown to them as assistant. A message line starting with [ gets a backslash, so nobody can fake a [Name] sender"
+      ]
     }
   ],
   "next": {
-    "m": "Farm 2",
-    "title": "Gates",
-    "text": "A laptop or phone in Gate mode: runs no bots, finds the Farm on home Wi-Fi, pairs once with a code (QR on phones) over TLS with a pinned certificate, and connects as its person (Viewer::gate) instead of the Farm. Then a live sign-in view on a Gate. Also awaiting your OK: a Codex backend (2.12)."
+    "m": "Farm 3",
+    "title": "Polish and the next backend",
+    "text": "Phone layout polish; live sign-in from the phone; keep the phone's key in the Android Keystore (GitHub issue #10). Still awaiting your OK: a Codex backend."
   },
   "c4": {
     "note": "Nodes sit on a grid: col/row (+ span) map to x/y via 'grid'. Edges clip to box edges automatically; 'via' adds bends, 'from_pt'/'to_pt' pin ends, 'label_at' [x, y, anchor] places the label. Status: built | planned. Types: person, system, container, component, db, folder, external.",
@@ -466,8 +513,8 @@
         "id": "context",
         "title": "Level 1 \u00b7 System context",
         "intro": "oxbot from the outside: who uses it and what it talks to.",
-        "caption": "System context. People chat with oxbot; Herder runs the team. Each bot is shared or private to whoever made it. oxbot reaches Anthropic only through the Claude Code CLI and drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The Mac running oxbot is the Farm and sees everything. Gates (other people's laptops and phones) and Codex are planned. claude.ai is contacted only when you press Install Claude Code; npm only when running from source.",
-        "aria": "C4 level 1 system context: Jay, the Farm owner, and others in the house use oxbot, where Herder runs the team of bots. Bots are shared or private to their maker. oxbot sends prompts to Anthropic through the Claude Code CLI and drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. When Jay presses Install, oxbot runs the Claude Code installer from claude.ai. npm is used only when running from source. OpenAI Codex is a planned second backend; others' own laptops and phones (Gates) are planned.",
+        "caption": "System context. People chat with oxbot on the Farm or from their phone; Herder runs the team. Each bot is shared or private to whoever made it. oxbot reaches Anthropic only through the Claude Code CLI and drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The Mac running oxbot is the Farm and sees everything; a phone (a Gate) pairs once on home Wi-Fi and sees only what its person may. Codex is planned. claude.ai is contacted only when you press Install Claude Code; npm only when running from source.",
+        "aria": "C4 level 1 system context: Jay, the Farm owner, and others in the house use oxbot on the Farm or from a paired phone on home Wi-Fi, where Herder runs the team of bots. Bots are shared or private to their maker. oxbot sends prompts to Anthropic through the Claude Code CLI and drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. When Jay presses Install, oxbot runs the Claude Code installer from claude.ai. npm is used only when running from source. OpenAI Codex is a planned second backend.",
         "size": [
           960,
           600
@@ -492,7 +539,7 @@
             "h": 112,
             "name": "Others in the house",
             "tech": "Person",
-            "desc": "Chat, make shared or private bots. Own laptop or phone later (Gates)."
+            "desc": "Chat, make shared or private bots, on the Farm or from their phone (a Gate)."
           },
           {
             "id": "jay",
@@ -502,7 +549,7 @@
             "h": 112,
             "name": "Jay",
             "tech": "Person",
-            "desc": "Owns the Farm, the Mac running oxbot: sees and manages every bot."
+            "desc": "Owns the Farm, the Mac running oxbot: sees and manages every bot. Pairs phones."
           },
           {
             "id": "oxbot",
@@ -514,7 +561,7 @@
             "w": 270,
             "name": "oxbot",
             "tech": "Software system",
-            "desc": "Always-on Claude bots on the Farm, led by Herder. Bots are shared or private to their maker; each has its own folder. Shared bots use the home Chrome, private ones their maker's. Data goes only to Anthropic (later OpenAI) and the sites bots visit."
+            "desc": "Always-on Claude bots on the Farm, led by Herder. Bots are shared or private to their maker. Phones reach it as Gates over home Wi-Fi. Data goes only to Anthropic (later OpenAI) and the sites bots visit."
           },
           {
             "id": "codex",
@@ -671,7 +718,7 @@
           {
             "from": "others",
             "to": "oxbot",
-            "label": "chat, make bots\n(on the Farm today)",
+            "label": "chat, make bots\n(Farm or phone,\nhome Wi-Fi)",
             "from_pt": [
               240,
               100
@@ -691,9 +738,9 @@
       {
         "id": "containers",
         "title": "Level 2 \u00b7 Containers",
-        "intro": "The processes and data on the Mac. Every arrow inside the box stays on 127.0.0.1.",
-        "caption": "Containers. The server runs one Claude Code CLI per bot, Herder included; each Claude starts chrome-devtools-mcp from the copy built into oxbot.app, which attaches to that bot's Chrome: the home Chrome for shared bots, the maker's own Chrome for a private bot. Bots on the same Chrome take turns. oxbot's tools (request_sign_in for every bot, team tools for Herder) ride the same stream-json link as an in-process MCP server. The server keeps its own CDP connection to each Chrome (the guard) to read pages for the safety rules, send downloads to the bot folder, take screenshots for cards and list or clear signed-in sites, and reads site icons from each profile. It filters every update per connection; every local connection is the Farm today. Gates are planned.",
-        "aria": "C4 level 2 containers on the Farm, Jay's Mac: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON. The server stores history, sessions, people, signed-in sites per browser owner and usage in SQLite, manages bot folders (bot.toml with maker and private, deleted bots moved to trash), spawns one Claude Code CLI per bot including Herder, hosts oxbot's tools (request_sign_in for all bots; list_bots, create_bot, give_task and read_reply for Herder) over the same stream-json link, and starts, shows and guards one Chrome per owner over CDP: the home Chrome for shared bots and one per person for private bots. Each connection only gets updates about bots its viewer may see. Claude Code talks to Anthropic over HTTPS and starts chrome-devtools-mcp over MCP stdio, which drives its bot's Chrome; Chrome loads websites. npm is used only when running from source. Planned: Gates (laptops and phones in Gate mode) over Wi-Fi with TLS, and a Codex CLI backend talking to OpenAI.",
+        "intro": "The processes and data on the Mac, plus the phone app. Every arrow inside the box stays on 127.0.0.1, except the Gate door, which phones reach over home Wi-Fi.",
+        "caption": "Containers. The server runs one Claude Code CLI per bot, Herder included; each Claude starts chrome-devtools-mcp from the copy built into oxbot.app, which attaches to that bot's Chrome: the home Chrome for shared bots, the maker's own Chrome for a private bot. Bots on the same Chrome take turns. oxbot's tools (request_sign_in for every bot, team tools for Herder) ride the same stream-json link as an in-process MCP server. The server keeps its own CDP connection to each Chrome (the guard) to read pages for the safety rules, send downloads to the bot folder, take screenshots for cards and list or clear signed-in sites, and reads site icons from each profile. It filters every update per connection. A local connection is the Farm only with the Farm key; a phone comes in through the Gate door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Codex is planned.",
+        "aria": "C4 level 2 containers. On the Farm, Jay's Mac: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the Farm only with the Farm key. Outside the Mac, the Gate app on an Android phone talks to the server's Gate door on port 7879 over home Wi-Fi, with TLS pinned to the Farm's certificate and a paired key, and sees only what its person may. The server stores history, sessions, people, signed-in sites per browser owner, usage and paired phones (key hashes) in SQLite, manages bot folders, spawns one Claude Code CLI per bot including Herder, hosts oxbot's tools over the same stream-json link, and starts, shows and guards one Chrome per owner over CDP. Claude Code talks to Anthropic over HTTPS and starts chrome-devtools-mcp over MCP stdio, which drives its bot's Chrome; Chrome loads websites. npm is used only when running from source. Planned: a Codex CLI backend talking to OpenAI.",
         "size": [
           990,
           1236
@@ -730,18 +777,17 @@
             "h": 100,
             "name": "Jay",
             "tech": "Person",
-            "desc": "Farm owner. Others in the house too."
+            "desc": "Farm owner. Others too, on the Mac or a phone."
           },
           {
             "id": "android",
             "type": "container",
-            "status": "planned",
             "col": 3,
             "row": 0,
-            "h": 125,
-            "name": "Gates",
-            "tech": "oxbot app, Gate mode",
-            "desc": "Laptop or phone: runs no bots. Pairs over home Wi-Fi (TLS); sees only what its person may."
+            "h": 140,
+            "name": "Gate app",
+            "tech": "Rust, Tauri 2, on an Android phone",
+            "desc": "Runs no bots. Pairs by QR, pins the Farm's cert, shows the Farm's page as its person. Keeps a chat copy for offline reading."
           },
           {
             "id": "page",
@@ -751,7 +797,7 @@
             "h": 150,
             "name": "Chat page",
             "tech": "HTML, JS",
-            "desc": "The app's UI: Herder first, bots with a lock if private and \"by Name\", \u00b7\u00b7\u00b7 bot settings, cards, Settings: General, Sign-ins (Home, Yours), Activity."
+            "desc": "The app's UI: Herder first, bots with a lock if private and \"by Name\", \u00b7\u00b7\u00b7 bot settings, cards, Settings: General, Sign-ins (Home, Yours), Gates, Activity."
           },
           {
             "id": "app",
@@ -761,7 +807,7 @@
             "h": 150,
             "name": "Desktop app",
             "tech": "Rust, Tauri 2",
-            "desc": "Window, menu bar, Launch at login. Runs the server inside. Ships Node and chrome-devtools-mcp in Resources/tools."
+            "desc": "Window, menu bar, Launch at login. Runs the server inside and opens its window with the Farm key. Ships Node and chrome-devtools-mcp."
           },
           {
             "id": "term",
@@ -771,7 +817,7 @@
             "h": 150,
             "name": "Terminal client",
             "tech": "Rust",
-            "desc": "oxbot chat: chat from the terminal over the same WebSocket (tokio-tungstenite)."
+            "desc": "oxbot chat: chat from the terminal over the same WebSocket. Reads the Farm key file."
           },
           {
             "id": "sqlite",
@@ -781,7 +827,7 @@
             "h": 150,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people (name, color), sites per browser owner, usage per bot, plan limits."
+            "desc": "events, sessions, people (name, color), sites per browser owner, usage, plan limits, gates (key hashes)."
           },
           {
             "id": "server",
@@ -792,7 +838,7 @@
             "h": 150,
             "name": "oxbot server",
             "tech": "Rust, tokio, axum \u00b7 oxbot serve",
-            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON). Holds the Hub: Herder and its team tools, a Chrome per owner, safety rules on every browser call, cards, sign-in and sites, who sees which bot (each connection filtered by its viewer), setup and installs, Claude usage."
+            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the Farm only with the Farm key. Gate door on :7879 for paired phones (TLS). Holds the Hub: Herder (one per person) and its team tools, a Chrome per owner, safety rules on every browser call, cards for their asker, sign-in and sites, who sees which bot (each connection filtered by its viewer), setup and installs, Claude usage."
           },
           {
             "id": "claude",
@@ -941,8 +987,7 @@
           {
             "from": "jay",
             "to": "android",
-            "label": "uses (later)",
-            "status": "planned"
+            "label": "uses on\nhome Wi-Fi"
           },
           {
             "from": "page",
@@ -1003,16 +1048,15 @@
           {
             "from": "android",
             "to": "server",
-            "status": "planned",
-            "label": "later: Wi-Fi, TLS +\npinned cert, paired",
+            "label": "Gate door :7879\nTLS, pinned cert,\npaired key;\npage + WebSocket\n(JSON)",
             "label_at": [
               853,
-              383,
+              236,
               "end"
             ],
             "from_pt": [
               861,
-              137
+              152
             ],
             "to_pt": [
               861,
@@ -1022,7 +1066,7 @@
           {
             "from": "server",
             "to": "sqlite",
-            "label": "history, people,\nsites per owner"
+            "label": "history, people,\nsites, gates"
           },
           {
             "from": "server",
@@ -1207,8 +1251,8 @@
         "id": "components",
         "title": "Level 3 \u00b7 Components of the oxbot server",
         "intro": "Inside the server process: the crates and modules, and who calls whom.",
-        "caption": "Components. The Hub is the center: the web server feeds it on behalf of each connection's viewer, Policy and Prompt advise it, Tools answers the requests that arrive through the Claude runner (request_sign_in for every bot; list_bots, create_bot, give_task, read_reply for Herder), and it lends each Chrome to one of its bots at a time. Bots decides who sees and manages what (Viewer). Setup checks what's installed and runs Claude's installer or sign-in. Gray boxes are the other containers from level 2; dashed ones are planned.",
-        "aria": "C4 level 3 components inside the oxbot server: the axum web server keeps one Client per connection with its viewer, visible bots and subscriptions, and forwards only updates that viewer may see; it uses oxbot-protocol wire types, asks Setup what's installed and passes client messages to the Hub. The Hub asks Policy about every browser tool call and create_bot, gets the prompt from Prompt, hands request_sign_in and Herder's team tools to Tools, records history, people, signed-in sites per owner and usage through Store, loads bot folders and checks viewers through Bots, drives Claude through the Claude runner and keeps a Chrome per owner through Browser, lending each to one bot at a time; Browser also lists and clears site cookies and reads site icons. Planned: a Gate link with TLS pairing for laptops and phones, and a Codex runner.",
+        "caption": "Components. The Hub is the center: the web server and the Gate door feed it on behalf of each connection's viewer, Policy and Prompt advise it, Tools answers the requests that arrive through the Claude runner (request_sign_in for every bot; list_bots, create_bot, give_task, read_reply for Herder), and it lends each Chrome to one of its bots at a time. Bots decides who sees and manages what (Viewer); each person has a private Herder, and cards go only to their asker and the Farm. A local connection is the Farm only with the Farm key; a phone is a Gate, never the Farm. Setup checks what's installed and runs Claude's installer or sign-in. Gray boxes are the other containers from level 2; dashed ones are planned.",
+        "aria": "C4 level 3 components inside the oxbot server: the axum web server on 127.0.0.1 checks the Farm key file for the Farm view, keeps one Client per connection with its viewer, visible bots and subscriptions, forwards only updates that viewer may see and shows each person their own Herder as assistant. The Gate door takes the Gate app's TLS connections on port 7879 with the Farm's own certificate, pairs phones with one-time codes and keeps only key hashes, opens only on listed home networks, accepts private addresses only, announces itself over mDNS and hands each request to the web server as Viewer::gate. The web server uses oxbot-protocol wire types, asks Setup what's installed and passes client messages to the Hub. The Hub asks Policy about every browser tool call and create_bot, gets the prompt from Prompt, hands request_sign_in and Herder's team tools to Tools, records history, people, sites, usage and gates through Store, loads bot folders and checks viewers through Bots, drives Claude through the Claude runner and keeps a Chrome per owner through Browser. Planned: a Codex runner.",
         "size": [
           1172,
           1000
@@ -1248,13 +1292,12 @@
           {
             "id": "android",
             "type": "external",
-            "status": "planned",
             "col": 2,
             "row": 0,
             "h": 100,
-            "name": "Gates",
+            "name": "Gate app",
             "tech": "Container",
-            "desc": "Laptops and phones. Farm part 2."
+            "desc": "Android phone. Pinned TLS, paired key."
           },
           {
             "id": "protocol",
@@ -1264,28 +1307,27 @@
             "h": 150,
             "name": "Protocol",
             "tech": "oxbot-protocol",
-            "desc": "Wire types: ClientMsg, ServerMsg, BotInfo (private, created_by), Sites {owner}, AppSettings.farm, Approval, SignInRequest\u2026 Shared with every client."
+            "desc": "Wire types: ClientMsg, ServerMsg, BotInfo (private, created_by), Sites {owner}, Approval, PairingCode, GateInfo, DoorState\u2026 Shared with every client."
           },
           {
             "id": "web",
             "type": "component",
             "col": 1,
             "row": 1,
-            "h": 150,
+            "h": 162,
             "name": "Web server",
             "tech": "oxbot::server",
-            "desc": "axum WebSocket, local page only. One Client {viewer, visible, subs} per connection; forward() drops other people's bots and sites. Local = the Farm."
+            "desc": "axum, 127.0.0.1:7878; the Farm only with the Farm key. One Client {viewer, visible, subs} per connection; forward() drops others' bots. Your Herder = assistant."
           },
           {
             "id": "phonelink",
             "type": "component",
-            "status": "planned",
             "col": 2,
             "row": 1,
-            "h": 150,
-            "name": "Gate link",
-            "tech": "oxbot (Farm part 2)",
-            "desc": "TLS with a pinned cert, pairing code or QR, device \u2192 person, mDNS. Connects as Viewer::gate."
+            "h": 170,
+            "name": "Gate door",
+            "tech": "oxbot::door",
+            "desc": "TLS :7879, own cert (identity). Code \u2192 key, only its hash kept (pairing). Open only on listed networks (network), private peers (listener), mDNS (discovery). Acts as Viewer::gate (http)."
           },
           {
             "id": "prompt",
@@ -1306,7 +1348,7 @@
             "h": 150,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "Runs bots, 3 turns at once; Herder always there and acts for whoever sent its latest message. browsers: owner \u2192 Chrome, each lent to one bot at a time. bots_for, set_private, rename, delete (to trash). Sign-in, sites, cards, usage."
+            "desc": "Runs bots, 3 turns at once. Each person has a private Herder (assistant--<slug>-<hash>) that acts for them. browsers: owner \u2192 Chrome, each lent to one bot at a time. bots_for, set_private, rename, delete. Cards go to their asker and the Farm. Sign-in, sites, usage."
           },
           {
             "id": "policy",
@@ -1326,7 +1368,7 @@
             "h": 175,
             "name": "Store",
             "tech": "oxbot-core::store",
-            "desc": "SQLite: history, sessions, people (name, color), sites keyed (owner, site), usage, plan limits. delete_bot clears a bot's history."
+            "desc": "SQLite: history, sessions, people (name, color), sites keyed (owner, site), usage, plan limits, gates (key hashes). delete_bot clears a bot's history."
           },
           {
             "id": "bots",
@@ -1336,7 +1378,7 @@
             "h": 175,
             "name": "Bots",
             "tech": "oxbot-core::bot, id",
-            "desc": "Bot folders: created_by, private, trash. is_central: Herder. browser_owner. Viewer {name, farm}: the Farm sees all; others shared + own."
+            "desc": "Bot folders: created_by, private, trash. is_central: Herder. browser_owner. Viewer {name, farm}: the Farm sees all; others and Gates: shared + own."
           },
           {
             "id": "runner",
@@ -1367,7 +1409,7 @@
             "h": 90,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, sites, usage"
+            "desc": "events, sessions, sites, usage, gates"
           },
           {
             "id": "folders",
@@ -1450,6 +1492,16 @@
             "name": "claude.ai",
             "tech": "Claude installer",
             "desc": "install.sh, on Install"
+          },
+          {
+            "id": "farmkey",
+            "type": "external",
+            "col": 0,
+            "row": 0,
+            "h": 100,
+            "name": "Farm key",
+            "tech": "<data>/farm-key, 0600",
+            "desc": "Random key. Local = Farm only with it."
           }
         ],
         "edges": [
@@ -1459,19 +1511,18 @@
             "both": true,
             "label": "WebSocket /ws (JSON)",
             "label_at": [
-              340,
+              356,
               140,
-              "end"
+              "start"
             ]
           },
           {
             "from": "android",
             "to": "phonelink",
-            "status": "planned",
-            "label": "later: wss, paired",
+            "label": "TLS :7879,\npinned, paired key",
             "label_at": [
               596,
-              140,
+              128,
               "start"
             ],
             "from_pt": [
@@ -1491,7 +1542,6 @@
           {
             "from": "phonelink",
             "to": "web",
-            "status": "planned",
             "label": "hands off"
           },
           {
@@ -1500,12 +1550,12 @@
             "label": "per viewer: send,\nsubscribe, stop, cards,\nbot settings, sign-ins",
             "label_at": [
               348,
-              360,
+              368,
               "start"
             ],
             "from_pt": [
               340,
-              340
+              352
             ],
             "to_pt": [
               340,
@@ -1741,37 +1791,65 @@
               126,
               "end"
             ]
+          },
+          {
+            "from": "web",
+            "to": "farmkey",
+            "label": "checks",
+            "from_pt": [
+              256,
+              210
+            ],
+            "via": [
+              [
+                228,
+                210
+              ],
+              [
+                228,
+                62
+              ]
+            ],
+            "to_pt": [
+              201,
+              62
+            ],
+            "label_at": [
+              222,
+              135,
+              "end"
+            ]
           }
         ]
       }
     ]
   },
   "changed": {
-    "intro": "Since 2.11.4 (2026-10-29 to 10-30): Herder, bot owners and private bots, a Chrome per owner, and per-person filtering on the server. Everything below is built and runs on the Farm; Gates are planned.",
+    "intro": "Since Farm 1 (2026-10-30 to 10-31): Gates. A phone on home Wi-Fi pairs once and connects as its person; the Mac's own connections need the Farm key. Everything below is built; Codex is still waiting for your OK.",
     "items": [
       {
-        "title": "Herder",
-        "text": "The central bot (id assistant, name Herder, Bot::is_central) is always there and pinned first. oxbot's in-process MCP server gives it list_bots, create_bot, give_task and read_reply (tools.rs; Hub::run_tool_inner, team, give_task, read_reply). Other bots get only request_sign_in. create_bot shows a Create card first (policy::decide_oxbot_tool). Herder acts for whoever sent its latest message and never gets the Farm view."
+        "title": "Gate door",
+        "text": "crates/oxbot/src/door: identity (the Farm's own self-signed cert, rcgen + ring), pairing (8-character codes, 10 minutes, 5 tries; POST /pair returns a key, SQLite gates table keeps only its hash), network (networks listed in Settings \u2192 Gates by router MAC, gate/door.json; checked every 30 s), listener (TLS on 7879, private addresses only, 64 connections, 5 s handshake, 60 s idle), discovery (mDNS _oxbot._tcp while open), http (Bearer key \u2192 Viewer::gate(person)). OXBOT_GATE_PORT=off turns it off."
       },
       {
-        "title": "Bot owners and private bots",
-        "text": "bot.toml records created_by and private. Viewer {name, farm} decides visibility: the Farm (the Mac running oxbot) sees everything; anyone else sees shared bots and their own private ones. Hub::bots_for, bot_for and history_for answer per viewer; set_private, rename_bot and delete_bot need the maker or the Farm. Delete moves the folder to <home>/trash and clears its history (Store::delete_bot)."
+        "title": "Farm key",
+        "text": "crates/oxbot/src/secret.rs: a random key in <data>/farm-key (0600). A local connection is the Farm only with it (/ws?k=). The app passes it as #k=, oxbot chat and bots read the file, oxbot serve prints a link. Without it local connections are refused (test mode ?as= aside)."
       },
       {
-        "title": "A Chrome per owner",
-        "text": "The Hub keeps browsers: owner \u2192 Chrome. Shared bots use the home Chrome (<home>/browser/profile); a private bot uses only its maker's own (<home>/browser/people/<name>-<hash>/profile), via Bot::browser_owner and Hub::browser_for. Each Chrome has its own lease (its bots take turns), sign-in window and watcher."
+        "title": "oxbot-gate crate",
+        "text": "The Gate side: the pairing link oxbot://pair?h=&f=&c=&n=, a client pinned to the Farm's fingerprint (rustls ring + hyper http1), pair, fetch the page, connect the WebSocket. copy::ChatCopy keeps the phone's own SQLite copy: latest 300 messages per bot, 30 days, only bots that person may open. The Farm uses it for the link format and fingerprint."
       },
       {
-        "title": "Signed-in sites per browser",
-        "text": "SQLite sites table keyed (owner, site) (migration 6). Site icons are read read-only from each profile's Favicons file (oxbot-browser site_icon); sign out per site over CDP. Protocol: ServerMsg::Sites {sites, owner}; AddSignIn, OpenSite, SignOutSite and SignOutAll carry mine; SetPrivate, RenameBot, DeleteBot; CreateBot {private}; AppSettings.farm; BotInfo.private and created_by."
+        "title": "Android app",
+        "text": "app/src-tauri (Tauri 2), src/gate.rs and dist/gate.html: a Gate only, never the Farm. Loads the Farm's page through the pinned link; window.oxbotGate.socket() stands in for the WebSocket over Tauri channels; 15 s heartbeat. Scans the QR with rqrr (no Google services). Pairing saved in farm.json with a version, backups off; last page and chat copy cached for offline reading."
       },
       {
-        "title": "Filtering per connection",
-        "text": "Each WebSocket connection is a Client {viewer, visible, subs}; forward() drops anything about bots that viewer can't see and other people's site lists. Today every local connection is the Farm. Gates (laptops and phones paired over home Wi-Fi) are next, not built."
+        "title": "Per-person rules",
+        "text": "Each approval card records its asker; only that person and the Farm see and answer it. Each person has their own private Herder (assistant--<slug>-<hash>) sharing the Farm Herder's instructions and model; the server shows it to them as assistant and hides other people's. Message lines starting with [ get a backslash, so a [Name] sender can't be faked."
       },
       {
-        "title": "App",
-        "text": "Sidebar: a lock on private bots and \"by Name\" under each bot. A \u00b7\u00b7\u00b7 button opens bot settings (name, private or shared, delete). New bot has a Private box. Settings tabs: General, Sign-ins (Home and Yours), Activity."
+        "title": "Protocol and app",
+        "text": "Protocol: StartPairing, CancelPairing, RemoveGate, AddDoorNetwork, RemoveDoorNetwork, SetDoorName; ServerMsg Pairing, PairingClosed, Gates, Door; PairingCode, GateInfo, DoorState, PairRequest, PairReply. Settings gains a Gates tab: networks phones can use, pair a phone for a person, paired phones."
       }
     ]
   }

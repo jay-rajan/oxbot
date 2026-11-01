@@ -170,3 +170,31 @@ Plan: /pr_test skill; e2e/ tests (TOML steps with `covers`), seed bots + seed.sq
 ## 69. 2026-10-30
 "I think I want the original one a dot with two horns followed by oxbot written as the logo. just make the circle bigger" → "have a slendor horn" → "mix the horn along the sides of the circle" → "it should come from the top." → "also leave a small gap" → "your pick is good. make the icons"
 → Logo: slender red horns rising from the top of a bigger dot (r 118, was 88), a 16-unit gap, then "oxbot" in thick Roboto Mono Bold outlines. Generated from one script into the wordmark (light, dark, themed for the sidebar), app icon (black tile, white dot), menu-bar template, tab icon, Herder (with its bell), app icon set, dmg, /Applications/oxbot.app, brand page and the Setup Guide picture.
+
+## 70. 2026-10-30 (roadmap, plan only)
+"I want to turn a road map … what is the best way agents can work? … group similar stuff so that the scope is larger per ticket." Items: signed-in list out of the nav, a link to Settings instead; attach pictures, video, PDFs, almost any file LLMs can read; voice mode with local dictation only; organize bots (sections, search, group by person or section); a QR/pair button next to Settings, then signed-in apps; MCP connectors (Drive, Google, Slack, household apps); usage alerts at 50% and 80% for window and week; bot options on right-click in the nav.
+→ Roadmap doc https://claude.ai/artifact/6rDUzQc2DgUVp8oJU6hcgP: 9 tickets (Foundations, Sidebar, Files and voice, Connectors, Notifications, Gates, then Codex, phone app, signed release), GitHub Issues + one agent per branch + plan-first + fmt/clippy/test/pr_test/pr_review gate. Waiting for OK before creating issues.
+
+## 71. 2026-10-30
+"updated it. can you create tickets in github"
+→ GitHub issues #1–#9 with labels (core, ui, browser, app, e2e, needs-decision) and 5 milestones (Step 1–4, Later). Jay's doc notes folded in: voice in the Mac app too; connectors usable by any bot, tokens in the OS credential store (Windows-portable), red card very important, three connector decisions = yes; usage alerts for 5-hour window and week only, no Opus-specific limits for now.
+
+## 72. 2026-10-30 (plan only)
+"I want to build the mobile app which I want to test with my phone android. pixel." + "and mobiles phones are never the farm."
+→ Plan https://claude.ai/artifact/46PJYAVxjBBghtwgKsiFtK (docs/plan/mobile.html): Android Gate-only Tauri build; page loaded from the Farm through the app's Rust link (pinned TLS, no ports on the phone); Farm picks the person for the QR; device key in Android Keystore; Gate door on port 7879; phone layout; live sign-in. Waiting for OK and the Android tool install.
+
+## 73. 2026-10-30
+"ok" (to the Android plan) → "see if pixel is connected?" → "where is the QR code?" → "Can you give me a button next to setting where I can access it" → "I am seeing Can't reach the farm. its on the same wifi though" → "connected. but i do not see any bots there" → "ok. go ahead and review and test this. will this stay like that when i am off network? can it say that its disconnected and waiting for wifi."
+→ Android tools installed (Homebrew Java 17, SDK, NDK 29). Farm: Gate door on 7879 (own certificate, one-time codes, key hashes; migration 7), Settings → Gates and a QR button by the gear. New crate oxbot-gate (pinned TLS client). App split: desktop.rs (Farm) and gate.rs (Android, Gate only). Fixes on the phone: Android 17 local-network permission; page scripts not running after the swap. Offline banner "Waiting for home Wi-Fi…", reconnect on return, heartbeat. /pr_review: 2 Criticals fixed (bots can't open pages on the Mac/home network; QR scanner no longer uses Google Play services → rqrr on the phone), 4 need decision. /pr_test: 12/12 pass incl. 2 new Gates tests; Mac app check passes.
+
+## 74. 2026-10-31 (plan only)
+"i have asked to fix these. can you fix it?" (ticked in the Gate review: D1–D4, M1–M5, M7, M8, M10–M22; notes: D2 "how do we know its home. This should be a setting option"; M7 "the phone should get the SQLite DB for conversation over the network. keep reasonable limits"; M25 "planned later. make a ticket")
+→ M25 → issue #10 (Keystore). Fix plan https://claude.ai/artifact/SH4ZhgqfaXbs5NqujF1a1n (docs/plan/gate-fixes.html): Farm secret file; networks-phones-can-use setting keyed by router MAC; cards answered by asker + Farm; Herder per person; phone keeps a SQLite chat copy (300 msgs/bot, 30 days); door fixes; door.rs split. Waiting for OK.
+
+## 75. 2026-10-31
+"Ok to start" (the Gate fix plan) + "Also keep working on the issues in back log as well"
+→ Fixed D1–D4, M1–M5, M7, M8, M10–M22: Farm secret (secret.rs; /ws?k=, app window #k=, serve prints a link); "Networks phones can use" (router MAC, door.json; door opens only on a listed network with a phone or code; private peers only); cards answered by the asker and the Farm; a Herder per person (assistant--name-hash, shown as assistant); door split into door/ (listener caps, idle timeout, async open lock, port freed); hyper client; the phone's SQLite chat copy (300 messages/bot, 30 days) and cached page for reading off Wi-Fi; versioned, atomic pairing file; Android settings re-apply script + cargo test; README and C4 updated. 172 tests, e2e 12/12, Mac app check passes, APK builds. Backlog issues next.
+
+## 76. 2026-11-01
+"in the phone app, clicking elsewhere should close the bot nav bar." → "oxbot is not pairing after unpairing" → "ok all good. Lets now commit this after test and then move on to the open issues"
+→ Phone sidebar: a dimmed layer behind it closes it on tap (and Escape). QR scanner on Android: frames now go to Rust as text (one character per pixel, shifted past JSON escapes) because Android's bridge carries only text; raw bytes were refused on every frame. 173 tests, e2e 12/12. Committed the Gate work (Farm 2) on main.

@@ -174,6 +174,34 @@ pub enum ClientMsg {
         /// Which step.
         action: SetupAction,
     },
+    /// Farm only: show a pairing code (and QR code) for a new Gate that
+    /// will belong to `person`. Replaces any code still showing. The answer
+    /// is [`ServerMsg::Pairing`], then [`ServerMsg::Gates`] once it pairs.
+    StartPairing {
+        /// Who the Gate is for, e.g. `Sam`.
+        person: String,
+    },
+    /// Farm only: stop showing the pairing code; it stops working.
+    CancelPairing,
+    /// Farm only: unpair a Gate. Its key stops working and it's
+    /// disconnected.
+    RemoveGate {
+        /// [`GateInfo::id`].
+        id: String,
+    },
+    /// Farm only: let phones use the network this Mac is on now. The
+    /// answer is [`ServerMsg::Door`].
+    AddDoorNetwork,
+    /// Farm only: stop letting phones use a network.
+    RemoveDoorNetwork {
+        /// [`DoorNetwork::id`].
+        id: String,
+    },
+    /// Farm only: the name phones see for this Farm on the network.
+    SetDoorName {
+        /// e.g. `Jay's Mac mini`; empty goes back to the Mac's name.
+        name: String,
+    },
 }
 
 /// A message from the server to a client.
@@ -256,6 +284,21 @@ pub enum ServerMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         owner: Option<String>,
     },
+    /// Farm only: a pairing code is ready to scan or type. Good once,
+    /// until `expires_ms`.
+    Pairing(PairingCode),
+    /// Farm only: the pairing code was used, cancelled or ran out.
+    PairingClosed,
+    /// Farm only: the paired Gates. Sent after [`ServerMsg::Hello`] and
+    /// whenever one pairs, connects, leaves or is removed.
+    Gates {
+        /// Oldest first.
+        gates: Vec<GateInfo>,
+    },
+    /// Farm only: whether the Gate door is open, which networks phones may
+    /// use, and the name it shows. Sent with [`ServerMsg::Gates`] and when
+    /// any of it changes.
+    Door(DoorState),
     /// A setup step oxbot is doing for the user, as it goes.
     SetupProgress {
         /// Which step.
@@ -395,6 +438,94 @@ pub struct SetupCheck {
     pub action: Option<SetupAction>,
 }
 
+/// A code that pairs one Gate with the Farm.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairingCode {
+    /// Who the Gate will belong to.
+    pub person: String,
+    /// What to type on the Gate, e.g. `K7QM-3XRP`.
+    pub code: String,
+    /// Everything the Gate needs (addresses, the Farm's certificate
+    /// fingerprint, the code), as an `oxbot://pair?...` link. The QR code
+    /// holds this.
+    pub link: String,
+    /// The QR code of `link`, as an SVG drawing.
+    pub qr_svg: String,
+    /// When the code stops working (ms since the Unix epoch).
+    pub expires_ms: i64,
+}
+
+/// A phone or laptop paired with the Farm.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GateInfo {
+    /// Its id.
+    pub id: String,
+    /// Who it belongs to; they act as this person.
+    pub person: String,
+    /// The device's name, e.g. `Pixel 10 Pro XL`.
+    pub name: String,
+    /// When it paired (ms since the Unix epoch).
+    pub paired_ms: i64,
+    /// When it last connected (ms since the Unix epoch).
+    pub last_seen_ms: i64,
+    /// Connected right now.
+    pub online: bool,
+}
+
+/// A network phones may use to reach the Farm.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DoorNetwork {
+    /// The router's hardware address, e.g. `a4:2b:b0:12:34:56`. A café's
+    /// Wi-Fi can copy a network's name, not this.
+    pub id: String,
+    /// What to call it: the Wi-Fi name if the Mac can read it, else its
+    /// address range, e.g. `192.168.1.x`.
+    pub label: String,
+    /// The Mac is on it now.
+    #[serde(default)]
+    pub here: bool,
+}
+
+/// The Gate door, as Settings → Gates shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DoorState {
+    /// Phones can connect right now.
+    pub open: bool,
+    /// Why it's closed, in plain words (empty when open).
+    #[serde(default)]
+    pub why: String,
+    /// Networks phones may use.
+    pub networks: Vec<DoorNetwork>,
+    /// The network the Mac is on now, if it can tell (listed or not).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<DoorNetwork>,
+    /// The name phones see.
+    pub name: String,
+}
+
+/// What a Gate sends to pair: `POST /pair` on the Gate door.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairRequest {
+    /// The code from the Farm's screen.
+    pub code: String,
+    /// The device's name, e.g. `Pixel 10 Pro XL`.
+    pub device: String,
+}
+
+/// The Farm's answer to a good [`PairRequest`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairReply {
+    /// The new Gate's id.
+    pub id: String,
+    /// Who it belongs to.
+    pub person: String,
+    /// The Farm's name, e.g. `Jay's Mac mini`.
+    pub farm: String,
+    /// The Gate's key: sent once, kept by the Gate, shown on every
+    /// connection as `Authorization: Bearer <key>`.
+    pub key: String,
+}
+
 /// Someone who sends messages, with the color they keep.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Person {
@@ -513,6 +644,10 @@ pub struct Approval {
     /// A picture of the page right now, as a `data:image/...` URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenshot: Option<String>,
+    /// The person whose request led to this card. Only they and the Farm
+    /// see and answer it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asker: Option<String>,
 }
 
 /// The user's answer to an [`Approval`].
@@ -767,6 +902,22 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json, r#"{"kind":"user_message","text":"hi","from":"Jay"}"#);
+    }
+
+    #[test]
+    fn pairing_messages_are_snake_case() {
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"start_pairing","person":"Sam"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::StartPairing {
+                person: "Sam".into()
+            }
+        );
+        let msg: ClientMsg = serde_json::from_str(r#"{"type":"remove_gate","id":"g1"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::RemoveGate { id: "g1".into() });
+        let json = serde_json::to_string(&ServerMsg::PairingClosed).unwrap();
+        assert_eq!(json, r#"{"type":"pairing_closed"}"#);
     }
 
     #[test]
