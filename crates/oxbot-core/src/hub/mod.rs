@@ -41,7 +41,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, broad
 
 use crate::bot::{Bot, BotError};
 use crate::id::{BotId, BotIdError};
-use crate::store::{HOME, Store, StoreError};
+use crate::store::{HOME, Seqs, Store, StoreError};
 use sign_ins::tidy_sites;
 use turns::stop_idle_bots;
 
@@ -198,6 +198,9 @@ pub struct Hub {
     starting: std::sync::Mutex<HashSet<BotId>>,
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
+    /// Each bot's latest event and reply numbers, kept as events are
+    /// recorded, so listing bots and reading replies don't search history.
+    seqs: std::sync::Mutex<HashMap<BotId, Seqs>>,
 }
 
 impl std::fmt::Debug for Hub {
@@ -215,6 +218,20 @@ pub const MAX_PERSON: usize = 40;
 /// Names oxbot uses itself, which no person may take.
 const RESERVED_PEOPLE: &[&str] = &[crate::bot::CENTRAL_NAME, "Farm", "oxbot", "home", "Gate"];
 
+/// Every bot's latest event and reply numbers, read once at start.
+fn load_seqs(store: &Store) -> HashMap<BotId, Seqs> {
+    match store.all_seqs() {
+        Ok(all) => all
+            .into_iter()
+            .filter_map(|(id, seqs)| Some((BotId::new(&id).ok()?, seqs)))
+            .collect(),
+        Err(err) => {
+            tracing::warn!(%err, "couldn't read the bots' latest event numbers");
+            HashMap::new()
+        }
+    }
+}
+
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -226,6 +243,7 @@ impl Hub {
     pub fn new(bots: Vec<Bot>, store: Store, config: HubConfig) -> Arc<Self> {
         let (updates, _) = broadcast::channel(1024);
         tidy_sites(&store);
+        let seqs = load_seqs(&store);
         let hub = Arc::new_cyclic(|me| Self {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
             store,
@@ -239,6 +257,7 @@ impl Hub {
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
             updates,
+            seqs: std::sync::Mutex::new(seqs),
         });
         // The home browser exists from the start, as before.
         let _ = hub.browser_for(HOME);
@@ -295,9 +314,29 @@ impl Hub {
     /// Stores an event and tells every client about it.
     fn record(&self, bot: &BotId, kind: EventKind) -> Result<BotEvent, HubError> {
         let event = self.store.append(bot, kind)?;
+        self.note_seq(&event);
         // No listeners is fine: nobody's connected right now.
         let _ = self.updates.send(ServerMsg::Event(event.clone()));
         Ok(event)
+    }
+
+    /// Keeps the bot's latest event and reply numbers up to date.
+    fn note_seq(&self, event: &BotEvent) {
+        let Ok(bot) = BotId::new(&event.bot) else {
+            return;
+        };
+        let mut seqs = lock(&self.seqs);
+        let seq = seqs.entry(bot).or_default();
+        // Two turns can record at once; numbers only go up.
+        seq.last = seq.last.max(event.seq);
+        if matches!(event.kind, EventKind::AssistantMessage { .. }) {
+            seq.last_reply = seq.last_reply.max(event.seq);
+        }
+    }
+
+    /// `bot`'s latest event and reply numbers (0 if it has none).
+    fn seqs_of(&self, bot: &BotId) -> Seqs {
+        lock(&self.seqs).get(bot).copied().unwrap_or_default()
     }
 
     /// Tells every connected client something, without storing it.
@@ -399,6 +438,76 @@ mod tests {
         assert!(bot.private && bot.created_by.as_deref() == Some("Ann"));
         assert!(!bot.visible_to(&Viewer::gate("Sam")));
         assert!(hub.herder_for(" ").is_err());
+    }
+
+    #[tokio::test]
+    async fn latest_numbers_are_kept_in_memory_and_match_the_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let id = BotId::new("notes").unwrap();
+        store
+            .append(
+                &id,
+                EventKind::AssistantMessage {
+                    text: "old reply".into(),
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                &id,
+                EventKind::ToolUse {
+                    name: "Read".into(),
+                    summary: "a.md".into(),
+                },
+            )
+            .unwrap();
+        let bot = Bot::create(tmp.path(), id.clone(), "Notes", "").unwrap();
+        let hub = Hub::new(vec![bot], store, HubConfig::new(tmp.path()));
+        // Loaded at start.
+        assert_eq!(
+            hub.seqs_of(&id),
+            Seqs {
+                last: 2,
+                last_reply: 1
+            }
+        );
+        matches_store(&hub, &id).await;
+        assert_eq!(hub.latest_reply(&id, 0).as_deref(), Some("old reply"));
+        assert_eq!(hub.latest_reply(&id, 1), None, "nothing newer than #1");
+
+        hub.record(&id, EventKind::AssistantMessage { text: "new".into() })
+            .unwrap();
+        hub.record(
+            &id,
+            EventKind::TurnDone {
+                ok: true,
+                duration_ms: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            hub.seqs_of(&id),
+            Seqs {
+                last: 4,
+                last_reply: 3
+            }
+        );
+        matches_store(&hub, &id).await;
+        assert_eq!(hub.latest_reply(&id, 2).as_deref(), Some("new"));
+
+        hub.delete_bot("notes", &Viewer::farm("Jay")).await.unwrap();
+        assert_eq!(hub.seqs_of(&id), Seqs::default());
+    }
+
+    /// The bot list's numbers are the ones the database has.
+    async fn matches_store(hub: &Hub, id: &BotId) {
+        let info = hub.bots().await.unwrap();
+        assert_eq!(info[0].last_seq, hub.store.last_seq(id).unwrap());
+        assert_eq!(
+            info[0].last_reply_seq,
+            hub.store.last_reply_seq(id).unwrap()
+        );
     }
 
     #[test]

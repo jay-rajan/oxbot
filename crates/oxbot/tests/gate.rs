@@ -533,3 +533,65 @@ async fn each_person_talks_to_their_own_herder() {
     assert_eq!(farm_bots.iter().filter(|b| b.central).count(), 1);
     assert!(farm_bots.iter().all(|b| b.id != anns.as_str()));
 }
+
+#[tokio::test]
+async fn opening_a_bot_is_checked_like_subscribing() {
+    let mut farm = farm().await;
+    let ann = paired(&mut farm, "Ann").await;
+    let (_, mut phone) = oxbot_gate::connect(&ann).await.unwrap();
+
+    // Sam's private bot is listed but won't open for Ann.
+    send(
+        &mut phone,
+        &ClientMsg::OpenBot {
+            bot: "bank".into(),
+            limit: None,
+        },
+    )
+    .await;
+    assert!(error(&mut phone).await.contains("bank"));
+    send(
+        &mut phone,
+        &ClientMsg::Older {
+            bot: "bank".into(),
+            before: 100,
+            limit: None,
+        },
+    )
+    .await;
+    assert!(error(&mut phone).await.contains("bank"));
+
+    // `assistant` opens Ann's own Herder, and its events say `assistant`.
+    send(
+        &mut phone,
+        &ClientMsg::Send {
+            bot: "assistant".into(),
+            text: "hello".into(),
+        },
+    )
+    .await;
+    let anns = oxbot_core::bot::personal_herder_id("Ann");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while farm.hub.history(anns.as_str(), 0).unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    send(
+        &mut phone,
+        &ClientMsg::OpenBot {
+            bot: "assistant".into(),
+            limit: Some(5),
+        },
+    )
+    .await;
+    let (bot, events) = wait_for(&mut phone, |m| match m {
+        ServerMsg::History { bot, events, .. } => Some((bot.clone(), events.clone())),
+        _ => None,
+    })
+    .await;
+    assert_eq!(bot, "assistant");
+    assert!(!events.is_empty() && events.len() <= 5);
+    assert!(events.iter().all(|e| e.bot == "assistant"));
+}

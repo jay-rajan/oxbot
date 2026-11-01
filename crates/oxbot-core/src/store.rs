@@ -3,6 +3,7 @@
 //! Events are numbered per bot from 1 with no gaps, so a client that saw up to
 //! `seq` N can ask for everything after N and miss nothing.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -91,6 +92,9 @@ const MIGRATIONS: &[&str] = &[
         paired_ms    INTEGER NOT NULL,
         last_seen_ms INTEGER NOT NULL
     );",
+    // 8: find each bot's latest reply without reading its whole history.
+    "CREATE INDEX IF NOT EXISTS events_replies ON events (bot, seq)
+        WHERE json_extract(body, '$.kind') = 'assistant_message';",
 ];
 
 /// The owner name of the home browser's sites.
@@ -111,6 +115,28 @@ pub struct SavedSession {
     /// The system prompt the session started with. Claude keeps a session's
     /// first prompt, so a changed prompt needs a new session.
     pub prompt: String,
+}
+
+/// One page of a bot's history, from [`Store::history_page`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistoryPage {
+    /// The events, oldest first.
+    pub events: Vec<BotEvent>,
+    /// Number of the oldest event read (0 if none).
+    pub first_seq: u64,
+    /// Number of the newest event read (0 if none).
+    pub last_seq: u64,
+    /// Whether there are events before `first_seq`.
+    pub has_older: bool,
+}
+
+/// A bot's latest event number and latest reply number (0 if none).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Seqs {
+    /// Number of its latest event.
+    pub last: u64,
+    /// Number of its latest [`EventKind::AssistantMessage`].
+    pub last_reply: u64,
 }
 
 /// Errors from the store.
@@ -148,6 +174,38 @@ fn gate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GateInfo> {
         last_seen_ms: row.get(4)?,
         online: false,
     })
+}
+
+/// A stored event row as `(seq, ts_ms, body)`.
+type Row = (i64, i64, String);
+
+fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+}
+
+/// Reads a stored event back. An event this version can't read (say,
+/// written by a newer oxbot) is `None`, so the rest of the chat still shows.
+fn parse_event(bot: &BotId, (seq, ts_ms, body): Row) -> Option<BotEvent> {
+    match serde_json::from_str(&body) {
+        Ok(kind) => Some(BotEvent {
+            bot: bot.to_string(),
+            seq: u64::try_from(seq).unwrap_or(0),
+            ts_ms,
+            kind,
+        }),
+        Err(err) => {
+            tracing::warn!(%bot, seq, %err, "skipping a stored event this version can't read");
+            None
+        }
+    }
+}
+
+fn to_sql(n: u64) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+fn from_sql(n: i64) -> u64 {
+    u64::try_from(n).unwrap_or(0)
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -522,42 +580,99 @@ impl Store {
     /// Events for `bot` with `seq > since`, oldest first.
     ///
     /// # Errors
-    /// Fails if SQLite fails or a stored event is unreadable.
+    /// Fails if SQLite fails.
     pub fn history(&self, bot: &BotId, since: u64) -> Result<Vec<BotEvent>, StoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT seq, ts_ms, body FROM events WHERE bot = ?1 AND seq > ?2 ORDER BY seq",
         )?;
-        let rows = stmt.query_map(
-            params![bot.as_str(), i64::try_from(since).unwrap_or(i64::MAX)],
-            |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            },
+        let rows = stmt
+            .query_map(params![bot.as_str(), to_sql(since)], event_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| parse_event(bot, row))
+            .collect())
+    }
+
+    /// At most `limit` of `bot`'s events just before event `before` (the
+    /// latest ones with `None`), oldest first. Reads backwards along the
+    /// primary key, so it costs the same however long the history is.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn history_page(
+        &self,
+        bot: &BotId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<HistoryPage, StoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT seq, ts_ms, body FROM events WHERE bot = ?1 AND seq < ?2
+             ORDER BY seq DESC LIMIT ?3",
         )?;
-        let mut events = Vec::new();
-        for row in rows {
-            let (seq, ts_ms, body) = row?;
-            // An event this version can't read (say, written by a newer
-            // oxbot) is skipped, so the rest of the chat still shows.
-            let kind = match serde_json::from_str(&body) {
-                Ok(kind) => kind,
-                Err(err) => {
-                    tracing::warn!(%bot, seq, %err, "skipping a stored event this version can't read");
-                    continue;
-                }
-            };
-            events.push(BotEvent {
-                bot: bot.to_string(),
-                seq: u64::try_from(seq).unwrap_or(0),
-                ts_ms,
-                kind,
-            });
+        // One more than asked, to know whether there are older ones.
+        let want = i64::try_from(limit).unwrap_or(i64::MAX).saturating_add(1);
+        let before = before.map_or(i64::MAX, to_sql);
+        let mut rows = stmt
+            .query_map(params![bot.as_str(), before, want], event_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_older = rows.len() > limit;
+        rows.truncate(limit);
+        rows.reverse();
+        let first_seq = rows.first().map_or(0, |r| from_sql(r.0));
+        let last_seq = rows.last().map_or(0, |r| from_sql(r.0));
+        Ok(HistoryPage {
+            events: rows
+                .into_iter()
+                .filter_map(|row| parse_event(bot, row))
+                .collect(),
+            first_seq,
+            last_seq,
+            has_older,
+        })
+    }
+
+    /// `bot`'s event number `seq`, if it's stored and readable.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn event(&self, bot: &BotId, seq: u64) -> Result<Option<BotEvent>, StoreError> {
+        let row = self
+            .conn()
+            .query_row(
+                "SELECT seq, ts_ms, body FROM events WHERE bot = ?1 AND seq = ?2",
+                params![bot.as_str(), to_sql(seq)],
+                event_row,
+            )
+            .optional()?;
+        Ok(row.and_then(|row| parse_event(bot, row)))
+    }
+
+    /// Every bot's latest event and reply numbers, keyed by bot id. Two
+    /// indexed queries, whatever the size of the history.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn all_seqs(&self) -> Result<HashMap<String, Seqs>, StoreError> {
+        let conn = self.conn();
+        let mut out: HashMap<String, Seqs> = HashMap::new();
+        let mut stmt = conn.prepare("SELECT bot, MAX(seq) FROM events GROUP BY bot")?;
+        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (bot, seq) = row?;
+            out.entry(bot).or_default().last = from_sql(seq);
         }
-        Ok(events)
+        // The same condition as the events_replies index, so it's used.
+        let mut stmt = conn.prepare(
+            "SELECT bot, MAX(seq) FROM events
+             WHERE json_extract(body, '$.kind') = 'assistant_message' GROUP BY bot",
+        )?;
+        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (bot, seq) = row?;
+            out.entry(bot).or_default().last_reply = from_sql(seq);
+        }
+        Ok(out)
     }
 
     /// Number of the latest event for `bot`, or 0.
@@ -836,6 +951,80 @@ mod tests {
         // Only replies count for "new messages": b has none, a's is #2.
         assert_eq!(store.last_reply_seq(&bot("a")).unwrap(), 2);
         assert_eq!(store.last_reply_seq(&bot("b")).unwrap(), 0);
+    }
+
+    /// `n` events for `bot`: every tenth a reply, the rest tool steps.
+    fn seed(store: &Store, bot: &BotId, n: u64) {
+        for i in 1..=n {
+            let kind = if i % 10 == 0 {
+                EventKind::AssistantMessage {
+                    text: format!("reply {i}"),
+                }
+            } else {
+                EventKind::ToolUse {
+                    name: "Read".into(),
+                    summary: format!("step {i}"),
+                }
+            };
+            store.append(bot, kind).unwrap();
+        }
+    }
+
+    #[test]
+    fn history_pages_back_to_the_start() {
+        let store = Store::open_in_memory().unwrap();
+        let a = bot("a");
+        seed(&store, &a, 25);
+        seed(&store, &bot("b"), 3);
+        let latest = store.history_page(&a, None, 10).unwrap();
+        let seqs = |p: &HistoryPage| p.events.iter().map(|e| e.seq).collect::<Vec<_>>();
+        assert_eq!(seqs(&latest), (16..=25).collect::<Vec<_>>());
+        assert_eq!((latest.first_seq, latest.last_seq), (16, 25));
+        assert!(latest.has_older);
+        let middle = store.history_page(&a, Some(16), 10).unwrap();
+        assert_eq!(seqs(&middle), (6..=15).collect::<Vec<_>>());
+        assert!(middle.has_older);
+        let first = store.history_page(&a, Some(6), 10).unwrap();
+        assert_eq!(seqs(&first), (1..=5).collect::<Vec<_>>());
+        assert!(!first.has_older);
+        // Exactly a page left: nothing older.
+        assert!(!store.history_page(&a, Some(11), 10).unwrap().has_older);
+        let empty = store.history_page(&bot("c"), None, 10).unwrap();
+        assert!(empty.events.is_empty() && !empty.has_older && empty.last_seq == 0);
+    }
+
+    #[test]
+    fn every_bots_latest_numbers_come_from_the_index() {
+        let store = Store::open_in_memory().unwrap();
+        seed(&store, &bot("a"), 25);
+        seed(&store, &bot("b"), 3);
+        let all = store.all_seqs().unwrap();
+        assert_eq!(
+            all["a"],
+            Seqs {
+                last: 25,
+                last_reply: 20
+            }
+        );
+        assert_eq!(
+            all["b"],
+            Seqs {
+                last: 3,
+                last_reply: 0
+            }
+        );
+        assert_eq!(store.event(&bot("a"), 20).unwrap().unwrap().seq, 20);
+        assert!(store.event(&bot("a"), 26).unwrap().is_none());
+        let plan: String = store
+            .conn()
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT bot, MAX(seq) FROM events
+                 WHERE json_extract(body, '$.kind') = 'assistant_message' GROUP BY bot",
+                [],
+                |r| r.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("events_replies"), "{plan}");
     }
 
     #[test]

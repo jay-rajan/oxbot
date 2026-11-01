@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use oxbot_protocol::{BotInfo, ServerMsg};
+use oxbot_protocol::{BotEvent, BotInfo, EventKind, ServerMsg};
 use rusqlite::{Connection, OptionalExtension as _, params};
 
 /// Messages kept per bot.
@@ -74,19 +74,14 @@ impl ChatCopy {
             return Ok(());
         };
         match msg {
-            ServerMsg::Event(e) => {
-                let message = matches!(
-                    e.kind,
-                    oxbot_protocol::EventKind::UserMessage { .. }
-                        | oxbot_protocol::EventKind::AssistantMessage { .. }
-                );
-                self.conn.execute(
-                    "INSERT OR REPLACE INTO events (bot, seq, ts_ms, message, json) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![e.bot, i64::try_from(e.seq).unwrap_or(i64::MAX), e.ts_ms, message, text],
-                )?;
-                self.since_tidy += 1;
-                if self.since_tidy >= TIDY_EVERY {
-                    self.tidy(now_ms)?;
+            ServerMsg::Event(e) => self.keep_event(&e, text, now_ms)?,
+            // A page of history is kept as the events it holds, so the copy
+            // replays the same way however the chat arrived.
+            ServerMsg::History { events, .. } => {
+                for e in events {
+                    if let Ok(json) = serde_json::to_string(&ServerMsg::Event(e.clone())) {
+                        self.keep_event(&e, &json, now_ms)?;
+                    }
                 }
             }
             ServerMsg::Bots { bots } => {
@@ -97,6 +92,23 @@ impl ChatCopy {
             ServerMsg::Settings(_) => self.keep_latest("settings", text)?,
             ServerMsg::People { .. } => self.keep_latest("people", text)?,
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// Keeps one event; `json` is it as a [`ServerMsg::Event`].
+    fn keep_event(&mut self, e: &BotEvent, json: &str, now_ms: i64) -> Result<(), CopyError> {
+        let message = matches!(
+            e.kind,
+            EventKind::UserMessage { .. } | EventKind::AssistantMessage { .. }
+        );
+        self.conn.execute(
+            "INSERT OR REPLACE INTO events (bot, seq, ts_ms, message, json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![e.bot, i64::try_from(e.seq).unwrap_or(i64::MAX), e.ts_ms, message, json],
+        )?;
+        self.since_tidy += 1;
+        if self.since_tidy >= TIDY_EVERY {
+            self.tidy(now_ms)?;
         }
         Ok(())
     }
@@ -203,7 +215,7 @@ impl ChatCopy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxbot_protocol::{BotEvent, BrowserState, EventKind};
+    use oxbot_protocol::BrowserState;
 
     const DAY: i64 = 24 * 60 * 60 * 1000;
     const NOW: i64 = 100 * DAY;
@@ -272,6 +284,39 @@ mod tests {
         assert!(replay[0].contains("\"bots\""));
         assert!(replay[1].contains("\"seq\":1"));
         assert!(replay[2].contains("\"seq\":2"));
+    }
+
+    #[test]
+    fn a_page_of_history_is_kept_as_its_events() {
+        let (_dir, mut copy) = copy();
+        let page = |seqs: std::ops::RangeInclusive<u64>| {
+            serde_json::to_string(&ServerMsg::History {
+                bot: "recipes".into(),
+                events: seqs
+                    .map(|seq| BotEvent {
+                        bot: "recipes".into(),
+                        seq,
+                        ts_ms: NOW,
+                        kind: EventKind::AssistantMessage {
+                            text: format!("reply {seq}"),
+                        },
+                    })
+                    .collect(),
+                first_seq: 1,
+                has_older: false,
+            })
+            .unwrap()
+        };
+        copy.record(&page(3..=4), NOW).unwrap();
+        copy.record(&page(1..=2), NOW).unwrap();
+        let replay = copy.replay().unwrap();
+        assert_eq!(replay.len(), 4);
+        for (i, json) in replay.iter().enumerate() {
+            let Ok(ServerMsg::Event(e)) = serde_json::from_str(json) else {
+                panic!("an event: {json}")
+            };
+            assert_eq!(e.seq, u64::try_from(i).unwrap() + 1);
+        }
     }
 
     #[test]

@@ -18,7 +18,8 @@ use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
 use oxbot_core::hub::answers;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
-    AppSettings, ClientMsg, LogLine, ServerHello, ServerMsg, SetupAction, SetupReport,
+    AppSettings, ClientMsg, DEFAULT_PAGE, LogLine, MAX_PAGE, ServerHello, ServerMsg, SetupAction,
+    SetupReport,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
@@ -277,15 +278,25 @@ impl Client {
         Self::with_herder(viewer, bots, DEFAULT_BOT.to_owned())
     }
 
+    #[cfg(test)]
     fn with_herder(viewer: Viewer, bots: &[oxbot_protocol::BotInfo], herder: String) -> Self {
-        let mut client = Self {
-            viewer,
-            herder,
-            visible: std::collections::HashSet::new(),
-            subs: HashMap::new(),
-        };
+        let mut client = Self::with_visible(viewer, std::collections::HashSet::new(), herder);
         client.see(bots);
         client
+    }
+
+    /// A client for `viewer`, who may see the bots in `visible`.
+    fn with_visible(
+        viewer: Viewer,
+        visible: std::collections::HashSet<String>,
+        herder: String,
+    ) -> Self {
+        Self {
+            viewer,
+            herder,
+            visible,
+            subs: HashMap::new(),
+        }
     }
 
     /// Takes a new bot list: remembers which bots this client may see, and
@@ -333,6 +344,15 @@ impl Client {
                 bot: self.inner(bot),
                 since,
             },
+            ClientMsg::OpenBot { bot, limit } => ClientMsg::OpenBot {
+                bot: self.inner(bot),
+                limit,
+            },
+            ClientMsg::Older { bot, before, limit } => ClientMsg::Older {
+                bot: self.inner(bot),
+                before,
+                limit,
+            },
             ClientMsg::Send { bot, text } => ClientMsg::Send {
                 bot: self.inner(bot),
                 text,
@@ -362,6 +382,23 @@ impl Client {
             ServerMsg::Event(mut e) => {
                 e.bot = self.outer(&e.bot)?;
                 ServerMsg::Event(e)
+            }
+            ServerMsg::History {
+                bot,
+                mut events,
+                first_seq,
+                has_older,
+            } => {
+                let bot = self.outer(&bot)?;
+                for e in &mut events {
+                    e.bot.clone_from(&bot);
+                }
+                ServerMsg::History {
+                    bot,
+                    events,
+                    first_seq,
+                    has_older,
+                }
             }
             ServerMsg::Delta { bot, text } => ServerMsg::Delta {
                 bot: self.outer(&bot)?,
@@ -454,8 +491,8 @@ async fn serve_client(
     let mut updates = state.hub.subscribe();
     let (out_tx, mut out_rx) = mpsc::channel::<ServerMsg>(64);
     let herder = herder_for(&state, &viewer);
-    let mut client =
-        Client::with_herder(viewer, &state.hub.bots().await.unwrap_or_default(), herder);
+    let visible = state.hub.visible_ids(&viewer);
+    let mut client = Client::with_visible(viewer, visible, herder);
 
     let mut logs = state.logs.as_ref().map(|l| l.subscribe());
     let mut first = vec![
@@ -607,15 +644,9 @@ async fn handle(
             }
             Err(e) => error(&e),
         },
-        ClientMsg::Subscribe { bot, since } => match state.hub.history_for(&bot, since, &viewer) {
-            Ok(events) => {
-                let last = events.last().map_or(since, |e| e.seq);
-                client.visible.insert(bot.clone());
-                client.subs.insert(bot, last);
-                events.into_iter().map(ServerMsg::Event).collect()
-            }
-            Err(e) => error(&e),
-        },
+        ClientMsg::Subscribe { .. } | ClientMsg::OpenBot { .. } | ClientMsg::Older { .. } => {
+            handle_history(msg, state, client)
+        }
         ClientMsg::Send { bot, text } => {
             if let Err(e) = state.hub.bot_for(&bot, &viewer) {
                 return error(&e);
@@ -665,6 +696,57 @@ async fn handle(
             Vec::new()
         }
         other => handle_sign_ins(other, state, &viewer).await,
+    }
+}
+
+/// Sends a bot's history: replayed events ([`ClientMsg::Subscribe`]) or a
+/// page ([`ClientMsg::OpenBot`], [`ClientMsg::Older`]). Subscribing and
+/// opening also stream the bot's new events from then on.
+fn handle_history(msg: ClientMsg, state: &AppState, client: &mut Client) -> Vec<ServerMsg> {
+    let viewer = &client.viewer;
+    let result = match msg {
+        ClientMsg::Subscribe { bot, since } => {
+            state.hub.history_for(&bot, since, viewer).map(|events| {
+                let last = events.last().map_or(since, |e| e.seq);
+                client.visible.insert(bot.clone());
+                client.subs.insert(bot, last);
+                events.into_iter().map(ServerMsg::Event).collect()
+            })
+        }
+        ClientMsg::OpenBot { bot, limit } => state
+            .hub
+            .history_page_for(&bot, None, page_size(limit), viewer)
+            .map(|page| {
+                // Live events follow on from the end of the page.
+                client.visible.insert(bot.clone());
+                client.subs.insert(bot.clone(), page.last_seq);
+                vec![history(bot, page)]
+            }),
+        ClientMsg::Older { bot, before, limit } => state
+            .hub
+            .history_page_for(&bot, Some(before), page_size(limit), viewer)
+            .map(|page| vec![history(bot, page)]),
+        _ => Ok(Vec::new()),
+    };
+    result.unwrap_or_else(|e| {
+        vec![ServerMsg::Error {
+            message: e.to_string(),
+        }]
+    })
+}
+
+/// How many events a page holds: what the client asked, within reason.
+fn page_size(limit: Option<u32>) -> usize {
+    let n = limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
+fn history(bot: String, page: oxbot_core::store::HistoryPage) -> ServerMsg {
+    ServerMsg::History {
+        bot,
+        events: page.events,
+        first_seq: page.first_seq,
+        has_older: page.has_older,
     }
 }
 
@@ -876,6 +958,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             Some(ServerMsg::Event(e))
         }
         ServerMsg::Delta { ref bot, .. } => client.subs.contains_key(bot).then_some(msg),
+        ServerMsg::History { ref bot, .. } => client.sees(bot).then_some(msg),
         ServerMsg::Bots { bots } => {
             client.see(&bots);
             Some(ServerMsg::Bots {

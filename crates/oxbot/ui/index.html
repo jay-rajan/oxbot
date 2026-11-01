@@ -409,7 +409,8 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const bots = new Map();      // id -> { info, events: [], lastSeq, busy, subscribed, stream, activity }
+const bots = new Map();      // id -> { info, events: [], lastSeq, firstSeq, hasOlder, loadingOlder, busy, subscribed, stream, activity }
+const PAGE = 200;            // events per history page
 let current = null, ws = null, retry = 0, pendingSelect = null, toastTimer = null;
 let connected = false, everConnected = false, retryTimer = null;
 // The Farm secret: oxbot opens its own window with #k=…, and only a page
@@ -470,7 +471,7 @@ function connect() {
   ws.onopen = () => {
     retry = 0; everConnected = true; setConn(true);
     send({ type: "list_bots" });
-    for (const [id, b] of bots) if (b.subscribed) send({ type: "subscribe", bot: id, since: b.lastSeq });
+    for (const [id, b] of bots) if (b.subscribed) { b.loadingOlder = false; follow(id, b); }
   };
   ws.onclose = () => {
     setConn(false);
@@ -511,8 +512,29 @@ window.addEventListener("online", reconnectNow);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectNow(); });
 
 function bot(id) {
-  if (!bots.has(id)) bots.set(id, { info: { id, name: id, busy: false, last_seq: 0 }, events: [], lastSeq: 0, busy: false, subscribed: false, stream: null, activity: null });
+  if (!bots.has(id)) bots.set(id, { info: { id, name: id, busy: false, last_seq: 0 }, events: [], lastSeq: 0, firstSeq: 0, hasOlder: false, loadingOlder: false, busy: false, subscribed: false, stream: null, activity: null });
   return bots.get(id);
+}
+/** Starts following a bot: its latest page if we have nothing yet, else
+ *  everything after what we have (a reconnect catches up this way). */
+function follow(id, b) {
+  if (b.lastSeq > 0) send({ type: "subscribe", bot: id, since: b.lastSeq });
+  else send({ type: "open_bot", bot: id, limit: PAGE });
+}
+/** What a stored event says about the bot's state (no drawing). */
+function applyEvent(b, m) {
+  if (m.kind === "user_message") { b.busy = true; b.activity = "Clauding…"; }
+  if (m.kind === "turn_done") { b.busy = false; b.activity = null; }
+  if (m.kind === "assistant_message") { b.stream = null; b.info.last_reply_seq = Math.max(b.info.last_reply_seq || 0, m.seq); if (viewing(m.bot)) markSeen(m.bot); }
+}
+// The sidebar is redrawn at most once a frame, however many events arrive.
+let botsQueued = false;
+function queueRenderBots() {
+  if (botsQueued) return;
+  botsQueued = true;
+  const flush = () => { if (!botsQueued) return; botsQueued = false; renderBots(); };
+  requestAnimationFrame(flush);
+  setTimeout(flush, 100); // a page in the background gets no frames
 }
 
 function onMessage(m) {
@@ -564,13 +586,31 @@ function onMessage(m) {
     case "event": {
       const b = bot(m.bot);
       if (m.seq <= b.lastSeq) return;
+      // A chat that starts with live events (or the phone's copy) can still page back.
+      if (!b.events.length) { b.firstSeq = m.seq; b.hasOlder = m.seq > 1; }
       b.lastSeq = m.seq; b.events.push(m);
-      if (m.kind === "user_message") b.busy = true;
-      if (m.kind === "turn_done") { b.busy = false; b.activity = null; }
-      if (m.kind === "user_message") b.activity = "Clauding…";
-      if (m.kind === "assistant_message") { b.stream = null; b.info.last_reply_seq = m.seq; if (viewing(m.bot)) markSeen(m.bot); }
+      applyEvent(b, m);
       if (m.bot === current) { appendEvent(m); showTyping(); updateStatus(); }
-      renderBots();
+      queueRenderBots();
+      break;
+    }
+    case "history": {
+      const b = bot(m.bot);
+      b.loadingOlder = false;
+      const ev = m.events;
+      // An earlier page goes in front; the latest page (opening a bot) after
+      // whatever we already have.
+      if (b.events.length && ev.length && ev[ev.length - 1].seq < b.events[0].seq) {
+        b.events = ev.concat(b.events); b.firstSeq = m.first_seq; b.hasOlder = m.has_older;
+        if (m.bot === current) prependOlder(ev);
+      } else {
+        if (!b.events.length) { b.firstSeq = m.first_seq; b.hasOlder = m.has_older; }
+        else if (!ev.length) b.hasOlder = b.hasOlder && m.has_older;
+        for (const e of ev) if (e.seq > b.lastSeq) { b.lastSeq = e.seq; b.events.push(e); applyEvent(b, e); }
+        if (m.bot === current) { renderLog(); updateStatus(); }
+      }
+      queueRenderBots();
+      if (m.bot === current) requestAnimationFrame(maybeLoadOlder);
       break;
     }
     case "delta": {
@@ -834,10 +874,10 @@ function renderBots() {
 function select(id) {
   current = id; store.set("oxbot.bot", id); markSeen(id);
   const b = bot(id);
-  if (!b.subscribed && !isLocked(b)) { b.subscribed = true; send({ type: "subscribe", bot: id, since: b.lastSeq }); }
+  if (!b.subscribed && !isLocked(b)) { b.subscribed = true; follow(id, b); }
   $("botName").textContent = b.info.name || id;
   $("botAvatar").innerHTML = avatar(id); $("botAvatar").hidden = false;
-  renderLog(); renderBots(); updateStatus(); renderCards(); stickToBottom(); $("input").focus();
+  renderLog(); renderBots(); updateStatus(); renderCards(); $("input").focus();
 }
 
 function updateStatus() {
@@ -887,15 +927,48 @@ function renderLog() {
     p.textContent = `Send a message to start. The bot follows its instructions, browses the web in ${where}, and keeps files in its own folder.`;
     log.appendChild(p); return;
   }
-  for (const e of b.events) appendEvent(e, false);
+  // Built off-screen and added at once: one layout for the whole history.
+  const frag = document.createDocumentFragment();
+  for (const e of b.events) { const el = eventEl(e); if (el) frag.appendChild(el); }
+  log.appendChild(frag);
   if (b.stream) showStream(b.stream);
   showTyping();
   scrollDown(true);
+  // Pictures and code blocks can grow the chat after it's drawn.
+  requestAnimationFrame(() => scrollDown());
+}
+
+/** Draws an earlier page above the chat, keeping what's on screen in place. */
+function prependOlder(events) {
+  const log = $("log");
+  const frag = document.createDocumentFragment();
+  for (const e of events) { const el = eventEl(e); if (el) frag.appendChild(el); }
+  const fromBottom = log.scrollHeight - log.scrollTop;
+  log.insertBefore(frag, log.firstChild);
+  log.scrollTop = log.scrollHeight - fromBottom;
+}
+
+/** Asks for the page before the oldest one shown, once the chat is
+ *  scrolled near its top (or too short to scroll). */
+function maybeLoadOlder() {
+  const b = current && bots.get(current);
+  if (!b || !b.hasOlder || b.loadingOlder || !b.firstSeq || isLocked(b)) return;
+  if ($("log").scrollTop > 300) return;
+  if (send({ type: "older", bot: current, before: b.firstSeq, limit: PAGE })) b.loadingOlder = true;
 }
 
 function appendEvent(e, scroll = true) {
   const log = $("log");
   const empty = log.querySelector(".empty"); if (empty) empty.remove();
+  if (e.kind === "assistant_message") { const s = log.querySelector(".streaming"); if (s) s.remove(); }
+  const el = eventEl(e);
+  if (!el) return;
+  log.appendChild(el);
+  if (scroll) scrollDown();
+}
+
+/** The element for one stored event, or null for kinds the chat doesn't show. */
+function eventEl(e) {
   let el;
   switch (e.kind) {
     case "user_message": {
@@ -909,10 +982,7 @@ function appendEvent(e, scroll = true) {
       const bubble = div("msg me"); bubble.textContent = e.text; el.appendChild(bubble);
       break;
     }
-    case "assistant_message": {
-      const s = log.querySelector(".streaming"); if (s) s.remove();
-      el = div("msg bot"); el.innerHTML = md(e.text); break;
-    }
+    case "assistant_message": el = div("msg bot"); el.innerHTML = md(e.text); break;
     case "tool_use": el = div("tool"); el.textContent = `${e.name} ${e.summary}`.trim(); break;
     case "turn_done": el = div("done"); el.textContent = e.ok ? `done in ${(e.duration_ms / 1000).toFixed(1)}s` : "stopped"; break;
     case "error": el = div("err"); el.textContent = e.message; break;
@@ -928,11 +998,10 @@ function appendEvent(e, scroll = true) {
       el.textContent = { done: `Signed in to ${e.site}`, cancelled: `Didn't sign in to ${e.site}`, timed_out: `No answer; didn't sign in to ${e.site}` }[e.outcome] || e.site;
       break;
     }
-    default: return;
+    default: return null;
   }
   el.title = new Date(e.ts_ms).toLocaleString();
-  log.appendChild(el);
-  if (scroll) scrollDown();
+  return el;
 }
 
 function showStream(text) {
@@ -943,20 +1012,19 @@ function showStream(text) {
   scrollDown();
 }
 
-// Opening a bot sticks the chat to its latest message while its history
-// loads in, until the user scrolls up themselves.
-let stickUntil = 0;
+// The chat follows new messages while the user is at the bottom; once they
+// scroll up to read, it stays where they are. Growing content (a picture
+// loading) doesn't fire "scroll", so "at the bottom" is what it was before.
+let atBottom = true;
 function scrollDown(force) {
   const log = $("log");
-  if (force || Date.now() < stickUntil || log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = log.scrollHeight;
+  if (force || atBottom) { log.scrollTop = log.scrollHeight; atBottom = true; }
 }
-function stickToBottom() {
-  stickUntil = Date.now() + 3000;
-  scrollDown(true);
-  // Pictures and code blocks can grow the chat after it's drawn.
-  requestAnimationFrame(() => scrollDown(true));
-}
-for (const ev of ["wheel", "touchmove", "keydown"]) $("log").addEventListener(ev, () => { stickUntil = 0; }, { passive: true });
+$("log").addEventListener("scroll", () => {
+  const log = $("log");
+  atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 160;
+  maybeLoadOlder();
+}, { passive: true });
 $("log").addEventListener("load", () => scrollDown(), true); // a picture finished loading
 function div(cls) { const d = document.createElement("div"); d.className = cls; return d; }
 

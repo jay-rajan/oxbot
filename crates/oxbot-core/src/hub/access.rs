@@ -10,7 +10,7 @@ use oxbot_protocol::{BotEvent, BotInfo, BrowserState, GateInfo, Person, ServerMs
 use super::{Hub, HubError, MAX_NAME, MAX_PERSON, RESERVED_PEOPLE, lock};
 use crate::bot::{Bot, Viewer};
 use crate::id::BotId;
-use crate::store::now_ms;
+use crate::store::{HistoryPage, now_ms};
 
 impl Hub {
     /// `person`'s own Herder, made the first time they need it. It shares
@@ -190,12 +190,14 @@ impl Hub {
             .filter(|(_, r)| r.busy)
             .map(|(id, _)| id.clone())
             .collect();
+        let seqs = lock(&self.seqs).clone();
         list.into_iter()
             .map(|b| {
+                let seq = seqs.get(&b.id).copied().unwrap_or_default();
                 Ok(BotInfo {
                     busy: busy.contains(&b.id),
-                    last_seq: self.store.last_seq(&b.id)?,
-                    last_reply_seq: self.store.last_reply_seq(&b.id)?,
+                    last_seq: seq.last,
+                    last_reply_seq: seq.last_reply,
                     central: b.is_central(),
                     browser_state: b
                         .browser_owner()
@@ -206,6 +208,18 @@ impl Hub {
                     name: b.name,
                 })
             })
+            .collect()
+    }
+
+    /// The ids of the bots `viewer` may open, without building the list.
+    #[must_use]
+    pub fn visible_ids(&self, viewer: &Viewer) -> HashSet<String> {
+        self.bots
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .filter(|b| b.visible_to(viewer))
+            .map(|b| b.id.to_string())
             .collect()
     }
 
@@ -382,6 +396,8 @@ impl Hub {
         // Forget it in the database first: if that fails, nothing has moved
         // and its id can't be reused with old history behind it.
         self.store.delete_bot(&bot.id)?;
+        // A new bot can get the same id: it starts from 0.
+        lock(&self.seqs).remove(&bot.id);
         let trash = self
             .config
             .bots_dir
@@ -427,6 +443,22 @@ impl Hub {
     ) -> Result<Vec<BotEvent>, HubError> {
         let bot = self.bot_for(bot, viewer)?;
         Ok(self.store.history(&bot.id, since)?)
+    }
+
+    /// A page of a bot `viewer` may see: at most `limit` events just before
+    /// event `before`, or its latest with `None`.
+    ///
+    /// # Errors
+    /// Fails if the bot doesn't exist, is hidden, or the database fails.
+    pub fn history_page_for(
+        &self,
+        bot: &str,
+        before: Option<u64>,
+        limit: usize,
+        viewer: &Viewer,
+    ) -> Result<HistoryPage, HubError> {
+        let bot = self.bot_for(bot, viewer)?;
+        Ok(self.store.history_page(&bot.id, before, limit)?)
     }
 
     /// Creates a bot, picking its id from `name`, and tells every client.

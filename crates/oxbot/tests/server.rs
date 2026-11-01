@@ -30,6 +30,14 @@ impl AppControls for FakeApp {
 }
 
 async fn start_with(dir: &std::path::Path, app: Option<Arc<dyn AppControls>>) -> String {
+    start_with_store(dir, app, Store::open_in_memory().unwrap()).await
+}
+
+async fn start_with_store(
+    dir: &std::path::Path,
+    app: Option<Arc<dyn AppControls>>,
+    store: Store,
+) -> String {
     let claude_tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxbot-claude/tests");
     let bot = Bot::create(dir, BotId::new("assistant").unwrap(), "Assistant", "").unwrap();
     let config = HubConfig {
@@ -43,7 +51,7 @@ async fn start_with(dir: &std::path::Path, app: Option<Arc<dyn AppControls>>) ->
         )],
         ..HubConfig::new(dir)
     };
-    let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
+    let hub = Hub::new(vec![bot], store, config);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let state = AppState {
         data_dir: dir.to_owned(),
@@ -180,6 +188,109 @@ async fn chat_over_websocket_and_catch_up_later() {
         panic!("expected an event")
     };
     assert_eq!(first.seq, 3);
+}
+
+#[tokio::test]
+async fn opening_a_long_chat_sends_one_page_and_pages_back() {
+    const SEEDED: u64 = 5_000;
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let id = BotId::new("assistant").unwrap();
+    for i in 1..=SEEDED {
+        let kind = if i % 10 == 0 {
+            EventKind::AssistantMessage {
+                text: format!("reply {i}"),
+            }
+        } else {
+            EventKind::ToolUse {
+                name: "Read".into(),
+                summary: format!("step {i}"),
+            }
+        };
+        store.append(&id, kind).unwrap();
+    }
+    let url = start_with_store(tmp.path(), None, store).await;
+    let (mut ws, _, _) = connect(&url).await;
+
+    // The list knows the latest numbers without reading the history.
+    send(&mut ws, &ClientMsg::ListBots).await;
+    let ServerMsg::Bots { bots } = next(&mut ws).await else {
+        panic!("expected bots")
+    };
+    assert_eq!((bots[0].last_seq, bots[0].last_reply_seq), (SEEDED, SEEDED));
+
+    send(
+        &mut ws,
+        &ClientMsg::OpenBot {
+            bot: "assistant".into(),
+            limit: None,
+        },
+    )
+    .await;
+    let ServerMsg::History {
+        bot,
+        events,
+        first_seq,
+        has_older,
+    } = next(&mut ws).await
+    else {
+        panic!("expected one history page")
+    };
+    assert_eq!(bot, "assistant");
+    assert!(!events.is_empty() && events.len() <= 200);
+    assert!(has_older);
+    assert_eq!(first_seq, events[0].seq);
+    assert_eq!(events.last().unwrap().seq, SEEDED);
+    // Nothing else was replayed: the next frame answers the next request.
+    send(&mut ws, &ClientMsg::ListBots).await;
+    assert!(matches!(next(&mut ws).await, ServerMsg::Bots { .. }));
+
+    // Older pages go back to the start, in order, at most 500 at a time.
+    let mut seen: Vec<u64> = events.iter().map(|e| e.seq).collect();
+    let (mut before, mut more) = (first_seq, has_older);
+    while more {
+        send(
+            &mut ws,
+            &ClientMsg::Older {
+                bot: "assistant".into(),
+                before,
+                limit: Some(10_000),
+            },
+        )
+        .await;
+        let ServerMsg::History {
+            events,
+            first_seq,
+            has_older,
+            ..
+        } = next(&mut ws).await
+        else {
+            panic!("expected an older page")
+        };
+        assert!(!events.is_empty() && events.len() <= 500);
+        assert!(events.iter().all(|e| e.seq < before));
+        let mut page: Vec<u64> = events.iter().map(|e| e.seq).collect();
+        page.extend(seen);
+        seen = page;
+        (before, more) = (first_seq, has_older);
+    }
+    assert_eq!(seen, (1..=SEEDED).collect::<Vec<_>>());
+
+    // Opening subscribed: a new turn streams in after the page.
+    send(
+        &mut ws,
+        &ClientMsg::Send {
+            bot: "assistant".into(),
+            text: "one more".into(),
+        },
+    )
+    .await;
+    let first = loop {
+        if let ServerMsg::Event(e) = next(&mut ws).await {
+            break e;
+        }
+    };
+    assert_eq!(first.seq, SEEDED + 1);
 }
 
 #[tokio::test]

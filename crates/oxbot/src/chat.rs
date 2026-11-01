@@ -160,6 +160,11 @@ impl View {
                 let _ = std::io::stdout().flush();
             }
             ServerMsg::Event(e) => self.show_event(&e.kind),
+            ServerMsg::History { events, .. } => {
+                for e in events {
+                    self.show_event(&e.kind);
+                }
+            }
             ServerMsg::ApprovalNeeded(a) => {
                 self.card = Some(a.id);
                 println!(

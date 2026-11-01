@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 /// can tell the user to update instead of failing in odd ways.
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// The most events one [`ServerMsg::History`] page holds.
+pub const MAX_PAGE: u32 = 500;
+/// Events per [`ServerMsg::History`] page when the client doesn't say.
+pub const DEFAULT_PAGE: u32 = 200;
+
 /// The first message a server sends after a client connects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerHello {
@@ -59,6 +64,30 @@ pub enum ClientMsg {
         bot: String,
         /// Last event number the client already has.
         since: u64,
+    },
+    /// Open a bot: the server answers with one [`ServerMsg::History`] of
+    /// its latest `limit` events, then streams new ones as
+    /// [`ServerMsg::Event`]s (like [`ClientMsg::Subscribe`] from the end of
+    /// that page).
+    OpenBot {
+        /// Bot id.
+        bot: String,
+        /// Most events to send; the server's default (200) if absent, and
+        /// never more than [`MAX_PAGE`].
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+    /// An earlier page of a bot's history, answered with a
+    /// [`ServerMsg::History`] of the events just before `before`.
+    Older {
+        /// Bot id.
+        bot: String,
+        /// The oldest event number the client has
+        /// ([`ServerMsg::History::first_seq`]).
+        before: u64,
+        /// Most events to send, as for [`ClientMsg::OpenBot`].
+        #[serde(default)]
+        limit: Option<u32>,
     },
     /// Send the user's message to a bot.
     Send {
@@ -227,6 +256,19 @@ pub enum ServerMsg {
     /// A stored, numbered event. Clients remember the highest `seq` they saw
     /// so they can catch up after a reconnect.
     Event(BotEvent),
+    /// A page of a bot's stored events, oldest first: the answer to
+    /// [`ClientMsg::OpenBot`] (its latest events) or [`ClientMsg::Older`].
+    History {
+        /// Bot id.
+        bot: String,
+        /// The events, oldest first.
+        events: Vec<BotEvent>,
+        /// Number of the oldest event in this page (0 if it's empty): ask
+        /// for [`ClientMsg::Older`] events before it.
+        first_seq: u64,
+        /// Whether there are events before this page.
+        has_older: bool,
+    },
     /// A live piece of the reply as it's being written. Not stored: the full
     /// text arrives later as an [`EventKind::AssistantMessage`].
     Delta {
@@ -797,6 +839,40 @@ mod tests {
             ..ServerHello::new("x", 1)
         };
         assert!(!hello.is_compatible());
+    }
+
+    #[test]
+    fn opening_a_bot_needs_only_its_id() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"type":"open_bot","bot":"a"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::OpenBot {
+                bot: "a".into(),
+                limit: None
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"older","bot":"a","before":201,"limit":50}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::Older {
+                bot: "a".into(),
+                before: 201,
+                limit: Some(50)
+            }
+        );
+        let page = ServerMsg::History {
+            bot: "a".into(),
+            events: vec![],
+            first_seq: 0,
+            has_older: false,
+        };
+        let json = serde_json::to_string(&page).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"history","bot":"a","events":[],"first_seq":0,"has_older":false}"#
+        );
+        assert_eq!(serde_json::from_str::<ServerMsg>(&json).unwrap(), page);
     }
 
     #[test]

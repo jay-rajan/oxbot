@@ -208,7 +208,7 @@ impl Hub {
             Self::release_browser(from, runtime);
         }
         let mut updates = self.subscribe();
-        let start = self.store.last_seq(&to.id).unwrap_or(0);
+        let start = self.seqs_of(&to.id).last;
         let sender = self.bot_name(from);
         let person = Some(asker.name.as_str());
         match self
@@ -313,16 +313,15 @@ impl Hub {
     }
 
     /// The text of `bot`'s latest reply after event `since`.
-    fn latest_reply(&self, bot: &BotId, since: u64) -> Option<String> {
-        self.store
-            .history(bot, since)
-            .ok()?
-            .into_iter()
-            .rev()
-            .find_map(|e| match e.kind {
-                EventKind::AssistantMessage { text } => Some(text),
-                _ => None,
-            })
+    pub(super) fn latest_reply(&self, bot: &BotId, since: u64) -> Option<String> {
+        let seq = self.seqs_of(bot).last_reply;
+        if seq <= since {
+            return None;
+        }
+        match self.store.event(bot, seq).ok()??.kind {
+            EventKind::AssistantMessage { text } => Some(text),
+            _ => None,
+        }
     }
 }
 
