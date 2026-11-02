@@ -166,7 +166,6 @@ impl Hub {
         if ask.kind != ApprovalKind::CreateBot {
             return ask;
         }
-        let private = ask.action.contains("private");
         let asker = self
             .runtimes
             .lock()
@@ -174,7 +173,7 @@ impl Hub {
             .get(&bot.id)
             .and_then(|r| r.asker.clone());
         let name = asker.as_ref().and_then(|id| self.person_name(id));
-        ask.action = match (private, name) {
+        ask.action = match (ask.private, name) {
             (true, Some(name)) => format!("create a private bot for {name}"),
             (true, None) => "create a private bot".to_owned(),
             (false, _) => "create a shared bot".to_owned(),

@@ -58,6 +58,9 @@ pub struct Ask {
     pub site: String,
     /// More: the files it will upload.
     pub detail: Option<String>,
+    /// Whether it's about a private bot: one being made, or one getting a
+    /// task.
+    pub private: bool,
 }
 
 /// What [`decide`] needs to know about the bot right now.
@@ -204,9 +207,10 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         return Some(Verdict::Allow);
     }
     (tool == tools::full_name(CREATE_BOT_TOOL)).then(|| {
+        let private = input.get("private").and_then(Value::as_bool) == Some(true);
         Verdict::Ask(Ask {
             kind: ApprovalKind::CreateBot,
-            action: if input.get("private").and_then(Value::as_bool) == Some(true) {
+            action: if private {
                 "create a private bot"
             } else {
                 "create a bot"
@@ -215,6 +219,7 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
             target: tools::text_arg(input, "name").trim().to_owned(),
             site: "oxbot".to_owned(),
             detail: Some(tools::text_arg(input, "instructions").trim().to_owned()),
+            private,
         })
     })
 }
@@ -259,6 +264,7 @@ pub fn decide(
             target,
             site: site(),
             detail: None,
+            private: false,
         })
     };
     match action {
@@ -313,6 +319,7 @@ pub fn decide(
                 target: describe(uid).unwrap_or_else(|| format!("element {uid}")),
                 site: site(),
                 detail: Some(file_paths(input).join("\n")),
+                private: false,
             })
         }
         other => Verdict::Deny(format!(

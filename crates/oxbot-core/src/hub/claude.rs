@@ -7,13 +7,14 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use oxbot_browser::MCP_SERVER_NAME;
-use oxbot_claude::{Activity, ClaudeConfig, ClaudeEvent, ClaudeProcess, Session};
+use oxbot_claude::{Activity, ClaudeConfig, ClaudeEvent, ClaudeProcess, Session, ToolUse};
 use oxbot_protocol::{EventKind, ServerMsg};
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use super::taint::{UNKNOWN_RESULT, untrusted_tool};
 use super::team::team_label;
-use super::{Hub, HubError, Runtime};
+use super::{Hub, HubError, Runtime, Shared};
 use crate::bot::Bot;
 use crate::id::BotId;
 use crate::prompt::{Capabilities, system_prompt};
@@ -38,6 +39,11 @@ impl Hub {
                 }
                 Session::New(uuid::Uuid::new_v4().to_string())
             }
+        };
+        // A resumed session still remembers what it read.
+        let taint = match &session {
+            Session::Resume(_) => self.store.session_taint(&bot.id)?,
+            Session::New(_) => None,
         };
         let mut config = ClaudeConfig::new(bot.work_dir(), session.clone());
         config.program.clone_from(&self.config.claude_program);
@@ -114,19 +120,7 @@ impl Hub {
             }),
         )?;
         tokio::spawn(Arc::clone(self).pump(bot.id.clone(), events));
-        Ok(Runtime {
-            process,
-            busy: false,
-            permit: None,
-            browser,
-            lease: None,
-            last_active: Instant::now(),
-            tool_names: HashMap::new(),
-            page: None,
-            elements: HashMap::new(),
-            asker: None,
-            tainted: false,
-        })
+        Ok(new_runtime(process, browser, &session, taint))
     }
 
     /// Turns one bot's Claude output into stored events until the child exits.
@@ -174,11 +168,7 @@ impl Hub {
                 if !text.trim().is_empty() {
                     self.record(bot, EventKind::AssistantMessage { text })?;
                 }
-                if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
-                    for tool in &tool_uses {
-                        r.tool_names.insert(tool.id.clone(), tool.name.clone());
-                    }
-                }
+                self.tools_called(bot, &tool_uses).await;
                 for tool in tool_uses {
                     let summary = tool.summary();
                     let name = tool_label(&tool.name);
@@ -186,17 +176,7 @@ impl Hub {
                 }
             }
             ClaudeEvent::ToolResult { tool_use_id, text } => {
-                if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
-                    let is_browser = r
-                        .tool_names
-                        .remove(&tool_use_id)
-                        .is_some_and(|n| n.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")));
-                    if is_browser {
-                        learn_from_result(r, &text);
-                        r.tainted = true;
-                    }
-                    r.last_active = Instant::now();
-                }
+                self.tool_result(bot, &tool_use_id, &text).await;
                 let _ = self.updates.send(ServerMsg::Activity {
                     bot: bot.to_string(),
                     text: activity_label(&Activity::Requesting),
@@ -252,6 +232,78 @@ impl Hub {
         }
         Ok(())
     }
+}
+
+impl Hub {
+    /// Notes the tools Claude just called, so their results can be read,
+    /// and marks the session for an untrusted one as soon as it's called,
+    /// so a team tool called meanwhile sees it.
+    async fn tools_called(&self, bot: &BotId, tool_uses: &[ToolUse]) {
+        let mut untrusted = None;
+        if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
+            for tool in tool_uses {
+                r.tool_names.insert(tool.id.clone(), tool.name.clone());
+                untrusted = untrusted_tool(&tool.name, r.page.as_ref()).or(untrusted);
+            }
+        }
+        if let Some(why) = untrusted {
+            self.mark_untrusted(bot, why).await;
+        }
+    }
+
+    /// Reads a tool's result: what the browser reported, and whether the
+    /// session may no longer trust what it has read.
+    async fn tool_result(&self, bot: &BotId, tool_use_id: &str, text: &str) {
+        let mut untrusted = None;
+        if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
+            let name = r.tool_names.remove(tool_use_id);
+            if name
+                .as_ref()
+                .is_some_and(|n| n.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")))
+            {
+                learn_from_result(r, text);
+            }
+            untrusted = match &name {
+                Some(name) => untrusted_tool(name, r.page.as_ref()),
+                None => Some(UNKNOWN_RESULT.to_owned()),
+            };
+            r.last_active = Instant::now();
+        }
+        if let Some(why) = untrusted {
+            self.mark_untrusted(bot, why).await;
+        }
+    }
+}
+
+/// A just-started `claude` child's runtime. A resumed session keeps what
+/// it had read (`taint`); a new one starts trusted.
+fn new_runtime(
+    process: ClaudeProcess,
+    browser: Option<Arc<Shared>>,
+    session: &Session,
+    taint: Option<String>,
+) -> Runtime {
+    let mut runtime = Runtime {
+        process,
+        busy: false,
+        permit: None,
+        browser,
+        lease: None,
+        last_active: Instant::now(),
+        tool_names: HashMap::new(),
+        page: None,
+        elements: HashMap::new(),
+        asker: None,
+        taint: None,
+    };
+    match (session, taint) {
+        (Session::Resume(_), Some(why)) => {
+            runtime.mark_untrusted(why);
+        }
+        (Session::Resume(_), None) => {}
+        (Session::New(_), _) => runtime.reset_for_new_session(),
+    }
+    runtime
 }
 
 /// Reads what the browser tool reported: the selected page and the element

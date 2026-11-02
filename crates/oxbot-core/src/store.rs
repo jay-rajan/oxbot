@@ -121,7 +121,24 @@ const MIGRATIONS: &[Step] = &[
     // sign-ins. Browser owners and Gates point at ids; sites are named by
     // their main domain once, here, instead of on every start.
     Step::Rust(people_get_ids),
+    // 10: whether a Claude session has read text oxbot doesn't trust (and
+    // what), kept with the session because Claude remembers it on resume.
+    Step::Rust(sessions_remember_taint),
 ];
+
+/// Migration 10. Skipped if the column is already there (a database
+/// rewound to an older version for a test keeps its columns).
+fn sessions_remember_taint(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let has: bool = tx.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('sessions') WHERE name = 'tainted_by'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has {
+        tx.execute_batch("ALTER TABLE sessions ADD COLUMN tainted_by TEXT")?;
+    }
+    Ok(())
+}
 
 /// The home browser, as the sites list keys it.
 pub const HOME: BrowserOwner = BrowserOwner::Home;
@@ -1253,12 +1270,45 @@ impl Store {
         let conn = self.conn();
         match session {
             Some(s) => conn.execute(
+                // A different session starts clean (SET reads the old row).
                 "INSERT INTO sessions (bot, claude_session, prompt, updated_ms) VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(bot) DO UPDATE SET claude_session = ?2, prompt = ?3, updated_ms = ?4",
+                 ON CONFLICT(bot) DO UPDATE SET
+                   tainted_by = CASE WHEN claude_session = ?2 THEN tainted_by ELSE NULL END,
+                   claude_session = ?2, prompt = ?3, updated_ms = ?4",
                 params![bot.as_str(), s.id, s.prompt, now_ms()],
             )?,
             None => conn.execute("DELETE FROM sessions WHERE bot = ?1", params![bot.as_str()])?,
         };
+        Ok(())
+    }
+
+    /// What `bot`'s saved Claude session has read that oxbot doesn't trust,
+    /// if anything (see `hub::taint`).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn session_taint(&self, bot: &BotId) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT tainted_by FROM sessions WHERE bot = ?1",
+                params![bot.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    /// Records what `bot`'s saved session has read that oxbot doesn't trust
+    /// (`None`: nothing). Does nothing if no session is saved.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn set_session_taint(&self, bot: &BotId, why: Option<&str>) -> Result<(), StoreError> {
+        self.conn().execute(
+            "UPDATE sessions SET tainted_by = ?2 WHERE bot = ?1",
+            params![bot.as_str(), why],
+        )?;
         Ok(())
     }
 }
@@ -1611,6 +1661,35 @@ mod tests {
         assert_eq!(store.session(&bot("a")).unwrap(), Some(saved("s2")));
         store.set_session(&bot("a"), None).unwrap();
         assert_eq!(store.session(&bot("a")).unwrap(), None);
+    }
+
+    #[test]
+    fn a_sessions_taint_lasts_until_a_new_session() {
+        let store = Store::open_in_memory().unwrap();
+        let saved = |id: &str| SavedSession {
+            id: id.into(),
+            prompt: "p".into(),
+        };
+        store.set_session_taint(&bot("a"), Some("x")).unwrap();
+        assert_eq!(store.session_taint(&bot("a")).unwrap(), None, "no session");
+        store.set_session(&bot("a"), Some(&saved("s1"))).unwrap();
+        assert_eq!(store.session_taint(&bot("a")).unwrap(), None);
+        store
+            .set_session_taint(&bot("a"), Some("a web page"))
+            .unwrap();
+        // Resuming saves the same session again: the taint stays.
+        store.set_session(&bot("a"), Some(&saved("s1"))).unwrap();
+        assert_eq!(
+            store.session_taint(&bot("a")).unwrap().as_deref(),
+            Some("a web page")
+        );
+        // A new session starts clean.
+        store.set_session(&bot("a"), Some(&saved("s2"))).unwrap();
+        assert_eq!(store.session_taint(&bot("a")).unwrap(), None);
+        store.set_session_taint(&bot("a"), Some("y")).unwrap();
+        store.set_session(&bot("a"), None).unwrap();
+        store.set_session(&bot("a"), Some(&saved("s2"))).unwrap();
+        assert_eq!(store.session_taint(&bot("a")).unwrap(), None, "forgotten");
     }
 
     #[test]

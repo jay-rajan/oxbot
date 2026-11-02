@@ -19,8 +19,8 @@ and a green dot marks unread replies.
 Private bots: the Mac that runs the bots is the Farm. Every bot records who made it, and its
 maker can make it private. A private bot is listed for everyone (name, maker, a lock), but only
 its maker and the Farm's owner can open it, and it browses in its maker's own Chrome
-(Settings → Sign-ins → Yours), never the home one. Herder won't give private bots tasks or read
-their replies.
+(Settings → Sign-ins → Yours), never the home one. Your own Herder can give it tasks; it asks you
+first if it has read web content or other bots' replies. Nobody else's Herder can use it.
 
 Gates: phones (the Android app) use the Farm's bots over home Wi-Fi, as the person they were
 paired for. In Settings → Gates the Farm lists the networks phones may use ("Add this network";

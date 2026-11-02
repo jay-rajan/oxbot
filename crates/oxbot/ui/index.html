@@ -1060,7 +1060,7 @@ $("scrim").onclick = () => $("side").classList.remove("open");
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("side").classList.contains("open") && !document.querySelector("dialog[open]")) $("side").classList.remove("open"); });
 
 const NB_SHARED = "It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
-const NB_PRIVATE = "Only you and the Farm's owner see it, and Herder can't give it tasks. It browses in your own browser, so it asks you to sign in to sites even if home is signed in. Anything that sends, posts or deletes asks you first.";
+const NB_PRIVATE = "Only you and the Farm's owner see it. Your own Herder can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to sites even if home is signed in. Anything that sends, posts or deletes asks you first.";
 $("newBot").onclick = () => { $("newForm").reset(); $("nbHint").textContent = NB_SHARED; $("newDlg").showModal(); $("nbName").focus(); };
 $("nbPrivate").onchange = () => { $("nbHint").textContent = $("nbPrivate").checked ? NB_PRIVATE : NB_SHARED; };
 $("nbCancel").onclick = () => $("newDlg").close();
@@ -1075,7 +1075,7 @@ let deleteArmed = false, deleteTimer = null;
 function privacyHint(isPrivate, b) {
   const maker = b.info.created_by || "its maker";
   return isPrivate
-    ? `Only ${maker} and the Farm's owner see it, and Herder can't give it tasks. It uses ${maker}'s own sign-ins, never home's.`
+    ? `Only ${maker} and the Farm's owner see it. ${maker}'s own Herder can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses ${maker}'s own sign-ins, never home's.`
     : "Everyone sees and uses it. It uses the home sign-ins.";
 }
 function resetDelete() { clearTimeout(deleteTimer); deleteArmed = false; $("bdDelete").textContent = "Delete bot"; }
@@ -1142,10 +1142,10 @@ function renderCards() {
       continue;
     }
     if (a.kind === "give_task") {
-      // Herder read a web page or another bot's reply, then wants to use a private bot: show the whole task.
+      // Herder has read something oxbot doesn't trust (the server says what, in a.page), then wants to use a private bot: show the whole task.
       const card = div("card change");
       const h = document.createElement("h3"); h.textContent = `⚠ ${who} wants to ${a.action} ${a.target}`;
-      const where = div("where"); where.textContent = "Herder read a web page or another bot's reply this turn, which may have asked for this. The task, word for word:";
+      const where = div("where"); where.textContent = `${who} has read ${a.page || "web content or another bot's reply"} in this conversation, which may have asked for this. The task, word for word:`;
       card.append(h, where);
       const pre = document.createElement("pre"); pre.textContent = a.detail || ""; card.appendChild(pre);
       const btns = div("btns");

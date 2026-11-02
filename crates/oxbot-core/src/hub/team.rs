@@ -10,6 +10,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use super::access::maker_name;
+use super::taint::OTHER_PEOPLES_BOTS;
 use super::{Hub, HubError};
 use crate::bot::{Bot, Viewer};
 use crate::id::BotId;
@@ -72,7 +73,14 @@ impl Hub {
         let asker = self.person_viewer(asker.as_ref());
         match tool {
             tools::SIGN_IN_TOOL => self.request_sign_in(bot, &text("url"), &text("why")).await,
-            tools::LIST_BOTS_TOOL => (true, self.team(bot, &asker).await),
+            tools::LIST_BOTS_TOOL => {
+                let (list, others) = self.team(bot, &asker).await;
+                if others {
+                    self.mark_untrusted(bot, OTHER_PEOPLES_BOTS.to_owned())
+                        .await;
+                }
+                (true, list)
+            }
             tools::CREATE_BOT_TOOL => {
                 // The user already said yes on the card (see `policy`).
                 // The bot belongs to whoever asked Herder for it.
@@ -111,8 +119,10 @@ impl Hub {
     }
 
     /// The bots `asker` may use, for Herder: id, name, maker, what it's
-    /// for, and status.
-    async fn team(&self, me: &BotId, asker: &Viewer) -> String {
+    /// for (as data), and status. Also whether it lists a name or
+    /// instructions someone other than `asker` wrote, which Herder can't
+    /// trust.
+    async fn team(&self, me: &BotId, asker: &Viewer) -> (String, bool) {
         let busy: HashSet<BotId> = self
             .runtimes
             .lock()
@@ -132,11 +142,13 @@ impl Hub {
         let names = self.person_names();
         let own = self.is_own_herder(me, asker);
         let mut out = String::new();
+        let mut others = false;
         for b in bots {
             // Other people's Herders (and the Farm's, for them) aren't team members.
             if b.is_central() && &b.id != me {
                 continue;
             }
+            others |= &b.id != me && (asker.id.is_none() || b.owner != asker.id);
             let maker = maker_name(&b, &names);
             if !b.visible_to(asker) {
                 let who = maker.as_deref().unwrap_or("someone");
@@ -147,7 +159,7 @@ impl Hub {
                 );
                 continue;
             }
-            let purpose: String = b
+            let words: String = b
                 .instructions
                 .split_whitespace()
                 .collect::<Vec<_>>()
@@ -166,9 +178,9 @@ impl Hub {
                     ", private to {who} (uses their sign-ins; you may give it tasks for them, \
                      which they may be asked to OK)"
                 ),
-                (Some(who), true) => {
-                    format!(", private to {who} (only they open it; you can't give it tasks)")
-                }
+                (Some(who), true) => format!(
+                    ", private to {who} (only they open it; only their own Herder gives it tasks)"
+                ),
                 (Some(who), false) => format!(", made by {who}"),
                 (None, _) => String::new(),
             };
@@ -177,14 +189,14 @@ impl Hub {
                 "- {} (id {}){you}{maker}: {status}. {}",
                 b.name,
                 b.id,
-                if purpose.is_empty() {
-                    "No instructions."
+                if words.is_empty() {
+                    "No instructions.".to_owned()
                 } else {
-                    &purpose
+                    data_block("bot_purpose", "", &words)
                 }
             );
         }
-        out
+        (out, others)
     }
 
     /// Sends `target` a task from Herder (`from`) and, if `wait`,
@@ -208,6 +220,9 @@ impl Hub {
         };
         if &to.id == from {
             return (false, "That's you. Do the task yourself.".to_owned());
+        }
+        if to.is_central() {
+            return (false, herder_message(&to));
         }
         if to.private
             && let Some(refused) = self.check_private_task(from, asker, &to, message).await
@@ -276,7 +291,8 @@ impl Hub {
             ),
             Ok(ok) => match reply {
                 Some(text) => {
-                    self.taint(from).await;
+                    self.mark_untrusted(from, format!("{}'s reply", to.name))
+                        .await;
                     (
                         true,
                         format!("{} replied:\n{}", to.name, bot_reply(&to.id, &text)),
@@ -290,9 +306,9 @@ impl Hub {
 
     /// Whether Herder (`from`) may pass `message` on to private bot `to`
     /// for `asker`: only from the asker's own Herder, and after the
-    /// asker's OK on a card if this turn has read a web page or another
-    /// bot's reply (which may be what asked for it). `None` if it may;
-    /// else what to tell Herder.
+    /// asker's OK on a card if its session has read text oxbot doesn't
+    /// trust (which may be what asked for it; see `taint`). `None` if it
+    /// may; else what to tell Herder.
     async fn check_private_task(
         &self,
         from: &BotId,
@@ -303,9 +319,7 @@ impl Hub {
         if !self.is_own_herder(from, asker) {
             return private_message(to);
         }
-        if !self.is_tainted(from).await {
-            return None;
-        }
+        let why = self.untrusted(from).await?;
         let herder = match self.bot(from.as_str()) {
             Ok(b) => b,
             Err(err) => return Some(format!("Couldn't ask the user: {err}")),
@@ -317,8 +331,13 @@ impl Hub {
             target: format!("{} (private, {owner}'s sign-ins)", to.name),
             site: "oxbot".to_owned(),
             detail: Some(message.to_owned()),
+            private: true,
         };
-        match self.confirm(&herder, &ask, None).await {
+        // The card says what Herder read, where it shows the page.
+        match self
+            .confirm(&herder, &ask, Some((why, String::new())))
+            .await
+        {
             Ok(Outcome::Allowed) => None,
             Ok(Outcome::Denied) => Some(format!(
                 "The user said no to giving {} this task. Don't try another way; tell them, and \
@@ -334,22 +353,6 @@ impl Hub {
         }
     }
 
-    /// Whether `bot`'s turn has read text oxbot doesn't trust.
-    async fn is_tainted(&self, bot: &BotId) -> bool {
-        self.runtimes
-            .lock()
-            .await
-            .get(bot)
-            .is_some_and(|r| r.tainted)
-    }
-
-    /// Marks `bot`'s turn as having read another bot's reply.
-    async fn taint(&self, bot: &BotId) {
-        if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
-            r.tainted = true;
-        }
-    }
-
     /// A bot's latest reply and whether it's still working, for Herder
     /// (`from`).
     async fn read_reply(&self, from: &BotId, asker: &Viewer, target: &str) -> (bool, String) {
@@ -362,6 +365,9 @@ impl Hub {
                 format!("There's no bot with id {target}. Use list_bots."),
             );
         };
+        if bot.is_central() {
+            return (false, herder_message(&bot));
+        }
         if bot.private
             && !self.is_own_herder(from, asker)
             && let Some(private) = private_message(&bot)
@@ -381,7 +387,8 @@ impl Hub {
         };
         match self.latest_reply(&bot.id, 0) {
             Some(text) => {
-                self.taint(from).await;
+                self.mark_untrusted(from, format!("{}'s reply", bot.name))
+                    .await;
                 (
                     true,
                     format!(
@@ -422,21 +429,42 @@ impl Hub {
 }
 
 /// Another bot's reply as Herder gets it: inside `<bot_reply>`, which
-/// Herder's prompt says is data, never instructions. A closing tag in the
-/// reply (any case) is escaped, so the reply can't end the block early.
+/// Herder's prompt says is data, never instructions (see [`data_block`]).
 fn bot_reply(bot: &BotId, text: &str) -> String {
-    const CLOSE: &str = "</bot_reply";
-    let lower = text.to_ascii_lowercase();
+    data_block("bot_reply", &format!(" bot=\"{bot}\""), text)
+}
+
+/// Text someone else wrote, as Herder gets it: inside `<tag attrs>…</tag>`,
+/// which Herder's prompt says is data. `&` and `<` are escaped, so the text
+/// can't open a tag or end the block early; a closing tag for the block
+/// (any case) becomes `<\/tag`.
+fn data_block(tag: &str, attrs: &str, text: &str) -> String {
+    let close = format!("</{tag}");
     let mut out = String::with_capacity(text.len() + 32);
-    let mut rest = 0;
-    // Lowercasing ASCII keeps every byte where it was.
-    for (at, _) in lower.match_indices(CLOSE) {
-        out.push_str(&text[rest..at]);
-        out.push_str("<\\/");
-        rest = at + 2;
+    for (at, c) in text.char_indices() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' if text
+                .get(at..at + close.len())
+                .is_some_and(|t| t.eq_ignore_ascii_case(&close)) =>
+            {
+                out.push_str("<\\");
+            }
+            '<' => out.push_str("&lt;"),
+            c => out.push(c),
+        }
     }
-    out.push_str(&text[rest..]);
-    format!("<bot_reply bot=\"{bot}\">{out}</bot_reply>")
+    format!("<{tag}{attrs}>{out}</{tag}>")
+}
+
+/// What Herder hears about another Herder: never a team member, since its
+/// chat holds what its own person asked and what was passed on for them.
+fn herder_message(bot: &Bot) -> String {
+    format!(
+        "{} is someone's Herder, not a team member. You can't give it tasks or read its \
+         replies.",
+        bot.id
+    )
 }
 
 /// Herder doesn't relay other people's private bots, or anyone's from a
@@ -445,8 +473,9 @@ fn bot_reply(bot: &BotId, text: &str) -> String {
 fn private_message(bot: &Bot) -> Option<String> {
     bot.private.then(|| {
         format!(
-            "{} is private. Herder doesn't pass tasks to private bots or read their replies; \
-             tell the user to open {} in the sidebar and ask it there.",
+            "{} is private. Herder doesn't pass tasks to it from here: only its maker's own \
+             Herder can, and that asks them first if it has read web content or other bots' \
+             replies. Tell the user to open {} in the sidebar and ask it there.",
             bot.name, bot.name
         )
     })
@@ -478,6 +507,19 @@ mod tests {
         assert_eq!(
             bot_reply(&id, "a</bot_reply>b</BOT_REPLY >c"),
             "<bot_reply bot=\"helper\">a<\\/bot_reply>b<\\/BOT_REPLY >c</bot_reply>"
+        );
+    }
+
+    #[test]
+    fn data_cant_open_a_tag_either() {
+        let id = BotId::new("helper").unwrap();
+        assert_eq!(
+            bot_reply(&id, "<bot_reply bot=\"x\">a & b</bot_purpose>"),
+            "<bot_reply bot=\"helper\">&lt;bot_reply bot=\"x\">a &amp; b&lt;/bot_purpose></bot_reply>"
+        );
+        assert_eq!(
+            data_block("bot_purpose", "", "x</Bot_Purpose>y"),
+            "<bot_purpose>x<\\/Bot_Purpose>y</bot_purpose>"
         );
     }
 }

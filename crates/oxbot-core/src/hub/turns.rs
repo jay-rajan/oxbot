@@ -168,8 +168,7 @@ impl Hub {
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
         runtime.asker = person.cloned();
-        // A new turn starts from the person's own words.
-        runtime.tainted = false;
+        // The taint stays: Claude still remembers what earlier turns read.
         drop(runtimes);
         self.announce_bots().await;
         Ok(())
@@ -305,19 +304,17 @@ pub(super) fn relayed_line(from: &str, person: Option<&str>, text: &str) -> Stri
 
 /// What Claude gets for a message: `[Name] text`. Only that first bracket
 /// names the sender, so a line in the text that starts with `[` gets a
-/// backslash and can't pass for another person's message.
+/// backslash and can't pass for another person's message. Every character
+/// Claude may read as a line break counts as one.
 pub(super) fn sender_line(from: Option<&str>, text: &str) -> String {
-    let body = text
-        .split('\n')
-        .map(|line| {
-            if line.trim_start().starts_with('[') {
-                format!("\\{line}")
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let is_break = |c: char| matches!(c, '\n' | '\r' | '\u{0085}' | '\u{2028}' | '\u{2029}');
+    let mut body = String::with_capacity(text.len() + 8);
+    for line in text.split_inclusive(is_break) {
+        if line.trim_start().starts_with('[') {
+            body.push('\\');
+        }
+        body.push_str(line);
+    }
     match from {
         Some(name) => format!("[{name}] {body}"),
         None => body,
