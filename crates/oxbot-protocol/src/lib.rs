@@ -145,6 +145,20 @@ pub enum ClientMsg {
         /// What they chose.
         answer: Answer,
     },
+    /// The "Always allowed" rules of a bot, answered with
+    /// [`ServerMsg::AllowRules`]. Only for those who may manage the bot.
+    ListAllowRules {
+        /// Bot id.
+        bot: String,
+    },
+    /// Removes one of a bot's "Always allowed" rules: the same click asks
+    /// again. Only for those who may manage the bot.
+    RemoveAllowRule {
+        /// Bot id.
+        bot: String,
+        /// [`AllowRule::id`].
+        id: i64,
+    },
     /// Turn "Launch at login" on or off (desktop app only). Everyone gets
     /// the new [`ServerMsg::Settings`].
     SetLaunchAtLogin {
@@ -375,6 +389,15 @@ pub enum ServerMsg {
         /// who gets it (names are only shown).
         #[serde(skip)]
         owner_id: Option<String>,
+    },
+    /// A bot's "Always allowed" rules: the answer to
+    /// [`ClientMsg::ListAllowRules`], and sent again whenever they change.
+    /// Only to clients that may manage the bot.
+    AllowRules {
+        /// Bot id.
+        bot: String,
+        /// Newest first.
+        rules: Vec<AllowRule>,
     },
     /// Something the client asked for went wrong.
     Error {
@@ -709,6 +732,41 @@ pub struct Approval {
     /// gets the card (the name is only shown).
     #[serde(skip)]
     pub asker_id: Option<String>,
+    /// Whether this client is offered [`Answer::AlwaysAllow`]. Decided by
+    /// the server for each client.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub always: bool,
+    /// Server only, never sent: the element an "Always allow" rule would
+    /// name (`button "Save"`), set only on cards that may offer one.
+    #[serde(skip)]
+    pub rule: Option<String>,
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// One "Always allowed" rule: a bot may do `action` on `label` on `site`
+/// without asking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AllowRule {
+    /// Id to remove it with.
+    pub id: i64,
+    /// The exact host, e.g. `www.example.com`.
+    pub site: String,
+    /// e.g. `click`.
+    pub action: String,
+    /// The element, e.g. `button "Apply filters"`.
+    pub label: String,
+    /// Who set it, by name as it is now (`None`: the Farm).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// When, in milliseconds since the Unix epoch.
+    pub created_ms: i64,
 }
 
 /// The user's answer to an [`Approval`].
@@ -717,6 +775,10 @@ pub struct Approval {
 pub enum Answer {
     /// Do it, this once.
     AllowOnce,
+    /// Do it, and from now on let this bot do the same thing on the same
+    /// site without asking. Only on cards that offer it
+    /// ([`Approval::always`]); the server refuses it on others.
+    AlwaysAllow,
     /// Don't.
     Deny,
 }
@@ -727,6 +789,8 @@ pub enum Answer {
 pub enum Outcome {
     /// The user allowed it.
     Allowed,
+    /// The user allowed it, and the same click from now on.
+    AllowedAlways,
     /// The user said no.
     Denied,
     /// Nobody answered in time.
@@ -832,6 +896,16 @@ pub enum EventKind {
         site: String,
         /// How it ended.
         outcome: SignInOutcome,
+    },
+    /// A card wasn't needed: one of the user's "Always allowed" rules
+    /// let it through (shown as a quiet line).
+    AllowedByRule {
+        /// The action, e.g. `click`.
+        action: String,
+        /// What it acted on, e.g. `button "Apply filters"`.
+        target: String,
+        /// The site.
+        site: String,
     },
     /// oxbot refused something the bot tried (shown as a red line).
     Blocked {
@@ -997,14 +1071,26 @@ mod tests {
             screenshot: None,
             asker: Some("Sam".into()),
             asker_id: Some("p_0123456789abcdef".into()),
+            always: false,
+            rule: Some("button \"Buy\"".into()),
         };
         let json = serde_json::to_string(&card).unwrap();
         assert!(
             !json.contains("p_0123") && json.contains("\"asker\":\"Sam\""),
             "{json}"
         );
+        assert!(
+            !json.contains("always") && !json.contains("rule"),
+            "the rule stays on the server and a card that doesn't offer Always says nothing: {json}"
+        );
         let back: Approval = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.asker_id, None);
+        assert_eq!((back.asker_id, back.rule, back.always), (None, None, false));
+        let offered = serde_json::to_string(&Approval {
+            always: true,
+            ..card
+        })
+        .unwrap();
+        assert!(offered.contains(r#""always":true"#), "{offered}");
     }
 
     #[test]
@@ -1036,6 +1122,58 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains(r#""kind":"approval""#) && json.contains(r#""outcome":"denied""#));
+        let always: ClientMsg =
+            serde_json::from_str(r#"{"type":"answer","id":4,"answer":"always_allow"}"#).unwrap();
+        assert_eq!(
+            always,
+            ClientMsg::Answer {
+                id: 4,
+                answer: Answer::AlwaysAllow
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&Outcome::AllowedAlways).unwrap(),
+            r#""allowed_always""#
+        );
+    }
+
+    #[test]
+    fn allow_rules_go_back_and_forth() {
+        let list: ClientMsg =
+            serde_json::from_str(r#"{"type":"list_allow_rules","bot":"shop"}"#).unwrap();
+        assert_eq!(list, ClientMsg::ListAllowRules { bot: "shop".into() });
+        let remove: ClientMsg =
+            serde_json::from_str(r#"{"type":"remove_allow_rule","bot":"shop","id":3}"#).unwrap();
+        assert_eq!(
+            remove,
+            ClientMsg::RemoveAllowRule {
+                bot: "shop".into(),
+                id: 3
+            }
+        );
+        let json = serde_json::to_string(&ServerMsg::AllowRules {
+            bot: "shop".into(),
+            rules: vec![AllowRule {
+                id: 3,
+                site: "www.example.com".into(),
+                action: "click".into(),
+                label: "button \"Save\"".into(),
+                by: None,
+                created_ms: 5,
+            }],
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"allow_rules","bot":"shop","rules":[{"id":3,"site":"www.example.com","action":"click","label":"button \"Save\"","created_ms":5}]}"#
+        );
+        let line = serde_json::to_string(&EventKind::AllowedByRule {
+            action: "click".into(),
+            target: "button \"Save\"".into(),
+            site: "www.example.com".into(),
+        })
+        .unwrap();
+        assert!(line.contains(r#""kind":"allowed_by_rule""#), "{line}");
     }
 
     #[test]
