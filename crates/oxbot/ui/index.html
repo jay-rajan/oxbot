@@ -180,9 +180,9 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .composer textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font: inherit; color: var(--ink); background: var(--bg); max-height: 40vh; min-width: 0; }
 .composer textarea:focus-visible, label input:focus-visible, label textarea:focus-visible { outline: none; border-color: var(--focus); }
 /* files waiting to be sent, above the box; and on sent messages */
-.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px max(18px, env(safe-area-inset-right)) 0 18px; border-top: 1px solid var(--line); background: var(--surface); }
+.composer { flex-wrap: wrap; }
+.chips { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .chips:empty { display: none; }
-.chips:not(:empty) + .composer { border-top: 0; }
 .chip { display: inline-flex; align-items: center; gap: 6px; max-width: min(340px, 100%); min-width: 0; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: .82rem; line-height: 1.3; }
 .chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .chip small { color: var(--muted); white-space: nowrap; }
@@ -367,8 +367,8 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div class="offline alert-banner" id="usageAlert" role="status" hidden><span class="alert-text" id="usageAlertText"></span><button type="button" class="alert-more" id="usageAlertMore">Details</button><button type="button" id="usageAlertClose" aria-label="Dismiss" title="Dismiss">✕</button></div>
     <div class="log" id="log" aria-live="polite"></div>
     <div class="cards" id="cards" aria-live="assertive"></div>
-    <div class="chips" id="chips" aria-live="polite"></div>
     <form class="composer" id="composer">
+      <div class="chips" id="chips" aria-live="polite"></div>
       <button class="icon-btn" id="attach" type="button" aria-label="Attach files" title="Attach files (you can also drop or paste them)"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5 12.6 19.4a5 5 0 0 1-7.1-7.1l8.3-8.3a3.4 3.4 0 0 1 4.8 4.8l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></svg></button>
       <input type="file" id="fileInput" class="file-input" multiple tabindex="-1" aria-hidden="true">
       <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
