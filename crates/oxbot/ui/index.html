@@ -164,14 +164,20 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .check { display: flex; gap: 8px; align-items: center; font-size: .9rem; color: var(--ink); }
 
 /* approval cards and red lines */
-.cards { display: grid; gap: 10px; padding: 10px max(18px, env(safe-area-inset-right)) 0 18px; }
+/* Open cards sit right above the message box, newest last, and scroll on
+   their own so the box stays on screen. dvh follows the phone keyboard. */
+.cards { flex: none; display: grid; gap: 10px; overflow-y: auto; overscroll-behavior: contain; max-height: min(45vh, 440px); max-height: min(45dvh, 440px); padding: 10px max(18px, env(safe-area-inset-right)) 10px 18px; border-top: 1px solid var(--line); background: var(--bg); }
 .cards:empty { display: none; }
+@media (max-width: 720px) { .cards { max-height: 38vh; max-height: 38dvh; } }
+@media (max-height: 520px) { .cards { max-height: 50vh; max-height: 50dvh; } } /* phone on its side, keyboard up */
 .card { border: 1px solid var(--danger); border-left-width: 5px; background: var(--danger-soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
 .card h3 { margin: 0; font-size: .98rem; color: var(--danger-ink); overflow-wrap: anywhere; }
 .card .where { font-size: .82rem; color: var(--muted); overflow-wrap: anywhere; }
 .card pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 13px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
-.card img { max-width: min(100%, 420px); border: 1px solid var(--line); border-radius: 8px; cursor: zoom-in; }
-.card img.big { max-width: 100%; cursor: zoom-out; }
+/* a thumbnail, so a card fits its area; click to see it full size */
+.card img { justify-self: start; max-width: min(100%, 420px); max-height: min(180px, 18vh); border: 1px solid var(--line); border-radius: 8px; cursor: zoom-in; }
+.card img.big { max-width: 100%; max-height: none; cursor: zoom-out; }
+@media (max-width: 720px) { .card img { max-height: 14vh; } }
 .card .note { font-size: .8rem; color: var(--danger); }
 .deny { background: var(--danger); color: #fff; border: 0; border-radius: 10px; padding: 9px 16px; font-weight: 600; }
 .redline { align-self: flex-start; color: var(--muted); font-size: .85rem; padding-left: 6px; border-left: 3px solid var(--line); overflow-wrap: anywhere; }
@@ -212,6 +218,8 @@ label textarea { min-height: 110px; resize: vertical; }
 .hint { font-size: .78rem; color: var(--muted); }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; max-width: min(520px, calc(100% - 32px)); box-shadow: 0 6px 24px rgb(0 0 0 / .2); z-index: 10; }
 .toast.error { background: var(--err); color: #fff; }
+/* while cards are open, the toast moves to the top so it never covers their buttons */
+body.has-cards .toast { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
 
 /* settings */
 dialog.wide { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48px); }
@@ -270,8 +278,8 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     </header>
     <div class="setup" id="setupBox" hidden><h3>oxbot needs a few things first</h3><ul class="checks" id="setupChecks"></ul><div class="btns"><button class="primary" type="button" id="setupAgain">Check again</button></div></div>
     <div class="offline" id="offline" role="status" hidden><span class="offline-dot" aria-hidden="true"></span><span id="offlineText">Not connected.</span></div>
-    <div class="cards" id="cards" aria-live="assertive"></div>
     <div class="log" id="log" aria-live="polite"></div>
+    <div class="cards" id="cards" aria-live="assertive"></div>
     <form class="composer" id="composer">
       <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
       <button class="ghost" id="stop" type="button" hidden>Stop</button>
@@ -550,9 +558,9 @@ function onMessage(m) {
       break;
     case "settings": settings = m; renderSettings(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
     case "usage": usage = m; renderUsage(); break;
-    case "approval_needed": approvals.set(m.id, m); renderCards(); break;
+    case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); renderCards(); break;
-    case "sign_in_needed": signIns.set(m.id, m); renderCards(); break;
+    case "sign_in_needed": signIns.set(m.id, arrived(signIns, m)); renderCards(); break;
     case "sign_in_resolved": signIns.delete(m.id); renderCards(); break;
     case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); break;
     case "setup": setup = m; renderSetup(); break;
@@ -578,7 +586,7 @@ function onMessage(m) {
         if (!(info.id in seen)) markSeen(info.id); // first time: old replies aren't new
         if (viewing(info.id)) markSeen(info.id);
       }
-      renderBots(); updateStatus(); renderCards(); renderUsage();
+      renderBots(); updateStatus(); renderCards(true); renderUsage();
       const known = (id) => id && m.bots.some((x) => x.id === id);
       const want = [pendingSelect, current, store.get("oxbot.bot"), m.bots[0] && m.bots[0].id].find(known);
       if (want && want !== current && (!pendingSelect || want === pendingSelect)) { pendingSelect = null; select(want); }
@@ -899,7 +907,7 @@ function select(id) {
   if (!b.subscribed && !isLocked(b)) { b.subscribed = true; follow(id, b); }
   $("botName").textContent = b.info.name || id;
   $("botAvatar").innerHTML = avatar(id); $("botAvatar").hidden = false;
-  renderLog(); renderBots(); updateStatus(); renderCards(); $("input").focus();
+  renderLog(); renderBots(); updateStatus(); renderCards(true); $("input").focus();
 }
 
 function updateStatus() {
@@ -1048,6 +1056,8 @@ $("log").addEventListener("scroll", () => {
   maybeLoadOlder();
 }, { passive: true });
 $("log").addEventListener("load", () => scrollDown(), true); // a picture finished loading
+// Cards opening below the log make it shorter: keep the latest message in view.
+if (typeof ResizeObserver === "function") new ResizeObserver(() => scrollDown()).observe($("log"));
 function div(cls) { const d = document.createElement("div"); d.className = cls; return d; }
 
 // Small, safe Markdown: escape everything, then add code, bold and links.
@@ -1137,13 +1147,56 @@ $("botForm").addEventListener("submit", (ev) => {
 });
 
 // Cards: sign-ins, changes (red) and uploads (amber). Nothing happens until the user answers.
-function renderCards() {
-  const box = $("cards"); box.textContent = "";
-  const nameOf = (id) => (bots.get(id) && bots.get(id).info.name) || id;
+// Every open card shows, whichever bot is open, each titled with its bot.
+let cardSeq = 0, cardsShown = new Set(), cardNames = "", cardsFollow = true, cardsLast = "";
+const bigShots = new Set(); // cards whose screenshot the user enlarged
+const shotImgs = new Map(); // card → its screenshot, reused so a redraw keeps its size
+// Numbers a card by when it first came; one sent again keeps its place.
+function arrived(map, m) {
+  const old = map.get(m.id);
+  m.at = old && old.at ? old.at : ++cardSeq;
+  return m;
+}
+// Sign-ins and approvals together, oldest first, so the newest sits right above the box.
+function cardList() {
+  const list = [];
+  for (const m of signIns.values()) list.push({ key: "s:" + m.id, kind: "sign_in", m });
+  for (const m of approvals.values()) list.push({ key: "a:" + m.id, kind: "approval", m });
+  return list.sort((x, y) => (x.m.at || 0) - (y.m.at || 0));
+}
+function botName(id) { return (bots.get(id) && bots.get(id).info.name) || id; }
+// onlyIfRenamed: called on every bots message; redraw only when a card's bot name changed.
+function renderCards(onlyIfRenamed) {
+  const list = cardList();
+  const names = list.map((c) => botName(c.m.bot)).join("\n");
+  if (onlyIfRenamed === true && names === cardNames) return;
+  cardNames = names;
+  const box = $("cards");
+  // How far into the newest card the user has scrolled, if they're on it.
+  const last = list.length ? list[list.length - 1].key : "";
+  const top = box.scrollTop, follow = cardsFollow;
+  const into = follow && last === cardsLast ? Math.max(0, top - newestTop()) : 0;
+  const fresh = list.some((c) => !cardsShown.has(c.key));
+  cardsLast = last;
+  cardsShown = new Set(list.map((c) => c.key));
+  for (const k of [...bigShots]) if (!cardsShown.has(k)) bigShots.delete(k);
+  for (const k of [...shotImgs.keys()]) if (!cardsShown.has(k)) shotImgs.delete(k);
+  box.textContent = "";
   const btn = (btns, label, cls, onclick) => { const x = document.createElement("button"); x.type = "button"; x.className = cls; x.textContent = label; x.onclick = onclick; btns.appendChild(x); };
-  for (const s of signIns.values()) {
+  for (const c of list) {
+    if (c.kind === "sign_in") box.appendChild(signInCard(c.m)); else box.appendChild(approvalCard(c.m, c.key));
+  }
+  // A new card scrolls into view; otherwise stay where the user was.
+  if (fresh) showNewest();
+  else box.scrollTop = follow ? newestTop() + into : top;
+  cardsFollow = fresh || follow;
+  const open = list.length;
+  document.title = open ? `⚠ (${open}) oxbot` : "oxbot";
+  document.body.classList.toggle("has-cards", open > 0);
+
+  function signInCard(s) {
     const card = div("card signin");
-    const h = document.createElement("h3"); h.textContent = `${nameOf(s.bot)} needs you to sign in to ${s.site}`;
+    const h = document.createElement("h3"); h.textContent = `${botName(s.bot)} needs you to sign in to ${s.site}`;
     const where = div("where");
     where.textContent = s.window_open
       ? "Sign in in the Chrome window that opened. Then press I'm signed in, or just close the window."
@@ -1152,10 +1205,11 @@ function renderCards() {
     if (s.window_open) btn(btns, "I'm signed in", "primary", () => send({ type: "sign_in_done", id: s.id }));
     else btn(btns, "Open sign-in window", "primary", () => send({ type: "open_sign_in", id: s.id }));
     btn(btns, "Cancel", "ghost", () => send({ type: "cancel_sign_in", id: s.id }));
-    card.append(h, where, btns); box.appendChild(card);
+    card.append(h, where, btns);
+    return card;
   }
-  for (const a of approvals.values()) {
-    const who = nameOf(a.bot);
+  function approvalCard(a, key) {
+    const who = botName(a.bot);
     if (a.kind === "create_bot") {
       // Herder wants to make a bot: show its name and instructions.
       const card = div("card newbot");
@@ -1167,8 +1221,8 @@ function renderCards() {
       const btns = div("btns");
       btn(btns, "Create", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
       btn(btns, "Don't create", "ghost", () => send({ type: "answer", id: a.id, answer: "deny" }));
-      card.appendChild(btns); box.appendChild(card);
-      continue;
+      card.appendChild(btns);
+      return card;
     }
     if (a.kind === "give_task") {
       // Herder has read something oxbot doesn't trust (the server says what, in a.page), then wants to use a private bot: show the whole task.
@@ -1180,8 +1234,8 @@ function renderCards() {
       const btns = div("btns");
       btn(btns, "Give the task", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
       btn(btns, "Don't give it", "deny red", () => send({ type: "answer", id: a.id, answer: "deny" }));
-      card.appendChild(btns); box.appendChild(card);
-      continue;
+      card.appendChild(btns);
+      return card;
     }
     const change = a.kind === "change";
     const card = div(change ? "card change" : "card");
@@ -1191,19 +1245,45 @@ function renderCards() {
     where.textContent = `${a.page ? a.page + " · " : ""}${change ? "This changes something on the site, where you may be signed in." : "This sends a file from your Mac to the site."}`;
     card.append(h, where);
     if (a.detail) { const pre = document.createElement("pre"); pre.textContent = a.detail; card.appendChild(pre); }
-    if (a.screenshot && a.screenshot.startsWith("data:image/")) {
-      const img = document.createElement("img"); img.src = a.screenshot; img.alt = `The page ${who} is on right now`;
-      img.onclick = () => img.classList.toggle("big"); card.appendChild(img);
-    }
+    if (a.screenshot && a.screenshot.startsWith("data:image/")) card.appendChild(shot(a, key, who));
     const btns = div("btns");
     btn(btns, "Allow once", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
     btn(btns, "Deny", change ? "deny red" : "deny", () => send({ type: "answer", id: a.id, answer: "deny" }));
     card.appendChild(btns);
-    box.appendChild(card);
+    return card;
   }
-  const open = approvals.size + signIns.size;
-  document.title = open ? `⚠ (${open}) oxbot` : "oxbot";
+  // The page the bot is on. Click to enlarge; the area scrolls to it.
+  function shot(a, key, who) {
+    let img = shotImgs.get(key);
+    if (!img || img.getAttribute("src") !== a.screenshot) {
+      img = document.createElement("img"); img.src = a.screenshot;
+      img.onclick = () => {
+        if (bigShots.has(key)) bigShots.delete(key); else bigShots.add(key);
+        img.classList.toggle("big", bigShots.has(key));
+        img.scrollIntoView({ block: "nearest" });
+      };
+      shotImgs.set(key, img);
+    }
+    img.alt = `The page ${who} is on right now`;
+    img.classList.toggle("big", bigShots.has(key));
+    return img;
+  }
 }
+// Where the card area shows the newest card from its heading down (the
+// bottom, when that card fits).
+function newestTop() {
+  const box = $("cards"), last = box.lastElementChild;
+  if (!last) return 0;
+  const want = box.scrollTop + last.getBoundingClientRect().top - box.getBoundingClientRect().top - 10;
+  return Math.max(0, Math.min(want, box.scrollHeight - box.clientHeight));
+}
+function showNewest() { $("cards").scrollTop = newestTop(); }
+$("cards").addEventListener("scroll", () => { cardsFollow = $("cards").scrollTop >= newestTop() - 8; }, { passive: true });
+// A screenshot finished loading: keep showing the newest card if the user was.
+$("cards").addEventListener("load", () => {
+  const box = $("cards");
+  if (cardsFollow) box.scrollTop = Math.max(box.scrollTop, newestTop());
+}, true);
 
 // Setup: what's missing, with what to do about it.
 function renderChecks(list, onlyMissing) {

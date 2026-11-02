@@ -1,35 +1,8 @@
 // Run by tests/page.rs: the page script (path in argv[2]) against a fake DOM.
 const fs = require("fs");
 const src = fs.readFileSync(process.argv[2], "utf8");
-function fake() {
-  const f = function () { return fake(); };
-  return new Proxy(f, {
-    get(t, k) {
-      if (k === Symbol.toPrimitive) return () => "";
-      if (k === "length" ) return 0;
-      if (k === Symbol.iterator) return function* () {};
-      if (k in t && typeof k === "string" && ["scrollTop","scrollHeight"].includes(k)) return t[k];
-      if (k === "then") return undefined;
-      if (["scrollTop", "scrollHeight", "clientHeight"].includes(k)) return 0;
-      if (k === "dataset" || k === "style" || k === "classList") return fake();
-      return t[k] !== undefined && typeof k === "string" && !["name","call","apply","bind"].includes(k) ? t[k] : fake();
-    },
-    set(t, k, v) { t[k] = v; return true; },
-    apply() { return fake(); },
-  });
-}
-const ctx = {
-  document: fake(), window: { addEventListener() {} }, location: { hash: "", search: "", pathname: "/", host: "x" },
-  history: { replaceState() {} }, sessionStorage: { getItem() { return ""; }, setItem() {} },
-  localStorage: { getItem() { return null; }, setItem() {} }, navigator: {}, requestAnimationFrame() {},
-  setTimeout() {}, clearTimeout() {}, setInterval() {}, clearInterval() {}, WebSocket: function () { return fake(); },
-  console, TextEncoder, URLSearchParams, Math, JSON, Date, Map, Set, Array, Object, String, Number, Promise,
-  encodeURIComponent, matchMedia: () => fake(), Intl, alert() {}, confirm() { return true; },
-};
-const vm = require("vm");
-vm.createContext(ctx);
-vm.runInContext(src + "\n;globalThis.__t = { bots, onMessage, select, maybeLoadOlder, setWs: (w) => { ws = w; } };", ctx);
-const t = ctx.__t;
+const { load } = require("./fake-dom.js");
+const t = load(src, "{ bots, onMessage, select, maybeLoadOlder, setWs: (w) => { ws = w; } }");
 const sent = [];
 t.setWs({ readyState: 1, send: (m) => sent.push(JSON.parse(m)) });
 const ev = (bot, seq) => ({ bot, seq, ts_ms: 0, kind: "tool_use", name: "Read", summary: "s" + seq });
