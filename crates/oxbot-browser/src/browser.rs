@@ -298,9 +298,9 @@ impl Browser {
         Ok(self.cookie_marks().await?.sites())
     }
 
-    /// Which cookies the browser holds, by site (names, not values), to
-    /// compare before and after a sign-in window. Starts hidden Chrome if
-    /// it's off.
+    /// Which cookies the browser holds, by site (names and keyed hashes of
+    /// values, never values), to compare before and after a sign-in window.
+    /// Starts hidden Chrome if it's off.
     ///
     /// # Errors
     /// Fails if Chrome can't start or doesn't answer.

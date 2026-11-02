@@ -4,9 +4,10 @@ Always-on Claude bots on your Mac, used through the oxbot desktop app and the ox
 on your home Wi-Fi. Data goes only to Anthropic (and, later, OpenAI for Codex): no relay
 servers, no push services, telemetry off.
 
-Status: desktop app on the Mac (milestone 2.11.4). All bots share one hidden Chrome that keeps
-your sign-ins: a bot that needs an account asks, a Chrome window opens, you sign in once, and
-every bot stays signed in. The sidebar lists the signed-in sites; open one, or sign out of it
+Status: desktop app on the Mac plus the Android Gate app (milestone Foundations, issue #1). Shared
+bots share one hidden home Chrome that keeps your sign-ins: a bot that needs an account asks, a
+Chrome window opens, you sign in once, and every bot on that Chrome stays signed in (a sign-in
+counts only if the window left a new cookie). The sidebar lists the signed-in sites; open one, or sign out of it
 alone. Bots take turns on the browser. oxbot checks every browser step: a red card before
 anything that changes something (Send, Post, Delete, Buy…), a card before an upload from your
 Mac, and it refuses passwords, page scripts, non-web pages and files outside the bot's folder.
@@ -20,7 +21,8 @@ Private bots: the Mac that runs the bots is the Farm. Every bot records who made
 maker can make it private. A private bot is listed for everyone (name, maker, a lock), but only
 its maker and the Farm's owner can open it, and it browses in its maker's own Chrome
 (Settings → Sign-ins → Yours), never the home one. Your own Herder can give it tasks; it asks you
-first if it has read web content or other bots' replies. Nobody else's Herder can use it.
+first if it has read web content or other bots' replies. Nobody else's Herder can use it, and
+Herders can't task or read each other. Long chats open a page at a time.
 
 Gates: phones (the Android app) use the Farm's bots over home Wi-Fi, as the person they were
 paired for. In Settings → Gates the Farm lists the networks phones may use ("Add this network";
@@ -54,9 +56,9 @@ Plan: https://claude.ai/artifact/32dqY3emzXCfBj9QGkF5rZ · Architecture: https:/
 | Crate | What it is |
 |---|---|
 | `crates/oxbot-protocol` | Wire types shared by the server and the apps |
-| `crates/oxbot-core` | Bots, store, hub, tool rules (policy), prompts (no networking) |
+| `crates/oxbot-core` | Bots, people (ids), store (`store/`), hub (`hub/`, split by job), tool rules (policy), prompts (no networking) |
 | `crates/oxbot-claude` | Runs `claude -p` with privacy settings |
-| `crates/oxbot-browser` | The shared, hidden Chrome with a kept profile, and its sign-in window |
+| `crates/oxbot-browser` | A hidden Chrome per owner (home, or a person's own) with a kept profile, and its sign-in window |
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the Gate door (`src/door/`) |
 | `crates/oxbot-gate` | The Gate side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
 | `app/src-tauri` | The desktop app and the Android Gate app (Tauri 2) |

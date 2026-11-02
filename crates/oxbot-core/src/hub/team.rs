@@ -150,7 +150,7 @@ impl Hub {
             }
             others |= &b.id != me && (asker.id.is_none() || b.owner != asker.id);
             let maker = maker_name(&b, &names);
-            if !b.visible_to(asker) {
+            if !self.opens(&b, asker) {
                 let who = maker.as_deref().unwrap_or("someone");
                 let _ = writeln!(
                     out,
@@ -405,7 +405,7 @@ impl Hub {
     /// What Herder hears about a bot that's private to someone else.
     fn locked_message(&self, target: &str, asker: &Viewer) -> Option<String> {
         let bot = self.bot(target).ok()?;
-        (!bot.visible_to(asker)).then(|| {
+        (!self.opens(&bot, asker)).then(|| {
             let who =
                 maker_name(&bot, &self.person_names()).unwrap_or_else(|| "someone else".to_owned());
             format!(

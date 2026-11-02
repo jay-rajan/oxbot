@@ -664,6 +664,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn each_herder_opens_only_for_its_own_person_and_the_farm() {
+        let tmp = tempfile::tempdir().unwrap();
+        let central =
+            Bot::create(tmp.path(), BotId::new("assistant").unwrap(), "Herder", "").unwrap();
+        let hub = Hub::new(
+            vec![central],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let (sam, _) = hub.store.find_or_create_person("Sam").unwrap();
+        let (ann, _) = hub.store.find_or_create_person("Ann").unwrap();
+        let sams = hub.herder_for_person(&sam.id).unwrap();
+        let sam = Viewer::person(sam.id, "Sam", false);
+        let ann = Viewer::person(ann.id, "Ann", false);
+        let phone = Viewer::person(jay.id, "Jay", false);
+        let farm = hub.farm_viewer("Jay");
+
+        // The Farm's Herder: the Farm and the Farm's person only.
+        assert!(hub.bot_for("assistant", &farm).is_ok());
+        assert!(hub.bot_for("assistant", &phone).is_ok());
+        assert!(hub.bot_for("assistant", &sam).is_err());
+        assert!(hub.bot_for("assistant", &Viewer::gate("Ann")).is_err());
+        assert!(!hub.visible_ids(&sam).contains("assistant"));
+        assert!(hub.history_for("assistant", 0, &ann).is_err());
+
+        // A personal Herder: its owner and the Farm, even if its file
+        // says it's shared.
+        hub.update_bot(&sams, |b| b.private = false).unwrap();
+        assert!(hub.bot_for(sams.as_str(), &sam).is_ok());
+        assert!(hub.bot_for(sams.as_str(), &farm).is_ok());
+        assert!(hub.bot_for(sams.as_str(), &ann).is_err());
+        assert!(hub.bot_for(sams.as_str(), &phone).is_err());
+        assert!(!hub.visible_ids(&ann).contains(sams.as_str()));
+    }
+
+    #[tokio::test]
     async fn each_viewer_is_told_what_they_may_do_with_each_bot() {
         let tmp = tempfile::tempdir().unwrap();
         let central =

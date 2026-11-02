@@ -93,9 +93,25 @@ impl Hub {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .values()
-            .filter(|b| b.visible_to(viewer))
+            .filter(|b| self.opens(b, viewer))
             .map(|b| b.id.to_string())
             .collect()
+    }
+
+    /// Whether `viewer` (already resolved) may open `bot`: as
+    /// [`Bot::visible_to`] says, and the Farm's Herder only on the Farm or
+    /// for the Farm's person. Everyone else talks to their own Herder.
+    pub(super) fn opens(&self, bot: &Bot, viewer: &Viewer) -> bool {
+        bot.visible_to(viewer) && (!bot.is_main_herder() || self.is_farm_side(viewer))
+    }
+
+    /// Whether `viewer` is the Farm or the Farm's person (by id).
+    fn is_farm_side(&self, viewer: &Viewer) -> bool {
+        viewer.farm
+            || viewer
+                .id
+                .as_ref()
+                .is_some_and(|id| self.farm_id().as_ref() == Some(id))
     }
 
     /// Every bot as `viewer` gets it: a private bot they can't open is
@@ -118,7 +134,7 @@ impl Hub {
         let viewer = &*self.resolve(viewer);
         self.bot(id)
             .ok()
-            .filter(|b| b.visible_to(viewer))
+            .filter(|b| self.opens(b, viewer))
             .ok_or_else(|| HubError::UnknownBot(id.to_owned()))
     }
 
@@ -139,7 +155,11 @@ impl Hub {
     /// Applies `change` to bot `id` as it is now and saves it, all under the
     /// bots lock, so two changes (a rename and a privacy change) can't
     /// overwrite each other.
-    fn update_bot(&self, id: &BotId, change: impl FnOnce(&mut Bot)) -> Result<Bot, HubError> {
+    pub(super) fn update_bot(
+        &self,
+        id: &BotId,
+        change: impl FnOnce(&mut Bot),
+    ) -> Result<Bot, HubError> {
         let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
         let mut bot = bots
             .get(id)

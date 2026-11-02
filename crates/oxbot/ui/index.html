@@ -409,7 +409,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const bots = new Map();      // id -> { info, events: [], lastSeq, firstSeq, hasOlder, loadingOlder, busy, subscribed, stream, activity }
+const bots = new Map();      // id -> { info, events: [], lastSeq, firstSeq, hasOlder, loadingOlder, olderAsks (gens of older pages asked), gen (bumped on trim), busy, subscribed, stream, activity }
 const PAGE = 200;            // events per history page
 const KEEP_PAGES = 3;        // pages kept for a chat that isn't open
 let current = null, ws = null, retry = 0, pendingSelect = null, toastTimer = null;
@@ -472,7 +472,7 @@ function connect() {
   ws.onopen = () => {
     retry = 0; everConnected = true; setConn(true);
     send({ type: "list_bots" });
-    for (const [id, b] of bots) if (b.subscribed) { b.loadingOlder = false; follow(id, b); }
+    for (const [id, b] of bots) if (b.subscribed) { b.loadingOlder = false; b.olderAsks = []; follow(id, b); }
   };
   ws.onclose = () => {
     setConn(false);
@@ -513,7 +513,7 @@ window.addEventListener("online", reconnectNow);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectNow(); });
 
 function bot(id) {
-  if (!bots.has(id)) bots.set(id, { info: { id, name: id, busy: false, last_seq: 0 }, events: [], lastSeq: 0, firstSeq: 0, hasOlder: false, loadingOlder: false, busy: false, subscribed: false, stream: null, activity: null });
+  if (!bots.has(id)) bots.set(id, { info: { id, name: id, busy: false, last_seq: 0 }, events: [], lastSeq: 0, firstSeq: 0, hasOlder: false, loadingOlder: false, olderAsks: [], gen: 0, busy: false, subscribed: false, stream: null, activity: null });
   return bots.get(id);
 }
 /** Starts following a bot: its latest page if we have nothing yet, else
@@ -597,9 +597,15 @@ function onMessage(m) {
     }
     case "history": {
       const b = bot(m.bot);
+      const ev = m.events;
+      // Replies come in the order asked. An older page asked for before the
+      // chat was trimmed no longer joins what we have: drop it.
+      const olderShaped = ev.length ? b.events.length > 0 && ev[ev.length - 1].seq < b.events[0].seq : b.loadingOlder || b.olderAsks.length > 0;
+      if (olderShaped && b.olderAsks.length && b.olderAsks.shift() !== b.gen) break;
       const askedOlder = b.loadingOlder;
       b.loadingOlder = false;
-      const ev = m.events;
+      // An earlier page nobody asked for can't be placed: ignore it.
+      if (olderShaped && ev.length && !askedOlder) break;
       // A page that starts after what we have, with a gap between (catching
       // up after a long time away): a fresh window, so drop what we had.
       if (b.events.length && ev.length && ev[0].seq > b.lastSeq + 1) {
@@ -883,6 +889,7 @@ function trimEvents(b) {
   if (!b || b.events.length <= keep) return;
   b.events = b.events.slice(-keep);
   b.firstSeq = b.events[0].seq; b.hasOlder = true; b.loadingOlder = false;
+  b.gen++;
 }
 
 function select(id) {
@@ -969,7 +976,7 @@ function maybeLoadOlder() {
   const b = current && bots.get(current);
   if (!b || !b.hasOlder || b.loadingOlder || !b.firstSeq || isLocked(b)) return;
   if ($("log").scrollTop > 300) return;
-  if (send({ type: "older", bot: current, before: b.firstSeq, limit: PAGE })) b.loadingOlder = true;
+  if (send({ type: "older", bot: current, before: b.firstSeq, limit: PAGE })) { b.loadingOlder = true; b.olderAsks.push(b.gen); }
 }
 
 function appendEvent(e, scroll = true) {

@@ -1,0 +1,176 @@
+<title>oxbot Foundations Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; findings as a worklist with a tick column. */
+:root{--bg:#fff;--surface:#f6f6f4;--line:#e3e2dd;--fg:#1c1d1f;--muted:#666a70;--accent:#c8102e;--crit:#b4232c;--major:#b35c00;--minor:#5b6470;--sugg:#3a6ea5;--ok:#2e7d4f;
+--display:"Archivo",system-ui,sans-serif;--body:"Source Sans 3",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--surface:#1c1e22;--line:#2c2f35;--fg:#e7e8ea;--muted:#9aa0a8;--accent:#ff5a6a;--crit:#ff6b73;--major:#f0a24a;--minor:#a3acb8;--sugg:#7fb0e6;--ok:#6cc995;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141518;--surface:#1c1e22;--line:#2c2f35;--fg:#e7e8ea;--muted:#9aa0a8;--accent:#ff5a6a;--crit:#ff6b73;--major:#f0a24a;--minor:#a3acb8;--sugg:#7fb0e6;--ok:#6cc995;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:16px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+main{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:30px}
+h1{font:800 30px/1.15 var(--display);margin:0;text-wrap:balance}
+h2{font:700 20px/1.25 var(--display);margin:0 0 10px;text-wrap:balance}
+p{margin:0 0 8px} ul{margin:0;padding-left:20px} li{margin:3px 0}
+code,.mono{font-family:var(--mono);font-size:.85em}
+.eyebrow{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.verdict{display:inline-block;font:700 14px var(--display);padding:4px 10px;border-radius:6px;background:var(--major);color:var(--bg)}
+.meta{color:var(--muted);font-size:14px}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0;z-index:5;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:600 12px var(--body);border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.f{border-top:1px solid var(--line);padding:12px 0;display:grid;grid-template-columns:28px 1fr;gap:10px}
+.f>div{min-width:0}
+.f h3{margin:0;font:600 16px/1.35 var(--body)}
+.sev{font:700 11px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.sev.Critical{color:var(--crit)}.sev.Major{color:var(--major)}.sev.Minor{color:var(--minor)}.sev.Suggestion{color:var(--sugg)}.sev.nd{color:var(--crit)}
+.where{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.f p{font-size:15px}
+.fix{border-left:2px solid var(--line);padding-left:10px;color:var(--fg)}
+.note{width:100%;box-sizing:border-box;font:14px var(--body);border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg);color:var(--fg);margin-top:6px}
+.badge{font:600 11px var(--mono);border-radius:4px;padding:2px 6px;margin-left:6px;background:var(--surface);border:1px solid var(--line)}
+.badge.fixed{color:var(--ok);border-color:var(--ok)}
+.badge.needs-decision{color:var(--crit);border-color:var(--crit)}
+input[type=checkbox]{width:18px;height:18px;margin-top:3px;accent-color:var(--accent)}
+details{border-top:1px solid var(--line);padding-top:8px} summary{cursor:pointer;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:14px} .tw{overflow-x:auto}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.score-Strong{color:var(--ok);font-weight:700}.score-OK{color:var(--major);font-weight:700}.score-Weak{color:var(--crit);font-weight:700}
+pre.mermaid{background:var(--surface);border-radius:8px;padding:10px;overflow-x:auto}
+.hint{color:var(--muted);font-size:14px}
+</style>
+<main>
+<header>
+ <div class="eyebrow">/pr_review · jay-rajan/oxbot · issue-1-foundations (base ffd4d76) · 2026-11-02</div>
+ <h1>Foundations (issue #1)</h1>
+ <p class="meta">31 files at review time, then three fix rounds · 9 reviewers, 9 lenses · 245 tests, e2e 13/13</p>
+ <p><span class="verdict">Fixed, ready for your manual test</span> &nbsp;Biggest risk found: one person's Herder could task and read another person's Herder (C1, fixed).</p>
+</header>
+
+<section>
+ <h2>Intent</h2>
+ <p><b>Goal:</b> make oxbot safe for more than one person before more features land: real person ids, one set of visibility rules, Herder asks before tasking a private bot after reading web content, and long chats that open quickly.</p>
+ <ul>
+  <li><b>hub.rs split</b> into files by job (no behavior change).</li>
+  <li><b>Paged history:</b> chats open with the latest 200 events; older ones load on scroll.</li>
+  <li><b>Person ids:</b> every check compares ids; a same-name phone is never the Farm.</li>
+  <li><b>Herder:</b> may task your own private bots; a card asks first after web content.</li>
+  <li><b>Small fixes:</b> sign-ins, logs, sign-out cleanup.</li>
+ </ul>
+ <p><b>Out of scope:</b> new features. <b>Not done:</b> old m21 (Sites message shape, pinned by tests); clearing a site's history and icons on sign-out (Chrome can't do it per site while running).</p>
+ <p><b>Does the diff match?</b> Yes. All "Done when" items hold: tests pass unchanged, new tests cover M3 and M9, and a 5,000-event chat opens as one page.</p>
+</section>
+
+<div class="bar" id="bar"><span id="summary">Loading choices…</span><div class="chips" id="chips"></div></div>
+
+<section id="fixedSec"><h2>Fixed automatically</h2><p class="hint">Both Criticals were confirmed against the code before fixing. Commits: 18075d2 (round 1), 1287968 (round 2), 8b78dc3 (round 3). Gate: fmt, clippy pedantic, 245 tests; e2e 13/13 in Chrome.</p><div id="fixed"></div></section>
+<section><h2>Needs decision</h2><div id="decide"></div></section>
+<section><h2>Major</h2><p class="hint">All but M12 were fixed in the three rounds. Tick anything you want changed further, then say so in Claude Code.</p><div id="major"></div></section>
+<section><details><summary>Minor (<span id="minorN"></span>)</summary><div id="minor"></div></details></section>
+<section><details><summary>Suggestions (<span id="suggN"></span>)</summary><div id="sugg"></div></details></section>
+
+<section>
+ <h2>C4 view</h2>
+ <figure style="margin:0"><pre class="mermaid">
+flowchart LR
+  page[Page: index.html<br/>open_bot / older<br/>shows can_manage, locked] -->|WS + Farm secret| server[server.rs<br/>Client per person]
+  phone[Phone Gate] -->|TLS :7879| door[door/] --> server
+  server --> access[hub/access<br/>who sees what, by id]
+  server --> people[hub/people<br/>resolve, person_named, Farm person]
+  access --> people
+  team[hub/team<br/>give_task, read_reply] -->|card if tainted| approvals[hub/approvals]
+  claude[hub/claude] -->|marks untrusted| taint[hub/taint]
+  team --> taint
+  people --> store[(store/<br/>people by id, migrations 8–11)]
+  access --> seqs[hub/seqs<br/>latest numbers]
+  seqs --> store
+ </pre><figcaption class="hint">Components after the change. Arrows point one way into the store; migration 9 no longer calls live code.</figcaption></figure>
+ <p><b>Easy to understand?</b> Mostly. Each hub file has one job, but the Hub struct is still shared by all of them (M12).</p>
+</section>
+
+<section>
+ <h2>Scorecard</h2>
+ <div class="tw"><table>
+ <tr><th>Lens</th><th>Score at review</th><th>Why (after fixes)</th></tr>
+ <tr><td>Migrations</td><td class="score-OK">OK</td><td>Frozen migration 9, backup before rebuild, newer-database guard, unique indexes.</td></tr>
+ <tr><td>Single responsibility</td><td class="score-OK">OK</td><td>Store split; one person path; Hub still one struct.</td></tr>
+ <tr><td>Security</td><td class="score-Weak">Weak</td><td>C1 fixed; routing by id; no access by name alone.</td></tr>
+ <tr><td>Prompt injection</td><td class="score-Weak">Weak</td><td>Session-long flag, allowlist, data blocks; your own Herder still browses with your sign-ins (S1).</td></tr>
+ <tr><td>Maintainability</td><td class="score-OK">OK</td><td>Docs and C4 updated; taint and numbers have one home.</td></tr>
+ <tr><td>Correctness</td><td class="score-OK">OK</td><td>Paging correct; sign-in check uses new cookies.</td></tr>
+ <tr><td>Compatibility</td><td class="score-OK">OK</td><td>Additive protocol; older phone app's offline copy fills only after the app updates.</td></tr>
+ <tr><td>Performance</td><td class="score-OK">OK</td><td>Bounded catch-up, no per-bot queries.</td></tr>
+ <tr><td>Privacy + supply chain</td><td class="score-OK">OK</td><td>No new libraries; logs use ids.</td></tr>
+ </table></div>
+</section>
+<section><h2>Lens coverage</h2><p>All nine lenses ran as separate reviewers, then a tenth re-checked the fixes. Duplicates were merged (the session flag was found by three lenses).</p></section>
+</main>
+<script type="application/json" id="findings">{"repo": "jay-rajan/oxbot", "branch": "issue-1-foundations", "base": "ffd4d76", "head_sha": "8b78dc3", "artifact_url": null, "findings": [{"id": "C1", "lens": "Security", "severity": "Critical", "file": "crates/oxbot-core/src/hub/team.rs", "line": 0, "title": "Another person's Herder could task or read your Herder", "problem": "give_task and read_reply never refused a Herder as the target. Sam's Herder could task the Farm's Herder (assistant) and read its reply, which now holds relayed private-bot replies.", "fix": "Herders can't task or read any Herder (herder_message). Test a_herder_never_tasks_or_reads_another_herder failed before the fix.", "status": "fixed"}, {"id": "C2", "lens": "Prompt injection + Correctness", "severity": "Critical", "file": "crates/oxbot-core/src/hub/turns.rs", "line": 0, "title": "The \"read web content\" flag cleared every message, but Claude remembers", "problem": "A page read in one message could steer Herder in the next message, with no card before tasking a private bot.", "fix": "The flag lasts the whole Claude session and is saved with it (migration 10); only a new session clears it. Prompt no longer says exactly when the card shows.", "status": "fixed"}, {"id": "M1", "lens": "Prompt injection", "severity": "Major", "file": "hub/claude.rs, hub/taint.rs", "line": 0, "title": "Only browser results and bot replies counted as untrusted", "problem": "File reads, other people's bot descriptions in list_bots and future tools were trusted.", "fix": "Allowlist: every tool result counts except oxbot's own team tools, which mark the session when they return someone else's words. Descriptions sent as escaped <bot_purpose> data.", "status": "fixed"}, {"id": "M2", "lens": "Correctness", "severity": "Major", "file": "crates/oxbot-core/tests/hub.rs", "line": 0, "title": "No tests for when the flag starts and ends", "problem": "read_reply, a second task after a reply, across messages, list_bots and file reads were untested.", "fix": "Seven new hub tests plus store and unit tests.", "status": "fixed"}, {"id": "M3", "lens": "Compatibility", "severity": "Major", "file": "index.html, README.md, team.rs", "line": 0, "title": "Page and README still said Herder can't task private bots", "problem": "Users chose private bots partly on that promise.", "fix": "Text now says your own Herder can, and asks first after reading web content or other bots' replies. The card says what Herder read.", "status": "fixed"}, {"id": "M4", "lens": "Single responsibility + Security", "severity": "Major", "file": "hub/people.rs", "line": 0, "title": "Viewers resolved ad hoc; resolve() created people on read paths", "problem": "A forgotten resolve fell back to name matching; any name made a person.", "fix": "resolve only looks up; a name alone gives no access. A test-only feature keeps older tests' implicit people; production builds don't get it (checked with cargo tree).", "status": "fixed"}, {"id": "M5", "lens": "Single responsibility", "severity": "Major", "file": "hub/people.rs, store", "line": 0, "title": "People were created six ways; only two told the clients", "problem": "New people missed the people list; check-then-act in add_gate.", "fix": "One person_named path that announces; add_gate returns \"new\" from one transaction.", "status": "fixed"}, {"id": "M6", "lens": "Privacy + Security", "severity": "Major", "file": "server.rs, hub/approvals.rs", "line": 0, "title": "Sign-in lists, notices and cards went to people by name", "problem": "After a rename and a new pairing under the old name, one person's sites or task text could reach another.", "fix": "Server-only id fields; routing compares person ids. JSON to clients unchanged.", "status": "fixed"}, {"id": "M7", "lens": "Migrations", "severity": "Major", "file": "hub/people.rs, store", "line": 0, "title": "Old bot makers not in the database got a new empty Chrome folder", "problem": "Their saved sign-ins were cut off for good.", "fix": "A legacy path keeps the folder and Herder id an older oxbot used.", "status": "fixed"}, {"id": "M8", "lens": "Migrations + Maintainability", "severity": "Major", "file": "store/", "line": 0, "title": "store.rs did four jobs; migration 9 called live code", "problem": "A later change to folder or Herder naming would upgrade old databases differently.", "fix": "store/ split by job (pure move); migration 9 uses frozen copies pinned by a golden test.", "status": "fixed"}, {"id": "M9", "lens": "Performance + Correctness", "severity": "Major", "file": "server.rs, index.html, chat.rs", "line": 0, "title": "Reconnecting replayed every missed event one by one", "problem": "After the Mac sleeps, a busy bot sent thousands of single events and froze the page; oxbot chat replayed everything.", "fix": "A long gap gets one page of the latest events; oxbot chat opens by page; JSON parsed after the store lock.", "status": "fixed"}, {"id": "M10", "lens": "Compatibility + Migrations", "severity": "Major", "file": "store/migrations.rs", "line": 0, "title": "No guard or backup for going back to an older oxbot", "problem": "Migration 9 rebuilds tables; an older oxbot would lock phones out and lose sign-in lists.", "fix": "A newer database is refused with a clear error; the file is copied (VACUUM INTO) to oxbot.db.v8.bak before rebuilding.", "status": "fixed"}, {"id": "M11", "lens": "Correctness", "severity": "Major", "file": "hub/sign_ins.rs, oxbot-browser", "line": 0, "title": "A cancelled sign-in stayed listed if the site set any cookie", "problem": "Almost every site sets consent cookies on load.", "fix": "Kept only if the window left a new cookie (names only are compared, never values).", "status": "fixed"}, {"id": "M12", "lens": "Single responsibility", "severity": "Major", "file": "hub/mod.rs", "line": 0, "title": "The split is files only; Hub still holds every field", "problem": "Each feature edits several hub files.", "fix": "Taint and latest numbers moved into their own small types (taint.rs, seqs.rs). A People type is left for later.", "status": "skipped"}, {"id": "m1", "lens": "Correctness", "severity": "Minor", "file": "index.html", "line": 0, "title": "Endless \"load older\" requests on an empty page", "problem": "", "fix": "Fixed: the page always moves back.", "status": "fixed"}, {"id": "m2", "lens": "Correctness", "severity": "Minor", "file": "hub/approvals.rs", "line": 0, "title": "A deleted bot's card could write history", "problem": "", "fix": "Fixed: confirm skips a deleted bot.", "status": "fixed"}, {"id": "m3", "lens": "Correctness", "severity": "Minor", "file": "hub/mod.rs", "line": 0, "title": "Latest numbers were zero if the start-up read failed", "problem": "", "fix": "Fixed: per-bot fallback.", "status": "fixed"}, {"id": "m4", "lens": "Correctness", "severity": "Minor", "file": "hub/people.rs", "line": 0, "title": "Farm person renamed from a fallback name, silently", "problem": "", "fix": "Fixed: only the Mac account name renames; logged and announced.", "status": "fixed"}, {"id": "m5", "lens": "Security", "severity": "Minor", "file": "hub/people.rs", "line": 0, "title": "Pairing as \"jay\" could become the Farm's person \"Jay\"", "problem": "", "fix": "Fixed: never folds case onto the Farm's person; codes carry the person id.", "status": "fixed"}, {"id": "m6", "lens": "Security", "severity": "Minor", "file": "hub/people.rs", "line": 0, "title": "Old ownerless private bots were given to the Farm person", "problem": "", "fix": "Fixed for private bots (stay Farm-only). Old shared bots still go to the Farm person (an existing test pins it).", "status": "fixed"}, {"id": "m7", "lens": "Privacy", "severity": "Minor", "file": "oxbot-gate/copy.rs", "line": 0, "title": "Phone copy kept or dropped chats by name; old pages kept", "problem": "", "fix": "Fixed: uses the Farm's locked flag; pages in one transaction, older than 30 days skipped.", "status": "fixed"}, {"id": "m8", "lens": "Data model", "severity": "Minor", "file": "store/migrations.rs", "line": 0, "title": "Nothing stopped two Farm people or shared folders", "problem": "", "fix": "Fixed: migration 11 adds unique folder, Herder and one-Farm indexes.", "status": "fixed"}, {"id": "m9", "lens": "Prompt injection", "severity": "Minor", "file": "hub/turns.rs", "line": 0, "title": "Other line breaks (U+2028 etc.) could fake a sender", "problem": "", "fix": "Fixed.", "status": "fixed"}, {"id": "m10", "lens": "Maintainability", "severity": "Minor", "file": "hub/approvals.rs", "line": 0, "title": "\"private\" read from the card's wording", "problem": "", "fix": "Fixed: policy::Ask.private.", "status": "fixed"}, {"id": "m11", "lens": "Maintainability", "severity": "Minor", "file": "docs/architecture", "line": 0, "title": "C4 page out of date", "problem": "", "fix": "Updated with person ids, the hub layout and migrations 8\u201311.", "status": "fixed"}, {"id": "m12", "lens": "Privacy", "severity": "Minor", "file": "door/mod.rs", "line": 0, "title": "Wi-Fi name in the info log", "problem": "", "fix": "Left: the live log only goes to the Mac.", "status": "open"}, {"id": "m13", "lens": "Rollout", "severity": "Minor", "file": "protocol", "line": 0, "title": "Sites still one message told apart by owner (old m21)", "problem": "", "fix": "Left: tests pin it.", "status": "open"}, {"id": "S1", "lens": "Prompt injection", "severity": "Suggestion", "file": "", "line": 0, "title": "Your own Herder already browses with your sign-ins, so the card mostly matters for the main Herder", "problem": "", "fix": "A later card for opening a URL that carries data after untrusted reading.", "status": "open"}, {"id": "S2", "lens": "Migrations", "severity": "Suggestion", "file": "", "line": 0, "title": "Events have no retention plan", "problem": "", "fix": "Plan an archive before millions of rows per bot.", "status": "open"}, {"id": "S3", "lens": "Privacy", "severity": "Suggestion", "file": "", "line": 0, "title": "Removing a Gate keeps that person's Chrome folder", "problem": "", "fix": "A \"forget person\" action later.", "status": "open"}]}</script>
+<script>
+const all = JSON.parse(document.getElementById("findings").textContent).findings;
+const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
+let decisions = {}, db = null, me = null, canWrite = false, filter = "all";
+function row(f, tickable) {
+  const r = el("div", "f"); r.dataset.lens = f.lens; r.dataset.sev = f.severity;
+  const box = el("input"); box.type = "checkbox"; box.id = "fix-" + f.id; box.setAttribute("aria-label", "Fix " + f.id);
+  const d = decisions[f.id] || {};
+  const done = f.status === "fixed" || d.status === "fixed";
+  box.checked = done || !!d.fix; box.disabled = !tickable || done || !canWrite;
+  if (!tickable) box.style.visibility = "hidden";
+  box.onchange = () => save(f.id, { fix: box.checked });
+  const body = el("div");
+  const sev = el("span", "sev " + (f.severity === "Needs decision" ? "nd" : f.severity), `${f.id} · ${f.severity}`);
+  const h = el("h3"); h.append(sev, document.createElement("br"), document.createTextNode(f.title));
+  const st = d.status || (f.status !== "open" ? f.status : null);
+  if (st) h.append(el("span", "badge " + st, st));
+  body.append(h, el("div", "where", `${f.lens}${f.file ? " · " + f.file + (f.line ? ":" + f.line : "") : ""}`));
+  if (f.problem && f.problem !== f.title) body.append(el("p", null, f.problem));
+  if (f.fix) body.append(el("p", "fix", (done ? "Done: " : "Fix: ") + f.fix));
+  if (d.result) body.append(el("p", "hint", d.result));
+  if (tickable && !done) {
+    const n = el("input", "note"); n.id = "note-" + f.id; n.placeholder = "Note for Claude (optional)"; n.value = d.note || ""; n.disabled = !canWrite;
+    n.onchange = () => save(f.id, { note: n.value });
+    body.append(n);
+  }
+  r.append(box, body);
+  return r;
+}
+function render() {
+  const put = (id, list, tick) => { const box = document.getElementById(id); box.textContent = ""; for (const f of list) if (filter === "all" || f.lens.includes(filter)) box.append(row(f, tick)); };
+  put("fixed", all.filter(f => f.status === "fixed"), false);
+  put("decide", all.filter(f => f.severity === "Needs decision"), true);
+  put("major", all.filter(f => f.severity === "Major" && f.status !== "fixed"), true);
+  put("minor", all.filter(f => f.severity === "Minor"), true);
+  put("sugg", all.filter(f => f.severity === "Suggestion"), true);
+  document.getElementById("minorN").textContent = all.filter(f => f.severity === "Minor").length;
+  document.getElementById("suggN").textContent = all.filter(f => f.severity === "Suggestion").length;
+  const ticked = Object.values(decisions).filter(d => d.fix && d.status !== "fixed").length;
+  const fixed = all.filter(f => f.status === "fixed" || (decisions[f.id] || {}).status === "fixed").length;
+  document.getElementById("summary").textContent = db ? `${ticked} ticked for fixing · ${fixed} fixed` + (canWrite ? "" : " · view only") : "Sign in to claude.ai to choose fixes";
+}
+const lenses = ["all", "Security", "Prompt injection", "Correctness", "Single responsibility", "Maintainability", "Rollout", "Privacy", "Performance"];
+const chips = document.getElementById("chips");
+for (const l of lenses) { const c = el("button", "chip", l === "all" ? "All lenses" : l); c.type = "button"; c.setAttribute("aria-pressed", String(l === filter)); c.onclick = () => { filter = l; for (const o of chips.children) o.setAttribute("aria-pressed", String(o === c)); render(); }; chips.append(c); }
+async function save(id, patch) {
+  if (!db) return;
+  const prev = decisions[id];
+  const doc = { ...(prev || {}), ...patch, by: me, at: new Date().toISOString() };
+  try { const ref = db.doc("decisions/" + id); if (prev) await ref.update({ ...patch, by: me, at: doc.at }); else await ref.set(doc); }
+  catch (e) { console.warn(e); canWrite = false; render(); }
+}
+render();
+(async () => {
+  try {
+    if (!window.claude) return;
+    db = await claude.use("db");
+    const user = await claude.use("user");
+    if (!db) { render(); return; }
+    me = user ? await user.id() : null;
+    canWrite = user ? (await user.can("data.write")) !== false : true;
+    const timer = setTimeout(render, 10000);
+    db.collection("decisions").onSnapshot((snap) => { clearTimeout(timer); decisions = {}; for (const d of snap.docs) decisions[d.id] = d.data(); render(); }, () => { clearTimeout(timer); render(); });
+  } catch (e) { console.warn(e); render(); }
+})();
+</script>

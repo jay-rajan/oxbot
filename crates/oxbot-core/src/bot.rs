@@ -421,10 +421,14 @@ impl Bot {
         )
     }
 
-    /// Whether `viewer` may see and use it.
+    /// Whether `viewer` may see and use it. A personal Herder is only its
+    /// owner's (and the Farm's), even if an old file says it's shared. The
+    /// Farm's Herder needs the hub to know who the Farm's person is: see
+    /// `Hub::bot_for`.
     #[must_use]
     pub fn visible_to(&self, viewer: &Viewer) -> bool {
-        viewer.can_see(self.maker_for(viewer), self.private)
+        let private = self.private || is_personal_herder(self.id.as_str());
+        viewer.can_see(self.maker_for(viewer), private)
     }
 
     /// Whether `viewer` may rename it, delete it or change who sees it.

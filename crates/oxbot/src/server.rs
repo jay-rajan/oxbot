@@ -316,6 +316,9 @@ impl Client {
         self.visible = bots
             .iter()
             .filter(|b| self.viewer.can_see_info(b))
+            // The Farm's Herder is only for those whose Herder it is (as the
+            // hub's visible_ids says).
+            .filter(|b| b.id != DEFAULT_BOT || self.herder == DEFAULT_BOT)
             .map(|b| b.id.clone())
             .collect();
         let visible = &self.visible;

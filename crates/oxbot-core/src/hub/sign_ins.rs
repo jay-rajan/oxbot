@@ -24,8 +24,9 @@ pub(super) struct AddingSite {
 
 /// Whether `site` (a main domain), just signed in to through a window,
 /// goes on (or stays on) its browser's list. Only if the window left a
-/// cookie that wasn't there before it opened: an old cookie from visiting
-/// the site says nothing about this sign-in. A site already on the list
+/// cookie that wasn't there before it opened, or changed one's value or
+/// expiry: an old, unchanged cookie from visiting the site says nothing
+/// about this sign-in. A site already on the list
 /// stays (the regular check drops it once it has no cookies at all), and
 /// so does one on the home network (a router's password box leaves none).
 /// If the cookies from before couldn't be read, any cookie will do.
@@ -39,7 +40,7 @@ pub(super) fn keep_signed_in_site(
         return true;
     }
     match before {
-        Some(before) => after.gained_since(before, site),
+        Some(before) => after.changed_since(before, site),
         None => after.has(site),
     }
 }
@@ -186,7 +187,7 @@ impl Hub {
         &self,
         shared: &Shared,
         host: &str,
-        before: Option<&CookieMarks>,
+        before: Option<CookieMarks>,
     ) -> bool {
         let site = site_of(host);
         let listed = self
@@ -195,9 +196,10 @@ impl Hub {
             .unwrap_or_default()
             .iter()
             .any(|s| s.site == site);
+        // Both sets of value hashes go as soon as they're compared.
         let (keep, held) = match shared.browser.cookie_marks().await {
             Ok(after) => (
-                keep_signed_in_site(&site, listed, before, &after),
+                keep_signed_in_site(&site, listed, before.as_ref(), &after),
                 Some(after.sites()),
             ),
             Err(err) => {
@@ -206,6 +208,7 @@ impl Hub {
                 (true, None)
             }
         };
+        drop(before);
         if keep {
             if let Err(err) = self.store.add_site(&shared.owner, &site) {
                 tracing::warn!(%err, "couldn't remember the site");
@@ -357,7 +360,7 @@ impl Hub {
         };
         shared.browser.close_window().await;
         if outcome == SignInOutcome::Done {
-            self.settle_sign_in(&shared, &site, before.as_ref()).await;
+            self.settle_sign_in(&shared, &site, before).await;
         }
         if let Err(err) = self.record(bot, EventKind::SignIn { site, outcome }) {
             tracing::warn!(%err, "couldn't record the sign-in");
@@ -424,7 +427,7 @@ impl Hub {
         {
             let shared = Arc::clone(shared);
             tokio::spawn(async move {
-                hub.settle_sign_in(&shared, &adding.host, adding.before.as_ref())
+                hub.settle_sign_in(&shared, &adding.host, adding.before)
                     .await;
             });
         }
@@ -492,6 +495,28 @@ mod tests {
             false,
             Some(&before),
             &signed_in
+        ));
+    }
+
+    #[test]
+    fn a_new_site_is_kept_if_the_window_changed_an_old_cookie() {
+        let sid = |value: &str| {
+            CookieMarks::from_cookies(&[
+                json!({ "name": "sid", "domain": ".bank.example", "path": "/", "value": value }),
+            ])
+        };
+        let before = sid("guest");
+        assert!(!keep_signed_in_site(
+            "bank.example",
+            false,
+            Some(&before),
+            &sid("guest")
+        ));
+        assert!(keep_signed_in_site(
+            "bank.example",
+            false,
+            Some(&before),
+            &sid("signed-in")
         ));
     }
 

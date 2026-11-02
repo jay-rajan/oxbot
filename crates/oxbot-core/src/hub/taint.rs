@@ -14,7 +14,9 @@
 //!
 //! Trusted ([`TRUSTED_TOOLS`]): oxbot's own tools, whose text oxbot writes
 //! (statuses, refusals, sign-in results); the team tools mark the session
-//! themselves when they hand back someone else's text.
+//! themselves when they hand back someone else's text. Also Claude Code's
+//! planning tools ([`TRUSTED_BUILTINS`]), which only echo Claude's own plan
+//! or load tool definitions, never outside text.
 //!
 //! Claude remembers what it read for the whole session, across turns and
 //! restarts, so the taint does too: it's saved with the session and only a
@@ -38,11 +40,25 @@ const TRUSTED_TOOLS: [&str; 5] = [
     SIGN_IN_TOOL,
 ];
 
+/// Claude Code's own tools that bring in no outside text: its to-do list
+/// and task notes (echoing what Claude wrote), plan mode, and loading
+/// tool definitions. Not `TaskList`/`TaskGet`/`TaskOutput` (another agent
+/// or a background command may have written what they return).
+const TRUSTED_BUILTINS: [&str; 6] = [
+    "TodoWrite",
+    "ToolSearch",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "TaskCreate",
+    "TaskUpdate",
+];
+
 /// Why a call to tool `name` taints the session (`page`: the page the
 /// browser is on, if known), or `None` for a trusted tool. Shown on the
 /// card after "Herder has read".
 pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Option<String> {
-    if TRUSTED_TOOLS.iter().any(|t| name == tools::full_name(t)) {
+    if TRUSTED_TOOLS.iter().any(|t| name == tools::full_name(t)) || TRUSTED_BUILTINS.contains(&name)
+    {
         return None;
     }
     if name.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")) {
@@ -121,6 +137,29 @@ mod tests {
             Some("a web page")
         );
         for t in ["Read", "Grep", "Glob", "Edit", "Bash", "mcp__other__x"] {
+            assert!(untrusted_tool(t, None).is_some(), "{t}");
+        }
+    }
+
+    #[test]
+    fn claude_codes_planning_tools_are_trusted_but_not_its_readers() {
+        for t in TRUSTED_BUILTINS {
+            assert_eq!(untrusted_tool(t, None), None, "{t}");
+        }
+        for t in [
+            "Read",
+            "Grep",
+            "Glob",
+            "WebFetch",
+            "WebSearch",
+            "Bash",
+            "Task",
+            "TaskList",
+            "TaskGet",
+            "TaskOutput",
+            "todowrite",
+            "mcp__x__TodoWrite",
+        ] {
             assert!(untrusted_tool(t, None).is_some(), "{t}");
         }
     }

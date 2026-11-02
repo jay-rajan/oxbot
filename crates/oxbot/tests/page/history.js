@@ -28,7 +28,7 @@ const ctx = {
 };
 const vm = require("vm");
 vm.createContext(ctx);
-vm.runInContext(src + "\n;globalThis.__t = { bots, onMessage, select, setWs: (w) => { ws = w; } };", ctx);
+vm.runInContext(src + "\n;globalThis.__t = { bots, onMessage, select, maybeLoadOlder, setWs: (w) => { ws = w; } };", ctx);
 const t = ctx.__t;
 const sent = [];
 t.setWs({ readyState: 1, send: (m) => sent.push(JSON.parse(m)) });
@@ -67,5 +67,27 @@ const before = b.events.length;
 t.select("b");
 check(before > 600 && b.events.length === 600 && b.events[b.events.length - 1].seq === 1502, "left chat trimmed to 3 pages, newest kept");
 check(b.firstSeq === b.events[0].seq && b.hasOlder === true, "and can page back again");
+// 4. An older page asked for before the chat was trimmed is dropped, not
+// put in front with a gap; one asked for after joins as usual.
+t.select("a");
+b.loadingOlder = true;
+t.onMessage({ type: "history", bot: "a", events: range(600, 699).map((s) => ev("a", s)), first_seq: 600, has_older: true });
+check(b.events.length === 700 && b.firstSeq === 600, "older page fills the chat past 3 pages");
+sent.length = 0;
+t.maybeLoadOlder();
+check(sent.length === 1 && sent[0].type === "older" && sent[0].before === 600, "asks for the page before");
+t.select("b");
+check(b.events.length === 600 && b.firstSeq === 703, "leaving trims it");
+t.onMessage({ type: "history", bot: "a", events: range(500, 599).map((s) => ev("a", s)), first_seq: 500, has_older: true });
+check(b.events.length === 600 && b.events[0].seq === 703 && b.firstSeq === 703, "the late page from before the trim is dropped");
+t.onMessage({ type: "history", bot: "a", events: range(100, 120).map((s) => ev("a", s)), first_seq: 100, has_older: true });
+check(b.events.length === 600 && b.events[0].seq === 703, "an earlier page nobody asked for is ignored");
+t.select("a");
+sent.length = 0;
+t.maybeLoadOlder();
+check(sent.length === 1 && sent[0].before === 703, "asks again from the trimmed start");
+t.onMessage({ type: "history", bot: "a", events: range(600, 699).map((s) => ev("a", s)), first_seq: 600, has_older: true });
+check(b.events.length === 700 && b.events[0].seq === 600 && b.events[100].seq === 703, "the fresh older page joins without a gap");
+check(b.loadingOlder === false && b.olderAsks.length === 0, "nothing left waiting");
 console.log(ok ? "ALL OK" : "SOME FAILED");
 process.exit(ok ? 0 : 1);
