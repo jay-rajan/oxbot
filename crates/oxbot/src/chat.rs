@@ -149,6 +149,14 @@ impl View {
                 };
                 println!("   · {what} {site}");
             }
+            EventKind::Report {
+                title,
+                summary,
+                sources,
+                ..
+            } => println!(
+                "   · Report: {title}. {summary} ({sources} sources; open it in the oxbot app)"
+            ),
             EventKind::Error { message } => println!("   ! {message}"),
         }
     }
@@ -238,6 +246,8 @@ impl View {
             | ServerMsg::Sections { .. }
             | ServerMsg::People { .. }
             | ServerMsg::AllowRules { .. }
+            | ServerMsg::Report(_)
+            | ServerMsg::Reports { .. }
             | ServerMsg::Usage(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }

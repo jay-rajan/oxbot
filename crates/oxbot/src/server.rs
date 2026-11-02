@@ -400,6 +400,22 @@ impl Client {
                 name,
                 bot: bot.map(|b| self.inner(b)),
             },
+            ClientMsg::OpenReport {
+                bot,
+                id,
+                utc_offset_min,
+            } => ClientMsg::OpenReport {
+                bot: self.inner(bot),
+                id,
+                utc_offset_min,
+            },
+            ClientMsg::ListReports { bot } => ClientMsg::ListReports {
+                bot: self.inner(bot),
+            },
+            ClientMsg::DeleteReport { bot, id } => ClientMsg::DeleteReport {
+                bot: self.inner(bot),
+                id,
+            },
             other => other,
         }
     }
@@ -456,6 +472,14 @@ impl Client {
             ServerMsg::AllowRules { bot, rules } => ServerMsg::AllowRules {
                 bot: self.outer(&bot)?,
                 rules,
+            },
+            ServerMsg::Report(mut r) => {
+                r.bot = self.outer(&r.bot)?;
+                ServerMsg::Report(r)
+            }
+            ServerMsg::Reports { bot, reports } => ServerMsg::Reports {
+                bot: self.outer(&bot)?,
+                reports,
             },
             ServerMsg::Bots { bots } => ServerMsg::Bots {
                 bots: bots
@@ -763,8 +787,57 @@ async fn handle(
         ClientMsg::MoveBot { bot, section } => {
             reply(state.hub.move_bot(&bot, section.as_deref(), &viewer))
         }
+        ClientMsg::OpenReport { .. }
+        | ClientMsg::ListReports { .. }
+        | ClientMsg::DeleteReport { .. } => handle_reports(msg, state, client),
         other => handle_sign_ins(other, state, &viewer).await,
     }
+}
+
+/// Opens, lists and deletes a bot's research reports. A report goes only
+/// to someone who may open its bot (as its chat does); nothing of it is
+/// read before that's known.
+fn handle_reports(msg: ClientMsg, state: &AppState, client: &Client) -> Vec<ServerMsg> {
+    let viewer = &client.viewer;
+    let hidden = |bot: &str| {
+        vec![ServerMsg::Error {
+            message: oxbot_core::HubError::UnknownBot(bot.to_owned()).to_string(),
+        }]
+    };
+    let result = match msg {
+        ClientMsg::OpenReport {
+            bot,
+            id,
+            utc_offset_min,
+        } => {
+            if !client.sees(&bot) {
+                return hidden(&bot);
+            }
+            state
+                .hub
+                .report_for(&bot, &id, viewer, utc_offset_min.unwrap_or(0))
+                .map(|view| vec![ServerMsg::Report(view)])
+        }
+        ClientMsg::ListReports { bot } => {
+            if !client.sees(&bot) {
+                return hidden(&bot);
+            }
+            state
+                .hub
+                .reports_for(&bot, viewer)
+                .map(|reports| vec![ServerMsg::Reports { bot, reports }])
+        }
+        ClientMsg::DeleteReport { bot, id } => state
+            .hub
+            .delete_report(&bot, &id, viewer)
+            .map(|reports| vec![ServerMsg::Reports { bot, reports }]),
+        _ => Ok(Vec::new()),
+    };
+    result.unwrap_or_else(|e| {
+        vec![ServerMsg::Error {
+            message: e.to_string(),
+        }]
+    })
 }
 
 /// Sends a bot's history: replayed events ([`ClientMsg::Subscribe`]) or a
@@ -1065,11 +1138,11 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             Some(ServerMsg::Event(e))
         }
         ServerMsg::Delta { ref bot, .. } => client.subs.contains_key(bot).then_some(msg),
-        ServerMsg::History { ref bot, .. } => client.sees(bot).then_some(msg),
         // A bot's rules also go only to those who may manage it: see
         // [`for_viewer`].
         ServerMsg::AllowRules { ref bot, .. } if client.sees(bot) => Some(msg),
         ServerMsg::AllowRules { .. } => None,
+        ServerMsg::Report(ref r) => client.sees(&r.bot).then_some(msg),
         ServerMsg::Bots { bots } => {
             client.see(&bots);
             Some(ServerMsg::Bots {
@@ -1077,9 +1150,12 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             })
         }
         ServerMsg::BotCreated(ref b) if !client.sees(&b.id) => None,
-        ServerMsg::Activity { ref bot, .. } | ServerMsg::Browser { ref bot, .. } => {
-            client.sees(bot).then_some(msg)
-        }
+        // History and report lists are direct answers, listed so one never
+        // reaches a client that doesn't see its bot.
+        ServerMsg::History { ref bot, .. }
+        | ServerMsg::Activity { ref bot, .. }
+        | ServerMsg::Browser { ref bot, .. }
+        | ServerMsg::Reports { ref bot, .. } => client.sees(bot).then_some(msg),
         // A card goes to the person whose request raised it, and the Farm.
         ServerMsg::ApprovalNeeded(ref a) => {
             (client.sees(&a.bot) && answers(a, &client.viewer)).then_some(msg)
@@ -1282,6 +1358,23 @@ mod tests {
             owner_id: None,
         };
         assert!(forward(home, &mut ann).is_some());
+
+        // A report never reaches someone who doesn't see its bot.
+        let report = ServerMsg::Report(oxbot_protocol::ReportView {
+            bot: "mine".into(),
+            id: "r_1".into(),
+            title: "SECRET".into(),
+            created_ms: 0,
+            html: "SECRET".into(),
+        });
+        assert!(forward(report.clone(), &mut ann).is_none());
+        assert!(forward(report, &mut farm).is_some());
+        let list = ServerMsg::Reports {
+            bot: "mine".into(),
+            reports: vec![],
+        };
+        assert!(forward(list.clone(), &mut ann).is_none());
+        assert!(forward(list, &mut farm).is_some());
 
         // A bot made private later drops out of the list and the subscriptions.
         ann.subs.insert("shared".into(), 0);
@@ -1736,6 +1829,156 @@ mod tests {
         assert!(
             matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("Herder")),
             "{replies:?}"
+        );
+    }
+
+    const BANK_REPORT: &str = "r_0123456789abcdef0123456789abcdef";
+    const HERDER_REPORT: &str = "r_fedcba9876543210fedcba9876543210";
+
+    fn a_report(id: &str, title: &str) -> oxbot_core::report::Report {
+        oxbot_core::report::Report {
+            id: id.into(),
+            created_ms: 0,
+            asked_by: None,
+            question: "research my bank".into(),
+            title: title.into(),
+            summary: "One line.".into(),
+            markdown: "Fees are low [1].".into(),
+            sources: vec![oxbot_core::report::Source {
+                n: 1,
+                url: "https://bank.example.com/fees".into(),
+                title: "Fees".into(),
+                site: "example.com".into(),
+                read_ms: 0,
+            }],
+            links: vec![],
+        }
+    }
+
+    /// A server with Sam's private bot `bank` and a report in it, and a
+    /// report in Ann's own Herder.
+    fn bank_state(dir: &std::path::Path) -> AppState {
+        let store = oxbot_core::Store::open_in_memory().unwrap();
+        let sam = store.find_or_create_person("Sam").unwrap().0.id;
+        store.find_or_create_person("Jay").unwrap();
+        let (ann, _) = store.find_or_create_person("Ann").unwrap();
+        let mut bank =
+            oxbot_core::Bot::create(dir, oxbot_core::BotId::new("bank").unwrap(), "Bank", "")
+                .unwrap();
+        bank.owner = Some(sam);
+        bank.created_by = Some("Sam".into());
+        bank.private = true;
+        bank.save().unwrap();
+        store
+            .add_report(&bank.id, &mut a_report(BANK_REPORT, "SECRET-REPORT"))
+            .unwrap();
+        store
+            .add_report(&ann.herder, &mut a_report(HERDER_REPORT, "Ann's research"))
+            .unwrap();
+        let central = oxbot_core::Bot::create(
+            dir,
+            oxbot_core::BotId::new(DEFAULT_BOT).unwrap(),
+            "Herder",
+            "",
+        )
+        .unwrap();
+        let hub = Hub::new(vec![central, bank], store, oxbot_core::HubConfig::new(dir));
+        AppState::new(hub, "test-mac")
+    }
+
+    fn client_for(state: &AppState, viewer: &Viewer) -> Client {
+        let viewer = state.hub.resolve(viewer).into_owned();
+        let herder = herder_for(state, &viewer);
+        let visible = state.hub.visible_ids(&viewer);
+        Client::with_visible(viewer, visible, herder)
+    }
+
+    #[tokio::test]
+    async fn a_report_opens_only_for_those_who_see_its_bot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = bank_state(tmp.path());
+        let (out, _rx) = mpsc::channel(4);
+        let open = |bot: &str, id: &str| ClientMsg::OpenReport {
+            bot: bot.into(),
+            id: id.into(),
+            utc_offset_min: Some(60),
+        };
+        for viewer in [Viewer::farm("Jay"), Viewer::gate("Sam")] {
+            let mut client = client_for(&state, &viewer);
+            let got = handle(open("bank", BANK_REPORT), &state, &mut client, &out).await;
+            let [ServerMsg::Report(view)] = &got[..] else {
+                panic!("a report: {got:?}")
+            };
+            assert_eq!(view.bot, "bank");
+            assert!(view.html.contains("SECRET-REPORT"));
+            assert!(view.html.contains("href=\"https://bank.example.com/fees\""));
+            let listed = handle(
+                ClientMsg::ListReports { bot: "bank".into() },
+                &state,
+                &mut client,
+                &out,
+            )
+            .await;
+            assert!(
+                matches!(&listed[..], [ServerMsg::Reports { reports, .. }] if reports.len() == 1),
+                "{listed:?}"
+            );
+        }
+        let mut ann = client_for(&state, &Viewer::gate("Ann"));
+        for msg in [
+            open("bank", BANK_REPORT),
+            ClientMsg::ListReports { bot: "bank".into() },
+            ClientMsg::DeleteReport {
+                bot: "bank".into(),
+                id: BANK_REPORT.into(),
+            },
+        ] {
+            let got = handle(msg, &state, &mut ann, &out).await;
+            assert!(matches!(&got[..], [ServerMsg::Error { .. }]), "{got:?}");
+            assert!(!format!("{got:?}").contains("SECRET"), "{got:?}");
+        }
+        // An id from another bot finds nothing.
+        let got = handle(open(DEFAULT_BOT, BANK_REPORT), &state, &mut ann, &out).await;
+        assert!(
+            matches!(&got[..], [ServerMsg::Error { message }] if message.contains("deleted")),
+            "{got:?}"
+        );
+        // `assistant` is Ann's own Herder, there and back.
+        let got = handle(open(DEFAULT_BOT, HERDER_REPORT), &state, &mut ann, &out).await;
+        let [ServerMsg::Report(view)] = &got[..] else {
+            panic!("her Herder's report: {got:?}")
+        };
+        let Some(ServerMsg::Report(view)) = ann.outbound(ServerMsg::Report(view.clone())) else {
+            panic!("passed on")
+        };
+        assert_eq!(view.bot, DEFAULT_BOT);
+        assert!(view.html.contains("By Herder"));
+        // The Farm's page doesn't see Ann's Herder at all.
+        let mut farm = client_for(&state, &Viewer::farm("Jay"));
+        let anns = herder_for(&state, &ann.viewer);
+        let got = handle(open(&anns, HERDER_REPORT), &state, &mut farm, &out).await;
+        assert!(farm.outbound(got[0].clone()).is_none(), "{got:?}");
+
+        // Deleting is for those who manage the bot.
+        let mut sam = client_for(&state, &Viewer::gate("Sam"));
+        let got = handle(
+            ClientMsg::DeleteReport {
+                bot: "bank".into(),
+                id: BANK_REPORT.into(),
+            },
+            &state,
+            &mut sam,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&got[..], [ServerMsg::Reports { reports, .. }] if reports.is_empty()),
+            "{got:?}"
+        );
+        let got = handle(open("bank", BANK_REPORT), &state, &mut sam, &out).await;
+        assert!(
+            matches!(&got[..], [ServerMsg::Error { message }] if message == "That report was deleted."),
+            "{got:?}"
         );
     }
 }
