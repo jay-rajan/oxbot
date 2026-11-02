@@ -73,6 +73,10 @@ pub struct HubConfig {
     /// Extra environment for every `claude` child (tests use this; the app
     /// passes a `PATH` that finds Node.js).
     pub extra_env: Vec<(String, String)>,
+    /// End-to-end test mode (`OXBOT_E2E`): its stand-in Claude never opens
+    /// real pages, so a blank tab may count for an "Always allow" rule
+    /// (see `Hub::blank_tab_counts_for_rules`). Off everywhere else.
+    pub e2e: bool,
     /// Tests only (the `test-people` feature): a viewer known only by name
     /// becomes the person called that, made if new, the first time the hub
     /// sees them, so tests can say `Viewer::gate("Sam")`. Without it (every
@@ -97,6 +101,7 @@ impl HubConfig {
             task_timeout: Duration::from_mins(10),
             idle_stop: Duration::from_mins(15),
             extra_env: Vec::new(),
+            e2e: false,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
         }

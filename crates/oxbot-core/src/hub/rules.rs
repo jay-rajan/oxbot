@@ -94,7 +94,11 @@ impl Hub {
             Some(browser) => browser.page_url(page_url).await,
             None => None,
         };
-        if !tab_shows(&rule.site, tab_url.as_deref()) {
+        if !tab_shows(
+            &rule.site,
+            tab_url.as_deref(),
+            self.blank_tab_counts_for_rules(),
+        ) {
             tracing::info!(bot = %bot.id, site = rule.site, "a rule matched, but the tab isn't on its site: asking");
             return Ok(false);
         }
@@ -108,6 +112,14 @@ impl Hub {
             },
         )?;
         Ok(true)
+    }
+
+    /// Whether a blank tab may count as on a rule's site: only in the
+    /// end-to-end test mode (`OXBOT_E2E`), whose stand-in Claude never opens
+    /// real pages. Never otherwise: an `about:blank` page can inherit its
+    /// opener's origin and hold content a site wrote into it.
+    fn blank_tab_counts_for_rules(&self) -> bool {
+        self.config.e2e
     }
 
     /// Bot `id`'s rules, for someone who may manage it.
@@ -166,13 +178,14 @@ impl Hub {
 }
 
 /// Whether the tab Chrome itself reports (`tab_url`, from oxbot's own
-/// connection) is on `site`, so a rule for `site` may apply. The site the
-/// browser tool names can come from a page's title; this can't. No answer
-/// (no guard) means no. A blank tab counts: a click there can't reach any
-/// site.
-pub(super) fn tab_shows(site: &str, tab_url: Option<&str>) -> bool {
+/// connection) is a real http(s) page on exactly `site`, so a rule for
+/// `site` may apply. The site the browser tool names can come from a page's
+/// title; this can't. No answer (no guard) means no. A blank tab counts
+/// only when `blank_counts` (test mode, see
+/// `Hub::blank_tab_counts_for_rules`).
+pub(super) fn tab_shows(site: &str, tab_url: Option<&str>, blank_counts: bool) -> bool {
     match tab_url {
-        Some("about:blank") => true,
+        Some("about:blank") => blank_counts,
         Some(url) => oxbot_browser::web_host(url).is_some_and(|host| host == site),
         None => false,
     }
@@ -189,15 +202,18 @@ mod tests {
 
     #[test]
     fn only_the_tab_chrome_reports_counts() {
-        assert!(tab_shows(
-            "www.example.com",
-            Some("https://www.example.com/a?b")
-        ));
-        assert!(!tab_shows("www.example.com", Some("https://example.com/")));
-        assert!(!tab_shows("example.com", Some("https://evil.example.net/")));
-        assert!(!tab_shows("example.com", None), "no guard: no rule");
-        assert!(!tab_shows("example.com", Some("chrome://newtab/")));
-        assert!(tab_shows("example.com", Some("about:blank")));
+        for blank_counts in [false, true] {
+            let shows = |url| tab_shows("www.example.com", url, blank_counts);
+            assert!(shows(Some("https://www.example.com/a?b")));
+            assert!(!shows(Some("https://example.com/")), "exact host only");
+            assert!(!shows(Some("https://evil.example.net/")));
+            assert!(!shows(None), "no guard: no rule");
+            assert!(!shows(Some("chrome://newtab/")));
+            assert!(!shows(Some("data:text/html,x")));
+        }
+        // A blank tab can carry its opener's content: never, outside tests.
+        assert!(!tab_shows("www.example.com", Some("about:blank"), false));
+        assert!(tab_shows("www.example.com", Some("about:blank"), true));
     }
 
     /// A hub with Sam's shared bot `shop`, Herder, and Jay as the Farm's person.
@@ -285,6 +301,24 @@ mod tests {
         hub.remove_allow_rule("shop", rules[0].id, &sam_viewer)
             .unwrap();
         assert!(hub.matching_rule(&shop, &save).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_blank_tab_counts_for_rules_only_in_test_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, _, _) = hub(tmp.path());
+        assert!(!hub.blank_tab_counts_for_rules(), "off by default");
+        let bots = tmp.path().join("e2e-bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let e2e = Hub::new(
+            Vec::new(),
+            Store::open_in_memory().unwrap(),
+            HubConfig {
+                e2e: true,
+                ..HubConfig::new(&bots)
+            },
+        );
+        assert!(e2e.blank_tab_counts_for_rules());
     }
 
     #[tokio::test]

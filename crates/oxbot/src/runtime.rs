@@ -151,6 +151,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             .map_or_else(|| PathBuf::from("claude"), PathBuf::from),
         browser,
         extra_env: path_env,
+        e2e,
         ..HubConfig::new(home.bots_dir())
     };
     let hub = Hub::new(bots, store, config);
