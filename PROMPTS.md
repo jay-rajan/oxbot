@@ -198,3 +198,7 @@ Plan: /pr_test skill; e2e/ tests (TOML steps with `covers`), seed bots + seed.sq
 ## 76. 2026-11-01
 "in the phone app, clicking elsewhere should close the bot nav bar." → "oxbot is not pairing after unpairing" → "ok all good. Lets now commit this after test and then move on to the open issues"
 → Phone sidebar: a dimmed layer behind it closes it on tap (and Escape). QR scanner on Android: frames now go to Rust as text (one character per pixel, shifted past JSON escapes) because Android's bridge carries only text; raw bytes were refused on every frame. 173 tests, e2e 12/12. Committed the Gate work (Farm 2) on main.
+
+## 77. 2026-11-01
+"start fixing it. review and fix the majors and test it in loop and push it" → "it ok if not. i am going to reset the bot anyway." → "I will test once manually before push of all the 7"
+→ Issue #1 Foundations on branch issue-1-foundations: hub.rs split; paged history (open_bot/older/history) and latest numbers in memory; person ids (people table, migration 9, bot.toml owner, BrowserOwner); server-side can_manage/locked; Herder may task your own private bots with a card after reading outside text; replies as data; sign-in and log fixes. /pr_review (9 lenses): 2 Criticals (Herders reaching each other; web-content flag reset each message) and 12 Majors fixed in four rounds; report https://claude.ai/artifact/F75cmFgkXk1rr55TYPKuQF. 249 tests, e2e 13/13, Mac app check passes, APK builds. Not pushed: waiting for Jay's manual test.
