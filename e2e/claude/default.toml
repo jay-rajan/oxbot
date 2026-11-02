@@ -35,6 +35,38 @@ after = "Posted."
 denied = "Okay, I didn't post it."
 
 [[reply]]
+when = "search jobs"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "2_4" }
+snapshot = "## Pages\n1: Jobs (https://jobs.example.com/) [selected]\n## Latest page snapshot\nuid=2_1 RootWebArea \"Jobs\"\n  uid=2_3 searchbox \"Search jobs\"\n  uid=2_4 button \"Search\""
+after = "Searched the jobs."
+denied = "Okay, I didn't search."
+
+[[reply]]
+when = "apply filters"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "3_7" }
+snapshot = "## Pages\n1: Jobs (https://jobs.example.com/?q=rust) [selected]\n## Latest page snapshot\nuid=3_1 RootWebArea \"Jobs\"\n  uid=3_6 checkbox \"Remote\"\n  uid=3_7 button \"Apply filters\"\n  uid=3_8 link \"Next\""
+after = "Filtered the results."
+denied = "Okay, I didn't filter."
+
+[[reply]]
+when = "click unknown"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "9_999" }
+snapshot = "## Pages\n1: Jobs (https://jobs.example.com/?q=rust) [selected]\n## Latest page snapshot\nuid=4_1 RootWebArea \"Jobs\""
+after = "Opened the result."
+denied = "Okay, I didn't open it."
+
+[[reply]]
+when = "book it"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "5_2" }
+snapshot = "## Pages\n1: Rooms (https://rooms.example.com/) [selected]\n## Latest page snapshot\nuid=5_1 RootWebArea \"Rooms\"\n  uid=5_2 button \"Book now\""
+after = "Booked."
+denied = "Okay, I didn't book it."
+
+[[reply]]
 when = "take your time"
 say = "Done, slowly."
 delay_ms = 3000

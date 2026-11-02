@@ -1,0 +1,40 @@
+name = "Searching and filtering need no OK"
+about = "A bot clicks search, filters and an element oxbot can't name without a card; a booking still asks."
+covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-browser/src/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "search jobs"
+[[step]]
+wait_for = "Searched the jobs."
+note = "The Search button runs at once"
+[[step]]
+expect_not = "Allow once"
+[[step]]
+send = "apply filters"
+[[step]]
+wait_for = "Filtered the results."
+note = "So does Apply filters"
+[[step]]
+expect_not = "Allow once"
+[[step]]
+send = "click unknown"
+[[step]]
+wait_for = "Opened the result."
+note = "An element missing from the snapshot is allowed (and logged)"
+shot = "unnamed-click-allowed"
+[[step]]
+expect_not = "couldn't see what it is"
+[[step]]
+send = "book it"
+[[step]]
+wait_for = "Allow once"
+note = "Book now still asks"
+shot = "booking-asks"
+[[step]]
+expect = "Book now"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "didn't book it"
