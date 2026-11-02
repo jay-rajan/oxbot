@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! bots/assistant/
-//!   bot.toml          name = "Herder", optional model, created_by, private
+//!   bot.toml          name = "Herder", optional model, owner, created_by, private
 //!   instructions.md   appended to Claude's system prompt
 //!   work/             Claude's working folder: the only place it may touch
 //! ```
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::id::{BotId, BotIdError};
+use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
 
 /// The central bot's id. It's Herder: created on first run, kept if
 /// missing, and the only bot that can create other bots and give them tasks.
@@ -54,6 +54,28 @@ pub fn personal_herder_id(person: &str) -> BotId {
     };
     BotId::new(id).unwrap_or_else(|_| unreachable!("only a-z, 0-9 and dashes, at most 38 long"))
 }
+
+/// A Herder id for `person` made from their id, for when the one made from
+/// their name is someone else's (`Sam` and `sam` share it). It ends in 8
+/// hex digits where [`personal_herder_id`] has 6, so the two never meet.
+#[must_use]
+pub fn personal_herder_id_for(person: &str, id: &PersonId) -> BotId {
+    let slug: String = person
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(20)
+        .collect();
+    let hex = id.as_str().trim_start_matches("p_");
+    let hex = hex.get(..8).unwrap_or(hex);
+    let id = if slug.is_empty() {
+        format!("{PERSONAL_HERDER_PREFIX}{hex}")
+    } else {
+        format!("{PERSONAL_HERDER_PREFIX}{slug}-{hex}")
+    };
+    BotId::new(id).unwrap_or_else(|_| unreachable!("only a-z, 0-9 and dashes, at most 40 long"))
+}
 /// Names and instructions the central bot had before it was Herder.
 const OLD_NAMES: &[&str] = &["Assistant"];
 const OLD_INSTRUCTIONS: &[&str] = &[
@@ -69,12 +91,21 @@ Keep replies short: the user may be reading on a phone.";
 /// Who is asking: a person, and whether they're on the Farm itself.
 ///
 /// The Farm (the Mac that runs the bots) can see and change every bot.
-/// Anyone else sees shared bots and their own private ones.
+/// Anyone else sees shared bots and their own private ones. These are the
+/// only rules for that: the page and Herder get their answers from here.
+///
+/// A viewer tied to a person (every viewer the server and hub make) is
+/// matched with bots by person id; names are only for showing. One with
+/// only a name (tests, or before the hub looks the name up) is matched by
+/// name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Viewer {
+    /// Their person id, once known.
+    pub id: Option<PersonId>,
     /// Their name, e.g. `Jayadev`.
     pub name: String,
-    /// On the Farm itself.
+    /// On the Farm itself. Only the Farm secret makes a connection this,
+    /// never a name.
     pub farm: bool,
 }
 
@@ -83,6 +114,7 @@ impl Viewer {
     #[must_use]
     pub fn farm(name: impl Into<String>) -> Self {
         Self {
+            id: None,
             name: name.into(),
             farm: true,
         }
@@ -92,31 +124,68 @@ impl Viewer {
     #[must_use]
     pub fn gate(name: impl Into<String>) -> Self {
         Self {
+            id: None,
             name: name.into(),
             farm: false,
         }
     }
 
-    /// Whether they may see a bot made by `created_by` that is `private`.
+    /// The person `id` called `name`, on the Farm (`farm`) or not.
     #[must_use]
-    pub fn can_see(&self, created_by: Option<&str>, private: bool) -> bool {
-        self.farm || !private || self.made(created_by)
+    pub fn person(id: PersonId, name: impl Into<String>, farm: bool) -> Self {
+        Self {
+            id: Some(id),
+            name: name.into(),
+            farm,
+        }
+    }
+
+    /// Whether they may see a bot made by `made_by` that is `private`.
+    /// `made_by` is the maker's id for a viewer with an id, else their name
+    /// (see [`Viewer::maker`]).
+    #[must_use]
+    pub fn can_see(&self, made_by: Option<&str>, private: bool) -> bool {
+        self.farm || !private || self.made(made_by)
     }
 
     /// Whether they may rename, delete, or change who sees a bot made by
-    /// `created_by`.
+    /// `made_by` (as for [`Viewer::can_see`]).
     #[must_use]
-    pub fn can_manage(&self, created_by: Option<&str>) -> bool {
-        self.farm || self.made(created_by)
+    pub fn can_manage(&self, made_by: Option<&str>) -> bool {
+        self.farm || self.made(made_by)
+    }
+
+    /// Who made a bot, as this viewer is matched against it: its owner's
+    /// id if the viewer has an id, else the maker's name.
+    #[must_use]
+    pub fn maker<'a>(
+        &self,
+        owner: Option<&'a str>,
+        created_by: Option<&'a str>,
+    ) -> Option<&'a str> {
+        if self.id.is_some() { owner } else { created_by }
+    }
+
+    /// Whether they may open the listed bot `b`.
+    #[must_use]
+    pub fn can_see_info(&self, b: &oxbot_protocol::BotInfo) -> bool {
+        self.can_see(
+            self.maker(b.owner.as_deref(), b.created_by.as_deref()),
+            b.private,
+        )
     }
 
     /// The bot list as they get it: every bot is listed (name, maker,
     /// lock), but a private bot they can't open shows nothing of what it's
-    /// doing (no activity, no message counts).
+    /// doing (no activity, no message counts). Each says whether they may
+    /// manage it and whether it's locked to them, so clients don't decide.
     #[must_use]
     pub fn redact(&self, mut bots: Vec<oxbot_protocol::BotInfo>) -> Vec<oxbot_protocol::BotInfo> {
         for b in &mut bots {
-            if !self.can_see(b.created_by.as_deref(), b.private) {
+            let maker = self.maker(b.owner.as_deref(), b.created_by.as_deref());
+            b.locked = !self.can_see(maker, b.private);
+            b.can_manage = !b.central && self.can_manage(maker);
+            if b.locked {
                 b.busy = false;
                 b.last_seq = 0;
                 b.last_reply_seq = 0;
@@ -126,8 +195,11 @@ impl Viewer {
         bots
     }
 
-    fn made(&self, created_by: Option<&str>) -> bool {
-        !self.name.is_empty() && created_by == Some(self.name.as_str())
+    fn made(&self, made_by: Option<&str>) -> bool {
+        match &self.id {
+            Some(id) => made_by == Some(id.as_str()),
+            None => !self.name.is_empty() && made_by == Some(self.name.as_str()),
+        }
     }
 }
 
@@ -142,10 +214,13 @@ pub struct Bot {
     pub model: Option<String>,
     /// Extra instructions for Claude.
     pub instructions: String,
-    /// Who created it (a person's name), if known.
+    /// Who it belongs to: the person who made it (or the Farm's own person,
+    /// for bots from before oxbot kept track). Access is decided by this.
+    pub owner: Option<PersonId>,
+    /// Its maker's name when it was made, for showing.
     pub created_by: Option<String>,
-    /// Only its creator (and the Farm) can see and use it, and it uses
-    /// only its creator's own browser.
+    /// Only its owner (and the Farm) can see and use it, and it uses
+    /// only its owner's own browser.
     pub private: bool,
     /// The bot's folder.
     pub dir: PathBuf,
@@ -156,6 +231,9 @@ struct BotFile {
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     model: Option<String>,
+    /// The owner's person id (`p_…`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     created_by: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -236,10 +314,19 @@ impl Bot {
         })?;
         // A missing instructions file just means no extra instructions.
         let instructions = fs::read_to_string(dir.join("instructions.md")).unwrap_or_default();
+        let owner = file.owner.and_then(|o| match PersonId::new(o) {
+            Ok(id) => Some(id),
+            Err(err) => {
+                // No owner rather than a wrong one: private bots then lock.
+                tracing::warn!(bot = %id, %err, "ignoring a bad owner in bot.toml");
+                None
+            }
+        });
         Ok(Self {
             id,
             name: file.name,
             model: file.model,
+            owner,
             created_by: file.created_by,
             private: file.private,
             instructions,
@@ -260,7 +347,8 @@ impl Bot {
         Self::create_by(bots_dir, id, name, instructions, None)
     }
 
-    /// Like [`Bot::create`], recording who created it.
+    /// Like [`Bot::create`], recording who created it (by name; the hub
+    /// gives it an owner when it loads it).
     ///
     /// # Errors
     /// Fails if the bot exists or its files can't be written.
@@ -269,6 +357,21 @@ impl Bot {
         id: BotId,
         name: &str,
         instructions: &str,
+        created_by: Option<&str>,
+    ) -> Result<Self, BotError> {
+        Self::create_owned(bots_dir, id, name, instructions, None, created_by)
+    }
+
+    /// Like [`Bot::create`], owned by `owner` (whose name is `created_by`).
+    ///
+    /// # Errors
+    /// Fails if the bot exists or its files can't be written.
+    pub fn create_owned(
+        bots_dir: &Path,
+        id: BotId,
+        name: &str,
+        instructions: &str,
+        owner: Option<&PersonId>,
         created_by: Option<&str>,
     ) -> Result<Self, BotError> {
         let dir = bots_dir.join(id.as_str());
@@ -280,6 +383,7 @@ impl Bot {
         let file = BotFile {
             name: name.to_owned(),
             model: None,
+            owner: owner.map(ToString::to_string),
             created_by: created_by.map(str::to_owned),
             private: false,
         };
@@ -295,25 +399,39 @@ impl Bot {
         self.dir.join("work")
     }
 
+    /// Who made it, as `viewer` is matched against it (see [`Viewer::maker`]).
+    fn maker_for(&self, viewer: &Viewer) -> Option<&str> {
+        viewer.maker(
+            self.owner.as_ref().map(PersonId::as_str),
+            self.created_by.as_deref(),
+        )
+    }
+
     /// Whether `viewer` may see and use it.
     #[must_use]
     pub fn visible_to(&self, viewer: &Viewer) -> bool {
-        viewer.can_see(self.created_by.as_deref(), self.private)
+        viewer.can_see(self.maker_for(viewer), self.private)
     }
 
-    /// Whose browser it uses: its creator's own if it's private, else the
-    /// home browser ([`crate::store::HOME`]). `None` for a private bot with
-    /// no creator: it gets no browser rather than the home one.
+    /// Whether `viewer` may rename it, delete it or change who sees it.
     #[must_use]
-    pub fn browser_owner(&self) -> Option<String> {
+    pub fn manageable_by(&self, viewer: &Viewer) -> bool {
+        viewer.can_manage(self.maker_for(viewer))
+    }
+
+    /// Whose browser it uses: its owner's own if it's private, else the
+    /// home browser. `None` for a private bot with no owner: it gets no
+    /// browser rather than the home one.
+    #[must_use]
+    pub fn browser_owner(&self) -> Option<BrowserOwner> {
         if self.private {
-            self.created_by.clone().filter(|c| !c.trim().is_empty())
+            self.owner.clone().map(BrowserOwner::Person)
         } else {
-            Some(crate::store::HOME.to_owned())
+            Some(BrowserOwner::Home)
         }
     }
 
-    /// Writes its name, model, creator and privacy back to `bot.toml`.
+    /// Writes its name, model, owner, creator and privacy back to `bot.toml`.
     ///
     /// # Errors
     /// Fails if the file can't be written.
@@ -323,6 +441,7 @@ impl Bot {
             &BotFile {
                 name: self.name.clone(),
                 model: self.model.clone(),
+                owner: self.owner.as_ref().map(ToString::to_string),
                 created_by: self.created_by.clone(),
                 private: self.private,
             },
@@ -539,6 +658,32 @@ mod tests {
         assert!(moved.ends_with("bank-42"));
         assert!(moved.join("bot.toml").is_file());
         assert_eq!(load_all(&bots).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn an_owner_is_saved_and_a_bad_one_is_dropped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sam = PersonId::random();
+        let id = BotId::new("bank").unwrap();
+        let bot = Bot::create_owned(tmp.path(), id, "Bank", "", Some(&sam), Some("Sam")).unwrap();
+        assert_eq!(Bot::load(&bot.dir).unwrap().owner, Some(sam.clone()));
+        let other = PersonId::random();
+        let mut viewer = Viewer::person(sam, "Someone else's name", false);
+        let mut private = Bot::load(&bot.dir).unwrap();
+        private.private = true;
+        assert!(private.visible_to(&viewer) && private.manageable_by(&viewer));
+        viewer.id = Some(other);
+        viewer.name = "Sam".into();
+        assert!(
+            !private.visible_to(&viewer) && !private.manageable_by(&viewer),
+            "the same name with another id owns nothing"
+        );
+        fs::write(
+            bot.dir.join("bot.toml"),
+            "name = \"Bank\"\nowner = \"Sam\"\n",
+        )
+        .unwrap();
+        assert_eq!(Bot::load(&bot.dir).unwrap().owner, None);
     }
 
     #[test]

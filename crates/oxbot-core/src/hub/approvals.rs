@@ -20,14 +20,22 @@ impl Hub {
     /// or the person the card's turn acts for.
     #[must_use]
     pub fn approval_visible(&self, id: u64, viewer: &Viewer) -> bool {
-        let card = lock(&self.approvals).get(&id).map(|(a, _)| a.clone());
-        card.is_some_and(|a| answers(&a, viewer) && self.bot_for(&a.bot, viewer).is_ok())
+        let card = lock(&self.approvals)
+            .get(&id)
+            .map(|(a, asker, _)| (a.bot.clone(), asker.clone()));
+        let viewer = self.resolve(viewer);
+        card.is_some_and(|(bot, asker)| {
+            let theirs = asker.is_some() && viewer.id == asker;
+            (viewer.farm || theirs) && self.bot_for(&bot, &viewer).is_ok()
+        })
     }
 
     /// The user answered an approval card. Returns whether it was still open.
     pub fn answer(&self, id: u64, answer: Answer) -> bool {
         let entry = lock(&self.approvals).remove(&id);
-        let Some((_, tx)) = entry else { return false };
+        let Some((_, _, tx)) = entry else {
+            return false;
+        };
         let _ = tx.send(answer);
         let _ = self.updates.send(ServerMsg::ApprovalResolved { id });
         true
@@ -38,7 +46,7 @@ impl Hub {
     pub fn pending_approvals(&self) -> Vec<Approval> {
         lock(&self.approvals)
             .values()
-            .map(|(a, _)| a.clone())
+            .map(|(a, _, _)| a.clone())
             .collect()
     }
 
@@ -46,7 +54,7 @@ impl Hub {
     pub(super) fn deny_open_approvals(&self, bot: &BotId) {
         let ids: Vec<u64> = lock(&self.approvals)
             .iter()
-            .filter(|(_, (a, _))| a.bot == bot.as_str())
+            .filter(|(_, (a, _, _))| a.bot == bot.as_str())
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -163,10 +171,11 @@ impl Hub {
             page: page.map(|(title, url)| if title.is_empty() { url } else { title }),
             detail: ask.detail.clone(),
             screenshot,
-            asker,
+            // Their name, for showing; answering is checked by id.
+            asker: asker.as_ref().and_then(|id| self.person_name(id)),
         };
         let (tx, rx) = oneshot::channel();
-        lock(&self.approvals).insert(id, (approval.clone(), tx));
+        lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
         let _ = self.updates.send(ServerMsg::ApprovalNeeded(approval));
         let _ = self.updates.send(ServerMsg::Activity {
             bot: bot_id.to_string(),
@@ -214,8 +223,10 @@ impl Hub {
     }
 }
 
-/// Whether `viewer` may see and answer `card`: the Farm, or the person the
-/// card's turn acts for. A card nobody asked for (no person) is the Farm's.
+/// Whether `viewer` should be shown `card`: the Farm, or the person the
+/// card's turn acts for (by name, as cards carry it; answering is checked
+/// by id in [`Hub::approval_visible`]). A card nobody asked for (no person)
+/// is the Farm's.
 #[must_use]
 pub fn answers(card: &Approval, viewer: &Viewer) -> bool {
     viewer.farm

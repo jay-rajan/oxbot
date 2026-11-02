@@ -9,6 +9,7 @@ use oxbot_protocol::{EventKind, ServerMsg};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+use super::access::maker_name;
 use super::{Hub, HubError};
 use crate::bot::{Bot, Viewer};
 use crate::id::BotId;
@@ -67,7 +68,7 @@ impl Hub {
             .await
             .get(bot)
             .and_then(|r| r.asker.clone());
-        let asker = Viewer::gate(asker.unwrap_or_default());
+        let asker = self.person_viewer(asker.as_ref());
         match tool {
             tools::SIGN_IN_TOOL => self.request_sign_in(bot, &text("url"), &text("why")).await,
             tools::LIST_BOTS_TOOL => (true, self.team(bot, &asker).await),
@@ -75,8 +76,8 @@ impl Hub {
                 // The user already said yes on the card (see `policy`).
                 // The bot belongs to whoever asked Herder for it.
                 let private = args.get("private").and_then(Value::as_bool) == Some(true);
-                let created_by = Some(asker.name.as_str()).filter(|n| !n.is_empty());
-                if private && created_by.is_none() {
+                let maker = asker.id.is_some().then_some(&asker);
+                if private && maker.is_none() {
                     return (
                         false,
                         "A private bot needs to know who it's for; ask the user to send their \
@@ -85,7 +86,7 @@ impl Hub {
                     );
                 }
                 match self
-                    .create_bot_with(&text("name"), &text("instructions"), created_by, private)
+                    .create_bot_as(&text("name"), &text("instructions"), maker, private)
                     .await
                 {
                     Ok(info) => (
@@ -127,14 +128,16 @@ impl Hub {
             .cloned()
             .collect();
         bots.sort_by(|a, b| a.name.cmp(&b.name));
+        let names = self.person_names();
         let mut out = String::new();
         for b in bots {
             // Other people's Herders (and the Farm's, for them) aren't team members.
             if b.is_central() && &b.id != me {
                 continue;
             }
+            let maker = maker_name(&b, &names);
             if !b.visible_to(asker) {
-                let who = b.created_by.as_deref().unwrap_or("someone");
+                let who = maker.as_deref().unwrap_or("someone");
                 let _ = writeln!(
                     out,
                     "- {} (id {}): private to {who}, locked. You can't see it or give it tasks.",
@@ -156,7 +159,7 @@ impl Hub {
                 "free"
             };
             let you = if b.is_central() { " (you)" } else { "" };
-            let maker = match (&b.created_by, b.private) {
+            let maker = match (&maker, b.private) {
                 (Some(who), true) => {
                     format!(", private to {who} (only they open it; you can't give it tasks)")
                 }
@@ -210,9 +213,8 @@ impl Hub {
         let mut updates = self.subscribe();
         let start = self.seqs_of(&to.id).last;
         let sender = self.bot_name(from);
-        let person = Some(asker.name.as_str());
         match self
-            .send_for(to.id.as_str(), message, Some(&sender), person)
+            .send_for(to.id.as_str(), message, Some(&sender), asker.id.as_ref())
             .await
         {
             Ok(()) => {}
@@ -304,10 +306,11 @@ impl Hub {
     fn locked_message(&self, target: &str, asker: &Viewer) -> Option<String> {
         let bot = self.bot(target).ok()?;
         (!bot.visible_to(asker)).then(|| {
+            let who =
+                maker_name(&bot, &self.person_names()).unwrap_or_else(|| "someone else".to_owned());
             format!(
-                "{} is private to {}. Only they can use it; tell the user that.",
-                bot.name,
-                bot.created_by.as_deref().unwrap_or("someone else")
+                "{} is private to {who}. Only they can use it; tell the user that.",
+                bot.name
             )
         })
     }

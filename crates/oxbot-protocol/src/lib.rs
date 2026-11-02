@@ -637,12 +637,13 @@ pub struct LogLine {
 
 /// What the shared browser is doing. Every bot uses the same Chrome, which
 /// keeps the user's sign-ins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserState {
     /// This server gives bots no browser.
     Disabled,
     /// Not running; starts when a bot needs it.
+    #[default]
     Off,
     /// Running, hidden.
     Ready,
@@ -715,7 +716,11 @@ pub enum Outcome {
 }
 
 /// What a client needs to show a bot in a list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a wire message: each flag is its own JSON field"
+)]
 pub struct BotInfo {
     /// Bot id, e.g. `assistant`.
     pub id: String,
@@ -735,13 +740,23 @@ pub struct BotInfo {
     /// bots and give them tasks.
     #[serde(default)]
     pub central: bool,
-    /// Who created it (a person's name); `None` for bots from before oxbot
-    /// kept track.
+    /// Who it belongs to (a person's name, as it is now).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
     /// Only its creator (and the Farm) can see and use it.
     #[serde(default)]
     pub private: bool,
+    /// Whether the client's person may rename it, delete it or change who
+    /// sees it. Decided by the server for each client.
+    #[serde(default)]
+    pub can_manage: bool,
+    /// Whether it's someone else's private bot, which won't open for the
+    /// client's person. Decided by the server for each client.
+    #[serde(default)]
+    pub locked: bool,
+    /// The owner's person id, for the server's checks. Never sent.
+    #[serde(skip)]
+    pub owner: Option<String>,
 }
 
 /// One stored event in a bot's history.
@@ -822,6 +837,24 @@ pub enum EventKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bot_flags_default_to_off_and_the_owner_is_never_sent() {
+        let old: BotInfo = serde_json::from_str(
+            r#"{"id":"a","name":"A","busy":false,"last_seq":0,"browser_state":"off"}"#,
+        )
+        .unwrap();
+        assert!(!old.can_manage && !old.locked && old.owner.is_none());
+        let info = BotInfo {
+            id: "a".into(),
+            owner: Some("p_0123456789abcdef".into()),
+            locked: true,
+            ..BotInfo::default()
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains(r#""locked":true"#), "{json}");
+        assert!(!json.contains("p_0123"), "{json}");
+    }
 
     #[test]
     fn hello_round_trips_through_json() {

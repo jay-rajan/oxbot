@@ -10,12 +10,12 @@ use oxbot_protocol::{EventKind, ServerMsg};
 use tokio::sync::OwnedSemaphorePermit;
 
 use super::{Hub, HubError, lock};
-use crate::bot::Bot;
-use crate::id::BotId;
+use crate::bot::{Bot, Viewer};
+use crate::id::{BotId, PersonId};
 
 impl Hub {
-    /// Sends a message to a bot from `from` (a person's name, if known).
-    /// Returns once Claude has it; the reply arrives through
+    /// Sends a message to a bot from the person called `from`, if known
+    /// (made if new). Returns once Claude has it; the reply arrives through
     /// [`Hub::subscribe`]. Waits if `max_concurrent_turns` turns are already
     /// running.
     ///
@@ -27,29 +27,52 @@ impl Hub {
         text: &str,
         from: Option<&str>,
     ) -> Result<(), HubError> {
-        self.send_for(bot, text, from, from).await
+        let from = from.map(str::trim).filter(|f| !f.is_empty());
+        let person = match from {
+            Some(name) => Some(self.sender(name)?),
+            None => None,
+        };
+        self.send_for(bot, text, from, person.as_ref()).await
     }
 
-    /// Like [`Hub::send`], for a turn that acts for `person` (who may not be
-    /// the sender: Herder passes tasks on for people).
+    /// Like [`Hub::send`], from `viewer` (by their person id).
+    ///
+    /// # Errors
+    /// Fails if the bot doesn't exist, is busy, or Claude can't be started.
+    pub async fn send_as(
+        self: &Arc<Self>,
+        bot: &str,
+        text: &str,
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = self.resolve(viewer).into_owned();
+        let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
+        self.send_for(bot, text, from, viewer.id.as_ref()).await
+    }
+
+    /// The person called `name`, telling every client if they're new.
+    fn sender(&self, name: &str) -> Result<PersonId, HubError> {
+        let (person, new) = self.store.find_or_create_person(name)?;
+        if new {
+            let _ = self.updates.send(ServerMsg::People {
+                people: self.people()?,
+            });
+        }
+        Ok(person.id)
+    }
+
+    /// Delivers a message shown as from `from`, for a turn that acts for
+    /// `person` (who may not be the sender: Herder passes tasks on for
+    /// people).
     pub(super) async fn send_for(
         self: &Arc<Self>,
         bot: &str,
         text: &str,
         from: Option<&str>,
-        person: Option<&str>,
+        person: Option<&PersonId>,
     ) -> Result<(), HubError> {
         let bot = self.bot(bot)?;
         let from = from.map(str::trim).filter(|f| !f.is_empty());
-        let person = person.map(str::trim).filter(|f| !f.is_empty());
-        if let Some(name) = from {
-            let (_, new) = self.store.person(name)?;
-            if new {
-                let _ = self.updates.send(ServerMsg::People {
-                    people: self.people()?,
-                });
-            }
-        }
         let permit = Arc::clone(&self.turns)
             .acquire_owned()
             .await
@@ -84,7 +107,7 @@ impl Hub {
         bot: &Bot,
         text: &str,
         from: Option<&str>,
-        person: Option<&str>,
+        person: Option<&PersonId>,
         permit: OwnedSemaphorePermit,
     ) -> Result<(), HubError> {
         self.record(
@@ -122,7 +145,7 @@ impl Hub {
         runtime.busy = true;
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
-        runtime.asker = person.map(str::to_owned);
+        runtime.asker = person.cloned();
         drop(runtimes);
         self.announce_bots().await;
         Ok(())
@@ -213,7 +236,7 @@ impl Hub {
                 && let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned()
             {
                 tracing::info!(
-                    browser = shared.owner,
+                    browser = %shared.owner,
                     "browser idle; stopping Chrome until a bot needs it (sign-ins stay)"
                 );
                 shared.browser.shutdown().await;

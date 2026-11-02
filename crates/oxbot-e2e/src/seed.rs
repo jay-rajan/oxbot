@@ -5,9 +5,14 @@ use std::path::Path;
 
 use anyhow::Context;
 
+/// The schema version `seed.sql` is written for (people and browser
+/// owners by name). The seed is put in a database of that version, then
+/// oxbot upgrades it, as it would a real user's.
+const SEED_SCHEMA: usize = 8;
+
 /// Fills `home` from the seed: copies `seed/bots/`, creates `oxbot.db`
-/// with oxbot's own tables, then runs `seed/seed.sql` (where `NOW_MS` is
-/// the current time in milliseconds).
+/// with oxbot's own tables as of [`SEED_SCHEMA`], runs `seed/seed.sql`
+/// (where `NOW_MS` is the current time in milliseconds), then upgrades it.
 ///
 /// # Errors
 /// Fails if a file can't be copied or the SQL fails.
@@ -16,7 +21,7 @@ pub fn make_home(repo: &Path, home: &Path) -> anyhow::Result<()> {
     copy_dir(&seed.join("bots"), &home.join("bots"))?;
     let db = home.join("oxbot.db");
     // oxbot's own migrations make the tables, exactly as the app would.
-    drop(oxbot_core::Store::open(&db).context("creating the database")?);
+    oxbot_core::Store::open_at_version(&db, SEED_SCHEMA).context("creating the database")?;
     let sql_path = seed.join("seed.sql");
     if sql_path.exists() {
         let sql =
@@ -24,6 +29,7 @@ pub fn make_home(repo: &Path, home: &Path) -> anyhow::Result<()> {
         let conn = rusqlite::Connection::open(&db)?;
         conn.execute_batch(&sql).context("running seed.sql")?;
     }
+    drop(oxbot_core::Store::open(&db).context("upgrading the database")?);
     Ok(())
 }
 

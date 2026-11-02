@@ -254,6 +254,7 @@ mod tests {
                     central: false,
                     created_by: by.map(Into::into),
                     private: *private,
+                    ..BotInfo::default()
                 })
                 .collect(),
         })

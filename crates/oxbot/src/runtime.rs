@@ -171,6 +171,14 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             probe,
         )
     });
+    let local_person = std::env::var("OXBOT_PERSON")
+        .ok()
+        .filter(|p| e2e && !p.trim().is_empty())
+        .unwrap_or_else(|| setup::local_person(&device));
+    // Chosen once (the first run), then found by id.
+    if let Err(err) = hub.farm_person(&local_person) {
+        tracing::warn!(%err, "couldn't choose the Farm's person yet");
+    }
     let state = AppState {
         hub: Arc::clone(&hub),
         server_name: device.clone(),
@@ -179,10 +187,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         ui_dir: options.ui_dir,
         data_dir: home.root().to_owned(),
         app: options.app,
-        local_person: std::env::var("OXBOT_PERSON")
-            .ok()
-            .filter(|p| e2e && !p.trim().is_empty())
-            .unwrap_or_else(|| setup::local_person(&device)),
+        local_person,
         e2e,
         search_path: path,
         setup: Arc::default(),

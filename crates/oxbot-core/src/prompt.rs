@@ -127,6 +127,7 @@ mod tests {
             id: BotId::new("news").unwrap(),
             name: "News".into(),
             model: None,
+            owner: None,
             created_by: None,
             private: false,
             instructions: instructions.into(),

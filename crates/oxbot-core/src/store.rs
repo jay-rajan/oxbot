@@ -10,9 +10,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use oxbot_claude::{LimitWindow, TurnUsage};
 use oxbot_protocol::{BotEvent, BotUsage, EventKind, GateInfo, Person, PlanLimit, SiteInfo, Usage};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-use crate::id::BotId;
+use crate::bot::{personal_herder_id, personal_herder_id_for};
+use crate::id::{BotId, BrowserOwner, PersonId};
 
 const SCHEMA: &str = "
 PRAGMA journal_mode = WAL;
@@ -30,13 +31,21 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 ";
 
+/// One schema change: SQL, or Rust for what SQL can't do (it gets the
+/// migration's transaction).
+enum Step {
+    Sql(&'static str),
+    Rust(fn(&Transaction<'_>) -> Result<(), StoreError>),
+}
+
 /// Schema changes after the first release, in order. `PRAGMA user_version`
 /// records how many have run.
-const MIGRATIONS: &[&str] = &[
+const MIGRATIONS: &[Step] = &[
     // 1: remember the system prompt each session started with.
-    "ALTER TABLE sessions ADD COLUMN prompt TEXT NOT NULL DEFAULT ''",
+    Step::Sql("ALTER TABLE sessions ADD COLUMN prompt TEXT NOT NULL DEFAULT ''"),
     // 2: Claude usage per bot, and the plan's limits as last reported.
-    "CREATE TABLE usage (
+    Step::Sql(
+        "CREATE TABLE usage (
         bot                TEXT PRIMARY KEY,
         turns              INTEGER NOT NULL DEFAULT 0,
         input_tokens       INTEGER NOT NULL DEFAULT 0,
@@ -52,28 +61,36 @@ const MIGRATIONS: &[&str] = &[
         status       TEXT    NOT NULL,
         seen_ms      INTEGER NOT NULL
     );",
+    ),
     // 3: the people who send messages, each with their own color.
-    "CREATE TABLE people (
+    Step::Sql(
+        "CREATE TABLE people (
         name     TEXT PRIMARY KEY,
         color    INTEGER NOT NULL,
         first_ms INTEGER NOT NULL
     );",
+    ),
     // 4: the sites the user signed in to through oxbot's sign-in window.
-    "CREATE TABLE sites (
+    Step::Sql(
+        "CREATE TABLE sites (
         site         TEXT PRIMARY KEY,
         signed_in_ms INTEGER NOT NULL
     );",
+    ),
     // 5: sign-ins from before the sites list, taken from the chat history
-    // (as hosts; the hub turns them into main domains).
-    "INSERT OR IGNORE INTO sites (site, signed_in_ms)
+    // (as hosts; migration 9 turns them into main domains).
+    Step::Sql(
+        "INSERT OR IGNORE INTO sites (site, signed_in_ms)
         SELECT json_extract(body, '$.site'), MAX(ts_ms) FROM events
         WHERE json_extract(body, '$.kind') = 'sign_in'
           AND json_extract(body, '$.outcome') = 'done'
           AND json_extract(body, '$.site') IS NOT NULL
         GROUP BY json_extract(body, '$.site');",
+    ),
     // 6: each person has their own browser: sites belong to a browser's
     // owner ('' is the home browser every shared bot uses).
-    "CREATE TABLE sites_by_owner (
+    Step::Sql(
+        "CREATE TABLE sites_by_owner (
         owner        TEXT    NOT NULL DEFAULT '',
         site         TEXT    NOT NULL,
         signed_in_ms INTEGER NOT NULL,
@@ -82,9 +99,11 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO sites_by_owner (owner, site, signed_in_ms) SELECT '', site, signed_in_ms FROM sites;
     DROP TABLE sites;
     ALTER TABLE sites_by_owner RENAME TO sites;",
+    ),
     // 7: Gates (phones and laptops) paired with this Farm. Only a hash of
     // each Gate's key is kept, so a copy of the database can't pose as one.
-    "CREATE TABLE gates (
+    Step::Sql(
+        "CREATE TABLE gates (
         id           TEXT    PRIMARY KEY,
         person       TEXT    NOT NULL,
         name         TEXT    NOT NULL,
@@ -92,13 +111,20 @@ const MIGRATIONS: &[&str] = &[
         paired_ms    INTEGER NOT NULL,
         last_seen_ms INTEGER NOT NULL
     );",
+    ),
     // 8: find each bot's latest reply without reading its whole history.
-    "CREATE INDEX IF NOT EXISTS events_replies ON events (bot, seq)
+    Step::Sql(
+        "CREATE INDEX IF NOT EXISTS events_replies ON events (bot, seq)
         WHERE json_extract(body, '$.kind') = 'assistant_message';",
+    ),
+    // 9: people get ids, so a new name never takes over someone's bots or
+    // sign-ins. Browser owners and Gates point at ids; sites are named by
+    // their main domain once, here, instead of on every start.
+    Step::Rust(people_get_ids),
 ];
 
-/// The owner name of the home browser's sites.
-pub const HOME: &str = "";
+/// The home browser, as the sites list keys it.
+pub const HOME: BrowserOwner = BrowserOwner::Home;
 
 /// People's colors, in the order they're handed out: the first few are as
 /// far apart as possible. All are mid-tones that read on white and on dark.
@@ -139,6 +165,34 @@ pub struct Seqs {
     pub last_reply: u64,
 }
 
+/// A person oxbot knows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonRecord {
+    /// Their id, which never changes.
+    pub id: PersonId,
+    /// Their name as shown, e.g. `Sam`. No two people share one.
+    pub name: String,
+    /// Their color, e.g. `#2F6FEB`.
+    pub color: String,
+    /// The folder under `people/` that holds their own Chrome profile.
+    pub folder: String,
+    /// Their own Herder's bot id.
+    pub herder: BotId,
+    /// Whether they're the Farm's own person (the Mac's owner).
+    pub farm: bool,
+}
+
+impl PersonRecord {
+    /// As clients see them: name and color.
+    #[must_use]
+    pub fn person(&self) -> Person {
+        Person {
+            name: self.name.clone(),
+            color: self.color.clone(),
+        }
+    }
+}
+
 /// Errors from the store.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -157,23 +211,306 @@ pub struct Store {
     conn: Mutex<Connection>,
 }
 
-fn person(name: &str, color: i64) -> Person {
+fn color_name(color: i64) -> String {
     let i = usize::try_from(color).unwrap_or(0) % PEOPLE_COLORS.len();
+    PEOPLE_COLORS[i].to_owned()
+}
+
+fn person(name: &str, color: i64) -> Person {
     Person {
         name: name.to_owned(),
-        color: PEOPLE_COLORS[i].to_owned(),
+        color: color_name(color),
     }
 }
 
-fn gate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GateInfo> {
+/// The folder name for a person's own browser, as oxbot made it before
+/// people had ids: their name made safe for a folder, plus a short hash of
+/// the exact name, so `Sam` and `sam` never share sign-ins. People from then
+/// keep theirs (their sign-ins are in it); newer people's is their id.
+pub(crate) fn person_folder(name: &str) -> String {
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let safe = safe.trim_matches('-');
+    let safe = if safe.is_empty() { "person" } else { safe };
+    // FNV-1a: stable across runs and Rust versions, unlike `DefaultHasher`.
+    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!(
+        "{}-{:08x}",
+        safe.chars().take(32).collect::<String>(),
+        hash >> 32
+    )
+}
+
+const PERSON_COLUMNS: &str = "id, name, color, folder, herder, farm";
+
+fn person_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<PersonRecord> {
+    let id: String = r.get(0)?;
+    let name: String = r.get(1)?;
+    let bad = |e: String| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, e.into())
+    };
+    let id = PersonId::new(id).map_err(|e| bad(e.to_string()))?;
+    // Filled at open; the old derivations are what an older oxbot used.
+    let folder: Option<String> = r.get(3)?;
+    let herder: Option<String> = r.get(4)?;
+    let herder = herder
+        .and_then(|h| BotId::new(h).ok())
+        .unwrap_or_else(|| personal_herder_id(&name));
+    Ok(PersonRecord {
+        folder: folder.unwrap_or_else(|| person_folder(&name)),
+        herder,
+        color: color_name(r.get(2)?),
+        farm: r.get::<_, i64>(5)? != 0,
+        id,
+        name,
+    })
+}
+
+const GATE_SELECT: &str =
+    "SELECT g.id, COALESCE(p.name, ''), g.name, g.paired_ms, g.last_seen_ms, g.person_id
+     FROM gates g LEFT JOIN people p ON p.id = g.person_id";
+
+fn gate_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(GateInfo, String)> {
+    Ok((
+        GateInfo {
+            id: row.get(0)?,
+            person: row.get(1)?,
+            name: row.get(2)?,
+            paired_ms: row.get(3)?,
+            last_seen_ms: row.get(4)?,
+            online: false,
+        },
+        row.get(5)?,
+    ))
+}
+
+/// The first color nobody has yet (or, once all are taken, the next in turn).
+fn next_color(conn: &Connection) -> Result<i64, StoreError> {
+    let mut stmt = conn.prepare("SELECT color FROM people")?;
+    let taken: Vec<i64> = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    let n = i64::try_from(PEOPLE_COLORS.len()).unwrap_or(12);
+    Ok((0..n)
+        .find(|c| !taken.contains(c))
+        .unwrap_or_else(|| i64::try_from(taken.len()).unwrap_or(0) % n))
+}
+
+fn find_person(conn: &Connection, by: &str, key: &str) -> Result<Option<PersonRecord>, StoreError> {
+    Ok(conn
+        .query_row(
+            &format!("SELECT {PERSON_COLUMNS} FROM people WHERE {by} = ?1"),
+            [key],
+            person_row,
+        )
+        .optional()?)
+}
+
+/// The person called exactly `name`, made if there's none. The flag says
+/// whether they're new. A new person's browser folder is their id, and
+/// their Herder's id comes from their name unless someone has it already.
+fn find_or_create(conn: &Connection, name: &str) -> Result<(PersonRecord, bool), StoreError> {
+    if let Some(found) = find_person(conn, "name", name)? {
+        return Ok((found, false));
+    }
+    let id = PersonId::random();
+    let by_name = personal_herder_id(name);
+    let taken: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM people WHERE herder = ?1)",
+        [by_name.as_str()],
+        |r| r.get(0),
+    )?;
+    let herder = if taken {
+        personal_herder_id_for(name, &id)
+    } else {
+        by_name
+    };
+    conn.execute(
+        "INSERT INTO people (id, name, color, first_ms, folder, herder) VALUES (?1, ?2, ?3, ?4, ?1, ?5)",
+        params![id.as_str(), name, next_color(conn)?, now_ms(), herder.as_str()],
+    )?;
+    let made = find_person(conn, "id", id.as_str())?
+        .ok_or(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))?;
+    Ok((made, true))
+}
+
+/// Migration 9: everyone oxbot knew by name gets an id. Their browser
+/// folder and Herder stay what they were (so no sign-in or chat is lost),
+/// browser owners and Gates point at the id, and sites are named by their
+/// main domain once (and checked against Chrome's cookies next start).
+fn people_get_ids(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    // Everyone known by name, in the order oxbot met them: people who sent
+    // messages, then browser owners and Gates' people.
+    let mut known: Vec<(String, Option<i64>, i64)> = Vec::new();
+    for sql in [
+        "SELECT name, color, first_ms FROM people ORDER BY first_ms, rowid",
+        "SELECT owner, NULL, MIN(signed_in_ms) FROM sites WHERE owner <> '' GROUP BY owner ORDER BY 3",
+        "SELECT person, NULL, MIN(paired_ms) FROM gates GROUP BY person ORDER BY 3",
+    ] {
+        let mut stmt = tx.prepare(sql)?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        known.extend(rows.collect::<Result<Vec<_>, _>>()?);
+    }
+    tx.execute_batch(
+        "CREATE TABLE people_v9 (
+            id       TEXT    PRIMARY KEY DEFAULT ('p_' || lower(hex(randomblob(8)))),
+            name     TEXT    NOT NULL UNIQUE,
+            color    INTEGER NOT NULL,
+            first_ms INTEGER NOT NULL,
+            folder   TEXT,
+            herder   TEXT,
+            farm     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE gates_v9 (
+            id           TEXT    PRIMARY KEY,
+            person_id    TEXT    NOT NULL,
+            name         TEXT    NOT NULL,
+            key_hash     TEXT    NOT NULL UNIQUE,
+            paired_ms    INTEGER NOT NULL,
+            last_seen_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS site_checks (owner TEXT PRIMARY KEY);",
+    )?;
+    let ids = add_known_people(tx, &known)?;
+    let key = |name: &str| ids.get(name).map_or("", PersonId::as_str).to_owned();
+
+    // Sites: owners become ids, hosts become main domains.
+    let mut stmt = tx.prepare("SELECT owner, site, signed_in_ms FROM sites")?;
+    let sites: Vec<(String, String, i64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+    tx.execute("DELETE FROM sites", [])?;
+    for (owner, site, when) in sites {
+        let owner = if owner.is_empty() { owner } else { key(&owner) };
+        tx.execute(
+            "INSERT INTO sites (owner, site, signed_in_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(owner, site) DO UPDATE SET signed_in_ms = MAX(signed_in_ms, excluded.signed_in_ms)",
+            params![owner, oxbot_browser::site_of(&site), when],
+        )?;
+    }
+    // Names changed without Chrome being asked: check them on next start.
+    tx.execute(
+        "INSERT OR IGNORE INTO site_checks (owner) SELECT DISTINCT owner FROM sites",
+        [],
+    )?;
+
+    let mut stmt =
+        tx.prepare("SELECT id, person, name, key_hash, paired_ms, last_seen_ms FROM gates")?;
+    let gates: Vec<(String, String, String, String, i64, i64)> = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+    for (id, person, name, key_hash, paired, seen) in gates {
+        tx.execute(
+            "INSERT INTO gates_v9 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, key(&person), name, key_hash, paired, seen],
+        )?;
+    }
+    tx.execute_batch(
+        "DROP TABLE people;
+        ALTER TABLE people_v9 RENAME TO people;
+        DROP TABLE gates;
+        ALTER TABLE gates_v9 RENAME TO gates;",
+    )?;
+    Ok(())
+}
+
+/// Adds everyone in `known` (name, color, first seen) to `people_v9` with a
+/// new id, keeping their color, their old browser folder and their old
+/// Herder id. Returns each name's id.
+fn add_known_people(
+    tx: &Transaction<'_>,
+    known: &[(String, Option<i64>, i64)],
+) -> Result<HashMap<String, PersonId>, StoreError> {
+    let mut ids: HashMap<String, PersonId> = HashMap::new();
+    let mut colors: Vec<i64> = known.iter().filter_map(|k| k.1).collect();
+    let mut herders = std::collections::HashSet::new();
+    let n = i64::try_from(PEOPLE_COLORS.len()).unwrap_or(12);
+    for (name, color, first_ms) in known {
+        if name.is_empty() || ids.contains_key(name) {
+            continue;
+        }
+        let id = PersonId::random();
+        let color = color.unwrap_or_else(|| {
+            let c = (0..n)
+                .find(|c| !colors.contains(c))
+                .unwrap_or_else(|| i64::try_from(colors.len()).unwrap_or(0) % n);
+            colors.push(c);
+            c
+        });
+        // `Sam` and `sam` had the same Herder id: the first keeps it.
+        let mut herder = personal_herder_id(name);
+        if !herders.insert(herder.clone()) {
+            herder = personal_herder_id_for(name, &id);
+        }
+        tx.execute(
+            "INSERT INTO people_v9 (id, name, color, first_ms, folder, herder) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id.as_str(), name, color, first_ms, person_folder(name), herder.as_str()],
+        )?;
+        ids.insert(name.clone(), id);
+    }
+    Ok(ids)
+}
+
+fn insert_gate(
+    conn: &Connection,
+    id: &str,
+    person: &PersonRecord,
+    name: &str,
+    key_hash: &str,
+) -> Result<GateInfo, StoreError> {
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO gates (id, person_id, name, key_hash, paired_ms, last_seen_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![id, person.id.as_str(), name, key_hash, now],
+    )?;
     Ok(GateInfo {
-        id: row.get(0)?,
-        person: row.get(1)?,
-        name: row.get(2)?,
-        paired_ms: row.get(3)?,
-        last_seen_ms: row.get(4)?,
+        id: id.to_owned(),
+        person: person.name.clone(),
+        name: name.to_owned(),
+        paired_ms: now,
+        last_seen_ms: now,
         online: false,
     })
+}
+
+/// Gives people added without a folder or Herder (by an older oxbot, or a
+/// test seed) the ones that older oxbot would have used.
+fn fill_people(conn: &Connection) -> Result<(), StoreError> {
+    let mut stmt =
+        conn.prepare("SELECT id, name FROM people WHERE folder IS NULL OR herder IS NULL")?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+    for (id, name) in rows {
+        conn.execute(
+            "UPDATE people SET folder = COALESCE(folder, ?2), herder = COALESCE(herder, ?3) WHERE id = ?1",
+            params![id, person_folder(&name), personal_herder_id(&name).as_str()],
+        )?;
+    }
+    Ok(())
 }
 
 /// A stored event row as `(seq, ts_ms, body)`.
@@ -208,6 +545,27 @@ fn from_sql(n: i64) -> u64 {
     u64::try_from(n).unwrap_or(0)
 }
 
+/// Runs the schema changes not run yet, up to `upto`.
+fn migrate(conn: &mut Connection, upto: usize) -> Result<(), StoreError> {
+    let done: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let done = usize::try_from(done).unwrap_or(0);
+    for (i, step) in MIGRATIONS.iter().enumerate().take(upto).skip(done) {
+        // A migration and its version bump commit together, so a crash
+        // mid-way (6 and 9 rebuild tables) leaves the database as it was.
+        let tx = conn.transaction()?;
+        match step {
+            Step::Sql(sql) => tx.execute_batch(sql)?,
+            Step::Rust(run) => run(&tx)?,
+        }
+        tx.execute_batch(&format!("PRAGMA user_version = {}", i + 1))?;
+        tx.commit()?;
+        if i + 1 == MIGRATIONS.len() && done > 0 {
+            tracing::info!(from = done, to = i + 1, "upgraded the database");
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -231,18 +589,22 @@ impl Store {
         Self::setup(Connection::open_in_memory()?)
     }
 
+    /// Makes (or opens) the database at `path` with only the first
+    /// `version` schema changes, as an older oxbot left it. For tests and
+    /// test seeds written for that schema; [`Store::open`] then upgrades it.
+    ///
+    /// # Errors
+    /// Fails if SQLite can't open the file or a change fails.
+    pub fn open_at_version(path: &Path, version: usize) -> Result<(), StoreError> {
+        let mut conn = Connection::open(path)?;
+        conn.execute_batch(SCHEMA)?;
+        migrate(&mut conn, version)
+    }
+
     fn setup(mut conn: Connection) -> Result<Self, StoreError> {
         conn.execute_batch(SCHEMA)?;
-        let done: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        let done = usize::try_from(done).unwrap_or(0);
-        for (i, sql) in MIGRATIONS.iter().enumerate().skip(done) {
-            // A migration and its version bump commit together, so a crash
-            // mid-way (6 rebuilds a table) leaves the database as it was.
-            let tx = conn.transaction()?;
-            tx.execute_batch(sql)?;
-            tx.execute_batch(&format!("PRAGMA user_version = {}", i + 1))?;
-            tx.commit()?;
-        }
+        migrate(&mut conn, MIGRATIONS.len())?;
+        fill_people(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -260,29 +622,94 @@ impl Store {
     /// # Errors
     /// Fails if SQLite fails.
     pub fn person(&self, name: &str) -> Result<(Person, bool), StoreError> {
+        let (found, new) = self.find_or_create_person(name)?;
+        Ok((found.person(), new))
+    }
+
+    /// The person called exactly `name`, made if there's none. The flag says
+    /// whether they're new.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn find_or_create_person(&self, name: &str) -> Result<(PersonRecord, bool), StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let found = find_or_create(&tx, name)?;
+        tx.commit()?;
+        Ok(found)
+    }
+
+    /// The person with this id, if any.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn person_by_id(&self, id: &PersonId) -> Result<Option<PersonRecord>, StoreError> {
+        find_person(&self.conn(), "id", id.as_str())
+    }
+
+    /// The person called exactly `name`, if any.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn person_by_name(&self, name: &str) -> Result<Option<PersonRecord>, StoreError> {
+        find_person(&self.conn(), "name", name)
+    }
+
+    /// Everyone oxbot knows, in the order it met them.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn person_records(&self) -> Result<Vec<PersonRecord>, StoreError> {
         let conn = self.conn();
-        let found: Option<i64> = conn
-            .query_row("SELECT color FROM people WHERE name = ?1", [name], |r| {
-                r.get(0)
-            })
-            .optional()?;
-        if let Some(color) = found {
-            return Ok((person(name, color), false));
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {PERSON_COLUMNS} FROM people ORDER BY first_ms, rowid"
+        ))?;
+        let rows = stmt.query_map([], person_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The Farm's own person, once chosen.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn farm_person(&self) -> Result<Option<PersonRecord>, StoreError> {
+        Ok(self
+            .conn()
+            .query_row(
+                &format!(
+                    "SELECT {PERSON_COLUMNS} FROM people WHERE farm = 1 ORDER BY rowid LIMIT 1"
+                ),
+                [],
+                person_row,
+            )
+            .optional()?)
+    }
+
+    /// Makes `id` the Farm's own person (and nobody else).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn set_farm_person(&self, id: &PersonId) -> Result<(), StoreError> {
+        self.conn()
+            .execute("UPDATE people SET farm = (id = ?1)", [id.as_str()])?;
+        Ok(())
+    }
+
+    /// Changes a person's name. Returns `false` (and changes nothing) if
+    /// someone else has that name.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn rename_person(&self, id: &PersonId, name: &str) -> Result<bool, StoreError> {
+        let conn = self.conn();
+        if find_person(&conn, "name", name)?.is_some_and(|p| &p.id != id) {
+            return Ok(false);
         }
-        let mut stmt = conn.prepare("SELECT color FROM people")?;
-        let taken: Vec<i64> = stmt
-            .query_map([], |r| r.get(0))?
-            .collect::<Result<_, _>>()?;
-        drop(stmt);
-        let n = i64::try_from(PEOPLE_COLORS.len()).unwrap_or(12);
-        let color = (0..n)
-            .find(|c| !taken.contains(c))
-            .unwrap_or_else(|| i64::try_from(taken.len()).unwrap_or(0) % n);
         conn.execute(
-            "INSERT INTO people (name, color, first_ms) VALUES (?1, ?2, ?3)",
-            params![name, color, now_ms()],
+            "UPDATE people SET name = ?2 WHERE id = ?1",
+            params![id.as_str(), name],
         )?;
-        Ok((person(name, color), true))
+        Ok(true)
     }
 
     /// Everyone who has sent a message, in the order oxbot first saw them.
@@ -296,12 +723,12 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Remembers that `owner`'s browser ([`HOME`] for the home one) signed
-    /// in to `site` (a main domain) now.
+    /// Remembers that `owner`'s browser (as [`BrowserOwner::key`] names it)
+    /// signed in to `site` (a main domain) now.
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn add_site(&self, owner: &str, site: &str) -> Result<(), StoreError> {
+    pub fn add_site(&self, owner: impl AsRef<str>, site: &str) -> Result<(), StoreError> {
         self.add_site_at(owner, site, now_ms())
     }
 
@@ -309,11 +736,16 @@ impl Store {
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn add_site_at(&self, owner: &str, site: &str, when_ms: i64) -> Result<(), StoreError> {
+    pub fn add_site_at(
+        &self,
+        owner: impl AsRef<str>,
+        site: &str,
+        when_ms: i64,
+    ) -> Result<(), StoreError> {
         self.conn().execute(
             "INSERT INTO sites (owner, site, signed_in_ms) VALUES (?1, ?2, ?3)
              ON CONFLICT(owner, site) DO UPDATE SET signed_in_ms = MAX(signed_in_ms, excluded.signed_in_ms)",
-            params![owner, site, when_ms],
+            params![owner.as_ref(), site, when_ms],
         )?;
         Ok(())
     }
@@ -322,10 +754,10 @@ impl Store {
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn remove_site(&self, owner: &str, site: &str) -> Result<bool, StoreError> {
+    pub fn remove_site(&self, owner: impl AsRef<str>, site: &str) -> Result<bool, StoreError> {
         Ok(self.conn().execute(
             "DELETE FROM sites WHERE owner = ?1 AND site = ?2",
-            params![owner, site],
+            params![owner.as_ref(), site],
         )? > 0)
     }
 
@@ -333,13 +765,13 @@ impl Store {
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn sites(&self, owner: &str) -> Result<Vec<SiteInfo>, StoreError> {
+    pub fn sites(&self, owner: impl AsRef<str>) -> Result<Vec<SiteInfo>, StoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT site, signed_in_ms FROM sites WHERE owner = ?1
              ORDER BY signed_in_ms DESC, site",
         )?;
-        let rows = stmt.query_map([owner], |r| {
+        let rows = stmt.query_map([owner.as_ref()], |r| {
             Ok(SiteInfo {
                 site: r.get(0)?,
                 signed_in_ms: r.get(1)?,
@@ -349,7 +781,7 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Every browser owner with remembered sites ([`HOME`] included).
+    /// Every browser owner with remembered sites (home's is empty).
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -360,10 +792,34 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Remembers a newly paired Gate. `key_hash` is the hash of its key.
+    /// Whether `owner`'s sites should be checked against its cookies (they
+    /// were renamed by an upgrade and Chrome wasn't asked yet).
     ///
     /// # Errors
-    /// Fails if the database does.
+    /// Fails if SQLite fails.
+    pub fn site_check_due(&self, owner: impl AsRef<str>) -> Result<bool, StoreError> {
+        Ok(self.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM site_checks WHERE owner = ?1)",
+            [owner.as_ref()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// `owner`'s sites were checked against its cookies.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn site_check_done(&self, owner: impl AsRef<str>) -> Result<(), StoreError> {
+        self.conn()
+            .execute("DELETE FROM site_checks WHERE owner = ?1", [owner.as_ref()])?;
+        Ok(())
+    }
+
+    /// Remembers a newly paired Gate for the person called exactly `person`
+    /// (made if new). `key_hash` is the hash of its key.
+    ///
+    /// # Errors
+    /// Fails if the database does (a key already used, say).
     pub fn add_gate(
         &self,
         id: &str,
@@ -371,20 +827,29 @@ impl Store {
         name: &str,
         key_hash: &str,
     ) -> Result<GateInfo, StoreError> {
-        let now = now_ms();
-        self.conn().execute(
-            "INSERT INTO gates (id, person, name, key_hash, paired_ms, last_seen_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-            params![id, person, name, key_hash, now],
-        )?;
-        Ok(GateInfo {
-            id: id.to_owned(),
-            person: person.to_owned(),
-            name: name.to_owned(),
-            paired_ms: now,
-            last_seen_ms: now,
-            online: false,
-        })
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let (found, _) = find_or_create(&tx, person)?;
+        let gate = insert_gate(&tx, id, &found, name, key_hash)?;
+        tx.commit()?;
+        Ok(gate)
+    }
+
+    /// Remembers a newly paired Gate for the person `person`.
+    ///
+    /// # Errors
+    /// Fails if there's no such person or the database fails.
+    pub fn add_gate_for(
+        &self,
+        id: &str,
+        person: &PersonId,
+        name: &str,
+        key_hash: &str,
+    ) -> Result<GateInfo, StoreError> {
+        let conn = self.conn();
+        let found = find_person(&conn, "id", person.as_str())?
+            .ok_or(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))?;
+        insert_gate(&conn, id, &found, name, key_hash)
     }
 
     /// The Gate holding the key with this hash, if it's still paired; marks
@@ -393,19 +858,31 @@ impl Store {
     /// # Errors
     /// Fails if the database does.
     pub fn gate_by_key(&self, key_hash: &str) -> Result<Option<GateInfo>, StoreError> {
+        Ok(self.gate_and_person_by_key(key_hash)?.map(|(gate, _)| gate))
+    }
+
+    /// Like [`Store::gate_by_key`], with the id of the Gate's person.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn gate_and_person_by_key(
+        &self,
+        key_hash: &str,
+    ) -> Result<Option<(GateInfo, PersonId)>, StoreError> {
         let conn = self.conn();
         let now = now_ms();
         conn.execute(
             "UPDATE gates SET last_seen_ms = ?2 WHERE key_hash = ?1",
             params![key_hash, now],
         )?;
-        Ok(conn
+        let found = conn
             .query_row(
-                "SELECT id, person, name, paired_ms, last_seen_ms FROM gates WHERE key_hash = ?1",
+                &format!("{GATE_SELECT} WHERE g.key_hash = ?1"),
                 params![key_hash],
                 gate_row,
             )
-            .optional()?)
+            .optional()?;
+        Ok(found.and_then(|(gate, person)| Some((gate, PersonId::new(person).ok()?))))
     }
 
     /// Every paired Gate, oldest first.
@@ -414,10 +891,11 @@ impl Store {
     /// Fails if the database does.
     pub fn gates(&self) -> Result<Vec<GateInfo>, StoreError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, person, name, paired_ms, last_seen_ms FROM gates ORDER BY paired_ms, id",
-        )?;
-        let gates = stmt.query_map([], gate_row)?.collect::<Result<_, _>>()?;
+        let mut stmt = conn.prepare(&format!("{GATE_SELECT} ORDER BY g.paired_ms, g.id"))?;
+        let gates = stmt
+            .query_map([], gate_row)?
+            .map(|r| r.map(|(gate, _)| gate))
+            .collect::<Result<_, _>>()?;
         Ok(gates)
     }
 
@@ -1084,6 +1562,171 @@ mod tests {
         assert_eq!((saved.id.as_str(), saved.prompt.as_str()), ("s1", ""));
         drop(store);
         Store::open(&path).unwrap(); // migrating twice is a no-op
+    }
+
+    /// A database exactly as oxbot left it before people had ids (version
+    /// 8, made by the real migrations), with people, browser owners and
+    /// Gates known only by name.
+    fn version_8_database(path: &Path) {
+        Store::open_at_version(path, 8).unwrap();
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "INSERT INTO people (name, color, first_ms) VALUES ('Jay', 3, 100), ('Sam', 1, 200), ('sam', 2, 300);
+             INSERT INTO sites (owner, site, signed_in_ms) VALUES
+               ('', 'accounts.google.com', 1010), ('', 'google.com', 1005), ('', 'wikipedia.org', 1007),
+               ('Sam', 'bank.example', 1020), ('Ann', 'mail.example.com', 1030);
+             INSERT INTO gates (id, person, name, key_hash, paired_ms, last_seen_ms) VALUES
+               ('g1', 'Ann', 'Pixel', 'hash-1', 1040, 1040), ('g2', 'Lee', 'Laptop', 'hash-2', 1050, 1050);",
+        )
+        .unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 8);
+    }
+
+    #[test]
+    fn people_known_by_name_get_ids_and_keep_their_folders_and_herders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("v8.db");
+        version_8_database(&path);
+
+        let store = Store::open(&path).unwrap();
+        let people = store.person_records().unwrap();
+        let names: Vec<&str> = people.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Jay", "Sam", "sam", "Ann", "Lee"],
+            "site owners and Gates' people too"
+        );
+        for p in &people {
+            assert_eq!(PersonId::new(p.id.as_str()).as_ref(), Ok(&p.id));
+            // Their Chrome profile stays where it was: no sign-in is lost.
+            assert_eq!(p.folder, person_folder(&p.name), "{}", p.name);
+            assert!(!p.farm, "chosen later, by the hub");
+        }
+        let person = |name: &str| people.iter().find(|p| p.name == name).unwrap().clone();
+        assert_eq!(person("Jay").color, PEOPLE_COLORS[3], "colors are kept");
+        assert_eq!(person("Sam").color, PEOPLE_COLORS[1]);
+        assert_eq!(
+            person("Ann").color,
+            PEOPLE_COLORS[0],
+            "new ones get a free color"
+        );
+        // Their Herders keep their ids; `sam` no longer shares Sam's.
+        for name in ["Jay", "Sam", "Ann", "Lee"] {
+            assert_eq!(person(name).herder, personal_herder_id(name), "{name}");
+        }
+        assert_ne!(person("sam").herder, person("Sam").herder);
+        assert!(crate::bot::is_personal_herder(
+            person("sam").herder.as_str()
+        ));
+
+        // Browser owners are ids now, and hosts are main domains.
+        let sites = |owner: &str| -> Vec<(String, i64)> {
+            store
+                .sites(owner)
+                .unwrap()
+                .into_iter()
+                .map(|s| (s.site, s.signed_in_ms))
+                .collect()
+        };
+        assert_eq!(
+            sites(""),
+            [
+                ("google.com".to_owned(), 1010),
+                ("wikipedia.org".to_owned(), 1007)
+            ]
+        );
+        assert_eq!(
+            sites(person("Sam").id.as_str()),
+            [("bank.example".to_owned(), 1020)]
+        );
+        assert_eq!(
+            sites(person("Ann").id.as_str()),
+            [("example.com".to_owned(), 1030)]
+        );
+        assert!(sites("Sam").is_empty(), "never by name again");
+        // Checked against Chrome's cookies on the next start.
+        assert!(store.site_check_due(HOME).unwrap());
+        assert!(store.site_check_due(person("Sam").id.as_str()).unwrap());
+        store.site_check_done(HOME).unwrap();
+        assert!(!store.site_check_due(HOME).unwrap());
+
+        // Gates point at their person.
+        let (gate, id) = store.gate_and_person_by_key("hash-1").unwrap().unwrap();
+        assert_eq!((gate.person.as_str(), id), ("Ann", person("Ann").id));
+        let (gate, id) = store.gate_and_person_by_key("hash-2").unwrap().unwrap();
+        assert_eq!((gate.person.as_str(), id), ("Lee", person("Lee").id));
+
+        // Opening it again changes nothing.
+        drop(store);
+        let again = Store::open(&path).unwrap();
+        assert_eq!(again.person_records().unwrap(), people);
+        assert_eq!(
+            sites_of(&again, person("Sam").id.as_str()),
+            ["bank.example"]
+        );
+        let version: i64 = again
+            .conn()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    }
+
+    fn sites_of(store: &Store, owner: &str) -> Vec<String> {
+        store
+            .sites(owner)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.site)
+            .collect()
+    }
+
+    #[test]
+    fn people_added_by_an_older_oxbot_get_the_folder_it_would_have_used() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .conn()
+            .execute(
+                "INSERT INTO people (name, color, first_ms) VALUES ('Sam', 0, 1)",
+                [],
+            )
+            .unwrap();
+        fill_people(&store.conn()).unwrap();
+        let sam = store.person_by_name("Sam").unwrap().unwrap();
+        assert_eq!(sam.folder, person_folder("Sam"));
+        assert_eq!(sam.herder, personal_herder_id("Sam"));
+    }
+
+    #[test]
+    fn new_people_get_their_id_as_folder_and_never_share_a_herder() {
+        let store = Store::open_in_memory().unwrap();
+        let (sam, new) = store.find_or_create_person("Sam").unwrap();
+        assert!(new);
+        assert_eq!(sam.folder, sam.id.as_str());
+        assert_eq!(sam.herder, personal_herder_id("Sam"));
+        let (other, _) = store.find_or_create_person("sam").unwrap();
+        assert_ne!(other.id, sam.id, "names are told apart exactly");
+        assert_ne!(other.herder, sam.herder);
+        assert_eq!(
+            store.find_or_create_person("Sam").unwrap(),
+            (sam.clone(), false)
+        );
+
+        assert!(!store.rename_person(&other.id, "Sam").unwrap(), "taken");
+        assert!(store.rename_person(&sam.id, "Samuel").unwrap());
+        let renamed = store.person_by_id(&sam.id).unwrap().unwrap();
+        assert_eq!(
+            (
+                renamed.name.as_str(),
+                renamed.folder.as_str(),
+                &renamed.herder
+            ),
+            ("Samuel", sam.folder.as_str(), &sam.herder)
+        );
+        store.set_farm_person(&other.id).unwrap();
+        assert_eq!(store.farm_person().unwrap().unwrap().id, other.id);
     }
 
     #[test]

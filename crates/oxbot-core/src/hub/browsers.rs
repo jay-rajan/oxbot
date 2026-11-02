@@ -11,18 +11,19 @@ use tokio::sync::Mutex;
 
 use super::{Hub, HubError, Runtime, Shared, lock};
 use crate::bot::Bot;
-use crate::id::BotId;
-use crate::store::HOME;
+use crate::id::{BotId, BrowserOwner};
+#[cfg(test)]
+pub(super) use crate::store::person_folder;
 
 impl Hub {
     /// What the home browser is doing.
     #[must_use]
     pub fn browser_state(&self) -> BrowserState {
-        self.owner_state(HOME)
+        self.owner_state(&BrowserOwner::Home)
     }
 
     /// What `owner`'s browser is doing (`Off` until it's first needed).
-    pub(super) fn owner_state(&self, owner: &str) -> BrowserState {
+    pub(super) fn owner_state(&self, owner: &BrowserOwner) -> BrowserState {
         if self.config.browser.is_none() {
             return BrowserState::Disabled;
         }
@@ -33,26 +34,39 @@ impl Hub {
             })
     }
 
-    /// `owner`'s browser ([`HOME`] or a person's name), made the first time
-    /// it's needed. `None` if bots get no browser.
-    pub(super) fn browser_for(&self, owner: &str) -> Option<Arc<Shared>> {
+    /// `owner`'s browser, made the first time it's needed. `None` if bots
+    /// get no browser (or the person is unknown).
+    pub(super) fn browser_for(&self, owner: &BrowserOwner) -> Option<Arc<Shared>> {
         let tools = self.config.browser.clone()?;
         let mut browsers = lock(&self.browsers);
         if let Some(shared) = browsers.get(owner) {
             return Some(Arc::clone(shared));
         }
         let home_profile = tools.config().profile_dir.clone();
-        let (label, profile_dir) = if owner == HOME {
-            ("home".to_owned(), home_profile)
-        } else {
-            let folder = person_folder(owner);
-            let root = home_profile
-                .parent()
-                .map_or_else(|| home_profile.clone(), std::path::Path::to_path_buf);
-            (
-                folder.clone(),
-                root.join("people").join(folder).join("profile"),
-            )
+        let (label, profile_dir) = match owner {
+            BrowserOwner::Home => ("home".to_owned(), home_profile),
+            BrowserOwner::Person(id) => {
+                // The person's own folder: from before ids it's named after
+                // them, so their sign-ins carry over.
+                let folder = match self.store.person_by_id(id) {
+                    Ok(Some(person)) if safe_folder(&person.folder) => person.folder,
+                    Ok(_) => {
+                        tracing::warn!(person = %id, "no browser folder for this person");
+                        return None;
+                    }
+                    Err(err) => {
+                        tracing::warn!(%err, "couldn't look up a person");
+                        return None;
+                    }
+                };
+                let root = home_profile
+                    .parent()
+                    .map_or_else(|| home_profile.clone(), std::path::Path::to_path_buf);
+                (
+                    folder.clone(),
+                    root.join("people").join(folder).join("profile"),
+                )
+            }
         };
         let spec = BrowserSpec {
             label,
@@ -67,7 +81,7 @@ impl Hub {
             }
         };
         let shared = Arc::new(Shared {
-            owner: owner.to_owned(),
+            owner: owner.clone(),
             browser,
             lease: Arc::new(Mutex::new(())),
             holder: std::sync::Mutex::new(None),
@@ -76,15 +90,26 @@ impl Hub {
             adding_site: std::sync::Mutex::new(None),
             sites_checked: std::sync::atomic::AtomicBool::new(false),
         });
-        browsers.insert(owner.to_owned(), Arc::clone(&shared));
+        browsers.insert(owner.clone(), Arc::clone(&shared));
         drop(browsers);
         tokio::spawn(watch_browser(self.me.clone(), Arc::clone(&shared)));
         Some(shared)
     }
 
-    /// The browser `bot` uses: its creator's own if it's private, else home.
+    /// The browser `bot` uses: its owner's own if it's private, else home.
     pub(super) fn browser_of(&self, bot: &Bot) -> Option<Arc<Shared>> {
         self.browser_for(&bot.browser_owner()?)
+    }
+
+    /// `None` for the home browser, else its owner's name, as
+    /// [`ServerMsg::Sites`] and notices name it.
+    pub(super) fn owner_label(&self, owner: &BrowserOwner) -> Option<String> {
+        match owner {
+            BrowserOwner::Home => None,
+            BrowserOwner::Person(id) => {
+                Some(self.person_name(id).unwrap_or_else(|| id.to_string()))
+            }
+        }
     }
 
     /// Every browser made so far.
@@ -146,7 +171,7 @@ impl Hub {
         Self::browser_running(&shared).await;
         shared.browser.reset_tabs().await;
         self.downloads_for(&shared, bot).await?;
-        tracing::info!(%bot, browser = shared.owner, "has the browser");
+        tracing::info!(%bot, browser = %shared.owner, "has the browser");
         Ok(true)
     }
 
@@ -180,7 +205,7 @@ impl Hub {
     }
 
     /// `owner`'s browser, if no bot is using it right now.
-    pub(super) fn idle_browser(&self, owner: &str) -> Result<Arc<Shared>, HubError> {
+    pub(super) fn idle_browser(&self, owner: &BrowserOwner) -> Result<Arc<Shared>, HubError> {
         let shared = self.browser_for(owner).ok_or(HubError::NoBrowser)?;
         if let Some(holder) = lock(&shared.holder).clone() {
             return Err(HubError::BrowserBusy(self.bot_name(&holder)));
@@ -195,25 +220,25 @@ impl Hub {
         HubError::BrowserBusy(holder)
     }
 
-    /// Signs `owner`'s browser ([`HOME`] or a person) out of every site by
-    /// deleting its profile.
+    /// Signs `owner`'s browser out of every site by deleting its profile.
     ///
     /// # Errors
     /// [`HubError::BrowserBusy`] if a bot is using it, or the profile can't
     /// be deleted.
-    pub async fn sign_out_all(&self, owner: &str) -> Result<(), HubError> {
-        let shared = self.browser_for(owner).ok_or(HubError::NoBrowser)?;
+    pub async fn sign_out_all(&self, owner: impl Into<BrowserOwner>) -> Result<(), HubError> {
+        let owner = owner.into();
+        let shared = self.browser_for(&owner).ok_or(HubError::NoBrowser)?;
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
             return Err(self.busy_error(&shared));
         };
         shared.browser.sign_out().await?;
         lock(&shared.last).take();
-        for site in self.store.sites(owner).unwrap_or_default() {
-            let _ = self.store.remove_site(owner, &site.site);
+        for site in self.store.sites(&owner).unwrap_or_default() {
+            let _ = self.store.remove_site(&owner, &site.site);
         }
         self.announce_sites(&shared);
         self.notice_for(
-            shared.owner_label(),
+            self.owner_label(&owner),
             "Signed out of every site. Bots will ask you to sign in again where they need to.",
         );
         Ok(())
@@ -248,29 +273,11 @@ async fn watch_browser(hub: std::sync::Weak<Hub>, shared: Arc<Shared>) {
     }
 }
 
-/// The folder name for a person's own browser: their name made safe for a
-/// folder, plus a short hash of the exact name, so `Sam` and `sam` never
-/// share sign-ins.
-pub(super) fn person_folder(name: &str) -> String {
-    let safe: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let safe = safe.trim_matches('-');
-    let safe = if safe.is_empty() { "person" } else { safe };
-    // FNV-1a: stable across runs and Rust versions, unlike `DefaultHasher`.
-    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-    });
-    format!(
-        "{}-{:08x}",
-        safe.chars().take(32).collect::<String>(),
-        hash >> 32
-    )
+/// Whether a person's folder name is safe to join onto `people/`.
+fn safe_folder(folder: &str) -> bool {
+    !folder.is_empty()
+        && !folder.starts_with('.')
+        && folder
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
 }

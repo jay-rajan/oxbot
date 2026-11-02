@@ -1,59 +1,26 @@
-//! Who may use what: each person's Herder, Gates and the people oxbot
-//! knows, the bot list as each viewer sees it, and making, renaming,
-//! hiding and deleting bots.
+//! Who may use what: the bot list as each viewer sees it, and making,
+//! renaming, hiding and deleting bots.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::PoisonError;
 
-use oxbot_protocol::{BotEvent, BotInfo, BrowserState, GateInfo, Person, ServerMsg};
+use oxbot_protocol::{BotEvent, BotInfo, BrowserState, ServerMsg};
 
-use super::{Hub, HubError, MAX_NAME, MAX_PERSON, RESERVED_PEOPLE, lock};
+use super::{Hub, HubError, MAX_NAME, lock};
 use crate::bot::{Bot, Viewer};
-use crate::id::BotId;
+use crate::id::{BotId, PersonId};
 use crate::store::{HistoryPage, now_ms};
 
-impl Hub {
-    /// `person`'s own Herder, made the first time they need it. It shares
-    /// the Farm's Herder's instructions and model, but has its own Claude
-    /// session and history, so nobody can ask it what someone else asked.
-    /// (The Farm's own person uses the Farm's Herder, `assistant`.)
-    ///
-    /// # Errors
-    /// Fails if `person` is empty or its folder can't be written.
-    pub fn herder_for(&self, person: &str) -> Result<BotId, HubError> {
-        let person = person.trim();
-        if person.is_empty() {
-            return Err(HubError::NotAllowed(
-                "Herder needs to know who it's for.".to_owned(),
-            ));
-        }
-        let id = crate::bot::personal_herder_id(person);
-        let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
-        if bots.contains_key(&id) {
-            return Ok(id);
-        }
-        let dir = self.config.bots_dir.join(id.as_str());
-        let mut bot = if dir.exists() {
-            Bot::load(&dir)?
-        } else {
-            Bot::create_by(
-                &self.config.bots_dir,
-                id.clone(),
-                crate::bot::CENTRAL_NAME,
-                "",
-                Some(person),
-            )?
-        };
-        if !bot.private || bot.created_by.as_deref() != Some(person) {
-            bot.private = true;
-            bot.created_by = Some(person.to_owned());
-            bot.save()?;
-        }
-        tracing::info!(bot = %id, person, "made a Herder for a person");
-        bots.insert(id.clone(), bot);
-        Ok(id)
-    }
+/// Who made `bot`, by name as it is now: its owner's name, else the name
+/// it was made with.
+pub(super) fn maker_name(bot: &Bot, names: &HashMap<PersonId, String>) -> Option<String> {
+    bot.owner
+        .as_ref()
+        .and_then(|o| names.get(o).cloned())
+        .or_else(|| bot.created_by.clone())
+}
 
+impl Hub {
     /// A person's Herder as Claude runs it: with the Farm's Herder's
     /// instructions and model.
     pub(super) fn as_herder(&self, bot: &Bot) -> Bot {
@@ -71,102 +38,6 @@ impl Hub {
             bot.name.clone_from(&main.name);
         }
         bot
-    }
-
-    /// Who a new Gate is for, made safe: trimmed, at most
-    /// [`MAX_PERSON`] characters, no brackets or line breaks (names go into
-    /// bots' messages as `[Name]`), not a name oxbot uses itself, and spelled
-    /// like a person oxbot already knows if it matches one ignoring case
-    /// ("sam" pairs as "Sam").
-    ///
-    /// # Errors
-    /// Says what's wrong with the name, or the database failed.
-    pub fn gate_person(&self, name: &str) -> Result<String, HubError> {
-        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
-        let refuse = |why: &str| Err(HubError::NotAllowed(why.to_owned()));
-        if name.is_empty() {
-            return refuse("Say who the Gate is for.");
-        }
-        if name.chars().count() > MAX_PERSON {
-            return refuse("That name is too long (40 characters at most).");
-        }
-        if name
-            .chars()
-            .any(|c| matches!(c, '[' | ']' | '\\') || c.is_control())
-        {
-            return refuse("Names can't have brackets or backslashes in them.");
-        }
-        if RESERVED_PEOPLE
-            .iter()
-            .any(|r| r.eq_ignore_ascii_case(&name))
-        {
-            return refuse("oxbot uses that name itself. Pick the person's own name.");
-        }
-        let known = self
-            .store
-            .people()?
-            .into_iter()
-            .map(|p| p.name)
-            .chain(self.store.gates()?.into_iter().map(|g| g.person));
-        for person in known {
-            if person.to_lowercase() == name.to_lowercase() {
-                return Ok(person);
-            }
-        }
-        Ok(name)
-    }
-
-    /// Remembers a newly paired Gate for `person` (see
-    /// [`Hub::gate_person`]). `key_hash` is the hash of its key.
-    ///
-    /// # Errors
-    /// Fails if the database does.
-    pub fn add_gate(
-        &self,
-        id: &str,
-        person: &str,
-        device: &str,
-        key_hash: &str,
-    ) -> Result<GateInfo, HubError> {
-        let gate = self.store.add_gate(id, person, device, key_hash)?;
-        if self.store.person(person)?.1 {
-            let _ = self.updates.send(ServerMsg::People {
-                people: self.people()?,
-            });
-        }
-        Ok(gate)
-    }
-
-    /// The paired Gate whose key has this hash; marks it as seen now.
-    ///
-    /// # Errors
-    /// Fails if the database does (which is not the same as "not paired").
-    pub fn gate_by_key(&self, key_hash: &str) -> Result<Option<GateInfo>, HubError> {
-        Ok(self.store.gate_by_key(key_hash)?)
-    }
-
-    /// Every paired Gate, oldest first.
-    ///
-    /// # Errors
-    /// Fails if the database does.
-    pub fn gates(&self) -> Result<Vec<GateInfo>, HubError> {
-        Ok(self.store.gates()?)
-    }
-
-    /// Forgets a Gate. Returns whether it was paired.
-    ///
-    /// # Errors
-    /// Fails if the database does.
-    pub fn remove_gate(&self, id: &str) -> Result<bool, HubError> {
-        Ok(self.store.remove_gate(id)?)
-    }
-
-    /// Everyone who has sent a message, each with their own color.
-    ///
-    /// # Errors
-    /// Fails if the database fails.
-    pub fn people(&self) -> Result<Vec<Person>, HubError> {
-        Ok(self.store.people()?)
     }
 
     /// Every bot, with whether it's busy, its latest event number and the
@@ -191,6 +62,7 @@ impl Hub {
             .map(|(id, _)| id.clone())
             .collect();
         let seqs = lock(&self.seqs).clone();
+        let names = self.person_names();
         list.into_iter()
             .map(|b| {
                 let seq = seqs.get(&b.id).copied().unwrap_or_default();
@@ -202,10 +74,12 @@ impl Hub {
                     browser_state: b
                         .browser_owner()
                         .map_or(BrowserState::Off, |owner| self.owner_state(&owner)),
-                    created_by: b.created_by.clone(),
+                    created_by: maker_name(&b, &names),
                     private: b.private,
+                    owner: b.owner.as_ref().map(ToString::to_string),
                     id: b.id.to_string(),
                     name: b.name,
+                    ..BotInfo::default()
                 })
             })
             .collect()
@@ -214,6 +88,7 @@ impl Hub {
     /// The ids of the bots `viewer` may open, without building the list.
     #[must_use]
     pub fn visible_ids(&self, viewer: &Viewer) -> HashSet<String> {
+        let viewer = &*self.resolve(viewer);
         self.bots
             .read()
             .unwrap_or_else(PoisonError::into_inner)
@@ -224,11 +99,13 @@ impl Hub {
     }
 
     /// Every bot as `viewer` gets it: a private bot they can't open is
-    /// listed (name, maker, lock) with nothing of what it's doing.
+    /// listed (name, maker, lock) with nothing of what it's doing, and each
+    /// says whether they may manage it.
     ///
     /// # Errors
     /// Fails if the database fails.
     pub async fn bots_for(&self, viewer: &Viewer) -> Result<Vec<BotInfo>, HubError> {
+        let viewer = self.resolve(viewer).into_owned();
         Ok(viewer.redact(self.bots().await?))
     }
 
@@ -238,6 +115,7 @@ impl Hub {
     /// # Errors
     /// [`HubError::UnknownBot`] if there's no such bot or it's hidden.
     pub fn bot_for(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
+        let viewer = &*self.resolve(viewer);
         self.bot(id)
             .ok()
             .filter(|b| b.visible_to(viewer))
@@ -247,8 +125,9 @@ impl Hub {
     /// The bot `id`, if `viewer` may change it.
     fn bot_to_manage(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
         let bot = self.bot_for(id, viewer)?;
-        if !viewer.can_manage(bot.created_by.as_deref()) {
-            let who = bot.created_by.as_deref().unwrap_or("the Farm's owner");
+        if !bot.manageable_by(viewer) {
+            let who = maker_name(&bot, &self.person_names())
+                .unwrap_or_else(|| "the Farm's owner".to_owned());
             return Err(HubError::NotAllowed(format!(
                 "Only {who} or the Farm can change {}.",
                 bot.name
@@ -272,9 +151,9 @@ impl Hub {
         Ok(bot)
     }
 
-    /// Makes a bot private (only its creator and the Farm see it, and it
-    /// uses its creator's own browser) or shared again. A bot nobody is
-    /// recorded as making becomes `viewer`'s when it goes private.
+    /// Makes a bot private (only its owner and the Farm see it, and it
+    /// uses its owner's own browser) or shared again. A bot nobody owns
+    /// becomes `viewer`'s when it goes private.
     ///
     /// # Errors
     /// Fails if `viewer` may not change it, it's Herder, it's working, or
@@ -285,6 +164,7 @@ impl Hub {
         private: bool,
         viewer: &Viewer,
     ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
             return Err(HubError::NotAllowed(
@@ -294,7 +174,7 @@ impl Hub {
         if bot.private == private {
             return Ok(());
         }
-        if private && bot.created_by.is_none() && viewer.name.trim().is_empty() {
+        if private && bot.owner.is_none() && viewer.id.is_none() {
             return Err(HubError::NotAllowed(
                 "A private bot needs to know whose it is.".to_owned(),
             ));
@@ -303,7 +183,8 @@ impl Hub {
         // it with the old browser.
         self.claim(&bot.id).await?;
         let changed = self.update_bot(&bot.id, |b| {
-            if private && b.created_by.is_none() {
+            if private && b.owner.is_none() {
+                b.owner.clone_from(&viewer.id);
                 b.created_by = Some(viewer.name.clone());
             }
             b.private = private;
@@ -326,6 +207,7 @@ impl Hub {
     /// too long, on more than one line or taken, or its file can't be
     /// written.
     pub async fn rename_bot(&self, id: &str, name: &str, viewer: &Viewer) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
             return Err(HubError::NotAllowed("Herder keeps its name.".to_owned()));
@@ -363,6 +245,7 @@ impl Hub {
     /// Fails if `viewer` may not change it, it's Herder, it's working, or
     /// its history or folder can't be saved or moved.
     pub async fn delete_bot(&self, id: &str, viewer: &Viewer) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
             return Err(HubError::NotAllowed("Herder can't be deleted.".to_owned()));
@@ -412,7 +295,11 @@ impl Hub {
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&bot.id);
-        tracing::info!(bot = %bot.id, by = viewer.name, to = %moved.display(), "deleted a bot");
+        let by = viewer
+            .id
+            .as_ref()
+            .map_or_else(|| "the Farm".to_owned(), ToString::to_string);
+        tracing::info!(bot = %bot.id, by, to = %moved.display(), "deleted a bot");
         Ok(())
     }
 
@@ -462,6 +349,7 @@ impl Hub {
     }
 
     /// Creates a bot, picking its id from `name`, and tells every client.
+    /// `created_by` names its maker (made a person if new).
     ///
     /// # Errors
     /// Fails if its files can't be written.
@@ -487,6 +375,27 @@ impl Hub {
         created_by: Option<&str>,
         private: bool,
     ) -> Result<BotInfo, HubError> {
+        let maker = created_by
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(|c| self.resolve(&Viewer::gate(c)).into_owned())
+            .filter(|v| v.id.is_some());
+        self.create_bot_as(name, instructions, maker.as_ref(), private)
+            .await
+    }
+
+    /// Creates a bot owned by `maker` (a viewer with a person id; `None`
+    /// for nobody). A `private` bot needs a maker.
+    ///
+    /// # Errors
+    /// Fails if its files can't be written.
+    pub async fn create_bot_as(
+        &self,
+        name: &str,
+        instructions: &str,
+        maker: Option<&Viewer>,
+        private: bool,
+    ) -> Result<BotInfo, HubError> {
         // One line, at most MAX_NAME characters.
         let name: String = name
             .split(char::is_control)
@@ -507,15 +416,20 @@ impl Hub {
                 bots.contains_key(id) || self.config.bots_dir.join(id.as_str()).exists()
             })
         };
-        let created_by = created_by.map(str::trim).filter(|c| !c.is_empty());
-        let mut bot = Bot::create_by(
+        let owner = maker.and_then(|m| m.id.as_ref());
+        let created_by = maker
+            .filter(|m| m.id.is_some())
+            .map(|m| m.name.as_str())
+            .filter(|n| !n.is_empty());
+        let mut bot = Bot::create_owned(
             &self.config.bots_dir,
             id.clone(),
             &name,
             instructions.trim(),
+            owner,
             created_by,
         )?;
-        if private && created_by.is_some() {
+        if private && owner.is_some() {
             bot.private = true;
             bot.save()?;
         }

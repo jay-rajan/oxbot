@@ -9,6 +9,7 @@
 //!
 //! Who may see and change which bot is decided by [`Viewer`]: the Farm
 //! sees everything, anyone else sees shared bots and their own private ones.
+//! People are told apart by their [`PersonId`]; names are only shown.
 //!
 //! The hub turns Claude's output into stored [`EventKind`]s, answers
 //! Claude's permission requests by the rules in [`crate::policy`] (asking
@@ -22,6 +23,7 @@ mod access;
 mod approvals;
 mod browsers;
 mod claude;
+mod people;
 mod sign_ins;
 mod team;
 mod turns;
@@ -40,9 +42,8 @@ use oxbot_protocol::{Answer, Approval, BotEvent, EventKind, ServerMsg, SignInReq
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, broadcast, oneshot};
 
 use crate::bot::{Bot, BotError};
-use crate::id::{BotId, BotIdError};
-use crate::store::{HOME, Seqs, Store, StoreError};
-use sign_ins::tidy_sites;
+use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
+use crate::store::{Seqs, Store, StoreError};
 use turns::stop_idle_bots;
 
 /// Settings for the [`Hub`].
@@ -147,16 +148,21 @@ struct Runtime {
     /// The person this turn acts for: who sent the message, or the person
     /// Herder passed a task on for. Herder's tools act for them, and only
     /// they (and the Farm) answer the turn's cards.
-    asker: Option<String>,
+    asker: Option<PersonId>,
 }
 
 /// Cards waiting for the user, with who to tell.
 type Waiting<T, A> = std::sync::Mutex<BTreeMap<u64, (T, oneshot::Sender<A>)>>;
 
+/// Approval cards waiting for the user: the card, the person whose turn
+/// raised it (only they and the Farm may answer), and who to tell.
+type WaitingApprovals =
+    std::sync::Mutex<BTreeMap<u64, (Approval, Option<PersonId>, oneshot::Sender<Answer>)>>;
+
 /// One owner's browser and who's using it.
 struct Shared {
-    /// Whose it is: [`HOME`] or a person's name.
-    owner: String,
+    /// Whose it is.
+    owner: BrowserOwner,
     browser: Arc<Browser>,
     /// Held by the bot using the browser.
     lease: Arc<Mutex<()>>,
@@ -172,14 +178,6 @@ struct Shared {
     sites_checked: std::sync::atomic::AtomicBool,
 }
 
-impl Shared {
-    /// `None` for the home browser, else its owner, as [`ServerMsg::Sites`]
-    /// names it.
-    fn owner_label(&self) -> Option<String> {
-        (self.owner != HOME).then(|| self.owner.clone())
-    }
-}
-
 /// Runs the bots. Share it as `Arc<Hub>`.
 pub struct Hub {
     bots: RwLock<BTreeMap<BotId, Bot>>,
@@ -187,10 +185,10 @@ pub struct Hub {
     config: HubConfig,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
     /// Each owner's browser, made when first needed.
-    browsers: std::sync::Mutex<HashMap<String, Arc<Shared>>>,
+    browsers: std::sync::Mutex<HashMap<BrowserOwner, Arc<Shared>>>,
     /// This hub, for the tasks it starts.
     me: std::sync::Weak<Hub>,
-    approvals: Waiting<Approval, Answer>,
+    approvals: WaitingApprovals,
     sign_ins: Waiting<SignInRequest, bool>,
     next_id: AtomicU64,
     /// Bots whose `claude` is being started (which can take a while the first
@@ -201,6 +199,9 @@ pub struct Hub {
     /// Each bot's latest event and reply numbers, kept as events are
     /// recorded, so listing bots and reading replies don't search history.
     seqs: std::sync::Mutex<HashMap<BotId, Seqs>>,
+    /// The Farm's own person, once looked up this run (see
+    /// [`Hub::farm_person`]).
+    farm: std::sync::Mutex<Option<PersonId>>,
 }
 
 impl std::fmt::Debug for Hub {
@@ -242,7 +243,14 @@ impl Hub {
     #[must_use]
     pub fn new(bots: Vec<Bot>, store: Store, config: HubConfig) -> Arc<Self> {
         let (updates, _) = broadcast::channel(1024);
-        tidy_sites(&store);
+        let farm = match store.farm_person() {
+            Ok(farm) => farm,
+            Err(err) => {
+                tracing::warn!(%err, "couldn't read who the Farm's person is");
+                None
+            }
+        };
+        let bots = people::adopt_bots(bots, &store, farm.as_ref());
         let seqs = load_seqs(&store);
         let hub = Arc::new_cyclic(|me| Self {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
@@ -258,9 +266,11 @@ impl Hub {
             next_id: AtomicU64::new(1),
             updates,
             seqs: std::sync::Mutex::new(seqs),
+            // Looked up (and its name brought up to date) on first use.
+            farm: std::sync::Mutex::new(None),
         });
         // The home browser exists from the start, as before.
-        let _ = hub.browser_for(HOME);
+        let _ = hub.browser_for(&BrowserOwner::Home);
         tokio::spawn(stop_idle_bots(Arc::downgrade(&hub)));
         hub
     }
@@ -361,6 +371,7 @@ mod tests {
     use super::turns::sender_line;
     use super::*;
     use crate::bot::Viewer;
+    use oxbot_browser::Tools;
     use oxbot_claude::Activity;
     use oxbot_protocol::ApprovalKind;
 
@@ -508,6 +519,206 @@ mod tests {
             info[0].last_reply_seq,
             hub.store.last_reply_seq(id).unwrap()
         );
+    }
+
+    fn browsing_config(dir: &std::path::Path, bots: &std::path::Path) -> HubConfig {
+        let tools = oxbot_browser::ToolsConfig::in_home(&dir.join("home"));
+        HubConfig {
+            browser: Some(Tools::new(tools)),
+            ..HubConfig::new(bots)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_renamed_person_keeps_their_bots_sites_and_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("oxbot.db");
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let hub = Hub::new(
+            vec![],
+            Store::open(&db).unwrap(),
+            browsing_config(tmp.path(), &bots),
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let phone = Viewer::person(jay.id.clone(), "Jay", false);
+        hub.create_bot_as("Journal", "", Some(&phone), true)
+            .await
+            .unwrap();
+        let mine = BrowserOwner::Person(jay.id.clone());
+        hub.store.add_site(&mine, "bank.example").unwrap();
+        let folder = hub
+            .browser_for(&mine)
+            .unwrap()
+            .browser
+            .profile_dir()
+            .to_owned();
+        hub.shutdown().await;
+        drop(hub);
+
+        // The next start, the Mac's account is called Jayadev.
+        let hub = Hub::new(
+            crate::bot::load_all(&bots).unwrap(),
+            Store::open(&db).unwrap(),
+            browsing_config(tmp.path(), &bots),
+        );
+        let renamed = hub.farm_person("Jayadev").unwrap();
+        assert_eq!((&renamed.id, renamed.name.as_str()), (&jay.id, "Jayadev"));
+        let phone = Viewer::person(jay.id.clone(), "Jayadev", false);
+        assert_eq!(
+            hub.bot_for("journal", &phone).unwrap().owner,
+            Some(jay.id.clone())
+        );
+        let list = hub.bots_for(&phone).await.unwrap();
+        let journal = list.iter().find(|b| b.id == "journal").unwrap();
+        assert!(journal.can_manage && !journal.locked);
+        assert_eq!(
+            journal.created_by.as_deref(),
+            Some("Jayadev"),
+            "shown as now"
+        );
+        let lists = hub.sites_for(&phone);
+        assert!(
+            matches!(&lists[1], ServerMsg::Sites { sites, owner: Some(o) }
+                if o == "Jayadev" && sites[0].site == "bank.example"),
+            "{lists:?}"
+        );
+        assert_eq!(
+            hub.browser_for(&mine).unwrap().browser.profile_dir(),
+            folder
+        );
+
+        // Someone new called Jay is someone else, and gets none of it.
+        let other = hub.resolve(&Viewer::gate("Jay")).into_owned();
+        assert!(other.id.is_some() && other.id != Some(jay.id.clone()));
+        assert!(hub.bot_for("journal", &other).is_err());
+        assert_ne!(
+            hub.herder_of(&other).unwrap().as_str(),
+            crate::bot::DEFAULT_BOT
+        );
+        hub.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_gate_named_like_the_farms_person_gets_neither_its_herder_nor_its_rights() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = Hub::new(
+            vec![],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let (sam, _) = hub.store.find_or_create_person("Sam").unwrap();
+        hub.create_bot_with("Bank", "", Some("Ann"), true)
+            .await
+            .unwrap();
+
+        // Sam's Gate showing the Farm person's name is still Sam.
+        let lookalike = Viewer::person(sam.id.clone(), "Jay", false);
+        let herder = hub.herder_of(&lookalike).unwrap();
+        assert_ne!(herder.as_str(), crate::bot::DEFAULT_BOT);
+        assert_eq!(herder, hub.herder_for_person(&sam.id).unwrap());
+        assert!(hub.bot_for("bank", &lookalike).is_err(), "no Farm rights");
+        assert!(
+            hub.herder_of(&Viewer::gate("")).is_err(),
+            "nobody gets no Herder"
+        );
+
+        // The Farm's person on their phone (by id) uses the Farm's Herder,
+        // but only the Farm secret gives Farm rights.
+        let phone = Viewer::person(jay.id.clone(), "Jay", false);
+        assert_eq!(
+            hub.herder_of(&phone).unwrap().as_str(),
+            crate::bot::DEFAULT_BOT
+        );
+        assert!(hub.bot_for("bank", &phone).is_err());
+        let farm = hub.farm_viewer("Jay");
+        assert!(farm.farm && farm.id == Some(jay.id.clone()));
+        assert!(hub.bot_for("bank", &farm).is_ok());
+    }
+
+    #[tokio::test]
+    async fn each_viewer_is_told_what_they_may_do_with_each_bot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let central =
+            Bot::create(tmp.path(), BotId::new("assistant").unwrap(), "Herder", "").unwrap();
+        let old = Bot::create(tmp.path(), BotId::new("old").unwrap(), "Old", "").unwrap();
+        let hub = Hub::new(
+            vec![central, old],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        hub.create_bot_with("Bank", "", Some("Sam"), true)
+            .await
+            .unwrap();
+        // A bot nobody is recorded as making becomes the Farm's person's.
+        let farm = hub.farm_viewer("Jay");
+        let old = hub.bot("old").unwrap();
+        assert_eq!(old.owner, farm.id);
+        assert_eq!(old.created_by.as_deref(), Some("Jay"));
+        assert_eq!(Bot::load(&old.dir).unwrap().owner, farm.id, "saved");
+
+        let flags = |list: &[oxbot_protocol::BotInfo], id: &str| {
+            let b = list.iter().find(|b| b.id == id).unwrap();
+            (b.locked, b.can_manage)
+        };
+        for (viewer, bank, old, herder) in [
+            (
+                Viewer::gate("Ann"),
+                (true, false),
+                (false, false),
+                (false, false),
+            ),
+            (
+                Viewer::gate("Sam"),
+                (false, true),
+                (false, false),
+                (false, false),
+            ),
+            (
+                Viewer::gate("Jay"),
+                (true, false),
+                (false, true),
+                (false, false),
+            ),
+            (farm, (false, true), (false, true), (false, false)),
+        ] {
+            let list = hub.bots_for(&viewer).await.unwrap();
+            assert_eq!(flags(&list, "bank"), bank, "{}", viewer.name);
+            assert_eq!(flags(&list, "old"), old, "{}", viewer.name);
+            assert_eq!(flags(&list, "assistant"), herder, "{}", viewer.name);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bot_made_before_person_ids_is_given_its_makers_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bank = Bot::create_by(
+            tmp.path(),
+            BotId::new("bank").unwrap(),
+            "Bank",
+            "",
+            Some("Sam"),
+        )
+        .unwrap();
+        assert_eq!(bank.owner, None);
+        let hub = Hub::new(
+            vec![bank.clone()],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        let sam = hub.store.person_by_name("Sam").unwrap().unwrap();
+        let saved = Bot::load(&bank.dir).unwrap();
+        assert_eq!(saved.owner, Some(sam.id.clone()));
+        assert_eq!(
+            saved.created_by.as_deref(),
+            Some("Sam"),
+            "the name stays for showing"
+        );
+        let text = std::fs::read_to_string(bank.dir.join("bot.toml")).unwrap();
+        assert!(text.contains(&format!("owner = \"{}\"", sam.id)), "{text}");
+        assert!(!bank.dir.join("bot.toml.tmp").exists(), "written whole");
+        assert_eq!(hub.bot("bank").unwrap().owner, Some(sam.id));
     }
 
     #[test]

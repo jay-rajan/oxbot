@@ -10,18 +10,18 @@ use tokio::sync::oneshot;
 
 use super::{Hub, HubError, Shared, lock};
 use crate::bot::Viewer;
-use crate::id::BotId;
-use crate::store::{HOME, Store};
+use crate::id::{BotId, BrowserOwner};
 
 impl Hub {
     /// The sites `owner`'s browser signed in to through oxbot, newest first.
     #[must_use]
-    pub fn sites(&self, owner: &str) -> Vec<SiteInfo> {
-        let mut sites = self.store.sites(owner).unwrap_or_else(|err| {
+    pub fn sites(&self, owner: impl Into<BrowserOwner>) -> Vec<SiteInfo> {
+        let owner = owner.into();
+        let mut sites = self.store.sites(&owner).unwrap_or_else(|err| {
             tracing::warn!(%err, "couldn't read the signed-in sites");
             Vec::new()
         });
-        if let Some(shared) = self.browser_for(owner) {
+        if let Some(shared) = self.browser_for(&owner) {
             let names: Vec<&str> = sites.iter().map(|s| s.site.as_str()).collect();
             let icons = shared.browser.site_icons(&names);
             for (site, icon) in sites.iter_mut().zip(icons) {
@@ -34,13 +34,14 @@ impl Hub {
     /// The site lists `viewer` gets: the home browser's, then their own.
     #[must_use]
     pub fn sites_for(&self, viewer: &Viewer) -> Vec<ServerMsg> {
+        let viewer = self.resolve(viewer);
         let mut lists = vec![ServerMsg::Sites {
-            sites: self.sites(HOME),
+            sites: self.sites(BrowserOwner::Home),
             owner: None,
         }];
-        if !viewer.name.is_empty() {
+        if let Some(id) = &viewer.id {
             lists.push(ServerMsg::Sites {
-                sites: self.sites(&viewer.name),
+                sites: self.sites(BrowserOwner::Person(id.clone())),
                 owner: Some(viewer.name.clone()),
             });
         }
@@ -50,7 +51,7 @@ impl Hub {
     pub(super) fn announce_sites(&self, shared: &Shared) {
         self.announce(ServerMsg::Sites {
             sites: self.sites(&shared.owner),
-            owner: shared.owner_label(),
+            owner: self.owner_label(&shared.owner),
         });
     }
 
@@ -61,7 +62,11 @@ impl Hub {
     /// # Errors
     /// [`HubError::BrowserBusy`] while a bot is using that browser, or
     /// [`HubError::BadSite`] if `url` isn't a web address.
-    pub async fn add_sign_in(&self, url: &str, owner: &str) -> Result<(), HubError> {
+    pub async fn add_sign_in(
+        &self,
+        url: &str,
+        owner: impl Into<BrowserOwner>,
+    ) -> Result<(), HubError> {
         let url = url.trim();
         let url = if url.contains("://") {
             url.to_owned()
@@ -69,7 +74,7 @@ impl Hub {
             format!("https://{url}")
         };
         let host = web_host(&url).ok_or_else(|| HubError::BadSite(url.clone()))?;
-        let shared = self.idle_browser(owner)?;
+        let shared = self.idle_browser(&owner.into())?;
         *lock(&shared.adding_site) = Some(host);
         shared.browser.open_window(&url).await?;
         Ok(())
@@ -85,11 +90,14 @@ impl Hub {
                     if !held.contains(&site.site) {
                         tracing::info!(
                             site = site.site,
-                            browser = shared.owner,
+                            browser = %shared.owner,
                             "no sign-in cookies left; dropping it"
                         );
                         let _ = self.store.remove_site(&shared.owner, &site.site);
                     }
+                }
+                if let Err(err) = self.store.site_check_done(&shared.owner) {
+                    tracing::warn!(%err, "couldn't note the sites were checked");
                 }
                 true
             }
@@ -108,18 +116,23 @@ impl Hub {
     /// # Errors
     /// [`HubError::BrowserBusy`] while a bot is using that browser, or
     /// [`HubError::BadSite`] if `site` isn't on its list.
-    pub async fn open_site(&self, site: &str, owner: &str) -> Result<(), HubError> {
+    pub async fn open_site(
+        &self,
+        site: &str,
+        owner: impl Into<BrowserOwner>,
+    ) -> Result<(), HubError> {
+        let owner = owner.into();
         // Only a site on that browser's list, never any address a client sends.
         let known = self
             .store
-            .sites(owner)
+            .sites(&owner)
             .unwrap_or_default()
             .iter()
             .any(|s| s.site == site);
         if !known {
             return Err(HubError::BadSite(site.to_owned()));
         }
-        let shared = self.idle_browser(owner)?;
+        let shared = self.idle_browser(&owner)?;
         shared
             .browser
             .open_window(&format!("https://{site}"))
@@ -132,19 +145,24 @@ impl Hub {
     /// # Errors
     /// [`HubError::BrowserBusy`] while a bot is using that browser, or the
     /// browser's error.
-    pub async fn sign_out_site(&self, site: &str, owner: &str) -> Result<(), HubError> {
-        let shared = self.browser_for(owner).ok_or(HubError::NoBrowser)?;
+    pub async fn sign_out_site(
+        &self,
+        site: &str,
+        owner: impl Into<BrowserOwner>,
+    ) -> Result<(), HubError> {
+        let owner = owner.into();
+        let shared = self.browser_for(&owner).ok_or(HubError::NoBrowser)?;
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
             return Err(self.busy_error(&shared));
         };
         shared.browser.forget_site(site).await?;
-        if let Err(err) = self.store.remove_site(owner, site) {
+        if let Err(err) = self.store.remove_site(&owner, site) {
             tracing::warn!(%err, "couldn't forget the site");
         }
         lock(&shared.last).take();
         self.announce_sites(&shared);
         self.notice_for(
-            shared.owner_label(),
+            self.owner_label(&owner),
             &format!("Signed out of {site}. Bots will ask you to sign in again if they need it."),
         );
         Ok(())
@@ -183,7 +201,7 @@ impl Hub {
             bot: bot.to_string(),
             text: format!("Waiting for you to sign in to {site}…"),
         });
-        tracing::info!(%bot, site, browser = shared.owner, "asking the user to sign in");
+        tracing::info!(%bot, site, browser = %shared.owner, "asking the user to sign in");
         // Open the sign-in window right away; the card's button is the fallback.
         if let Err(err) = self.open_sign_in(id).await {
             tracing::warn!(%bot, site, %err, "couldn't open the sign-in window");
@@ -304,7 +322,7 @@ impl Hub {
                 r.window_open
                     && self
                         .bot(&r.bot)
-                        .is_ok_and(|b| b.browser_owner().as_deref() == Some(shared.owner.as_str()))
+                        .is_ok_and(|b| b.browser_owner().as_ref() == Some(&shared.owner))
             })
             .map(|(id, _)| *id)
             .collect();
@@ -321,23 +339,6 @@ impl Hub {
             .collect();
         for id in ids {
             self.resolve_sign_in(id, false);
-        }
-    }
-}
-
-/// Names every remembered site by its main domain (sign-ins taken from old
-/// history are stored by host, e.g. `accounts.google.com`).
-pub(super) fn tidy_sites(store: &Store) {
-    for owner in store.site_owners().unwrap_or_default() {
-        let Ok(sites) = store.sites(&owner) else {
-            continue;
-        };
-        for site in sites {
-            let main = site_of(&site.site);
-            if main != site.site {
-                let _ = store.remove_site(&owner, &site.site);
-                let _ = store.add_site_at(&owner, &main, site.signed_in_ms);
-            }
         }
     }
 }

@@ -65,8 +65,11 @@ impl Hub {
                         tools.mcp_server(shared.browser.port(), &bot.work_dir()),
                     );
                     servers.insert(TOOL_SERVER_NAME.to_owned(), tools::mcp_entry());
-                    // Once per run, drop remembered sites the browser has no cookies for.
-                    if !shared.sites_checked.swap(true, Ordering::Relaxed) {
+                    // Once per run, and after an upgrade renamed its sites (until
+                    // a check works), drop remembered sites the browser has no
+                    // cookies for.
+                    let due = self.store.site_check_due(&shared.owner).unwrap_or(false);
+                    if !shared.sites_checked.swap(true, Ordering::Relaxed) || due {
                         let hub = Arc::clone(self);
                         let shared = Arc::clone(shared);
                         tokio::spawn(async move {

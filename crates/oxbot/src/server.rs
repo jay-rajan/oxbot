@@ -16,6 +16,7 @@ use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
 use oxbot_core::hub::answers;
+use oxbot_core::id::BrowserOwner;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
     AppSettings, ClientMsg, DEFAULT_PAGE, LogLine, MAX_PAGE, ServerHello, ServerMsg, SetupAction,
@@ -44,8 +45,9 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// What the desktop app lets the page control (`None` for `oxbot serve`).
     pub app: Option<Arc<dyn AppControls>>,
-    /// Who messages from this Mac come from (the Mac account's first name).
-    /// Gates send as the person they were paired for.
+    /// The Mac account's first name: who the Farm's own person is the first
+    /// time oxbot runs (then they're found by id; see
+    /// [`Hub::farm_person`]). Gates send as the person they were paired for.
     pub local_person: String,
     /// The `PATH` oxbot's programs use (see [`crate::setup::search_path`]).
     pub search_path: String,
@@ -101,7 +103,7 @@ impl AppState {
     /// through the Gate door as the person they were paired for.)
     #[must_use]
     pub fn farm_viewer(&self) -> Viewer {
-        Viewer::farm(self.local_person.clone())
+        self.hub.farm_viewer(&self.local_person)
     }
 }
 
@@ -217,7 +219,7 @@ async fn ws_upgrade(
 ) -> Response {
     // Through the Gate door: the key was checked; always the Gate's person.
     if let Some(Extension(auth)) = gate {
-        let viewer = Viewer::gate(auth.gate.person.clone());
+        let viewer = auth.viewer;
         let id = auth.gate.id;
         return ws.on_upgrade(move |socket| connection(socket, state, viewer, Some(id)));
     }
@@ -236,7 +238,9 @@ async fn ws_upgrade(
         .is_some_and(|k| crate::secret::same(k.trim(), &state.farm_key));
     let viewer = match query.get("as").map(|n| n.trim()) {
         _ if farm => state.farm_viewer(),
-        Some(name) if state.e2e && !name.is_empty() => Viewer::gate(name),
+        Some(name) if state.e2e && !name.is_empty() => {
+            state.hub.resolve(&Viewer::gate(name)).into_owned()
+        }
         _ => {
             tracing::warn!("refused a local connection without the Farm secret");
             return (
@@ -304,7 +308,7 @@ impl Client {
     fn see(&mut self, bots: &[oxbot_protocol::BotInfo]) {
         self.visible = bots
             .iter()
-            .filter(|b| self.viewer.can_see(b.created_by.as_deref(), b.private))
+            .filter(|b| self.viewer.can_see_info(b))
             .map(|b| b.id.clone())
             .collect();
         let visible = &self.visible;
@@ -449,17 +453,15 @@ impl Client {
     }
 }
 
-/// Which Herder `viewer` talks to: the Farm's own person (on the Mac or a
-/// phone) uses the Farm's; anyone else gets their own.
+/// Which Herder `viewer` talks to: the Farm and the Farm's own person (by
+/// id, on the Mac or a phone) use the Farm's; anyone else gets their own.
 fn herder_for(state: &AppState, viewer: &Viewer) -> String {
-    if viewer.farm || viewer.name.is_empty() || viewer.name == state.local_person {
-        return DEFAULT_BOT.to_owned();
-    }
-    match state.hub.herder_for(&viewer.name) {
+    match state.hub.herder_of(viewer) {
         Ok(id) => id.to_string(),
         Err(err) => {
             // No Herder at all rather than someone else's.
-            tracing::warn!(%err, person = viewer.name, "couldn't make a Herder for a person");
+            let person = viewer.id.as_ref().map(ToString::to_string);
+            tracing::warn!(%err, person, "couldn't make a Herder for a person");
             String::from("-")
         }
     }
@@ -656,7 +658,7 @@ async fn handle(
                 Arc::clone(&state.hub),
                 bot,
                 text,
-                viewer.name.clone(),
+                viewer.clone(),
                 out.clone(),
             ));
             Vec::new()
@@ -672,12 +674,16 @@ async fn handle(
         } => {
             match state
                 .hub
-                .create_bot_with(&name, &instructions, Some(&viewer.name), private)
+                .create_bot_as(&name, &instructions, Some(&viewer), private)
                 .await
             {
                 Ok(info) => {
                     client.visible.insert(info.id.clone());
-                    vec![ServerMsg::BotCreated(info)]
+                    viewer
+                        .redact(vec![info])
+                        .into_iter()
+                        .map(ServerMsg::BotCreated)
+                        .collect()
                 }
                 Err(e) => error(&e),
             }
@@ -845,10 +851,10 @@ async fn send_as(
     hub: Arc<Hub>,
     bot: String,
     text: String,
-    from: String,
+    from: Viewer,
     out: mpsc::Sender<ServerMsg>,
 ) {
-    if let Err(e) = hub.send(&bot, &text, Some(&from)).await {
+    if let Err(e) = hub.send_as(&bot, &text, &from).await {
         let _ = out
             .send(ServerMsg::Error {
                 message: e.to_string(),
@@ -858,14 +864,17 @@ async fn send_as(
 }
 
 /// Handles sign-in cards and the sign-in lists. A card for a bot the
-/// viewer can't see is ignored; "mine" means the viewer's own browser,
-/// else the home one.
+/// viewer can't see is ignored; "mine" means the viewer's own browser
+/// (never home's, even for someone oxbot can't place), else the home one.
 async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
-    let owner = |mine: bool| {
-        if mine {
-            viewer.name.clone()
-        } else {
-            oxbot_core::store::HOME.to_owned()
+    let viewer = &*state.hub.resolve(viewer);
+    let owner = |mine: bool| -> Result<BrowserOwner, oxbot_core::HubError> {
+        match (mine, &viewer.id) {
+            (false, _) => Ok(BrowserOwner::Home),
+            (true, Some(id)) => Ok(BrowserOwner::Person(id.clone())),
+            (true, None) => Err(oxbot_core::HubError::NotAllowed(
+                "oxbot doesn't know whose browser that is.".to_owned(),
+            )),
         }
     };
     // The home browser holds everyone's shared sign-ins: only the Farm
@@ -895,14 +904,22 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
             state.hub.resolve_sign_in(id, false);
             Vec::new()
         }
-        ClientMsg::SignOutAll { mine } => reply(state.hub.sign_out_all(&owner(mine)).await),
-        ClientMsg::OpenSite { site, mine } => reply(state.hub.open_site(&site, &owner(mine)).await),
-        ClientMsg::AddSignIn { url, mine } => {
-            reply(state.hub.add_sign_in(&url, &owner(mine)).await)
-        }
-        ClientMsg::SignOutSite { site, mine } => {
-            reply(state.hub.sign_out_site(&site, &owner(mine)).await)
-        }
+        ClientMsg::SignOutAll { mine } => match owner(mine) {
+            Ok(owner) => reply(state.hub.sign_out_all(owner).await),
+            Err(e) => reply(Err(e)),
+        },
+        ClientMsg::OpenSite { site, mine } => match owner(mine) {
+            Ok(owner) => reply(state.hub.open_site(&site, owner).await),
+            Err(e) => reply(Err(e)),
+        },
+        ClientMsg::AddSignIn { url, mine } => match owner(mine) {
+            Ok(owner) => reply(state.hub.add_sign_in(&url, owner).await),
+            Err(e) => reply(Err(e)),
+        },
+        ClientMsg::SignOutSite { site, mine } => match owner(mine) {
+            Ok(owner) => reply(state.hub.sign_out_site(&site, owner).await),
+            Err(e) => reply(Err(e)),
+        },
         _ => Vec::new(),
     }
 }
@@ -1053,6 +1070,7 @@ mod tests {
             central: false,
             created_by: created_by.map(Into::into),
             private,
+            ..Default::default()
         }
     }
 
@@ -1187,6 +1205,64 @@ mod tests {
             "nobody asked: the Farm's"
         );
         assert!(forward(card("shared", None), &mut farm).is_some());
+    }
+
+    fn state(dir: &std::path::Path) -> AppState {
+        let hub = Hub::new(
+            vec![],
+            oxbot_core::Store::open_in_memory().unwrap(),
+            oxbot_core::HubConfig::new(dir),
+        );
+        AppState {
+            local_person: "Jay".to_owned(),
+            ..AppState::new(hub, "test-mac")
+        }
+    }
+
+    #[tokio::test]
+    async fn a_gate_named_like_the_farms_person_is_not_the_farm() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        let farm = state.farm_viewer();
+        assert!(farm.farm && farm.id.is_some());
+        assert_eq!(herder_for(&state, &farm), DEFAULT_BOT);
+
+        // Another person's Gate that calls itself "Jay".
+        let sam = state.hub.resolve(&Viewer::gate("Sam")).into_owned();
+        let lookalike = Viewer {
+            name: "Jay".into(),
+            ..sam.clone()
+        };
+        let herder = herder_for(&state, &lookalike);
+        assert_ne!(herder, DEFAULT_BOT, "not the Farm's Herder");
+        assert_eq!(herder, herder_for(&state, &sam), "Sam's own");
+        assert!(!state.settings_for(&lookalike).farm, "no Farm rights");
+        // The Farm's person's own phone (same id, no secret) isn't the Farm either.
+        let phone = Viewer {
+            farm: false,
+            ..farm.clone()
+        };
+        assert_eq!(herder_for(&state, &phone), DEFAULT_BOT);
+        assert!(!state.settings_for(&phone).farm);
+    }
+
+    #[tokio::test]
+    async fn my_own_browser_is_never_home_for_someone_oxbot_cant_place() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        for msg in [
+            ClientMsg::SignOutAll { mine: true },
+            ClientMsg::AddSignIn {
+                url: "bank.example".into(),
+                mine: true,
+            },
+        ] {
+            let replies = handle_sign_ins(msg, &state, &Viewer::gate("")).await;
+            assert!(
+                matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("whose browser")),
+                "{replies:?}"
+            );
+        }
     }
 
     #[test]

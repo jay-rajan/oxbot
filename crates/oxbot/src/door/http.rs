@@ -9,6 +9,7 @@ use axum::extract::{Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use oxbot_core::Viewer;
 use oxbot_protocol::{GateInfo, PairRequest};
 
 use super::{Door, PairError};
@@ -18,6 +19,8 @@ use super::{Door, PairError};
 pub struct GateAuth {
     /// The paired Gate.
     pub gate: GateInfo,
+    /// Its person, by id: never the Farm.
+    pub viewer: Viewer,
 }
 
 /// `POST /pair`: a Gate pairs with a code.
@@ -51,7 +54,7 @@ pub async fn require_key(
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::trim);
     let gate = match key.map(|k| door.check_key(k)) {
-        Some(Ok(Some(gate))) => gate,
+        Some(Ok(Some(found))) => found,
         Some(Err(err)) => {
             tracing::warn!(%err, "couldn't check a Gate's key");
             return (
@@ -69,6 +72,7 @@ pub async fn require_key(
                 .into_response();
         }
     };
-    request.extensions_mut().insert(GateAuth { gate });
+    let (gate, viewer) = gate;
+    request.extensions_mut().insert(GateAuth { gate, viewer });
     next.run(request).await
 }

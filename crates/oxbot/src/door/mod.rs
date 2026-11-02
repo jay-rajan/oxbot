@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use axum::Router;
-use oxbot_core::{Hub, HubError};
+use oxbot_core::{Hub, HubError, Viewer};
 use oxbot_protocol::{
     DoorNetwork, DoorState, GateInfo, PairReply, PairRequest, PairingCode, ServerMsg,
 };
@@ -426,7 +426,7 @@ impl Door {
         }
         .to_link();
         let qr_svg = pairing::qr_svg(&link)?;
-        tracing::info!(person, "showing a Gate pairing code");
+        tracing::info!("showing a Gate pairing code");
         Ok(PairingCode {
             person,
             code: pairing::display_code(&code),
@@ -486,7 +486,7 @@ impl Door {
                 &oxbot_gate::fingerprint(key.as_bytes()),
             )
             .map_err(|e| PairError::Farm(e.to_string()))?;
-        tracing::info!(person = gate.person, device = gate.name, "a Gate paired");
+        tracing::info!(gate = gate.id, "a Gate paired");
         self.hub.announce(ServerMsg::PairingClosed);
         self.announce_gates();
         Ok(PairReply {
@@ -501,12 +501,12 @@ impl Door {
     ///
     /// # Errors
     /// The database failed: that's "try again", not "not paired".
-    pub fn check_key(&self, key: &str) -> Result<Option<GateInfo>, HubError> {
+    pub fn check_key(&self, key: &str) -> Result<Option<(GateInfo, Viewer)>, HubError> {
         if !crate::secret::usable(key) {
             return Ok(None);
         }
         self.hub
-            .gate_by_key(&oxbot_gate::fingerprint(key.as_bytes()))
+            .gate_viewer_by_key(&oxbot_gate::fingerprint(key.as_bytes()))
     }
 
     /// Every paired Gate, with who's connected now.
