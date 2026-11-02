@@ -11,6 +11,8 @@ counts only if the window left a new cookie). The sidebar lists the signed-in si
 alone. Bots take turns on the browser. oxbot checks every browser step: a red card before
 anything that changes something (Send, Post, Delete, Buy…), a card before an upload from your
 Mac, and it refuses passwords, page scripts, non-web pages and files outside the bot's folder.
+Open cards sit right above the message box, newest nearest it, whichever bot is open; the card
+area scrolls on its own so the box stays on screen, on a phone too.
 
 Herder (the central bot, once called the Assistant) leads your bots: it can list them, create
 one (after you press Create on a card), give a bot a task and bring back its reply. Other bots
@@ -109,7 +111,8 @@ Lints live in `[workspace.lints]` in `Cargo.toml`: no `unsafe`, clippy pedantic,
 outside tests. Libraries use `thiserror`; only the binary uses `anyhow`.
 
 ## End-to-end tests (`/pr_test`)
-`e2e/` holds tests a person can read (`e2e/tests/*.toml`: open, click, type, send, expect…), seed data
+`e2e/` holds tests a person can read (`e2e/tests/*.toml`: open, click, type, send, expect…; a test can
+set `viewport = { width = 390, height = 844 }` to run at a phone's size), seed data
 (`e2e/seed/`: bots plus `seed.sql` for a fresh SQLite database), the stand-in Claude's replies
 (`e2e/claude/`), and approved screenshots (`e2e/baselines/`). The runner, `crates/oxbot-e2e`, starts a
 throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in hidden Chrome (and Safari, the app's

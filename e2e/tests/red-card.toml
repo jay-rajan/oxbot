@@ -1,5 +1,5 @@
 name = "A post needs your OK"
-about = "When a bot wants to click Post, a red card asks first; Deny means it doesn't."
+about = "When a bot wants to click Post, a red card asks first, right above the message box, and stays there while the chat scrolls; Deny means it doesn't post."
 covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub.rs", "crates/oxbot/ui/**"]
 
 [[step]]
@@ -12,6 +12,29 @@ note = "The card appears"
 [[step]]
 expect = "Post"
 [[step]]
+expect_js = "(() => { const c = document.getElementById('cards'), f = document.getElementById('composer'); return c.nextElementSibling === f && !document.querySelector('#log .card') && Math.abs(c.getBoundingClientRect().bottom - f.getBoundingClientRect().top) < 1; })()"
+note = "The card sits right above the message box, outside the chat"
+[[step]]
+expect_js = "(() => { const l = document.getElementById('log'); return l.scrollHeight - l.scrollTop - l.clientHeight < 2; })()"
+note = "The chat stays at its latest message above the card"
+shot = "card-above-box"
+[[step]]
+expect_js = "(() => { document.getElementById('log').scrollTop = 0; const r = document.querySelector('#cards .card').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; })()"
+note = "Scrolling the chat up doesn't take the card with it"
+[[step]]
+open = "/"
+note = "Open the bot again: the waiting card is still right above the box"
+[[step]]
+click = "Recipes"
+[[step]]
+wait_for = "Allow once"
+[[step]]
+expect_js = "(() => { const c = document.getElementById('cards').getBoundingClientRect(), f = document.getElementById('composer').getBoundingClientRect(); return Math.abs(c.bottom - f.top) < 1 && f.bottom <= innerHeight; })()"
+shot = "card-after-reopen"
+[[step]]
 click = "Deny"
 [[step]]
 wait_for = "didn't post it"
+[[step]]
+expect_js = "!document.querySelector('#cards .card') && !document.body.classList.contains('has-cards')"
+note = "Answered: the card area is gone"

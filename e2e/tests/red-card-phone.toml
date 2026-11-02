@@ -1,0 +1,25 @@
+name = "A post needs your OK, on a phone"
+about = "On a phone-size screen the red card sits right above the message box, and both stay on screen."
+covers = ["crates/oxbot/ui/**"]
+viewport = { width = 390, height = 844 }
+
+[[step]]
+expect_js = "innerWidth === 390 && getComputedStyle(document.getElementById('menu')).display !== 'none'"
+note = "The phone layout, with the bots in a drawer"
+[[step]]
+click = "Show bots"
+[[step]]
+click = "Recipes"
+[[step]]
+send = "post it"
+[[step]]
+wait_for = "Allow once"
+note = "The card appears"
+[[step]]
+expect_js = "(() => { const c = document.getElementById('cards').getBoundingClientRect(), f = document.getElementById('composer').getBoundingClientRect(); return Math.abs(c.bottom - f.top) < 1 && c.top >= 0 && f.bottom <= innerHeight && c.height <= 0.38 * innerHeight + 1; })()"
+note = "Card and message box are both on screen, the card area at most 38% of the height"
+shot = "phone-card-above-box"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "didn't post it"

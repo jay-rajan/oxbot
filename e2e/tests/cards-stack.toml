@@ -1,0 +1,54 @@
+name = "Several cards stack above the box"
+about = "Cards from several bots stack right above the message box, newest nearest it; the area has a max height and scrolls on its own, so the box stays on screen, and toasts move out of the way."
+covers = ["crates/oxbot/ui/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "post it"
+[[step]]
+wait_for = "Allow once"
+[[step]]
+click = "Herder"
+[[step]]
+send = "make a bot for the weather"
+[[step]]
+wait_for = "Don't create"
+[[step]]
+click = "Journal"
+[[step]]
+send = "post it"
+[[step]]
+expect_js = "document.querySelectorAll('#cards .card').length === 3"
+note = "All three open cards show, whichever bot is open"
+[[step]]
+expect_js = "(() => { const h = [...document.querySelectorAll('#cards .card h3')].map((x) => x.innerText); return h[0].includes('Recipes') && h[1].includes('Herder') && h[2].includes('Journal'); })()"
+note = "Oldest first: the newest (Journal's) is nearest the box"
+[[step]]
+expect_js = "(() => { const c = document.getElementById('cards'), f = document.getElementById('composer').getBoundingClientRect(); return c.clientHeight <= 0.45 * innerHeight + 1 && c.scrollHeight > c.clientHeight && f.top >= 0 && f.bottom <= innerHeight; })()"
+note = "The area has a max height and scrolls; the message box is fully on screen"
+[[step]]
+expect_js = "(() => { const c = document.getElementById('cards'); return c.scrollHeight - c.scrollTop - c.clientHeight < 2; })()"
+note = "It's scrolled to the newest card"
+shot = "three-cards"
+[[step]]
+expect_js = "(() => { document.getElementById('cards').scrollTop = 0; return true; })()"
+note = "Scroll the cards up to the oldest"
+[[step]]
+wait_ms = 200
+[[step]]
+expect_js = "(() => { renderCards(); return document.getElementById('cards').scrollTop === 0; })()"
+note = "A redraw keeps where the cards were scrolled to"
+[[step]]
+expect_js = "(() => { const img = document.querySelector('#cards .card:last-child img'); if (!img) return false; img.click(); return img.classList.contains('big'); })()"
+note = "Click the newest card's screenshot to enlarge it"
+[[step]]
+wait_ms = 200
+[[step]]
+expect_js = "(() => { renderCards(); const img = document.querySelector('#cards .card:last-child img'); const c = document.getElementById('cards'); return img.classList.contains('big') && c.scrollTop > 0; })()"
+note = "A redraw keeps it enlarged, and the area where it was"
+shot = "screenshot-enlarged"
+[[step]]
+expect_js = "(() => { toast('Saved.'); const t = document.getElementById('toast').getBoundingClientRect(), c = document.getElementById('cards').getBoundingClientRect(); return t.bottom < c.top; })()"
+note = "With cards open, a toast shows at the top, off the card buttons"
+shot = "toast-at-top"
