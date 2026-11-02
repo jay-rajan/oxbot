@@ -17,6 +17,12 @@
 //! denied = "Okay, I won't."                 # said if the user said no
 //!
 //! [[reply]]
+//! when = "half"
+//! say = "About half."
+//! limits = { five_hour = 0.55, seven_day = 0.2 } # plan usage reported first
+//! model = "claude-sonnet-4-5-20250929"           # the model it says it is
+//!
+//! [[reply]]
 //! say = "Hello from the stand-in."
 //! ```
 
@@ -49,6 +55,42 @@ struct Reply {
     /// Wait this long before answering (to see "working" states).
     #[serde(default)]
     delay_ms: u64,
+    /// Plan usage to report before answering, as Claude's `rate_limit_event`.
+    limits: Option<Limits>,
+    /// The model it says it is (default `fake`).
+    model: Option<String>,
+}
+
+/// The plan's windows, from 0 to 1. The 5-hour one resets in
+/// `resets_in_min` (default 3 hours), the weekly one in 3 days.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Limits {
+    five_hour: Option<f64>,
+    seven_day: Option<f64>,
+    resets_in_min: Option<i64>,
+}
+
+impl Limits {
+    fn event(&self) -> Value {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+        let mut windows = serde_json::Map::new();
+        let five_at = now + self.resets_in_min.unwrap_or(180) * 60;
+        for (name, used, at) in [
+            ("five_hour", self.five_hour, five_at),
+            ("seven_day", self.seven_day, now + 3 * 86_400),
+        ] {
+            if let Some(used) = used {
+                windows.insert(
+                    name.to_owned(),
+                    json!({"utilization": used, "resetsAt": at, "status": "allowed"}),
+                );
+            }
+        }
+        json!({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":windows}})
+    }
 }
 
 /// What the stand-in is waiting for.
@@ -101,10 +143,14 @@ fn main() {
         match msg["type"].as_str() {
             Some("user") => {
                 let text = user_text(&msg["message"]["content"]);
-                out.line(
-                    &json!({"type":"system","subtype":"init","session_id":"fake","model":"fake"}),
-                );
                 let reply = pick(&script, &text);
+                let model = reply.model.as_deref().unwrap_or("fake");
+                out.line(
+                    &json!({"type":"system","subtype":"init","session_id":"fake","model":model}),
+                );
+                if let Some(limits) = &reply.limits {
+                    out.line(&limits.event());
+                }
                 std::thread::sleep(std::time::Duration::from_millis(reply.delay_ms));
                 waiting = start(&mut out, reply);
             }

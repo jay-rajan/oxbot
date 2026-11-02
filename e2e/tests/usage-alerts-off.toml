@@ -1,0 +1,40 @@
+name = "Usage alerts switched off stay quiet"
+about = "With the Settings switch off, passing 50% shows no banner and posts no Mac notification, though the level is still noted."
+claude = "usage-alerts.toml"
+covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Settings"
+[[step]]
+expect = "Notifications"
+[[step]]
+click = "Tell me when Claude usage passes"
+[[step]]
+expect_js = "!document.getElementById('usageAlerts').checked"
+shot = "alerts-off"
+[[step]]
+key = "Escape"
+[[step]]
+click = "Herder"
+[[step]]
+send = "how much is used, half?"
+[[step]]
+wait_for = "About half."
+[[step]]
+expect_not = "5-hour limit at"
+note = "No banner"
+[[step]]
+click = "Settings"
+[[step]]
+expect_js = "document.getElementById('usageAlerts').checked === false"
+note = "Still off when Settings opens again"
+[[step]]
+click = "Activity"
+[[step]]
+wait_for = "Claude usage passed 50%"
+note = "The level is noted, so turning alerts on later brings no late alert"
+[[step]]
+expect_js = "![...document.querySelectorAll('#logList li')].some(li => li.innerText.includes('Mac notification'))"
+note = "No Mac notification"
+[[step]]
+key = "Escape"

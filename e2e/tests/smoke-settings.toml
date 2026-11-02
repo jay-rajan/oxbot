@@ -8,6 +8,9 @@ click = "Settings"
 [[step]]
 expect = "Claude usage"
 [[step]]
+expect = "Notifications"
+note = "Usage alerts can be switched here"
+[[step]]
 click = "Sign-ins"
 [[step]]
 expect = "wikipedia.org"

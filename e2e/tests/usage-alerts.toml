@@ -1,0 +1,56 @@
+name = "Usage alerts at 50% and 80%, once each"
+about = "Claude's usage passing 50% and then 80% of the 5-hour limit shows a banner and one Mac notification for each level, never two; the banner survives a reload and can be dismissed."
+claude = "usage-alerts.toml"
+covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Herder"
+[[step]]
+send = "how much is used, half?"
+[[step]]
+wait_for = "5-hour limit at 55%"
+note = "The banner, under the header"
+shot = "banner-50"
+[[step]]
+expect = "your bots use Sonnet 4.5"
+note = "It names the model Claude reported"
+[[step]]
+send = "still half?"
+[[step]]
+wait_for = "Still about half."
+[[step]]
+expect = "5-hour limit at 55%"
+note = "60% is no new level: the banner is unchanged"
+[[step]]
+send = "and now most?"
+[[step]]
+wait_for = "5-hour limit at 85%"
+shot = "banner-80"
+[[step]]
+expect_js = "document.querySelectorAll('#usageAlert').length === 1"
+note = "One banner, showing the highest level"
+[[step]]
+click = "Settings"
+[[step]]
+expect_js = "document.querySelector('#limits .bar.warn') !== null"
+note = "The 5-hour bar is red past 80%"
+[[step]]
+click = "Activity"
+[[step]]
+expect = "Mac notification"
+[[step]]
+expect_js = "[...document.querySelectorAll('#logList li')].filter(li => li.innerText.includes('Mac notification')).length === 2"
+note = "Exactly two notifications: one at 50%, one at 80%"
+shot = "notifications-logged"
+[[step]]
+key = "Escape"
+[[step]]
+open = "/"
+[[step]]
+wait_for = "5-hour limit at 85%"
+note = "Still there after a reload"
+[[step]]
+click = "Dismiss"
+[[step]]
+expect_js = "document.getElementById('usageAlert').hidden"
+note = "Dismissed on this page"
