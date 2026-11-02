@@ -158,6 +158,27 @@ pub(super) const MIGRATIONS: &[Step] = &[
         );
         CREATE INDEX IF NOT EXISTS allow_rules_bot ON allow_rules (bot);",
     ),
+    // 13: each person's own sidebar sections, and which of their sections
+    // each bot is in (at most one; no row means not in a section). Every
+    // row belongs to one person: nobody sees or changes another's.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS sections (
+        id         TEXT    PRIMARY KEY DEFAULT ('s_' || lower(hex(randomblob(8)))),
+        person_id  TEXT    NOT NULL,
+        name       TEXT    NOT NULL,
+        position   INTEGER NOT NULL,
+        created_ms INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS sections_name ON sections (person_id, name COLLATE NOCASE);
+    CREATE TABLE IF NOT EXISTS bot_sections (
+        person_id  TEXT NOT NULL,
+        bot        TEXT NOT NULL,
+        section_id TEXT NOT NULL,
+        PRIMARY KEY (person_id, bot)
+    );
+    CREATE INDEX IF NOT EXISTS bot_sections_section ON bot_sections (section_id);
+    CREATE INDEX IF NOT EXISTS bot_sections_bot ON bot_sections (bot);",
+    ),
 ];
 
 /// Migration 10. Skipped if the column is already there (a database

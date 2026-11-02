@@ -26,6 +26,7 @@ mod claude;
 mod elements;
 mod people;
 mod rules;
+mod sections;
 mod seqs;
 mod sign_ins;
 mod taint;
@@ -33,6 +34,7 @@ mod team;
 mod turns;
 
 pub use approvals::answers;
+pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;

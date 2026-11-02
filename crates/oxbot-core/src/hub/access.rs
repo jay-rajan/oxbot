@@ -274,12 +274,17 @@ impl Hub {
         self.claim(&bot.id).await?;
         let result = self.delete_claimed(&bot, viewer).await;
         lock(&self.starting).remove(&bot.id);
-        result?;
+        let filed_by = result?;
         self.announce_bots().await;
+        // Whoever had it in a section gets their sections without it.
+        for person in &filed_by {
+            self.announce_sections(person);
+        }
         Ok(())
     }
 
-    async fn delete_claimed(&self, bot: &Bot, viewer: &Viewer) -> Result<(), HubError> {
+    /// Deletes a claimed bot; returns the people who had it in a section.
+    async fn delete_claimed(&self, bot: &Bot, viewer: &Viewer) -> Result<Vec<PersonId>, HubError> {
         self.deny_open_approvals(&bot.id);
         self.cancel_sign_ins(&bot.id);
         self.stop_claude(&bot.id).await;
@@ -313,10 +318,13 @@ impl Hub {
         };
         // Forget it in the database first: if that fails, nothing has moved
         // and its id can't be reused with old history behind it.
-        if let Err(err) = self.store.delete_bot(&bot.id) {
-            put_back();
-            return Err(err.into());
-        }
+        let filed_by = match self.store.delete_bot(&bot.id) {
+            Ok(filed_by) => filed_by,
+            Err(err) => {
+                put_back();
+                return Err(err.into());
+            }
+        };
         // A new bot can get the same id: it starts from 0.
         self.seqs.remove(&bot.id);
         let trash = self
@@ -337,7 +345,7 @@ impl Hub {
             .as_ref()
             .map_or_else(|| "the Farm".to_owned(), ToString::to_string);
         tracing::info!(bot = %bot.id, by, "deleted a bot; its folder is in the trash");
-        Ok(())
+        Ok(filed_by)
     }
 
     pub(super) async fn announce_bots(&self) {

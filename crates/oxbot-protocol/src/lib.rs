@@ -5,6 +5,8 @@
 //! server and the apps can never disagree about its shape. Messages are JSON,
 //! one per WebSocket text frame, tagged by a `"type"` field.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Version of the wire protocol. Bumped on any breaking change, so an old app
@@ -248,6 +250,38 @@ pub enum ClientMsg {
         /// e.g. `Jay's Mac mini`; empty goes back to the Mac's name.
         name: String,
     },
+    /// Make a sidebar section of your own, last in your list. Sections are
+    /// each person's own view: nobody else sees them. Every connection of
+    /// yours gets the new [`ServerMsg::Sections`].
+    CreateSection {
+        /// Its name, e.g. `Kitchen`.
+        name: String,
+        /// A bot to put in it straight away ("Move to → New section…").
+        #[serde(default)]
+        bot: Option<String>,
+    },
+    /// Rename one of your sections.
+    RenameSection {
+        /// [`SectionInfo::id`].
+        id: String,
+        /// The new name.
+        name: String,
+    },
+    /// Delete one of your sections. Its bots go back to not being in a
+    /// section; no bot is deleted.
+    DeleteSection {
+        /// [`SectionInfo::id`].
+        id: String,
+    },
+    /// File a bot in one of your sections, or take it out of them. Any bot
+    /// you're shown but Herder; it changes only your own view, never the bot.
+    MoveBot {
+        /// Bot id.
+        bot: String,
+        /// [`SectionInfo::id`], or `None` for not in a section.
+        #[serde(default)]
+        section: Option<String>,
+    },
 }
 
 /// A message from the server to a client.
@@ -377,6 +411,20 @@ pub enum ServerMsg {
         /// Everyone, in the order oxbot first saw them.
         people: Vec<Person>,
     },
+    /// Your own sidebar sections and which bots are in them. Sent after
+    /// [`ServerMsg::Hello`] (even with none) and when you change them; only
+    /// your own connections get it.
+    Sections {
+        /// In order.
+        sections: Vec<SectionInfo>,
+        /// Bot id → the id of the section it's in. Bots not in a section
+        /// aren't listed.
+        placed: BTreeMap<String, String>,
+        /// Server only, never sent: whose sections, which decides who gets
+        /// them.
+        #[serde(skip)]
+        owner_id: Option<String>,
+    },
     /// Something the user should know that isn't an error.
     Notice {
         /// The message, for the user.
@@ -467,6 +515,15 @@ impl SetupReport {
     pub fn ready(&self) -> bool {
         self.checks.iter().all(|c| c.ok || c.optional)
     }
+}
+
+/// One of a person's sidebar sections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SectionInfo {
+    /// Its id, e.g. `s_0123456789abcdef`.
+    pub id: String,
+    /// Its name, e.g. `Kitchen`.
+    pub name: String,
 }
 
 /// A site the user signed in to through oxbot.
@@ -1206,6 +1263,55 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json, r#"{"kind":"user_message","text":"hi","from":"Jay"}"#);
+    }
+
+    #[test]
+    fn sections_go_without_whose_they_are() {
+        let msg = ServerMsg::Sections {
+            sections: vec![SectionInfo {
+                id: "s_1".into(),
+                name: "Kitchen".into(),
+            }],
+            placed: [("recipes".to_owned(), "s_1".to_owned())].into(),
+            owner_id: Some("p_0123456789abcdef".into()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"sections","sections":[{"id":"s_1","name":"Kitchen"}],"placed":{"recipes":"s_1"}}"#
+        );
+        let back: ServerMsg = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, ServerMsg::Sections { owner_id: None, .. }));
+    }
+
+    #[test]
+    fn section_messages_are_snake_case_with_optional_parts() {
+        let out = ClientMsg::MoveBot {
+            bot: "recipes".into(),
+            section: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&out).unwrap(),
+            r#"{"type":"move_bot","bot":"recipes","section":null}"#
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"move_bot","bot":"recipes"}"#).unwrap();
+        assert_eq!(msg, out, "no section means out of sections");
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"create_section","name":"Kitchen"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::CreateSection {
+                name: "Kitchen".into(),
+                bot: None
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"rename_section","id":"s_1","name":"Home"}"#).unwrap();
+        assert!(matches!(msg, ClientMsg::RenameSection { .. }));
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"delete_section","id":"s_1"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::DeleteSection { id: "s_1".into() });
     }
 
     #[test]

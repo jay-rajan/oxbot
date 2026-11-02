@@ -6,7 +6,7 @@ use oxbot_protocol::{BotEvent, EventKind};
 use rusqlite::{OptionalExtension, params};
 
 use super::{HistoryPage, Seqs, Store, StoreError, now_ms};
-use crate::id::BotId;
+use crate::id::{BotId, PersonId};
 
 /// A stored event row as `(seq, ts_ms, body)`.
 pub(super) type Row = (i64, i64, String);
@@ -73,22 +73,32 @@ pub(super) fn from_sql(n: i64) -> u64 {
 }
 
 impl Store {
-    /// Forgets everything about a deleted bot: its history, session, usage
-    /// and "Always allow" rules.
+    /// Forgets everything about a deleted bot: its history, session, usage,
+    /// "Always allow" rules and where anyone filed it in their sections (a
+    /// new bot can get its id). Returns the people whose sections it was in.
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn delete_bot(&self, bot: &BotId) -> Result<(), StoreError> {
+    pub fn delete_bot(&self, bot: &BotId) -> Result<Vec<PersonId>, StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        for table in ["events", "sessions", "usage", "allow_rules"] {
+        let filed: Vec<String> = {
+            let mut stmt =
+                tx.prepare("SELECT DISTINCT person_id FROM bot_sections WHERE bot = ?1")?;
+            let rows = stmt.query_map([bot.as_str()], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for table in ["events", "sessions", "usage", "allow_rules", "bot_sections"] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),
                 [bot.as_str()],
             )?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(filed
+            .into_iter()
+            .filter_map(|id| PersonId::new(id).ok())
+            .collect())
     }
 
     /// Stores a new event for `bot` and returns it with its number.

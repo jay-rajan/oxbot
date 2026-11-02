@@ -235,6 +235,7 @@ impl View {
             | ServerMsg::Setup(_)
             | ServerMsg::SetupProgress { .. }
             | ServerMsg::Sites { .. }
+            | ServerMsg::Sections { .. }
             | ServerMsg::People { .. }
             | ServerMsg::AllowRules { .. }
             | ServerMsg::Usage(_) => {}

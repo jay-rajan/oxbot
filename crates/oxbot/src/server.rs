@@ -392,6 +392,14 @@ impl Client {
                 bot: self.inner(bot),
                 id,
             },
+            ClientMsg::MoveBot { bot, section } => ClientMsg::MoveBot {
+                bot: self.inner(bot),
+                section,
+            },
+            ClientMsg::CreateSection { name, bot } => ClientMsg::CreateSection {
+                name,
+                bot: bot.map(|b| self.inner(b)),
+            },
             other => other,
         }
     }
@@ -457,6 +465,18 @@ impl Client {
                         Some(b)
                     })
                     .collect(),
+            },
+            ServerMsg::Sections {
+                sections,
+                placed,
+                owner_id,
+            } => ServerMsg::Sections {
+                sections,
+                placed: placed
+                    .into_iter()
+                    .filter_map(|(bot, section)| Some((self.outer(&bot)?, section)))
+                    .collect(),
+                owner_id,
             },
             ServerMsg::Usage(mut usage) => {
                 usage.bots = usage
@@ -530,6 +550,8 @@ async fn serve_client(
         first.push(ServerMsg::People { people });
     }
     first.extend(state.hub.sites_for(&client.viewer));
+    // Always (even with none), so the page knows where it stands.
+    first.extend(state.hub.sections_for(&client.viewer));
     // Only once there are Gates, so clients that don't know Gates (an older
     // `oxbot chat`) never see the message on a Farm that has none.
     if let Some(door) = state.door.as_ref().filter(|_| client.viewer.farm) {
@@ -729,6 +751,17 @@ async fn handle(
         },
         ClientMsg::RemoveAllowRule { bot, id } => {
             reply(state.hub.remove_allow_rule(&bot, id, &viewer))
+        }
+        // Sections are the viewer's own view: anyone oxbot can place.
+        ClientMsg::CreateSection { name, bot } => {
+            reply(state.hub.create_section(&name, bot.as_deref(), &viewer))
+        }
+        ClientMsg::RenameSection { id, name } => {
+            reply(state.hub.rename_section(&id, &name, &viewer))
+        }
+        ClientMsg::DeleteSection { id } => reply(state.hub.delete_section(&id, &viewer)),
+        ClientMsg::MoveBot { bot, section } => {
+            reply(state.hub.move_bot(&bot, section.as_deref(), &viewer))
         }
         other => handle_sign_ins(other, state, &viewer).await,
     }
@@ -1066,6 +1099,12 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             usage.bots.retain(|b| client.sees(&b.bot));
             Some(ServerMsg::Usage(usage))
         }
+        // A person's sections are their own view: only their connections
+        // get them, by id. Not the Farm: it manages bots, not people's views.
+        ServerMsg::Sections { ref owner_id, .. } => client
+            .viewer
+            .is_person(owner_id.as_deref(), None)
+            .then_some(msg),
         // The log names every bot, site and person; pairing is the Farm's
         // job: the Farm's only.
         ServerMsg::Log(_)
@@ -1585,5 +1624,118 @@ mod tests {
             panic!("her Herder's rules")
         };
         assert_eq!(bot, DEFAULT_BOT);
+    }
+
+    #[test]
+    fn a_persons_sections_go_to_them_alone_with_herder_ids_as_they_see_them() {
+        let sam = oxbot_core::id::PersonId::random();
+        let anns = oxbot_core::bot::personal_herder_id("Ann").to_string();
+        let sams = oxbot_core::bot::personal_herder_id("Sam").to_string();
+        let sections = ServerMsg::Sections {
+            sections: vec![oxbot_protocol::SectionInfo {
+                id: "s_1".into(),
+                name: "Kitchen".into(),
+            }],
+            placed: [
+                ("recipes".to_owned(), "s_1".to_owned()),
+                (sams.clone(), "s_1".to_owned()),
+                (anns.clone(), "s_1".to_owned()),
+                (DEFAULT_BOT.to_owned(), "s_1".to_owned()),
+            ]
+            .into(),
+            owner_id: Some(sam.to_string()),
+        };
+        let mut real =
+            Client::with_herder(Viewer::person(sam.clone(), "Sam", false), &[], sams.clone());
+        let mut farm = Client::new(
+            Viewer::person(oxbot_core::id::PersonId::random(), "Jay", true),
+            &[],
+        );
+        let mut by_name = Client::new(Viewer::gate("Sam"), &[]);
+        let mut nobody = Client::new(Viewer::farm(""), &[]);
+        assert!(
+            forward(sections.clone(), &mut farm).is_none(),
+            "not even the Farm"
+        );
+        assert!(forward(sections.clone(), &mut by_name).is_none());
+        assert!(forward(sections.clone(), &mut nobody).is_none());
+        let msg = forward(sections, &mut real).unwrap();
+        let Some(ServerMsg::Sections { placed, .. }) = real.outbound(msg) else {
+            panic!("sections")
+        };
+        let bots: Vec<&str> = placed.keys().map(String::as_str).collect();
+        assert_eq!(
+            bots,
+            [DEFAULT_BOT, "recipes"],
+            "their own Herder as assistant; no other Herder"
+        );
+
+        // `assistant` in a message means their own Herder.
+        let ClientMsg::MoveBot { bot, .. } = real.inbound(ClientMsg::MoveBot {
+            bot: DEFAULT_BOT.into(),
+            section: None,
+        }) else {
+            panic!("a move")
+        };
+        assert_eq!(bot, sams);
+        let ClientMsg::CreateSection { bot, .. } = real.inbound(ClientMsg::CreateSection {
+            name: "K".into(),
+            bot: Some(DEFAULT_BOT.into()),
+        }) else {
+            panic!("a new section")
+        };
+        assert_eq!(bot.as_deref(), Some(sams.as_str()));
+    }
+
+    #[tokio::test]
+    async fn sections_need_no_farm_rights() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        let ann = state.hub.resolve(&Viewer::gate("Ann")).into_owned();
+        for msg in [
+            ClientMsg::CreateSection {
+                name: "Kitchen".into(),
+                bot: None,
+            },
+            ClientMsg::MoveBot {
+                bot: "nobody".into(),
+                section: None,
+            },
+        ] {
+            assert!(!farm_only(&msg));
+        }
+        let (out, _rx) = mpsc::channel(4);
+        let herder = herder_for(&state, &ann);
+        let mut client =
+            Client::with_visible(ann.clone(), std::collections::HashSet::new(), herder);
+        let replies = handle(
+            ClientMsg::CreateSection {
+                name: "Kitchen".into(),
+                bot: None,
+            },
+            &state,
+            &mut client,
+            &out,
+        )
+        .await;
+        assert!(replies.is_empty(), "{replies:?}");
+        let Some(ServerMsg::Sections { sections, .. }) = state.hub.sections_for(&ann) else {
+            panic!("sections")
+        };
+        assert_eq!(sections.len(), 1);
+        let replies = handle(
+            ClientMsg::MoveBot {
+                bot: DEFAULT_BOT.into(),
+                section: None,
+            },
+            &state,
+            &mut client,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("Herder")),
+            "{replies:?}"
+        );
     }
 }

@@ -64,8 +64,8 @@ impl ChatCopy {
     }
 
     /// Keeps what's worth keeping from one message from the Farm (JSON
-    /// text): bot events, and the latest hello, settings, people and bot
-    /// list. Anything else, or anything unreadable, is skipped.
+    /// text): bot events, and the latest hello, settings, people, sections
+    /// and bot list. Anything else, or anything unreadable, is skipped.
     ///
     /// # Errors
     /// The file can't be written.
@@ -83,6 +83,8 @@ impl ChatCopy {
             ServerMsg::Hello(_) => self.keep_latest("hello", text)?,
             ServerMsg::Settings(_) => self.keep_latest("settings", text)?,
             ServerMsg::People { .. } => self.keep_latest("people", text)?,
+            // Only this phone's person's own sections ever reach it.
+            ServerMsg::Sections { .. } => self.keep_latest("sections", text)?,
             _ => {}
         }
         Ok(())
@@ -186,13 +188,13 @@ impl ChatCopy {
     }
 
     /// What to show while away from the Farm, in the order the page expects:
-    /// hello, settings, people, bots, then each bot's events.
+    /// hello, settings, people, sections, bots, then each bot's events.
     ///
     /// # Errors
     /// The file can't be read.
     pub fn replay(&self) -> Result<Vec<String>, CopyError> {
         let mut out = Vec::new();
-        for kind in ["hello", "settings", "people", "bots"] {
+        for kind in ["hello", "settings", "people", "sections", "bots"] {
             let json: Option<String> = self
                 .conn
                 .query_row("SELECT json FROM latest WHERE kind = ?1", [kind], |r| {
@@ -312,6 +314,30 @@ mod tests {
         assert!(replay[0].contains("\"bots\""));
         assert!(replay[1].contains("\"seq\":1"));
         assert!(replay[2].contains("\"seq\":2"));
+    }
+
+    #[test]
+    fn sections_are_kept_and_replayed_after_people_before_bots() {
+        let (_dir, mut copy) = copy();
+        let sections = |name: &str| {
+            format!(
+                "{{\"type\":\"sections\",\"sections\":[{{\"id\":\"s_1\",\"name\":\"{name}\"}}],\"placed\":{{\"recipes\":\"s_1\"}}}}"
+            )
+        };
+        copy.record(&bots(&[("recipes", false, None)]), NOW)
+            .unwrap();
+        copy.record(&sections("Kitchen"), NOW).unwrap();
+        copy.record(&sections("Food"), NOW).unwrap();
+        copy.record("{\"type\":\"people\",\"people\":[]}", NOW)
+            .unwrap();
+        let replay = copy.replay().unwrap();
+        assert_eq!(replay.len(), 3, "{replay:?}");
+        assert!(replay[0].contains("\"people\""));
+        assert!(
+            replay[1].contains("\"sections\"") && replay[1].contains("Food"),
+            "the latest sections"
+        );
+        assert!(replay[2].contains("\"bots\""));
     }
 
     #[test]

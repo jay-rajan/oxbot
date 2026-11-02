@@ -971,3 +971,119 @@ fn always_allow_rules_come_with_migration_12() {
     assert_eq!(store.allow_rules(&shop).unwrap(), []);
     assert!(store.allow_rule_matches(&bot("other"), &save).unwrap());
 }
+
+#[test]
+fn sections_come_with_migration_13_and_stay_each_persons() {
+    // A database from the previous release (version 12, with an "Always
+    // allow" rule) upgrades to 13 and keeps its rule.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 12).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO allow_rules (bot, site, action, label, created_ms)
+             VALUES ('shop', 'www.example.com', 'click', 'button \"Save\"', 1);",
+        )
+        .unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    let tables: i64 = store
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('sections', 'bot_sections')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 2);
+    assert!(
+        store
+            .allow_rule_matches(&bot("shop"), &rule("www.example.com", "button \"Save\""))
+            .unwrap(),
+        "the rule from version 12 is kept"
+    );
+    assert!(
+        !tmp.path().join("oxbot.db.v12.bak").exists(),
+        "new tables need no copy"
+    );
+
+    let (jay, sam) = (PersonId::random(), PersonId::random());
+    let kitchen = store
+        .create_section(&jay, "Kitchen", Some(&bot("recipes")), 50)
+        .unwrap();
+    assert!(kitchen.starts_with("s_"));
+    let money = store.create_section(&jay, "Money", None, 50).unwrap();
+    store.create_section(&sam, "kitchen", None, 50).unwrap();
+    assert!(matches!(
+        store.create_section(&jay, "KITCHEN", None, 50),
+        Err(SectionError::NameTaken)
+    ));
+    assert!(matches!(
+        store.create_section(&jay, "Third", None, 2),
+        Err(SectionError::TooMany)
+    ));
+    assert!(matches!(
+        store.rename_section(&jay, &money, "kitchen"),
+        Err(SectionError::NameTaken)
+    ));
+    let names = |p: &PersonId| -> Vec<String> {
+        store
+            .sections(p)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect()
+    };
+    assert_eq!(names(&jay), ["Kitchen", "Money"]);
+    assert_eq!(names(&sam), ["kitchen"]);
+
+    // Another person's section id is refused, and changes nothing.
+    assert!(matches!(
+        store.place_bot(&sam, &bot("bank"), Some(&kitchen)),
+        Err(SectionError::NoSuchSection)
+    ));
+    assert!(matches!(
+        store.delete_section(&sam, &kitchen),
+        Err(SectionError::NoSuchSection)
+    ));
+    store.place_bot(&sam, &bot("recipes"), None).unwrap();
+    store
+        .place_bot(&jay, &bot("recipes"), Some(&money))
+        .unwrap();
+    store.place_bot(&jay, &bot("bank"), Some(&kitchen)).unwrap();
+    let sams_kitchen = store.sections(&sam).unwrap()[0].id.clone();
+    store
+        .place_bot(&sam, &bot("recipes"), Some(&sams_kitchen))
+        .unwrap();
+    assert_eq!(
+        store.placements(&jay).unwrap(),
+        [
+            ("bank".to_owned(), kitchen.clone()),
+            ("recipes".to_owned(), money.clone())
+        ],
+        "a bot is in one section at most"
+    );
+
+    // Deleting a section takes its bots out, and only its own.
+    store.delete_section(&jay, &kitchen).unwrap();
+    assert_eq!(
+        store.placements(&jay).unwrap(),
+        [("recipes".to_owned(), money)]
+    );
+    assert_eq!(store.placements(&sam).unwrap().len(), 1);
+
+    // Deleting a bot takes it out of everyone's sections.
+    let mut filed = store.delete_bot(&bot("recipes")).unwrap();
+    filed.sort();
+    let mut want = vec![jay.clone(), sam.clone()];
+    want.sort();
+    assert_eq!(filed, want);
+    assert_eq!(store.placements(&jay).unwrap().len(), 0);
+    assert_eq!(store.placements(&sam).unwrap().len(), 0);
+    assert_eq!(store.delete_bot(&bot("recipes")).unwrap().len(), 0);
+}
