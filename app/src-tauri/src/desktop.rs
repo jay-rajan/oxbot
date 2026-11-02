@@ -9,11 +9,17 @@
 //! - The page's Settings panel can switch Launch at login too
 //!   ([`DesktopControls`]).
 //! - Web links in the window open in the default browser ([`links`]).
+//! - Usage alerts, and a bot waiting while the window is hidden, show in
+//!   Notification Center as oxbot ([`AppNotifier`]), through the
+//!   notification plugin's Rust API. The page (a web address, with no
+//!   access to the app) can't post them. An app showing an `oxbot serve`
+//!   that was already running leaves notifications to that server.
 
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use oxbot::logs::{LogRelay, RelayLayer};
+use oxbot::notify::Notifier;
 use oxbot::runtime::{self, RunningServer, ServerOptions};
 use oxbot::server::AppControls;
 use oxbot::{DEFAULT_PORT, client};
@@ -22,6 +28,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager as _, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
+use tauri_plugin_notification::NotificationExt as _;
 
 use crate::links::{self, Link};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -67,6 +74,36 @@ impl AppControls for DesktopControls {
     fn set_launch_at_login(&self, on: bool) -> Result<(), String> {
         set_autostart(&self.0, on)
     }
+
+    fn window_visible(&self) -> Option<bool> {
+        self.0
+            .get_webview_window(MAIN_WINDOW)
+            .and_then(|w| w.is_visible().ok())
+    }
+}
+
+/// Posts the server's notifications to Notification Center as oxbot.
+struct AppNotifier(AppHandle);
+
+impl std::fmt::Debug for AppNotifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AppNotifier")
+    }
+}
+
+impl Notifier for AppNotifier {
+    fn notify(&self, title: &str, body: &str) {
+        let shown = self
+            .0
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show();
+        if let Err(err) = shown {
+            tracing::warn!(%err, "couldn't post a Mac notification");
+        }
+    }
 }
 
 /// Turns Launch at login on or off and updates the menu bar checkbox.
@@ -106,12 +143,14 @@ pub fn run() -> anyhow::Result<()> {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             let port = port();
             app.manage(AutostartItem(std::sync::Mutex::new(None)));
             let controls: Arc<dyn AppControls> = Arc::new(DesktopControls(app.handle().clone()));
+            let notifier: Arc<dyn Notifier> = Arc::new(AppNotifier(app.handle().clone()));
             let (server, url) =
-                tauri::async_runtime::block_on(start_or_attach(relay, port, controls))?;
+                tauri::async_runtime::block_on(start_or_attach(relay, port, controls, notifier))?;
             app.manage(Oxbot {
                 server: tokio::sync::Mutex::new(server),
             });
@@ -183,6 +222,7 @@ async fn start_or_attach(
     relay: Arc<LogRelay>,
     port: u16,
     controls: Arc<dyn AppControls>,
+    notifier: Arc<dyn Notifier>,
 ) -> anyhow::Result<(Option<RunningServer>, String)> {
     if client::server_running(port).await {
         tracing::info!("using the oxbot server that's already running on port {port}");
@@ -193,6 +233,7 @@ async fn start_or_attach(
     let options = ServerOptions {
         logs: Some(relay),
         app: Some(controls),
+        notifier: Some(notifier),
         ..ServerOptions::new(port)
     };
     let server = runtime::start(options).await?;
