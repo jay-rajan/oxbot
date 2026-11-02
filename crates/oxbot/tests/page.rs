@@ -43,3 +43,8 @@ fn the_page_keeps_history_windows_straight() {
 fn the_page_puts_the_newest_card_nearest_the_box() {
     run_page_test("cards.js");
 }
+
+#[test]
+fn the_page_groups_files_and_finds_bots() {
+    run_page_test("sidebar.js");
+}
