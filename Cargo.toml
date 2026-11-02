@@ -43,6 +43,14 @@ uuid = { version = "1.29.0", features = ["v4"] }
 # checked 2026-11-02). Only the HTML writer: no command-line parts.
 pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
 
+# Files sent with messages: sniffing their type, and Word, Excel and
+# PowerPoint to text, all in Rust on the Mac (versions checked 2026-11-02).
+# Only what reading needs: no writers, no encryption, no network.
+calamine = { version = "=0.38.0", default-features = false }
+infer = { version = "=0.22.0", default-features = false, features = ["std"] }
+quick-xml = { version = "=0.42.0", default-features = false }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
+
 # The Gate link: TLS with the Farm's own certificate (versions checked 2026-10-30).
 # `ring` rather than aws-lc so it cross-compiles for Android without cmake.
 if-addrs = "0.15.0"

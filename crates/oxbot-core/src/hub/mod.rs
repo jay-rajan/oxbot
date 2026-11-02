@@ -36,6 +36,7 @@ mod sign_ins;
 mod taint;
 mod team;
 mod turns;
+mod uploads;
 
 pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
@@ -80,6 +81,12 @@ pub struct HubConfig {
     /// Extra environment for every `claude` child (tests use this; the app
     /// passes a `PATH` that finds Node.js).
     pub extra_env: Vec<(String, String)>,
+    /// The Mac's tools for files sent with messages (see
+    /// [`crate::attach`]).
+    pub mac: crate::attach::MacTools,
+    /// How long an uploaded file waits to be sent before it's deleted
+    /// ([`crate::attach::KEEP_UNSENT`]).
+    pub keep_unsent: Duration,
     /// End-to-end test mode (`OXBOT_E2E`): its stand-in Claude never opens
     /// real pages, so a blank tab may count for an "Always allow" rule
     /// (see `Hub::blank_tab_counts_for_rules`). Off everywhere else.
@@ -108,6 +115,8 @@ impl HubConfig {
             task_timeout: Duration::from_mins(10),
             idle_stop: Duration::from_mins(15),
             extra_env: Vec::new(),
+            mac: crate::attach::MacTools::default(),
+            keep_unsent: crate::attach::KEEP_UNSENT,
             e2e: false,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
@@ -237,6 +246,10 @@ pub struct Hub {
     /// The Farm's own person, once looked up this run (see
     /// [`Hub::farm_person`]).
     farm: std::sync::Mutex<Option<PersonId>>,
+    /// Files uploaded for messages not sent yet, by upload id.
+    uploads: std::sync::Mutex<HashMap<String, uploads::Pending>>,
+    /// Uploads being checked and converted at once, at most.
+    conversions: Semaphore,
 }
 
 impl std::fmt::Debug for Hub {
@@ -290,6 +303,8 @@ impl Hub {
             seqs,
             // Looked up (and its name brought up to date) on first use.
             farm: std::sync::Mutex::new(None),
+            uploads: std::sync::Mutex::new(HashMap::new()),
+            conversions: Semaphore::new(2),
         });
         // The home browser exists from the start, as before.
         let _ = hub.browser_for(&BrowserOwner::Home);

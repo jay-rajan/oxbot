@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oxbot_browser::BrowserStatus;
-use oxbot_protocol::EventKind;
+use oxbot_protocol::{Attachment, EventKind};
 use tokio::sync::OwnedSemaphorePermit;
 
 use super::{Hub, HubError, lock};
@@ -33,7 +33,8 @@ impl Hub {
             Some(name) => Some(self.person_named(name)?.id),
             None => None,
         };
-        self.send_for(bot, text, from, person.as_ref(), false).await
+        self.send_for(bot, text, &[], from, person.as_ref(), false)
+            .await
     }
 
     /// Like [`Hub::send`], from `viewer` (by their person id).
@@ -46,9 +47,31 @@ impl Hub {
         text: &str,
         viewer: &Viewer,
     ) -> Result<(), HubError> {
+        self.send_files_as(bot, text, &[], viewer).await
+    }
+
+    /// Like [`Hub::send_as`], with files `viewer` uploaded for `bot` (by
+    /// upload id; see [`Hub::accept_upload`]).
+    ///
+    /// # Errors
+    /// Fails if the bot doesn't exist or is busy, a file isn't theirs or
+    /// isn't waiting any more, or Claude can't be started.
+    pub async fn send_files_as(
+        self: &Arc<Self>,
+        bot: &str,
+        text: &str,
+        files: &[String],
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
         let viewer = self.resolve(viewer).into_owned();
         let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
-        self.send_for(bot, text, from, viewer.id.as_ref(), false)
+        let files = if files.is_empty() {
+            Vec::new()
+        } else {
+            let id = self.bot_for(bot, &viewer)?.id;
+            self.waiting_uploads(&id, viewer.id.as_ref(), files)?
+        };
+        self.send_for(bot, text, &files, from, viewer.id.as_ref(), false)
             .await
     }
 
@@ -59,6 +82,7 @@ impl Hub {
         self: &Arc<Self>,
         bot: &str,
         text: &str,
+        files: &[Attachment],
         from: Option<&str>,
         person: Option<&PersonId>,
         relayed: bool,
@@ -78,6 +102,7 @@ impl Hub {
             Ok(bot) => {
                 let sent = Sent {
                     text,
+                    files,
                     from,
                     person,
                     relayed,
@@ -110,6 +135,7 @@ impl Hub {
     ) -> Result<(), HubError> {
         let Sent {
             text,
+            files,
             from,
             person,
             relayed,
@@ -119,8 +145,11 @@ impl Hub {
             EventKind::UserMessage {
                 text: text.to_owned(),
                 from: from.map(str::to_owned),
+                files: files.to_vec(),
             },
         )?;
+        // In the chat now, so kept: no longer waiting to be sent.
+        self.uploads_sent(files);
 
         let running = self.runtimes.lock().await.contains_key(&bot.id);
         if !running {
@@ -137,13 +166,20 @@ impl Hub {
 
         // The chat keeps the task as Herder wrote it; only Claude is told
         // it was passed on and may quote web text.
-        let message = match from {
+        let mut message = match from {
             Some(from) if relayed => {
                 let name = person.and_then(|id| self.person_name(id));
                 relayed_line(from, name.as_deref(), text)
             }
             _ => sender_line(from, text),
         };
+        // oxbot's own note on the files, after the (escaped) words.
+        if !files.is_empty() {
+            if !text.is_empty() {
+                message.push_str("\n\n");
+            }
+            message.push_str(&crate::attach::note(from, files, &bot.work_dir()));
+        }
         let mut runtimes = self.runtimes.lock().await;
         let Some(runtime) = runtimes.get_mut(&bot.id) else {
             unreachable!("inserted above, and only this call may touch the bot meanwhile");
@@ -158,7 +194,16 @@ impl Hub {
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
         runtime.asker = person.cloned();
-        runtime.question = Some(text.chars().take(crate::report::MAX_QUESTION).collect());
+        let question = if text.is_empty() {
+            files
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            text.to_owned()
+        };
+        runtime.question = Some(question.chars().take(crate::report::MAX_QUESTION).collect());
         // The taint stays: Claude still remembers what earlier turns read.
         drop(runtimes);
         self.announce_bots().await;
@@ -241,6 +286,7 @@ impl Hub {
             tracing::info!(bot = %id, "idle; stopping Claude until the next message");
             self.stop_claude(&id).await;
         }
+        self.sweep_uploads();
         if !waiting.is_empty() {
             return;
         }
@@ -273,6 +319,8 @@ pub(super) async fn stop_idle_bots(hub: std::sync::Weak<Hub>) {
 #[derive(Clone, Copy)]
 struct Sent<'a> {
     text: &'a str,
+    /// Files sent with it.
+    files: &'a [Attachment],
     /// Who it's shown as from.
     from: Option<&'a str>,
     /// Who the turn acts for.

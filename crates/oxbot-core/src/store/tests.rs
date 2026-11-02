@@ -146,6 +146,7 @@ fn a_deleted_bot_leaves_nothing_behind() {
             EventKind::UserMessage {
                 text: "hi".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();
@@ -155,6 +156,7 @@ fn a_deleted_bot_leaves_nothing_behind() {
             EventKind::UserMessage {
                 text: "hi".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();
@@ -173,6 +175,7 @@ fn an_event_this_version_cant_read_doesnt_hide_the_chat() {
             EventKind::UserMessage {
                 text: "hi".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();
@@ -209,6 +212,7 @@ fn events_are_numbered_per_bot() {
             EventKind::UserMessage {
                 text: "hi".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();
@@ -218,6 +222,7 @@ fn events_are_numbered_per_bot() {
             EventKind::UserMessage {
                 text: "yo".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();
@@ -321,6 +326,7 @@ fn history_returns_events_after_since() {
                 EventKind::UserMessage {
                     text: i.to_string(),
                     from: None,
+                    files: vec![],
                 },
             )
             .unwrap();
@@ -331,7 +337,8 @@ fn history_returns_events_after_since() {
         after_one[0].kind,
         EventKind::UserMessage {
             text: "1".into(),
-            from: None
+            from: None,
+            files: vec![],
         }
     );
 }
@@ -575,6 +582,7 @@ fn history_survives_reopening() {
             EventKind::UserMessage {
                 text: "kept".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();
@@ -1136,6 +1144,7 @@ fn reports_come_with_migration_14_and_their_card() {
             EventKind::UserMessage {
                 text: "research coffee".into(),
                 from: None,
+                files: vec![],
             },
         )
         .unwrap();

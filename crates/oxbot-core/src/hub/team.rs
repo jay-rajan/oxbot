@@ -250,6 +250,7 @@ impl Hub {
             .send_for(
                 to.id.as_str(),
                 message,
+                &[],
                 Some(&sender),
                 asker.id.as_ref(),
                 true,
