@@ -15,7 +15,10 @@ deleting; a card comes before an upload from your Mac; and it refuses passwords,
 non-web pages and files outside the bot's folder. oxbot names what a click aims at from every page
 snapshot the bot has read (also the large ones Claude saves to a file), and for an unclear button
 it reads the button's form itself, in its own isolated world the page's scripts can't touch. A
-click oxbot still can't name runs, and is logged.
+click oxbot still can't name runs, and is logged. A change card can offer **Always allow** (to the
+bot's owner or the Farm): the same bot may then click the same button on the same exact host
+without asking, with a quiet line in the chat. Paying, booking, deleting, Enter in a text box,
+uploads and Herder's cards never offer it. The bot's ··· settings list its rules, each with Remove.
 Open cards sit right above the message box, newest nearest it, whichever bot is open; the card
 area scrolls on its own so the box stays on screen, on a phone too.
 

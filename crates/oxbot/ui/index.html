@@ -112,6 +112,13 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .site-row { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); }
 .site-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; }
 .site-row small { color: var(--muted); font-size: .75rem; }
+/* a bot's "Always allowed" rules, in its settings */
+.rules-box { display: grid; gap: 6px; min-width: 0; }
+.rules-box h3 { margin: 0; font-size: .9rem; }
+.rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 30vh; overflow-y: auto; }
+.rule-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.rule-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.rule-row small { color: var(--muted); font-size: .75rem; }
 .site-row .mono { width: 22px; height: 22px; border-radius: 50%; background: var(--hover); color: var(--muted); display: grid; place-items: center; font: 600 .7rem/1 var(--body); text-transform: uppercase; }
 .site-row button { font-size: .8rem; padding: 5px 10px; }
 .site-panel .when { color: var(--muted); font-size: .75rem; }
@@ -305,6 +312,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <label>Name<input id="bdName" required autocomplete="off"></label>
     <label class="check"><input type="checkbox" id="bdPrivate"> Private</label>
     <p class="hint" id="bdHint"></p>
+    <section class="rules-box" aria-labelledby="bdRulesTitle"><h3 id="bdRulesTitle">Always allowed</h3><ul class="rules" id="bdRules"></ul></section>
     <div class="row"><button class="ghost" type="button" id="bdDelete">Delete bot</button><span style="flex:1"></span><button class="ghost" type="button" id="bdCancel">Cancel</button><button class="primary" type="submit">Save</button></div>
   </form>
 </dialog>
@@ -560,6 +568,7 @@ function onMessage(m) {
     case "usage": usage = m; renderUsage(); break;
     case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); renderCards(); break;
+    case "allow_rules": if (m.bot === rulesFor) { rules = m.rules; renderRules(); } break;
     case "sign_in_needed": signIns.set(m.id, arrived(signIns, m)); renderCards(); break;
     case "sign_in_resolved": signIns.delete(m.id); renderCards(); break;
     case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); break;
@@ -1018,11 +1027,12 @@ function eventEl(e) {
     case "error": el = div("err"); el.textContent = e.message; break;
     case "approval": {
       el = div("redline");
-      const what = { allowed: "You allowed", denied: "You said no to", timed_out: "No answer, so no to" }[e.outcome] || e.outcome;
+      const what = { allowed: "You allowed", allowed_always: "You always allowed", denied: "You said no to", timed_out: "No answer, so no to" }[e.outcome] || e.outcome;
       el.textContent = `⚠ ${what}: ${e.action} ${e.target} on ${e.site}`;
       break;
     }
     case "blocked": el = div("redline"); el.textContent = `⚠ ${e.message}`; break;
+    case "allowed_by_rule": el = div("tool"); el.textContent = `allowed by your rule: ${e.action} ${e.target} on ${e.site}`; break;
     case "sign_in": {
       el = div("signline");
       el.textContent = { done: `Signed in to ${e.site}`, cancelled: `Didn't sign in to ${e.site}`, timed_out: `No answer; didn't sign in to ${e.site}` }[e.outcome] || e.site;
@@ -1125,8 +1135,31 @@ $("botMore").onclick = () => {
   $("bdPrivate").disabled = b.busy;
   $("bdHint").textContent = privacyHint(!!b.info.private, b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
   resetDelete();
+  // Its "Always allowed" rules come from the server (only for those who manage it).
+  rulesFor = b.info.id; rules = null; renderRules();
+  send({ type: "list_allow_rules", bot: b.info.id });
   $("botDlg").showModal();
 };
+$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; });
+// The open bot's rules; Remove takes effect at once (it's a permission, not a setting to Save).
+let rulesFor = null, rules = null;
+function renderRules() {
+  const ul = $("bdRules"); ul.textContent = "";
+  const note = (text) => { const li = document.createElement("li"); li.className = "hint"; li.textContent = text; ul.appendChild(li); };
+  if (!rules) return note("Loading…");
+  if (!rules.length) return note("None. When a card offers Always allow and you pick it, the click shows here.");
+  for (const r of rules) {
+    const li = document.createElement("li"); li.className = "rule-row";
+    const name = document.createElement("span"); name.className = "name";
+    const when = document.createElement("small");
+    const day = new Date(r.created_ms).toLocaleDateString([], { month: "short", day: "numeric" });
+    when.textContent = `${r.by ? "by " + r.by : "by the Farm"} · ${day}`;
+    name.append(document.createTextNode(`${r.action} ${r.label} on ${r.site}`), when);
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "ghost"; remove.textContent = "Remove";
+    remove.onclick = () => send({ type: "remove_allow_rule", bot: rulesFor, id: r.id });
+    li.append(name, remove); ul.appendChild(li);
+  }
+}
 $("bdPrivate").onchange = () => { const b = bots.get(current); if (b) $("bdHint").textContent = privacyHint($("bdPrivate").checked, b); };
 $("bdCancel").onclick = () => $("botDlg").close();
 $("bdDelete").onclick = () => {
@@ -1248,8 +1281,15 @@ function renderCards(onlyIfRenamed) {
     if (a.screenshot && a.screenshot.startsWith("data:image/")) card.appendChild(shot(a, key, who));
     const btns = div("btns");
     btn(btns, "Allow once", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
+    // Offered by the server for this viewer only (never for pay, delete, Enter, uploads or Herder).
+    if (a.always) btn(btns, "Always allow", "ghost", () => send({ type: "answer", id: a.id, answer: "always_allow" }));
     btn(btns, "Deny", change ? "deny red" : "deny", () => send({ type: "answer", id: a.id, answer: "deny" }));
     card.appendChild(btns);
+    if (a.always) {
+      const hint = div("hint");
+      hint.textContent = `Always lets ${who} ${a.action} ${a.target} on ${a.site} without asking. Remove it in the bot's ··· settings.`;
+      card.appendChild(hint);
+    }
     return card;
   }
   // The page the bot is on. Click to enlarge; the area scrolls to it.
