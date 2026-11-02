@@ -63,6 +63,18 @@ fn asking_hub_store(
     env: &[(&str, &str)],
     store: Store,
 ) -> Arc<Hub> {
+    asking_hub_tweaked(dir, tool, ids, env, store, |_| {})
+}
+
+/// Like [`asking_hub_store`], with `tweak` applied to the hub's settings.
+fn asking_hub_tweaked(
+    dir: &Path,
+    tool: &str,
+    ids: &[&str],
+    env: &[(&str, &str)],
+    store: Store,
+    tweak: impl FnOnce(&mut HubConfig),
+) -> Arc<Hub> {
     let mut tools = ToolsConfig::in_home(&dir.join("home"));
     tools.chrome = PathBuf::from("/no/chrome");
     let package = tools.tools_dir.join("node_modules/chrome-devtools-mcp");
@@ -80,7 +92,7 @@ fn asking_hub_store(
             Err(_) => Bot::create(&bots, BotId::new(*id).unwrap(), id, "").unwrap(),
         })
         .collect();
-    let config = HubConfig {
+    let mut config = HubConfig {
         claude_program: claude_tests().join("fake-claude-perm.sh"),
         browser: Some(Tools::new(tools)),
         approval_timeout: Duration::from_secs(5),
@@ -90,6 +102,7 @@ fn asking_hub_store(
             .collect(),
         ..HubConfig::new(&bots)
     };
+    tweak(&mut config);
     Hub::new(all, store, config)
 }
 
@@ -1868,4 +1881,126 @@ async fn files_never_sent_are_deleted() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("no longer waiting"), "{err}");
+}
+
+/// A hub whose `poster` waits on a card (holding a turn), with `turns`
+/// turns at once and unsent files deleted by any sweep.
+async fn busy_poster(dir: &Path, turns: usize) -> (Arc<Hub>, Approval, Receiver<ServerMsg>) {
+    let hub = asking_hub_tweaked(
+        dir,
+        "upload",
+        &["poster", "notes"],
+        &[],
+        Store::open_in_memory().unwrap(),
+        |c| {
+            c.max_concurrent_turns = turns;
+            c.keep_unsent = Duration::ZERO;
+            c.approval_timeout = Duration::from_secs(30);
+        },
+    );
+    let mut updates = hub.subscribe();
+    hub.send("poster", "upload my CV", Some("Jay"))
+        .await
+        .unwrap();
+    let card = next_card(&mut updates).await;
+    (hub, card, updates)
+}
+
+#[tokio::test]
+async fn a_send_that_fails_keeps_its_files_to_send_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (hub, card, mut updates) = busy_poster(tmp.path(), 2).await;
+    let jay = Viewer::gate("Jay");
+    let csv = upload(&hub, "poster", &jay, "list.csv", b"a,b\n")
+        .await
+        .unwrap();
+    let busy = hub
+        .send_files_as("poster", "and this", std::slice::from_ref(&csv.id), &jay)
+        .await;
+    assert!(matches!(busy, Err(HubError::Busy(_))), "{busy:?}");
+    let saved = tmp.path().join("bots/poster/work").join(&csv.path);
+    assert!(saved.is_file(), "still there");
+    // Once the bot is free, the same file goes.
+    assert!(hub.answer(card.id, Answer::Deny));
+    wait_for_turn_done(&mut updates).await;
+    hub.send_files_as("poster", "and this", std::slice::from_ref(&csv.id), &jay)
+        .await
+        .unwrap();
+    let last = hub
+        .history("poster", 0)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find_map(|e| match e.kind {
+            EventKind::UserMessage { files, .. } => Some(files),
+            _ => None,
+        });
+    assert_eq!(last.unwrap(), [csv]);
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn files_are_kept_while_a_send_waits_for_a_turn() {
+    let tmp = tempfile::tempdir().unwrap();
+    // One turn at a time, held by `poster`: a send to `notes` waits.
+    let (hub, card, _updates) = busy_poster(tmp.path(), 1).await;
+    let jay = Viewer::gate("Jay");
+    let txt = upload(&hub, "notes", &jay, "a.txt", b"hello")
+        .await
+        .unwrap();
+    let waiting = {
+        let hub = Arc::clone(&hub);
+        let id = txt.id.clone();
+        let jay = jay.clone();
+        tokio::spawn(async move { hub.send_files_as("notes", "", &[id], &jay).await })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!waiting.is_finished(), "waits for the turn");
+    hub.sweep_uploads();
+    let saved = tmp.path().join("bots/notes/work").join(&txt.path);
+    assert!(saved.is_file(), "not deleted while its send waits");
+    assert!(
+        hub.drop_upload("notes", &txt.id, &jay).is_err(),
+        "nor removed"
+    );
+    assert!(hub.answer(card.id, Answer::Deny));
+    waiting.await.unwrap().unwrap();
+    let sent = hub.history("notes", 0).unwrap();
+    assert!(
+        matches!(&sent[0].kind, EventKind::UserMessage { files, .. } if files.len() == 1),
+        "{sent:?}"
+    );
+    hub.sweep_uploads();
+    assert!(saved.is_file(), "kept once it's in the chat");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn partial_uploads_left_behind_are_deleted_and_nothing_else() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bot = Bot::create(tmp.path(), BotId::new("notes").unwrap(), "N", "").unwrap();
+    let incoming = bot.work_dir().join("inbox/.incoming");
+    std::fs::create_dir_all(&incoming).unwrap();
+    let partial = incoming.join(oxbot_core::attach::new_upload_id());
+    std::fs::write(&partial, b"half a file").unwrap();
+    let other = incoming.join("not-an-upload");
+    std::fs::write(&other, b"x").unwrap();
+    let kept = bot.work_dir().join("notes.md");
+    std::fs::write(&kept, b"mine").unwrap();
+    // On start.
+    let hub = Hub::new(
+        vec![bot],
+        Store::open_in_memory().unwrap(),
+        HubConfig {
+            keep_unsent: Duration::ZERO,
+            ..HubConfig::new(tmp.path())
+        },
+    );
+    assert!(!partial.exists(), "a partial upload goes");
+    assert!(other.exists() && kept.exists(), "nothing else does");
+    // And on the timer's sweep.
+    let again = incoming.join(oxbot_core::attach::new_upload_id());
+    std::fs::write(&again, b"half").unwrap();
+    hub.sweep_uploads();
+    assert!(!again.exists());
 }

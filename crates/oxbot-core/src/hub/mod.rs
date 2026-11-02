@@ -308,6 +308,8 @@ impl Hub {
         });
         // The home browser exists from the start, as before.
         let _ = hub.browser_for(&BrowserOwner::Home);
+        // Partial uploads a crash left behind (then every minute, with idle bots).
+        hub.sweep_incoming();
         tokio::spawn(stop_idle_bots(Arc::downgrade(&hub)));
         hub
     }

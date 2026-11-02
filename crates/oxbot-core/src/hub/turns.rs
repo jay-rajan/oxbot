@@ -69,10 +69,16 @@ impl Hub {
             Vec::new()
         } else {
             let id = self.bot_for(bot, &viewer)?.id;
-            self.waiting_uploads(&id, viewer.id.as_ref(), files)?
+            self.claim_uploads(&id, viewer.id.as_ref(), files)?
         };
-        self.send_for(bot, text, &files, from, viewer.id.as_ref(), false)
-            .await
+        let sent = self
+            .send_for(bot, text, &files, from, viewer.id.as_ref(), false)
+            .await;
+        // Not sent (busy, say): the files wait to be sent again.
+        if sent.is_err() {
+            self.uploads_not_sent(&files);
+        }
+        sent
     }
 
     /// Delivers a message shown as from `from`, for a turn that acts for

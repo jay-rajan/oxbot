@@ -21,6 +21,9 @@ pub(super) struct Pending {
     uploader: Option<PersonId>,
     accepted: attach::Accepted,
     at: Instant,
+    /// Sends of it under way (waiting for a turn, or starting Claude): it
+    /// isn't deleted meanwhile.
+    sending: u32,
 }
 
 impl Hub {
@@ -75,6 +78,7 @@ impl Hub {
                 uploader: self.resolve(viewer).id.clone(),
                 accepted,
                 at: Instant::now(),
+                sending: 0,
             },
         );
         Ok(attachment)
@@ -89,6 +93,9 @@ impl Hub {
         let uploader = self.resolve(viewer).id.clone();
         let mut uploads = lock(&self.uploads);
         match uploads.get(id) {
+            Some(p) if p.bot == bot && p.uploader == uploader && p.sending > 0 => Err(
+                HubError::NotAllowed("That file is being sent right now.".to_owned()),
+            ),
             Some(p) if p.bot == bot && p.uploader == uploader => {
                 if let Some(p) = uploads.remove(id) {
                     attach::remove_all(&p.accepted.saved);
@@ -100,9 +107,10 @@ impl Hub {
     }
 
     /// The files with `ids`, if each was uploaded by `uploader` for `bot`
-    /// and is still waiting. They stay waiting until
-    /// [`Hub::uploads_sent`].
-    pub(super) fn waiting_uploads(
+    /// and is still waiting, marked as being sent: they aren't deleted
+    /// until the message is in the chat ([`Hub::uploads_sent`]), or the
+    /// send failed and they wait again ([`Hub::uploads_not_sent`]).
+    pub(super) fn claim_uploads(
         &self,
         bot: &BotId,
         uploader: Option<&PersonId>,
@@ -114,7 +122,7 @@ impl Hub {
                 attach::MAX_FILES
             )));
         }
-        let uploads = lock(&self.uploads);
+        let mut uploads = lock(&self.uploads);
         let mut out: Vec<Attachment> = Vec::with_capacity(ids.len());
         for id in ids {
             match uploads.get(id) {
@@ -126,7 +134,24 @@ impl Hub {
                 _ => return Err(gone()),
             }
         }
+        for f in &out {
+            if let Some(p) = uploads.get_mut(&f.id) {
+                p.sending += 1;
+            }
+        }
         Ok(out)
+    }
+
+    /// A send of `files` failed: they wait to be sent again, for a fresh
+    /// hour.
+    pub(super) fn uploads_not_sent(&self, files: &[Attachment]) {
+        let mut uploads = lock(&self.uploads);
+        for f in files {
+            if let Some(p) = uploads.get_mut(&f.id) {
+                p.sending = p.sending.saturating_sub(1);
+                p.at = Instant::now();
+            }
+        }
     }
 
     /// The files are in the chat now: they're no longer waiting (and are
@@ -147,7 +172,7 @@ impl Hub {
             let mut uploads = lock(&self.uploads);
             let ids: Vec<String> = uploads
                 .iter()
-                .filter(|(_, p)| p.at.elapsed() >= self.config.keep_unsent)
+                .filter(|(_, p)| p.sending == 0 && p.at.elapsed() >= self.config.keep_unsent)
                 .map(|(id, _)| id.clone())
                 .collect();
             ids.iter().filter_map(|id| uploads.remove(id)).collect()
@@ -155,6 +180,43 @@ impl Hub {
         for p in old {
             tracing::info!(bot = %p.bot, "deleting a file that was never sent");
             attach::remove_all(&p.accepted.saved);
+        }
+        self.sweep_incoming();
+    }
+
+    /// Deletes partial uploads left in bots' `work/inbox/.incoming/` (by a
+    /// crash, say) that haven't been written to for
+    /// [`HubConfig::keep_unsent`]. Only there: nothing else is touched.
+    ///
+    /// [`HubConfig::keep_unsent`]: super::HubConfig::keep_unsent
+    pub fn sweep_incoming(&self) {
+        let dirs: Vec<PathBuf> = self
+            .bots
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .map(|b| Inbox::new(b.work_dir()).dir().join(".incoming"))
+            .collect();
+        for dir in dirs {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                // Upload ids only, plain files only (never a link).
+                let ours = entry.file_name().to_str().is_some_and(attach::is_upload_id)
+                    && entry.file_type().is_ok_and(|t| t.is_file());
+                let stale = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age >= self.config.keep_unsent);
+                if ours && stale {
+                    tracing::info!(path = %path.display(), "deleting a partial upload");
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
         }
     }
 
