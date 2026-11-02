@@ -217,6 +217,29 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .card.signin h3 { color: var(--ink); }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .deny.red { background: var(--err); }
+/* research reports: a card in the chat, and the report over the chat */
+.report-card { align-self: flex-start; display: grid; gap: 3px; max-width: min(520px, 85%); min-width: 0; padding: 10px 14px; border: 1px solid var(--line); border-left: 4px solid var(--rust); border-radius: 12px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: left; }
+.report-card:hover { background: var(--hover); }
+.report-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.report-card .kicker { font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.report-card .title { font-weight: 600; overflow-wrap: anywhere; }
+.report-card .summary { font-size: .88rem; color: var(--ink); overflow-wrap: anywhere; }
+.report-card .when { font-size: .75rem; color: var(--muted); }
+dialog.report-view { width: min(900px, 100%); max-width: 100%; height: min(100dvh, 100%); max-height: 100dvh; margin: auto; padding: 0; border-radius: 14px; }
+dialog.report-view[open] { display: flex; flex-direction: column; }
+@media (max-width: 720px) { dialog.report-view { width: 100%; height: 100%; border-radius: 0; border: 0; } }
+.report-head { display: flex; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 14px 10px; border-bottom: 1px solid var(--line); min-width: 0; }
+.report-head h2 { margin: 0; font-size: 1rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#reportFrame { flex: 1; width: 100%; border: 0; background: var(--bg); min-height: 0; }
+.manage { display: grid; gap: 12px; min-width: 0; }
+.reports-box { display: grid; gap: 6px; min-width: 0; }
+.reports-box h3 { margin: 0; font-size: .9rem; }
+.report-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.report-row .open { all: unset; cursor: pointer; display: grid; min-width: 0; overflow-wrap: anywhere; }
+.report-row .open:focus-visible { outline: 2px solid var(--focus); }
+.report-row .open:hover span:first-child { text-decoration: underline; }
+.report-row small { color: var(--muted); font-size: .75rem; }
+.report-row button.ghost { font-size: .8rem; padding: 5px 10px; }
 /* setup */
 .offline { margin: 10px max(18px, env(safe-area-inset-right)) 0 18px; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); display: flex; gap: 10px; align-items: center; font-size: .9rem; }
 .offline-dot { width: 9px; height: 9px; border-radius: 50%; background: #E2701B; flex: none; animation: offpulse 1.6s ease-in-out infinite; }
@@ -331,12 +354,21 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <dialog id="botDlg" aria-labelledby="bdTitle">
   <form id="botForm">
     <h2 id="bdTitle">Bot settings</h2>
+    <div class="manage" id="bdManage">
     <label>Name<input id="bdName" required autocomplete="off"></label>
     <label class="check"><input type="checkbox" id="bdPrivate"> Private</label>
     <p class="hint" id="bdHint"></p>
     <section class="rules-box" aria-labelledby="bdRulesTitle"><h3 id="bdRulesTitle">Always allowed</h3><ul class="rules" id="bdRules"></ul></section>
-    <div class="row"><button class="ghost" type="button" id="bdDelete">Delete bot</button><span style="flex:1"></span><button class="ghost" type="button" id="bdCancel">Cancel</button><button class="primary" type="submit">Save</button></div>
+    </div>
+    <section class="reports-box" aria-labelledby="bdReportsTitle"><h3 id="bdReportsTitle">Reports</h3><ul class="rules" id="bdReports"></ul></section>
+    <div class="row"><button class="ghost" type="button" id="bdDelete">Delete bot</button><span style="flex:1"></span><button class="ghost" type="button" id="bdCancel">Cancel</button><button class="primary" type="submit" id="bdSave">Save</button></div>
   </form>
+</dialog>
+
+<dialog id="reportDlg" class="report-view" aria-labelledby="reportTitle">
+  <header class="report-head"><button class="ghost" type="button" id="reportBack">← Back</button><h2 id="reportTitle">Report</h2></header>
+  <!-- The report is oxbot's own safe HTML; the frame still runs no scripts and has no access to this page. -->
+  <iframe id="reportFrame" title="Report" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
 </dialog>
 
 <dialog id="appDlg" class="wide" aria-labelledby="appTitle">
@@ -599,6 +631,8 @@ function onMessage(m) {
     case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); renderCards(); break;
     case "allow_rules": if (m.bot === rulesFor) { rules = m.rules; renderRules(); } break;
+    case "report": keepReport(m); if (wantReport === reportKey(m.bot, m.id)) showReport(m); break;
+    case "reports": if (m.bot === reportsFor) { reportList = m.reports; renderReportList(); } break;
     case "sign_in_needed": signIns.set(m.id, arrived(signIns, m)); renderCards(); break;
     case "sign_in_resolved": signIns.delete(m.id); renderCards(); break;
     case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); break;
@@ -619,7 +653,9 @@ function onMessage(m) {
     case "bots": {
       // A bot that's gone (deleted, or now private to someone else) leaves the list.
       // Its "seen" mark goes too: a new bot can get the same id and starts counting from 1.
-      for (const id of [...bots.keys()]) if (!m.bots.some((x) => x.id === id)) { bots.delete(id); forgetSeen(id); if (current === id) current = null; }
+      for (const id of [...bots.keys()]) if (!m.bots.some((x) => x.id === id)) { bots.delete(id); forgetSeen(id); forgetReports(id); if (current === id) current = null; }
+      // Someone else's private bot now: its reports go too.
+      for (const info of m.bots) if (info.locked) forgetReports(info.id);
       for (const info of m.bots) {
         const b = bot(info.id); b.info = info; b.busy = info.busy;
         if (!(info.id in seen)) markSeen(info.id); // first time: old replies aren't new
@@ -1238,7 +1274,10 @@ function updateStatus() {
   const b = current && bots.get(current);
   if (!b) return;
   $("botStatus").textContent = b.busy ? (b.activity || "Clauding…") : b.info.central ? "leads your bots" : `${b.info.private ? "private · " : ""}@${b.info.id}`;
-  $("botMore").hidden = !canManage(b);
+  // Anyone who may open the bot sees its reports there; only managers change it.
+  $("botMore").hidden = isLocked(b);
+  const moreLabel = canManage(b) ? "Bot settings" : "Reports";
+  $("botMore").title = moreLabel; $("botMore").setAttribute("aria-label", moreLabel);
   $("botName").textContent = b.info.name || b.info.id;
   // Someone else's private bot: nothing to send, nothing to stop.
   const locked = isLocked(b);
@@ -1346,6 +1385,7 @@ function eventEl(e) {
       el.textContent = `⚠ ${what}: ${e.action} ${e.target} on ${e.site}`;
       break;
     }
+    case "report": el = reportCard(e); break;
     case "blocked": el = div("redline"); el.textContent = `⚠ ${e.message}`; break;
     case "allowed_by_rule": el = div("tool"); el.textContent = `allowed by your rule: ${e.action} ${e.target} on ${e.site}`; break;
     case "sign_in": {
@@ -1400,6 +1440,81 @@ function md(text) {
   }).join("");
 }
 
+// ---------- research reports: a card in the chat opens the report over it.
+// The report is a whole page the Farm made safe; it's shown in a sandboxed
+// frame (no scripts, no access to this page), set as text, never as HTML here.
+const KEEP_REPORTS = 20;     // opened reports kept in this page, to read again offline
+const reports = new Map();   // "bot\nid" -> the report message, oldest opened first
+let wantReport = null, reportsFor = null, reportList = null, reportArmed = null, reportArmTimer = null;
+function reportKey(bot, id) { return bot + "\n" + id; }
+function keepReport(m) {
+  const key = reportKey(m.bot, m.id);
+  reports.delete(key); reports.set(key, m);
+  while (reports.size > KEEP_REPORTS) reports.delete(reports.keys().next().value);
+}
+function forgetReports(bot) { for (const key of [...reports.keys()]) if (key.startsWith(bot + "\n")) reports.delete(key); }
+function reportCard(e) {
+  const el = document.createElement("div"); el.className = "report-card";
+  el.setAttribute("role", "button"); el.tabIndex = 0;
+  const kicker = div("kicker"); kicker.textContent = "Report";
+  const title = div("title"); title.textContent = e.title;
+  const summary = div("summary"); summary.textContent = e.summary;
+  const when = div("when");
+  when.textContent = `${new Date(e.ts_ms).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} · ${e.sources} source${e.sources === 1 ? "" : "s"}`;
+  el.append(kicker, title, summary, when);
+  el.setAttribute("aria-label", `Open the report: ${e.title}`);
+  const open = () => openReport(e.bot, e.id);
+  el.onclick = open;
+  el.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } };
+  return el;
+}
+/** Asks the Farm for a report; away from it, shows the copy kept here. */
+function openReport(bot, id) {
+  const key = reportKey(bot, id);
+  wantReport = key;
+  if (connected && send({ type: "open_report", bot, id, utc_offset_min: -new Date().getTimezoneOffset() })) return;
+  const kept = reports.get(key);
+  if (kept) { showReport(kept); return; }
+  toast(window.oxbotGate ? "Opens when you're back on the home Wi-Fi." : "Not connected. The report opens once oxbot is back.", true);
+}
+function showReport(m) {
+  wantReport = null;
+  $("reportTitle").textContent = m.title;
+  $("reportFrame").srcdoc = m.html; // a property: the HTML never passes through this page's parser
+  if (!$("reportDlg").open) $("reportDlg").showModal();
+}
+$("reportBack").onclick = () => $("reportDlg").close();
+$("reportDlg").addEventListener("close", () => { $("reportFrame").srcdoc = ""; });
+// The bot's reports, in its ··· dialog: open any; delete for those who manage it.
+function renderReportList() {
+  const ul = $("bdReports"); ul.textContent = "";
+  const note = (text) => { const li = document.createElement("li"); li.className = "hint"; li.textContent = text; ul.appendChild(li); };
+  if (!reportList) return note("Loading…");
+  if (!reportList.length) return note("None yet. When this bot researches something, its report shows here.");
+  const b = bots.get(reportsFor);
+  for (const r of reportList) {
+    const li = document.createElement("li"); li.className = "report-row";
+    const open = document.createElement("button"); open.type = "button"; open.className = "open";
+    const title = document.createElement("span"); title.textContent = r.title;
+    const when = document.createElement("small");
+    when.textContent = `${new Date(r.created_ms).toLocaleDateString([], { month: "short", day: "numeric" })} · ${r.sources} source${r.sources === 1 ? "" : "s"}`;
+    open.append(title, when);
+    open.onclick = () => { $("botDlg").close(); openReport(reportsFor, r.id); };
+    li.appendChild(open);
+    if (canManage(b)) {
+      const del = document.createElement("button"); del.type = "button"; del.className = "ghost";
+      del.textContent = reportArmed === r.id ? "Yes, delete" : "Delete";
+      del.onclick = () => {
+        if (reportArmed !== r.id) { reportArmed = r.id; renderReportList(); clearTimeout(reportArmTimer); reportArmTimer = setTimeout(() => { reportArmed = null; renderReportList(); }, 5000); return; }
+        reportArmed = null; clearTimeout(reportArmTimer);
+        send({ type: "delete_report", bot: reportsFor, id: r.id });
+      };
+      li.appendChild(del);
+    }
+    ul.appendChild(li);
+  }
+}
+
 // ---------- actions
 $("composer").addEventListener("submit", (ev) => {
   ev.preventDefault();
@@ -1439,23 +1554,29 @@ let deleteArmed = false, deleteTimer = null;
 function privacyHint(isPrivate, b) {
   const maker = b.info.created_by || "its maker";
   return isPrivate
-    ? `Only ${maker} and the Farm's owner see it. ${maker}'s own Herder can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses ${maker}'s own sign-ins, never home's.`
-    : "Everyone sees and uses it. It uses the home sign-ins.";
+    ? `Only ${maker} and the Farm's owner see it, its chat and its reports. ${maker}'s own Herder can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses ${maker}'s own sign-ins, never home's.`
+    : "Everyone sees and uses it, its chat and its reports. It uses the home sign-ins.";
 }
 function resetDelete() { clearTimeout(deleteTimer); deleteArmed = false; $("bdDelete").textContent = "Delete bot"; }
 $("botMore").onclick = () => {
-  const b = current && bots.get(current); if (!b) return;
+  const b = current && bots.get(current); if (!b || isLocked(b)) return;
+  const manage = canManage(b);
+  $("bdTitle").textContent = manage ? "Bot settings" : b.info.name || b.info.id;
+  $("bdManage").hidden = !manage; $("bdDelete").hidden = !manage; $("bdSave").hidden = !manage;
+  $("bdName").disabled = !manage;
+  $("bdCancel").textContent = manage ? "Cancel" : "Close";
+  reportsFor = b.info.id; reportList = null; reportArmed = null; renderReportList();
+  send({ type: "list_reports", bot: b.info.id });
   $("bdName").value = b.info.name || b.info.id;
   $("bdPrivate").checked = !!b.info.private;
   $("bdPrivate").disabled = b.busy;
   $("bdHint").textContent = privacyHint(!!b.info.private, b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
   resetDelete();
   // Its "Always allowed" rules come from the server (only for those who manage it).
-  rulesFor = b.info.id; rules = null; renderRules();
-  send({ type: "list_allow_rules", bot: b.info.id });
+  if (manage) { rulesFor = b.info.id; rules = null; renderRules(); send({ type: "list_allow_rules", bot: b.info.id }); }
   $("botDlg").showModal();
 };
-$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; });
+$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; reportsFor = null; reportList = null; });
 // The open bot's rules; Remove takes effect at once (it's a permission, not a setting to Save).
 let rulesFor = null, rules = null;
 function renderRules() {
@@ -1487,7 +1608,7 @@ $("bdDelete").onclick = () => {
 };
 $("botForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  const b = bots.get(current); if (!b) return;
+  const b = bots.get(current); if (!b || !canManage(b)) { $("botDlg").close(); return; }
   const name = $("bdName").value.trim();
   renameBot(b.info.id, name);
   if ($("bdPrivate").checked !== !!b.info.private) setPrivate(b.info.id, $("bdPrivate").checked);
