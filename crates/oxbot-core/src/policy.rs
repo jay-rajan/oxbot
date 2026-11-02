@@ -13,7 +13,8 @@
 //! | clicking an element oxbot can't name, even after looking it up | run, logged |
 //! | clicking something that changes things (Send, Post, Save, Apply…) | red card |
 //! | clicking a POST form's unclear button when the form has something filled in | red card |
-//! | clicking pay, buy, book, delete or another can't-undo button | red card |
+//! | clicking pay, buy, book, delete or another can't-undo button | red card, Allow once only |
+//! | a change click the user chose "Always allow" for (same bot, exact host, same button) | run, with a quiet line |
 //! | pressing Enter in a text box (not a search box) | red card |
 //! | uploading a file from the Mac | card |
 //! | typing into a password or code field | refuse: the user signs in |
@@ -31,6 +32,8 @@
 //! The page controls its labels: a "Delete" button can call itself "Apply
 //! filters". What oxbot reads about a button's form only ever relaxes an
 //! unclear label ("Submit", "Go"), never a clear change or a can't-undo word.
+//! An "Always allow" rule is per bot, per exact host and per exact label,
+//! so another site never matches, and can't-undo words never get one.
 
 use std::path::Path;
 
@@ -107,6 +110,10 @@ pub struct Ask {
     /// For a click card: what kind of click ([`Click::Change`] or
     /// [`Click::Final`]).
     pub click: Option<Click>,
+    /// The element an "Always allow" rule would name (see [`rule_label`]):
+    /// set only for a [`Click::Change`] on a named element on a known web
+    /// site. Never for can't-undo clicks, Enter, uploads or Herder's cards.
+    pub rule: Option<String>,
 }
 
 impl Ask {
@@ -126,6 +133,7 @@ impl Ask {
             detail: None,
             private: false,
             click: None,
+            rule: None,
         }
     }
 }
@@ -434,18 +442,19 @@ fn decide_input(
     change: &dyn Fn(&str, String) -> Verdict,
 ) -> Verdict {
     let facts = ctx.facts;
+    let on_web = ctx.page_url.and_then(web_host).is_some();
     match action {
         "click" => {
             let uid = str_of(input, "uid");
             let label = describe(uid);
-            click_verdict(label.as_deref(), ctx.element, change, || {
+            click_verdict(label.as_deref(), ctx.element, on_web, change, || {
                 format!("element {uid}")
             })
         }
         "click_at" => {
             let label = facts.and_then(|f| f.at_point.as_deref());
             let element = facts.and_then(|f| f.at_element.as_ref());
-            click_verdict(label, element, change, || {
+            click_verdict(label, element, on_web, change, || {
                 let at = |key| input.get(key).and_then(Value::as_f64).unwrap_or(-1.0);
                 format!("the spot at ({}, {})", at("x"), at("y"))
             })
@@ -492,10 +501,12 @@ fn decide_input(
 }
 
 /// A click on `label` (with what oxbot read about it): free, a card, or
-/// free and logged when oxbot couldn't name it (`unnamed` says what).
+/// free and logged when oxbot couldn't name it (`unnamed` says what). A
+/// change card on a web page (`on_web`) may be remembered.
 fn click_verdict(
     label: Option<&str>,
     element: Option<&ElementFacts>,
+    on_web: bool,
     change: &dyn Fn(&str, String) -> Verdict,
     unnamed: impl FnOnce() -> String,
 ) -> Verdict {
@@ -518,10 +529,30 @@ fn click_verdict(
         Click::Change | Click::Final => match change("click", target()) {
             Verdict::Ask(ask) => Verdict::Ask(Ask {
                 click: Some(click),
+                rule: label
+                    .filter(|_| click == Click::Change && on_web)
+                    .and_then(rule_label),
                 ..ask
             }),
             other => other,
         },
+    }
+}
+
+/// How a rule names an element: its role and name (`button "Apply
+/// filters"`), with the name trimmed and its spaces collapsed, and
+/// attributes such as `focusable` dropped. Case counts. `None` for an
+/// element with no name.
+#[must_use]
+pub fn rule_label(label: &str) -> Option<String> {
+    let (role, name) = split_label(label);
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        None
+    } else if role.is_empty() {
+        Some(format!("\"{name}\""))
+    } else {
+        Some(format!("{role} \"{name}\""))
     }
 }
 
@@ -1457,6 +1488,93 @@ mod tests {
             decide(&tool("upload_file"), &bad, ctx(), no_names),
             Verdict::Deny(_)
         ));
+    }
+
+    /// The rule an Always answer would set for `verdict`, if it may offer one.
+    fn rule_of(verdict: &Verdict) -> Option<String> {
+        match verdict {
+            Verdict::Ask(ask) => ask.rule.clone(),
+            other => panic!("expected a card, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn final_words_never_offer_always() {
+        for label in [
+            "button \"Pay now\"",
+            "button \"Buy\"",
+            "button \"Place order\"",
+            "button \"Book\"",
+            "button \"Delete\"",
+            "button \"Transfer\"",
+        ] {
+            assert_eq!(rule_of(&click(label, None)), None, "{label}");
+        }
+        assert_eq!(
+            rule_of(&click("button \"Save\" focusable", None)).as_deref(),
+            Some("button \"Save\"")
+        );
+        assert_eq!(
+            rule_of(&click("button \"Apply\"", None)).as_deref(),
+            Some("button \"Apply\"")
+        );
+        // An unclear POST-form button names the button itself, not the card's words.
+        let post = submit("post", false, 1);
+        let verdict = click("button \"Submit\"", Some(&post));
+        let Verdict::Ask(ask) = &verdict else {
+            panic!("a filled POST form asks")
+        };
+        assert_eq!(ask.target, "the form's \"Submit\" button");
+        assert_eq!(ask.rule.as_deref(), Some("button \"Submit\""));
+        // A page oxbot can't place on a web site gets no rule.
+        let nowhere = Context {
+            page_url: None,
+            ..ctx()
+        };
+        let verdict = decide(&tool("click"), &json!({"uid":"1"}), nowhere, names);
+        assert_eq!(rule_of(&verdict), None);
+    }
+
+    #[test]
+    fn upload_create_give_enter_never_offer_always() {
+        let enter = field(FieldKind::Text, "Message");
+        let on_button = field(FieldKind::Other, "Send");
+        let upload = json!({"uid":"1","filePaths": [format!("{WORK}/cv.pdf")]});
+        for verdict in [
+            decide(
+                &tool("press_key"),
+                &json!({"key":"Enter"}),
+                with_facts(&enter),
+                no_names,
+            ),
+            decide(
+                &tool("press_key"),
+                &json!({"key":"Enter"}),
+                with_facts(&on_button),
+                no_names,
+            ),
+            decide(&tool("press_key"), &json!({"key":"Enter"}), ctx(), no_names),
+            decide(&tool("upload_file"), &upload, ctx(), names),
+            decide(
+                &tools::full_name(CREATE_BOT_TOOL),
+                &json!({"name":"Helper","instructions":"Help."}),
+                ctx(),
+                no_names,
+            ),
+        ] {
+            assert_eq!(rule_of(&verdict), None, "{verdict:?}");
+        }
+    }
+
+    #[test]
+    fn rule_label_normalizes() {
+        assert_eq!(
+            rule_label("button \"  Apply   filters \" focusable").as_deref(),
+            Some("button \"Apply filters\"")
+        );
+        assert_eq!(rule_label("\"Save\"").as_deref(), Some("\"Save\""));
+        assert_eq!(rule_label("button \"  \""), None);
+        assert_ne!(rule_label("button \"save\""), rule_label("button \"Save\""));
     }
 
     #[test]

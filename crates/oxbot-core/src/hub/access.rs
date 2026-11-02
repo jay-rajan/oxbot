@@ -139,7 +139,7 @@ impl Hub {
     }
 
     /// The bot `id`, if `viewer` may change it.
-    fn bot_to_manage(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
+    pub(super) fn bot_to_manage(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
         let bot = self.bot_for(id, viewer)?;
         if !bot.manageable_by(viewer) {
             let who = maker_name(&bot, &self.person_names())

@@ -385,6 +385,13 @@ impl Client {
             ClientMsg::DeleteBot { bot } => ClientMsg::DeleteBot {
                 bot: self.inner(bot),
             },
+            ClientMsg::ListAllowRules { bot } => ClientMsg::ListAllowRules {
+                bot: self.inner(bot),
+            },
+            ClientMsg::RemoveAllowRule { bot, id } => ClientMsg::RemoveAllowRule {
+                bot: self.inner(bot),
+                id,
+            },
             other => other,
         }
     }
@@ -438,6 +445,10 @@ impl Client {
                 r.bot = self.outer(&r.bot)?;
                 ServerMsg::SignInNeeded(r)
             }
+            ServerMsg::AllowRules { bot, rules } => ServerMsg::AllowRules {
+                bot: self.outer(&bot)?,
+                rules,
+            },
             ServerMsg::Bots { bots } => ServerMsg::Bots {
                 bots: bots
                     .into_iter()
@@ -549,7 +560,8 @@ async fn serve_client(
             .map(ServerMsg::SignInNeeded),
     );
     for msg in first {
-        let Some(msg) = client.outbound(msg) else {
+        let Some(msg) = for_viewer(msg, &state, &client.viewer).and_then(|m| client.outbound(m))
+        else {
             continue;
         };
         if send(&mut sink, &msg).await.is_err() {
@@ -586,7 +598,9 @@ async fn serve_client(
             }
         };
         for msg in outgoing {
-            let Some(msg) = client.outbound(msg) else {
+            let Some(msg) =
+                for_viewer(msg, &state, &client.viewer).and_then(|m| client.outbound(m))
+            else {
                 continue;
             };
             if send(&mut sink, &msg).await.is_err() {
@@ -705,11 +719,16 @@ async fn handle(
             reply(state.hub.rename_bot(&bot, &name, &viewer).await)
         }
         ClientMsg::DeleteBot { bot } => reply(state.hub.delete_bot(&bot, &viewer).await),
-        ClientMsg::Answer { id, answer } => {
-            if state.hub.approval_visible(id, &viewer) {
-                state.hub.answer(id, answer);
-            }
-            Vec::new()
+        ClientMsg::Answer { id, answer } => match state.hub.answer_as(id, answer, &viewer) {
+            Ok(_) => Vec::new(),
+            Err(e) => error(&e),
+        },
+        ClientMsg::ListAllowRules { bot } => match state.hub.allow_rules_for(&bot, &viewer) {
+            Ok(rules) => vec![ServerMsg::AllowRules { bot, rules }],
+            Err(e) => error(&e),
+        },
+        ClientMsg::RemoveAllowRule { bot, id } => {
+            reply(state.hub.remove_allow_rule(&bot, id, &viewer))
         }
         other => handle_sign_ins(other, state, &viewer).await,
     }
@@ -985,6 +1004,20 @@ async fn run_setup(state: AppState, action: SetupAction) {
         .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// What only the hub can decide for one viewer, just before sending: on a
+/// card, whether they're offered "Always allow"; a bot's rules go only to
+/// those who may manage it.
+fn for_viewer(msg: ServerMsg, state: &AppState, viewer: &Viewer) -> Option<ServerMsg> {
+    match msg {
+        ServerMsg::ApprovalNeeded(mut a) => {
+            a.always = state.hub.can_always(&a, viewer);
+            Some(ServerMsg::ApprovalNeeded(a))
+        }
+        ServerMsg::AllowRules { ref bot, .. } => state.hub.may_manage(bot, viewer).then_some(msg),
+        other => Some(other),
+    }
+}
+
 /// Passes a live update on if this client may see it: never anything about
 /// a bot hidden from them, nor another person's sign-ins. Events and reply
 /// pieces go only to clients subscribed to that bot (and not twice).
@@ -1000,6 +1033,10 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         }
         ServerMsg::Delta { ref bot, .. } => client.subs.contains_key(bot).then_some(msg),
         ServerMsg::History { ref bot, .. } => client.sees(bot).then_some(msg),
+        // A bot's rules also go only to those who may manage it: see
+        // [`for_viewer`].
+        ServerMsg::AllowRules { ref bot, .. } if client.sees(bot) => Some(msg),
+        ServerMsg::AllowRules { .. } => None,
         ServerMsg::Bots { bots } => {
             client.see(&bots);
             Some(ServerMsg::Bots {
@@ -1226,6 +1263,8 @@ mod tests {
             screenshot: None,
             asker: asker.map(Into::into),
             asker_id: None,
+            always: false,
+            rule: None,
         })
     }
 
@@ -1416,5 +1455,135 @@ mod tests {
             "not the Farm's"
         );
         assert!(farm.outbound(event(&anns, 1)).is_none());
+    }
+
+    /// A server with Sam's shared bot `shop`; Jay is the Farm's person.
+    fn shop_state(dir: &std::path::Path) -> AppState {
+        let store = oxbot_core::Store::open_in_memory().unwrap();
+        let sam = store.find_or_create_person("Sam").unwrap().0.id;
+        store.find_or_create_person("Jay").unwrap();
+        let mut shop =
+            oxbot_core::Bot::create(dir, oxbot_core::BotId::new("shop").unwrap(), "Shop", "")
+                .unwrap();
+        shop.owner = Some(sam);
+        shop.created_by = Some("Sam".into());
+        shop.save().unwrap();
+        let hub = Hub::new(vec![shop], store, oxbot_core::HubConfig::new(dir));
+        AppState::new(hub, "test-mac")
+    }
+
+    fn save_card(asker: &str) -> oxbot_protocol::Approval {
+        oxbot_protocol::Approval {
+            asker: Some(asker.into()),
+            rule: Some("button \"Save\"".into()),
+            ..match card("shop", None) {
+                ServerMsg::ApprovalNeeded(a) => a,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    fn offered(state: &AppState, card: oxbot_protocol::Approval, viewer: &Viewer) -> bool {
+        match for_viewer(ServerMsg::ApprovalNeeded(card), state, viewer) {
+            Some(ServerMsg::ApprovalNeeded(a)) => a.always,
+            other => panic!("a card, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn always_is_offered_only_to_those_who_manage_the_bot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = shop_state(tmp.path());
+        let sam = state.hub.resolve(&Viewer::gate("Sam")).into_owned();
+        let jay = state.hub.resolve(&Viewer::gate("Jay")).into_owned();
+        let with_id = |asker: &Viewer| oxbot_protocol::Approval {
+            asker_id: asker.id.as_ref().map(ToString::to_string),
+            ..save_card(&asker.name)
+        };
+        // Sam's own card on Sam's bot: offered to Sam and the Farm.
+        assert!(offered(&state, with_id(&sam), &Viewer::gate("Sam")));
+        assert!(offered(&state, with_id(&sam), &Viewer::farm("Jay")));
+        // Jay's card on Sam's bot: Jay may only allow it once.
+        assert!(!offered(&state, with_id(&jay), &Viewer::gate("Jay")));
+        // A card that names no rule (pay, Enter, upload) is never offered.
+        let plain = oxbot_protocol::Approval {
+            rule: None,
+            ..with_id(&sam)
+        };
+        assert!(!offered(&state, plain, &Viewer::farm("Jay")));
+        // The rule itself is never sent.
+        let json = serde_json::to_string(&with_id(&sam)).unwrap();
+        assert!(!json.contains("Save"), "{json}");
+
+        // Rule lists go only to those who manage the bot.
+        let rules = || ServerMsg::AllowRules {
+            bot: "shop".into(),
+            rules: Vec::new(),
+        };
+        assert!(for_viewer(rules(), &state, &Viewer::gate("Sam")).is_some());
+        assert!(for_viewer(rules(), &state, &Viewer::farm("Jay")).is_some());
+        assert!(for_viewer(rules(), &state, &Viewer::gate("Jay")).is_none());
+    }
+
+    #[tokio::test]
+    async fn rules_are_listed_and_removed_only_by_those_who_manage_the_bot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = shop_state(tmp.path());
+        let (out, _rx) = mpsc::channel(4);
+        let bots = [info("shop", Some("Sam"), false)];
+        let mut jay = Client::new(Viewer::gate("Jay"), &bots);
+        let mut sam = Client::new(Viewer::gate("Sam"), &bots);
+        let list = || ClientMsg::ListAllowRules { bot: "shop".into() };
+        let refused = handle(list(), &state, &mut jay, &out).await;
+        assert!(
+            matches!(&refused[..], [ServerMsg::Error { .. }]),
+            "{refused:?}"
+        );
+        let remove = ClientMsg::RemoveAllowRule {
+            bot: "shop".into(),
+            id: 1,
+        };
+        let refused = handle(remove.clone(), &state, &mut jay, &out).await;
+        assert!(
+            matches!(&refused[..], [ServerMsg::Error { .. }]),
+            "{refused:?}"
+        );
+        let listed = handle(list(), &state, &mut sam, &out).await;
+        assert!(
+            matches!(&listed[..], [ServerMsg::AllowRules { bot, rules }] if bot == "shop" && rules.is_empty()),
+            "{listed:?}"
+        );
+        assert_eq!(handle(remove, &state, &mut sam, &out).await, []);
+        // Always on a card that isn't open (or isn't theirs) does nothing.
+        let answer = ClientMsg::Answer {
+            id: 99,
+            answer: oxbot_protocol::Answer::AlwaysAllow,
+        };
+        assert_eq!(handle(answer, &state, &mut sam, &out).await, []);
+    }
+
+    #[test]
+    fn rule_requests_for_assistant_go_to_your_own_herder() {
+        let ann = Client::with_herder(Viewer::gate("Ann"), &[], "assistant--ann-1".into());
+        let ClientMsg::ListAllowRules { bot } = ann.inbound(ClientMsg::ListAllowRules {
+            bot: DEFAULT_BOT.into(),
+        }) else {
+            panic!("a list request")
+        };
+        assert_eq!(bot, "assistant--ann-1");
+        let ClientMsg::RemoveAllowRule { bot, id } = ann.inbound(ClientMsg::RemoveAllowRule {
+            bot: DEFAULT_BOT.into(),
+            id: 4,
+        }) else {
+            panic!("a remove request")
+        };
+        assert_eq!((bot.as_str(), id), ("assistant--ann-1", 4));
+        let Some(ServerMsg::AllowRules { bot, .. }) = ann.outbound(ServerMsg::AllowRules {
+            bot: "assistant--ann-1".into(),
+            rules: Vec::new(),
+        }) else {
+            panic!("her Herder's rules")
+        };
+        assert_eq!(bot, DEFAULT_BOT);
     }
 }

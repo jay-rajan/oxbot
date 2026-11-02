@@ -340,7 +340,7 @@ impl Hub {
             .confirm(&herder, &ask, Some((why, String::new())))
             .await
         {
-            Ok(Outcome::Allowed) => None,
+            Ok(Outcome::Allowed | Outcome::AllowedAlways) => None,
             Ok(Outcome::Denied) => Some(format!(
                 "The user said no to giving {} this task. Don't try another way; tell them, and \
                  stop.",

@@ -25,6 +25,7 @@ mod browsers;
 mod claude;
 mod elements;
 mod people;
+mod rules;
 mod seqs;
 mod sign_ins;
 mod taint;
@@ -426,6 +427,8 @@ mod tests {
             screenshot: None,
             asker: asker.map(Into::into),
             asker_id: None,
+            always: false,
+            rule: None,
         };
         assert!(answers(&card(Some("Jay")), &Viewer::gate("Jay")));
         assert!(!answers(&card(Some("Jay")), &Viewer::gate("Sam")));
@@ -1008,6 +1011,8 @@ mod tests {
             screenshot: None,
             asker: Some("Sam".into()),
             asker_id: Some(sam.to_string()),
+            always: false,
+            rule: None,
         };
         assert!(answers(
             &card,

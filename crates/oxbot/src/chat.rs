@@ -126,6 +126,7 @@ impl View {
             } => {
                 let what = match outcome {
                     Outcome::Allowed => "You allowed",
+                    Outcome::AllowedAlways => "You always allowed",
                     Outcome::Denied => "You said no to",
                     Outcome::TimedOut => "No answer, so no to",
                 };
@@ -135,6 +136,11 @@ impl View {
                 );
             }
             EventKind::Blocked { message } => println!("   {}", red(&format!("⚠ {message}"))),
+            EventKind::AllowedByRule {
+                action,
+                target,
+                site,
+            } => println!("      · allowed by your rule: {action} {target} on {site}"),
             EventKind::SignIn { site, outcome } => {
                 let what = match outcome {
                     SignInOutcome::Done => "Signed in to",
@@ -230,6 +236,7 @@ impl View {
             | ServerMsg::SetupProgress { .. }
             | ServerMsg::Sites { .. }
             | ServerMsg::People { .. }
+            | ServerMsg::AllowRules { .. }
             | ServerMsg::Usage(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }

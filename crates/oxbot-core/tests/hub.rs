@@ -1117,3 +1117,118 @@ async fn reading_a_file_counts_before_a_private_task() {
     asked_and_denied(&hub, &mut updates, "a file or tool result (Read)").await;
     hub.shutdown().await;
 }
+
+#[tokio::test]
+async fn always_allow_is_saved_only_by_those_who_manage_the_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let sam = store.find_or_create_person("Sam").unwrap().0.id;
+    let bots = tmp.path().join("bots");
+    std::fs::create_dir_all(&bots).unwrap();
+    let mut poster = Bot::create(&bots, BotId::new("poster").unwrap(), "Poster", "").unwrap();
+    poster.owner = Some(sam);
+    poster.created_by = Some("Sam".into());
+    poster.save().unwrap();
+    let hub = asking_hub_store(tmp.path(), "post", &["poster"], &[], store);
+    let mut updates = hub.subscribe();
+
+    // Jay's message raises the card on Sam's bot: Jay may allow it once,
+    // but not always, and the card stays open.
+    hub.send("poster", "post my update", Some("Jay"))
+        .await
+        .unwrap();
+    let card = next_card(&mut updates).await;
+    assert_eq!(card.rule.as_deref(), Some("button \"Post\""));
+    assert!(!card.always, "who is offered Always is decided per client");
+    assert!(!hub.can_always(&card, &Viewer::gate("Jay")));
+    assert!(
+        !hub.can_always(&card, &Viewer::gate("Sam")),
+        "not Sam's card"
+    );
+    assert!(hub.can_always(&card, &Viewer::farm("Jay")));
+    assert!(matches!(
+        hub.answer_as(card.id, Answer::AlwaysAllow, &Viewer::gate("Jay")),
+        Err(HubError::NotAllowed(_))
+    ));
+    assert_eq!(hub.pending_approvals().len(), 1, "the card stays open");
+    assert_eq!(
+        hub.allow_rules_for("poster", &Viewer::farm("Jay")).unwrap(),
+        []
+    );
+
+    // The Farm may: the rule comes from the stored card.
+    assert!(
+        hub.answer_as(card.id, Answer::AlwaysAllow, &Viewer::farm("Jay"))
+            .unwrap()
+    );
+    let (said, outcome) = ending(&hub, &mut updates).await;
+    assert_eq!(said, "behavior=allow");
+    assert_eq!(outcome, Some(Outcome::AllowedAlways));
+    let rules = hub.allow_rules_for("poster", &Viewer::gate("Sam")).unwrap();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(
+        (
+            rules[0].site.as_str(),
+            rules[0].action.as_str(),
+            rules[0].label.as_str()
+        ),
+        ("jobs.example.com", "click", "button \"Post\"")
+    );
+    assert_eq!(rules[0].by.as_deref(), Some("Jay"));
+    assert!(hub.allow_rules_for("poster", &Viewer::gate("Jay")).is_err());
+
+    // Without oxbot's own look at the tab (no Chrome here), the page's
+    // text alone never lets the rule apply: it still asks.
+    hub.send("poster", "post my update", Some("Jay"))
+        .await
+        .unwrap();
+    let again = next_card(&mut updates).await;
+    assert_eq!(again.target, "button \"Post\"");
+    hub.answer(again.id, Answer::Deny);
+    let _ = ending(&hub, &mut updates).await;
+
+    // Deleting the bot deletes its rules.
+    hub.delete_bot("poster", &Viewer::farm("Jay"))
+        .await
+        .unwrap();
+    assert!(hub.allow_rules_for("poster", &Viewer::farm("Jay")).is_err());
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn always_is_refused_for_uploads_and_herders_cards() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub(tmp.path());
+    let mut updates = hub.subscribe();
+    let upload = card(&hub, &mut updates).await;
+    assert_eq!(upload.rule, None);
+    assert!(!hub.can_always(&upload, &Viewer::farm("Jay")));
+    assert!(matches!(
+        hub.answer_as(upload.id, Answer::AlwaysAllow, &Viewer::farm("Jay")),
+        Err(HubError::NotAllowed(_))
+    ));
+    assert_eq!(hub.pending_approvals().len(), 1, "the card stays open");
+    assert!(
+        hub.answer_as(upload.id, Answer::AllowOnce, &Viewer::farm("Jay"))
+            .unwrap()
+    );
+    let (_, outcome) = ending(&hub, &mut updates).await;
+    assert_eq!(outcome, Some(Outcome::Allowed));
+    hub.shutdown().await;
+
+    // Herder making a bot: never.
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "createbot", &["assistant"]);
+    let mut updates = hub.subscribe();
+    hub.send("assistant", "make a bot", Some("Jay"))
+        .await
+        .unwrap();
+    let create = next_card(&mut updates).await;
+    assert_eq!(create.kind, ApprovalKind::CreateBot);
+    assert!(matches!(
+        hub.answer_as(create.id, Answer::AlwaysAllow, &Viewer::farm("Jay")),
+        Err(HubError::NotAllowed(_))
+    ));
+    hub.answer(create.id, Answer::Deny);
+    hub.shutdown().await;
+}

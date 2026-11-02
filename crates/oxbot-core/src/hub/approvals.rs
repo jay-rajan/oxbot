@@ -32,6 +32,29 @@ impl Hub {
         })
     }
 
+    /// `viewer` answered card `id`. "Always allow" also saves the card's
+    /// rule first, and only if the card offers it to them (see
+    /// [`Hub::can_always`]); otherwise the card stays open. Returns whether
+    /// the card was open and theirs to answer.
+    ///
+    /// # Errors
+    /// [`HubError::NotAllowed`] if "Always allow" isn't theirs to give, or
+    /// the rule couldn't be saved.
+    pub fn answer_as(&self, id: u64, answer: Answer, viewer: &Viewer) -> Result<bool, HubError> {
+        if !self.approval_visible(id, viewer) {
+            return Ok(false);
+        }
+        if answer == Answer::AlwaysAllow {
+            // The card as oxbot stored it, not as the client describes it.
+            let card = lock(&self.approvals).get(&id).map(|(a, _, _)| a.clone());
+            let Some(card) = card else {
+                return Ok(false);
+            };
+            self.add_rule_from(&card, viewer)?;
+        }
+        Ok(self.answer(id, answer))
+    }
+
     /// The user answered an approval card. Returns whether it was still open.
     pub fn answer(&self, id: u64, answer: Answer) -> bool {
         let entry = lock(&self.approvals).remove(&id);
@@ -135,6 +158,7 @@ impl Hub {
             }
             _ => None,
         };
+        let tab = browser.as_ref().map(|shared| Arc::clone(&shared.browser));
         let ctx = policy::Context {
             work_dir: &bot.work_dir(),
             page_url,
@@ -167,7 +191,15 @@ impl Hub {
                 )?;
                 Ok(Decision::Deny(message))
             }
-            Verdict::Ask(ask) => self.ask_user(&bot, ask, page).await,
+            Verdict::Ask(ask) => {
+                if self
+                    .allowed_by_rule(&bot, &ask, tab.as_deref(), page_url)
+                    .await?
+                {
+                    return Ok(Decision::Allow);
+                }
+                self.ask_user(&bot, ask, page).await
+            }
         }
     }
 
@@ -181,7 +213,7 @@ impl Hub {
         let ask = self.with_maker(bot, ask).await;
         let outcome = self.confirm(bot, &ask, page).await?;
         Ok(match outcome {
-            Outcome::Allowed => Decision::Allow,
+            Outcome::Allowed | Outcome::AllowedAlways => Decision::Allow,
             Outcome::TimedOut => Decision::Deny(format!(
                 "The user didn't answer within {} minutes, so oxbot said no. Tell them what you \
                  wanted to do, and stop.",
@@ -260,6 +292,13 @@ impl Hub {
             // Their name, for showing; who gets it is decided by id.
             asker: asker.as_ref().and_then(|id| self.person_name(id)),
             asker_id: asker.as_ref().map(ToString::to_string),
+            // Who's offered Always is decided for each client.
+            always: false,
+            // Herder's cards are never remembered.
+            rule: ask
+                .rule
+                .clone()
+                .filter(|_| ask.kind == ApprovalKind::Change && !bot.is_central()),
         };
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
@@ -272,6 +311,7 @@ impl Hub {
 
         let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
             Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
+            Ok(Ok(Answer::AlwaysAllow)) => Outcome::AllowedAlways,
             Ok(Ok(Answer::Deny) | Err(_)) => Outcome::Denied,
             Err(_) => {
                 self.answer(id, Answer::Deny);
