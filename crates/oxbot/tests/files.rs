@@ -195,7 +195,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     let (status, body) = request(s.addr, &head, b"").await;
     assert_eq!(status, 413);
     assert!(
-        body.contains("`clip.mov` is 640 MB; oxbot takes videos up to 200 MB."),
+        body.contains("“clip.mov” is 640 MB; oxbot takes videos up to 200 MB."),
         "{body}"
     );
 
@@ -204,7 +204,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     assert_eq!(status, 413, "{body}");
     assert_eq!(
         body["error"],
-        "`big.bin` is 26 MB; oxbot takes files up to 25 MB."
+        "“big.bin” is 26 MB; oxbot takes files up to 25 MB."
     );
 
     // Sent without saying its size: counted as it comes, then refused.

@@ -1319,8 +1319,17 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
         Ok((file, path)) => {
             // Tests never open windows on the Mac they run on.
             if !state.e2e {
+                // Text (whatever its name says) opens in the text editor, and a
+                // web archive only shows in Finder: a file someone sent never
+                // runs as a script or a page.
+                let how = match file.kind {
+                    oxbot_protocol::AttachmentKind::Text => Some("-t"),
+                    _ if path.extension().is_some_and(|e| e == "webarchive") => Some("-R"),
+                    _ => None,
+                };
                 tokio::spawn(async move {
                     let status = tokio::process::Command::new("/usr/bin/open")
+                        .args(how)
                         .arg(&path)
                         .stdin(std::process::Stdio::null())
                         .status()

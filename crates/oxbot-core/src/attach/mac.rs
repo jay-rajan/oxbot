@@ -1,7 +1,8 @@
 //! The Mac's own tools oxbot uses on files: `textutil` (old Word, RTF,
 //! `OpenDocument` text), `sips` (pictures) and oxbot's helper (still frames
-//! from video). Each runs as its own process with a time limit, is killed
-//! if it runs over, and gets no environment but a plain `PATH`.
+//! from video). Each runs as its own process with a time limit and is
+//! killed if it runs over; the system's tools get no environment but a
+//! plain `PATH`.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -136,7 +137,8 @@ impl MacTools {
         let Some(helper) = self.helper.as_ref().filter(|h| h.exists()) else {
             return Err("taking still frames from video isn't available on this Mac.".to_owned());
         };
-        let out = run(
+        // oxbot's own program: it keeps oxbot's environment.
+        let out = run_helper(
             Command::new(helper).arg("frames").arg(from).arg(to).args([
                 "--max",
                 &max.to_string(),
@@ -163,17 +165,21 @@ impl MacTools {
     }
 }
 
-/// Runs `cmd` with no input, a plain environment and a time limit.
+/// Runs a system tool with no input, a plain environment and a time limit.
 async fn run(cmd: &mut Command, limit: Duration) -> Result<std::process::Output, String> {
-    cmd.env_clear()
-        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    cmd.env_clear().env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
     if let Some(home) = std::env::var_os("HOME") {
         cmd.env("HOME", home);
     }
+    run_helper(cmd, limit).await
+}
+
+/// Runs `cmd` with no input and a time limit.
+async fn run_helper(cmd: &mut Command, limit: Duration) -> Result<std::process::Output, String> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     let child = cmd.spawn().map_err(|e| format!("couldn't start it: {e}"))?;
     match tokio::time::timeout(limit, child.wait_with_output()).await {
         Ok(Ok(out)) => Ok(out),

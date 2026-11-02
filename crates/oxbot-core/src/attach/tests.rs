@@ -183,7 +183,7 @@ fn what_oxbot_cant_read_gets_a_plain_message() {
         refusal(b"just text", "fake.pdf").contains("isn't what its name says"),
         "a text file called .pdf"
     );
-    assert!(refusal(b"\x00\x01\x02\x03binary", "blob.bin").contains("can't read `blob.bin`"));
+    assert!(refusal(b"\x00\x01\x02\x03binary", "blob.bin").contains("can't read “blob.bin”"));
     assert!(matches!(
         what(b"", "empty.txt"),
         Err(AttachError::Unsupported(_))
@@ -432,7 +432,7 @@ async fn a_refused_or_too_big_upload_leaves_nothing_behind() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, AttachError::TooBig(why) if why == "`huge.txt` is 2.1 MB; oxbot takes text files up to 2 MB."),
+        matches!(&err, AttachError::TooBig(why) if why == "“huge.txt” is 2.1 MB; oxbot takes text files up to 2 MB."),
         "{err:?}"
     );
     let locked = b"%PDF-1.4\n1 0 obj<</Filter/Standard>>\ntrailer<</Encrypt 1 0 R>>";
@@ -469,7 +469,7 @@ async fn video_without_the_mac_helper_says_it_isnt_available() {
 fn sizes_read_like_a_person_would_say_them() {
     assert_eq!(
         too_big("clip.mov", 640 * 1024 * 1024, MAX_VIDEO, "videos"),
-        "`clip.mov` is 640 MB; oxbot takes videos up to 200 MB."
+        "“clip.mov” is 640 MB; oxbot takes videos up to 200 MB."
     );
     assert_eq!(megabytes(26 * 1024 * 1024 + 1), "27 MB");
     assert_eq!(megabytes(2 * 1024 * 1024 + 1), "2.1 MB");

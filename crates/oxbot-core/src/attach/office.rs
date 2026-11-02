@@ -93,7 +93,7 @@ fn entry_text<R: Read + Seek>(
 pub(super) fn sniff_zip(path: &Path, name: &str, ext: &str) -> Result<Found, AttachError> {
     let archive = || {
         AttachError::Unsupported(format!(
-            "oxbot doesn't open archives like `{name}`. Unzip it and attach the files inside."
+            "oxbot doesn't open archives like “{name}”. Unzip it and attach the files inside."
         ))
     };
     let Ok(zip) = zip::ZipArchive::new(std::fs::File::open(path)?) else {
@@ -114,7 +114,7 @@ pub(super) fn sniff_zip(path: &Path, name: &str, ext: &str) -> Result<Found, Att
     }
     if has("Index/Document.iwa") || matches!(ext, "key" | "pages" | "numbers") {
         return Err(AttachError::Unsupported(format!(
-            "oxbot can't read Keynote, Pages or Numbers files like `{name}`. Export it as PDF, Word, Excel or PowerPoint and attach that."
+            "oxbot can't read Keynote, Pages or Numbers files like “{name}”. Export it as PDF, Word, Excel or PowerPoint and attach that."
         )));
     }
     if has("mimetype") {
@@ -127,7 +127,7 @@ pub(super) fn sniff_zip(path: &Path, name: &str, ext: &str) -> Result<Found, Att
             }
             "application/vnd.oasis.opendocument.presentation" => {
                 return Err(AttachError::Unsupported(format!(
-                    "oxbot can't read OpenDocument slides like `{name}`. Export it as PDF or PowerPoint and attach that."
+                    "oxbot can't read OpenDocument slides like “{name}”. Export it as PDF or PowerPoint and attach that."
                 )));
             }
             _ => {}

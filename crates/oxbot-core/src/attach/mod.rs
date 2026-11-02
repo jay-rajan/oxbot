@@ -276,7 +276,7 @@ async fn readable(
                 .await
                 .map_err(|why| {
                     AttachError::Unreadable(format!(
-                        "oxbot couldn't open `{shown}` as a picture ({why})."
+                        "oxbot couldn't open “{shown}” as a picture ({why})."
                     ))
                 })?;
             made(jpeg, format!("converted from {what}"))
@@ -285,7 +285,7 @@ async fn readable(
             let path = file.to_owned();
             if blocking(move || sniff::pdf_is_locked(&path)).await? {
                 return Err(AttachError::Unsupported(format!(
-                    "`{shown}` is locked with a password, so Claude can't read it. Open it, print it to a new PDF, and attach that."
+                    "“{shown}” is locked with a password, so Claude can't read it. Open it, print it to a new PDF, and attach that."
                 )));
             }
             Made::default()
@@ -306,7 +306,7 @@ async fn readable(
                 blocking(move || office::check_zip_file(&path).map(drop)).await?;
             }
             tools.to_text(file, &txt).await.map_err(|why| {
-                AttachError::Unreadable(format!("oxbot couldn't read `{shown}` ({why})."))
+                AttachError::Unreadable(format!("oxbot couldn't read “{shown}” ({why})."))
             })?;
             made(txt, "as text".to_owned())
         }
@@ -316,7 +316,7 @@ async fn readable(
             let taken = tools
                 .frames(file, &dir, MAX_FRAMES, FRAME_SIZE)
                 .await
-                .map_err(|why| AttachError::Unsupported(format!("`{shown}`: {why}")))?;
+                .map_err(|why| AttachError::Unsupported(format!("“{shown}”: {why}")))?;
             Made {
                 frames: taken.frames,
                 ..made(
@@ -364,11 +364,11 @@ fn check_size(found: &Found, name: &str, size: u64) -> Result<(), AttachError> {
     Ok(())
 }
 
-/// "`clip.mov` is 640 MB; oxbot takes videos up to 200 MB."
+/// "“clip.mov” is 640 MB; oxbot takes videos up to 200 MB."
 #[must_use]
 pub fn too_big(name: &str, size: u64, cap: u64, what: &str) -> String {
     format!(
-        "`{name}` is {}; oxbot takes {what} up to {}.",
+        "“{name}” is {}; oxbot takes {what} up to {}.",
         megabytes(size),
         megabytes(cap)
     )

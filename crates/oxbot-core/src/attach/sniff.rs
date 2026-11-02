@@ -49,14 +49,22 @@ impl Found {
         }
     }
 
-    /// The extension the saved file should have (`None`: keep its own).
+    /// The extension the saved file should have, from what's in it
+    /// (`None`: plain text keeps its own). So the file never gets an
+    /// extension that would make the Mac run it when opened.
     pub(super) fn extension(self) -> Option<&'static str> {
         match self {
             Self::Image { ext }
             | Self::Sheet { ext }
             | Self::Legacy { ext }
             | Self::Video { ext } => Some(ext),
-            Self::Convertible { .. } | Self::Text => None,
+            Self::Convertible { what } => Some(match what {
+                "HEIC" => "heic",
+                "AVIF" => "avif",
+                "TIFF" => "tiff",
+                _ => "bmp",
+            }),
+            Self::Text => None,
             Self::Pdf => Some("pdf"),
             Self::Word => Some("docx"),
             Self::Slides => Some("pptx"),
@@ -86,7 +94,7 @@ pub(super) fn sniff(path: &Path, name: &str) -> Result<Found, AttachError> {
     let ext = extension(name);
     let ext = ext.as_deref().unwrap_or("");
     if head.is_empty() {
-        return Err(AttachError::Unsupported(format!("`{name}` is empty.")));
+        return Err(AttachError::Unsupported(format!("“{name}” is empty.")));
     }
     if let Some(found) = by_magic(&head, ext) {
         return found.map_err(AttachError::Unsupported);
@@ -220,22 +228,22 @@ fn refusal(head: &[u8], name: &str, ext: &str) -> String {
     match what {
         Some((infer::MatcherType::Audio, _)) => no_audio(),
         Some((infer::MatcherType::Video, _)) => format!(
-            "oxbot takes still frames from .mov, .mp4 and .m4v videos only. Save `{name}` as one of those and attach it again."
+            "oxbot takes still frames from .mov, .mp4 and .m4v videos only. Save “{name}” as one of those and attach it again."
         ),
         Some((infer::MatcherType::Archive, _)) => format!(
-            "oxbot doesn't open archives like `{name}`. Unzip it and attach the files inside."
+            "oxbot doesn't open archives like “{name}”. Unzip it and attach the files inside."
         ),
         Some((infer::MatcherType::App, _)) => {
-            format!("`{name}` is a program. oxbot doesn't take programs.")
+            format!("“{name}” is a program. oxbot doesn't take programs.")
         }
         Some((infer::MatcherType::Image, _)) => format!(
-            "oxbot can't read this kind of picture. Save `{name}` as PNG or JPEG and attach that."
+            "oxbot can't read this kind of picture. Save “{name}” as PNG or JPEG and attach that."
         ),
         _ if claims_binary(ext) => {
-            format!("`{name}` isn't what its name says inside, so oxbot won't read it.")
+            format!("“{name}” isn't what its name says inside, so oxbot won't read it.")
         }
         _ => format!(
-            "oxbot can't read `{name}`. It reads pictures, PDFs, text, Word, Excel and PowerPoint files, and short videos."
+            "oxbot can't read “{name}”. It reads pictures, PDFs, text, Word, Excel and PowerPoint files, and short videos."
         ),
     }
 }
