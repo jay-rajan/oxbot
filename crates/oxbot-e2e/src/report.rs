@@ -24,6 +24,9 @@ pub struct TestRun {
     pub engine: String,
     /// Who it ran as.
     pub as_person: String,
+    /// The page size, e.g. `390×844`.
+    #[serde(default)]
+    pub size: String,
     /// `pass`, `broken` or `changed`.
     pub status: String,
     /// How long it took.
@@ -308,12 +311,17 @@ fn test_section(run_dir: &Path, t: &serde_json::Value) -> String {
     let _ = write!(
         body,
         "<section class=\"test\" id=\"{id}-{eng}\"><div class=\"test-head\"><h2>{}</h2><span class=\"chip {}\">{}</span></div>\
-         <p class=\"about\">{}</p><p class=\"facts\"><code>{}</code> · {eng} · as {} · {}</p><ol class=\"steps\">",
+         <p class=\"about\">{}</p><p class=\"facts\"><code>{}</code> · {eng}{} · as {} · {}</p><ol class=\"steps\">",
         esc(t["name"].as_str().unwrap_or("")),
         tone_of(status),
         label_of(status),
         esc(t["about"].as_str().unwrap_or("")),
         esc(t["file"].as_str().unwrap_or("")),
+        t["size"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" · {}", esc(s)))
+            .unwrap_or_default(),
         esc(t["as_person"].as_str().unwrap_or("")),
         esc(t["why"].as_str().unwrap_or("")),
     );

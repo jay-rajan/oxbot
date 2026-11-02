@@ -15,11 +15,15 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use crate::http;
+use crate::spec::Viewport;
 
 /// The page size every test uses, so screenshots compare.
 pub const WIDTH: u32 = 1280;
 /// See [`WIDTH`].
 pub const HEIGHT: u32 = 800;
+
+/// Safari's title and tab bars, above the page.
+const SAFARI_BARS: u32 = 90;
 
 const CHROME: &str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -72,6 +76,42 @@ impl Driver {
             Engine::Chrome => Self::Chrome(Box::new(Cdp::start(scratch).await?)),
             Engine::Safari => Self::Safari(WebDriver::start().await?),
         })
+    }
+
+    /// Sets the page size: a phone's (Chrome also behaves as a phone) or
+    /// the desktop's. Each test sets its own, so one doesn't leak into the
+    /// next.
+    ///
+    /// # Errors
+    /// Fails if the browser does, or (Safari) can't make its window that
+    /// small.
+    pub async fn set_viewport(&mut self, size: Viewport) -> anyhow::Result<()> {
+        match self {
+            Self::Chrome(c) => {
+                c.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    json!({ "width": size.width, "height": size.height, "deviceScaleFactor": 1, "mobile": size.is_phone() }),
+                )
+                .await?;
+            }
+            Self::Safari(s) => {
+                s.call(
+                    "POST",
+                    "/window/rect",
+                    json!({ "width": size.width, "height": size.height + SAFARI_BARS }),
+                )
+                .await?;
+                let inner = self.eval("[innerWidth, innerHeight]").await?;
+                let width = inner[0].as_u64().unwrap_or(0);
+                if width != u64::from(size.width) {
+                    bail!(
+                        "Safari's window can't be {} wide (it's {width}); its smallest window is wider than a phone",
+                        size.width
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Goes to `url` and waits for the page to load.
@@ -420,7 +460,7 @@ impl WebDriver {
             .call(
                 "POST",
                 "/window/rect",
-                json!({ "width": WIDTH, "height": HEIGHT + 90 }),
+                json!({ "width": WIDTH, "height": HEIGHT + SAFARI_BARS }),
             )
             .await?;
         Ok(driver)

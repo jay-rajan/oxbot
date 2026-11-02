@@ -268,7 +268,21 @@ async fn run_one(
     let rel = format!("shots/{}/{id}", engine.name());
     let shots_dir = out.join(&rel);
     std::fs::create_dir_all(&shots_dir)?;
-    let mut results = steps::run(driver, &server, &starting_steps(test), &shots_dir, &rel).await;
+    let size = test.viewport.unwrap_or(spec::Viewport::DESKTOP);
+    let mut results = match driver.set_viewport(size).await {
+        Ok(()) => steps::run(driver, &server, &starting_steps(test), &shots_dir, &rel).await,
+        // The test can't run at its size: it's broken, and says why.
+        Err(err) => vec![steps::StepResult {
+            n: 1,
+            text: format!("Set the page to {}\u{d7}{}", size.width, size.height),
+            note: None,
+            status: "fail",
+            error: Some(format!("{err:#}")),
+            ms: 0,
+            shot: None,
+            compare: None,
+        }],
+    };
     for s in &mut results {
         if let Some(shot) = &s.shot {
             let name = Path::new(shot).file_name().unwrap_or_default();
@@ -309,6 +323,7 @@ async fn run_one(
             .as_person
             .clone()
             .unwrap_or_else(|| format!("{} (the Farm)", config.person)),
+        size: format!("{}\u{d7}{}", size.width, size.height),
         status: status.to_owned(),
         ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         steps: results,

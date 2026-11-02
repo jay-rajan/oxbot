@@ -68,6 +68,10 @@ pub struct Test {
     /// Connect as this person (a Gate person); empty means the Farm.
     #[serde(default, rename = "as")]
     pub as_person: Option<String>,
+    /// The page size, e.g. `{ width = 390, height = 844 }` for a phone;
+    /// none means the desktop size ([`crate::driver::WIDTH`] × `HEIGHT`).
+    #[serde(default)]
+    pub viewport: Option<Viewport>,
     /// The stand-in Claude's script, in `e2e/claude/`.
     #[serde(default = "default_claude")]
     pub claude: String,
@@ -81,6 +85,31 @@ pub struct Test {
 
 fn default_claude() -> String {
     "default.toml".to_owned()
+}
+
+/// A page size in CSS pixels. Narrower than 720 is the phone layout, and
+/// Chrome also behaves as a phone (touch-size viewport).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Viewport {
+    /// Width.
+    pub width: u32,
+    /// Height.
+    pub height: u32,
+}
+
+impl Viewport {
+    /// The desktop size every test uses unless it asks for another.
+    pub const DESKTOP: Self = Self {
+        width: crate::driver::WIDTH,
+        height: crate::driver::HEIGHT,
+    };
+
+    /// Whether it's a phone's size (the page's narrow layout).
+    #[must_use]
+    pub fn is_phone(self) -> bool {
+        self.width <= 720
+    }
 }
 
 /// One step. Exactly one action; `shot` names the screenshot taken after it.
@@ -219,6 +248,17 @@ impl Test {
                 bail!("{}: step {} does nothing", path.display(), i + 1);
             }
         }
+        if let Some(v) = test.viewport {
+            let fits = |n: u32| (200..=4000).contains(&n);
+            if !fits(v.width) || !fits(v.height) {
+                bail!(
+                    "{}: viewport {}×{} is outside 200–4000",
+                    path.display(),
+                    v.width,
+                    v.height
+                );
+            }
+        }
         path.clone_into(&mut test.file);
         Ok(test)
     }
@@ -281,6 +321,25 @@ mod tests {
         assert!(!glob("crates/*/lib.rs", "crates/oxbot/src/lib.rs"));
         assert!(glob("app/**", "app/src-tauri/src/main.rs"));
         assert!(!glob("app/**", "crates/app.rs"));
+    }
+
+    #[test]
+    fn a_test_can_ask_for_a_phone_size() {
+        let test: Test = toml::from_str(
+            "name = \"x\"\nviewport = { width = 390, height = 844 }\n[[step]]\nexpect = \"y\"",
+        )
+        .unwrap();
+        let v = test.viewport.unwrap();
+        assert_eq!((v.width, v.height), (390, 844));
+        assert!(v.is_phone());
+        assert!(!Viewport::DESKTOP.is_phone());
+        assert!(
+            toml::from_str::<Test>(
+                "name = \"x\"\nviewport = { width = 390 }\n[[step]]\nexpect = \"y\""
+            )
+            .is_err(),
+            "both sides are needed"
+        );
     }
 
     #[test]
