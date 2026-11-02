@@ -43,6 +43,27 @@ open in the system browser. The bot's ··· lists its reports (anyone who may o
 managers delete them. Deleting a bot deletes them (`reports.jsonl` in the trash keeps a copy).
 A phone keeps the reports it opened for reading away from home.
 
+Files and voice: attach files to a message with the paperclip, by dropping them on the chat, or
+by pasting; several per message (up to 10), and a message may be files alone. Each uploads at
+once (`POST /upload`, on this Mac only; sending files from a Gate comes later) and shows as a
+chip; oxbot checks it by its contents and says plainly when it can't take it (archives, audio,
+programs, password-locked PDFs, over 25 MB, or videos over 200 MB). Files are saved in the bot's
+own folder, `work/inbox/<date>/`, kept until the bot is deleted, and shown as chips on the sent
+message (on the Farm, a chip opens the file on the Mac). Claude opens them with its own Read
+tool: pictures and PDFs as they are; text, CSV, JSON and code as text; Word, Excel and PowerPoint
+turned into text on the Mac (in Rust); old Word, RTF and OpenDocument text with `textutil`; iPhone
+photos and very large pictures as a JPEG made with `sips`. Claude can't watch video, so oxbot
+takes up to 8 evenly spaced still frames and says so in the chat. oxbot's note to Claude lists
+the files by path and says their text is information, not instructions; reading one marks the
+session as having read untrusted text, as web pages do. The microphone button dictates with the
+Mac's own on-device speech recognition (`requiresOnDeviceRecognition`): the audio never leaves
+the Mac, the text fills the box at the cursor and stays editable. It shows only on the Farm, and
+only where the Mac can dictate on-device (Settings → Setup says why not), in the browser page
+and the app alike, because the Farm does the listening. Frames and dictation come from
+`oxbot-mac`, a small Swift helper (`mac/`, built by `scripts/build-mac-helper.sh`) inside the
+app; oxbot built without Swift still works, and video and the mic then say they're not
+available. macOS asks for the microphone and speech recognition the first time.
+
 Herder (the central bot, once called the Assistant) leads your bots: it can list them, create
 one (after you press Create on a card), give a bot a task and bring back its reply. Other bots
 can't. Messages show who sent them, each person in their own color; a working bot's icon moves,
@@ -105,6 +126,7 @@ Plan: https://claude.ai/artifact/32dqY3emzXCfBj9QGkF5rZ · Architecture: https:/
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the Gate door (`src/door/`) |
 | `crates/oxbot-gate` | The Gate side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
 | `app/src-tauri` | The desktop app and the Android Gate app (Tauri 2) |
+| `mac/` | `oxbot-mac`, the Swift helper inside the app: video frames and on-device dictation |
 
 ## Android app (a Gate)
 The phone app is only ever a Gate: no server, bots or Chrome are compiled in. Tools (once):
@@ -124,7 +146,9 @@ there.
 
 ## Desktop app
 `sh scripts/make-dmg.sh` builds the universal app with the browser tool and Node.js inside
-(`scripts/fetch-tools.sh`, pinned versions and checksums) and packs the friends dmg.
+(`scripts/fetch-tools.sh`, pinned versions and checksums) and the Mac helper
+(`scripts/build-mac-helper.sh`, which needs Xcode's Command Line Tools; without them the app
+builds with no video frames or microphone), and packs the friends dmg.
 `cd app && cargo tauri build` makes `target/release/bundle/macos/oxbot.app` without them. `cargo tauri dev`
 runs it from source. The app runs the server inside it; closing the window keeps oxbot in the
 menu bar (Open, Launch at login, Quit).
@@ -155,7 +179,10 @@ outside tests. Libraries use `thiserror`; only the binary uses `anyhow`.
 `e2e/` holds tests a person can read (`e2e/tests/*.toml`: open, click, type, send, expect…; a test can
 set `viewport = { width = 390, height = 844 }` to run at a phone's size), seed data
 (`e2e/seed/`: bots plus `seed.sql` for a fresh SQLite database), the stand-in Claude's replies
-(`e2e/claude/`), and approved screenshots (`e2e/baselines/`). The runner, `crates/oxbot-e2e`, starts a
+(`e2e/claude/`), files to attach (`e2e/fixtures/`), and approved screenshots (`e2e/baselines/`).
+A step can `attach = ["e2e/fixtures/bill.pdf"]`; a test with `dictation = true` gets a stand-in
+Mac helper that "hears" a sentence (no test uses the real microphone), and video goes to the real
+helper for real still frames. The runner, `crates/oxbot-e2e`, starts a
 throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in hidden Chrome (and Safari, the app's
 engine, when "Allow Remote Automation" is on), screenshots every step, and checks the built Mac app.
 

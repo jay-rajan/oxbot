@@ -552,6 +552,19 @@
         "Server notify.rs: one task per server posts alerts as Mac notifications: the app via tauri-plugin-notification's Rust API (no page permission), oxbot serve via osascript with the text as arguments, tests to the log. In the app, a bot waiting for an OK or a sign-in while the window is hidden posts its name only (\"A bot\" for someone else's private bot)",
         "Page: an alert banner under the header, Settings \u2192 General \u2192 Notifications, usage bars amber at 50% and red at 80%"
       ]
+    },
+    {
+      "m": "Step 2",
+      "date": "2026-11-02",
+      "title": "Messages with files and voice (#3)",
+      "items": [
+        "Attach by button, drag and drop or paste; chips with progress, plain refusals, Send with files only. POST /upload streams to work/inbox/ with the /ws auth and the bot's visibility; not on the Gate door",
+        "attach/: type from content (a renamed program is refused), 25 MB per file, 200 MB per video, 10 per message; Word, Excel and PowerPoint to text in Rust (zip, quick-xml, calamine), old Word, RTF and ODT with textutil, HEIC and big pictures with sips, zip-bomb guard and time limits",
+        "Claude gets the files by path in oxbot's own note after the person's escaped words; no system prompt change, so sessions keep their memory. Reading a file taints the session as before",
+        "Video: the Swift Mac helper takes evenly spaced still frames (at most 8), and the chat says Claude can't watch video",
+        "Voice: the same helper dictates with requiresOnDeviceRecognition, the Farm only and only where on-device recognition exists; text comes back over the WebSocket to the asking connection, in the browser and the app alike. Info.plist usage strings in the app and the helper",
+        "Protocol: Attachment on UserMessage and Send (serde defaults, no migration), DropUpload, OpenFile, Dictate, ServerMsg::Dictation, AppSettings.dictation"
+      ]
     }
   ],
   "next": {
@@ -911,7 +924,7 @@
             "h": 140,
             "name": "Bot folders",
             "tech": "bots/<id>/",
-            "desc": "bot.toml (name, model, owner, created_by, private), instructions.md, work/. Deleted bots move to trash/."
+            "desc": "bot.toml (name, model, owner, created_by, private), instructions.md, work/. Deleted bots move to trash/. work/inbox/ keeps files sent with messages (and the text or frames made of them) until the bot is deleted."
           },
           {
             "id": "devmcp",
@@ -995,6 +1008,16 @@
             "name": "claude.ai",
             "tech": "Claude Code installer",
             "desc": "Only when you press Install."
+          },
+          {
+            "id": "machelper",
+            "type": "container",
+            "col": 2,
+            "row": 3,
+            "h": 140,
+            "name": "Mac helper",
+            "tech": "oxbot-mac \u00b7 Swift",
+            "desc": "Inside oxbot.app. Still frames from video (AVFoundation); dictation with Speech, on-device only. Audio never leaves the Mac."
           }
         ],
         "edges": [
@@ -1297,6 +1320,12 @@
               44,
               "start"
             ]
+          },
+          {
+            "from": "server",
+            "to": "machelper",
+            "label": "frames \u00b7 dictate",
+            "status": "built"
           }
         ]
       },
@@ -1370,7 +1399,7 @@
             "h": 162,
             "name": "Web server",
             "tech": "oxbot::server",
-            "desc": "axum, 127.0.0.1:7878; the Farm only with the Farm key. One Client {viewer, visible, subs} per connection; forward() drops others' bots. Bounded catch-up. Your Herder = assistant. Reports only to clients that see their bot, over the WebSocket (no URL with a key). Its notify task posts usage alerts (and, in the app while its window is hidden, a waiting bot's name only) as Mac notifications: the app's notification plugin, osascript with the text as arguments for oxbot serve, the log in tests."
+            "desc": "axum, 127.0.0.1:7878; the Farm only with the Farm key. One Client {viewer, visible, subs} per connection; forward() drops others' bots. Bounded catch-up. Your Herder = assistant. Reports only to clients that see their bot, over the WebSocket (no URL with a key). Its notify task posts usage alerts (and, in the app while its window is hidden, a waiting bot's name only) as Mac notifications: the app's notification plugin, osascript with the text as arguments for oxbot serve, the log in tests. POST /upload (this Mac only, auth as /ws) streams files to the bot's inbox; WebSocket messages capped at 4 MiB. Dictation through the Mac helper, text to the asking connection only; the mic and opening files are the Farm's."
           },
           {
             "id": "phonelink",
@@ -1401,7 +1430,7 @@
             "h": 150,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, sections (each person\u2019s own; never in prompts), alerts (Claude usage past 50% and 80% of the 5-hour and weekly windows, once per window, recorded in one transaction), reports (save_report checks sources against the pages the session opened, read only from the browser\u2019s real page list), team, approvals, rules, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped. Always-allow rules: set by the bot\u2019s owner or the Farm from the stored card; one applies only if Chrome says the tab is on its host."
+            "desc": "hub/: access, people, browsers, sign_ins, sections (each person\u2019s own; never in prompts), alerts (Claude usage past 50% and 80% of the 5-hour and weekly windows, once per window, recorded in one transaction), reports (save_report checks sources against the pages the session opened, read only from the browser\u2019s real page list), team, approvals, rules, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped. Always-allow rules: set by the bot\u2019s owner or the Farm from the stored card; one applies only if Chrome says the tab is on its host. uploads: files wait per person and bot until sent (swept after an hour); a message's files get oxbot's note after the escaped words."
           },
           {
             "id": "policy",
@@ -1472,7 +1501,7 @@
             "h": 90,
             "name": "Bot folders",
             "tech": "bots/<id>/",
-            "desc": "settings, work/"
+            "desc": "settings, work/, work/inbox/"
           },
           {
             "id": "claude",
@@ -1512,7 +1541,7 @@
             "h": 165,
             "name": "Setup",
             "tech": "oxbot::setup, runtime",
-            "desc": "Checks Claude Code (installed, signed in), Chrome, Node only if the browser tool isn't built in, Codex. Install and Sign in buttons; finds the built-in tool."
+            "desc": "Checks Claude Code (installed, signed in), Chrome, Node only if the browser tool isn't built in, Codex. Install and Sign in buttons; finds the built-in tool. Video and dictation: whether the Mac helper is there and can dictate on-device."
           },
           {
             "id": "codexrun",
@@ -1565,6 +1594,16 @@
             "name": "Report renderer",
             "tech": "oxbot-core::report",
             "desc": "pulldown-cmark (HTML writer only) with oxbot's filter: raw HTML as text, no images, links only to sources or opened pages, [n] \u2192 Sources, strict CSP. Shown in a sandboxed frame, no scripts."
+          },
+          {
+            "id": "attach",
+            "type": "component",
+            "col": 3,
+            "row": 0,
+            "h": 100,
+            "name": "Attachments",
+            "tech": "oxbot-core::attach",
+            "desc": "Type from content, size caps, zip-bomb guard. Word, Excel, PowerPoint to text in Rust; textutil, sips; frames through the Mac helper. Saved in work/inbox/; Claude reads them with Read."
           }
         ],
         "edges": [
@@ -1910,6 +1949,12 @@
               584,
               "start"
             ]
+          },
+          {
+            "from": "hub",
+            "to": "attach",
+            "label": "uploads",
+            "status": "built"
           }
         ]
       }
