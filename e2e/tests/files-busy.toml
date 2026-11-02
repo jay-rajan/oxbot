@@ -1,0 +1,32 @@
+name = "Files sent to a busy bot aren't lost"
+about = "A message with a file sent while the bot is still working is refused, and its file stays attached (and its words come back) to send once the bot is free."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "take your time"
+[[step]]
+attach = ["e2e/fixtures/list.csv"]
+[[step]]
+expect_js = "document.querySelectorAll('#chips .chip[data-state=ready]').length === 1"
+[[step]]
+send = "and this list"
+note = "Enter sends even while the bot works; the Farm says it's busy"
+[[step]]
+wait_for = "still working on the last message"
+[[step]]
+expect_js = "document.querySelectorAll('#chips .chip[data-state=ready]').length === 1 && document.getElementById('input').value === 'and this list'"
+note = "The file is still attached, and the words are back in the box"
+shot = "kept"
+[[step]]
+wait_for = "Done, slowly."
+timeout_ms = 15000
+[[step]]
+key = "Enter"
+[[step]]
+wait_for = "list.csv: item,qty,price"
+note = "Sent once the bot is free"
+[[step]]
+expect_js = "!document.querySelector('#chips .chip')"
+shot = "sent"

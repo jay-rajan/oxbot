@@ -606,6 +606,9 @@ function connect() {
   ws.onclose = () => {
     setConn(false);
     if (dictating) { dictating = null; renderMic(); }
+    // A send in flight may not have arrived: its files can be sent again
+    // (if it did arrive, catching up shows it and clears them).
+    sendFailed();
     // A phone off home Wi-Fi tries again often, and at once when the network
     // or the app comes back (below).
     clearTimeout(retryTimer);
@@ -654,7 +657,7 @@ function follow(id, b) {
 }
 /** What a stored event says about the bot's state (no drawing). */
 function applyEvent(b, m) {
-  if (m.kind === "user_message") { b.busy = true; b.activity = "Clauding…"; }
+  if (m.kind === "user_message") { b.busy = true; b.activity = "Clauding…"; if (m.files) filesSent(m.bot, m.files); }
   if (m.kind === "turn_done") { b.busy = false; b.activity = null; }
   if (m.kind === "assistant_message") { b.stream = null; b.info.last_reply_seq = Math.max(b.info.last_reply_seq || 0, m.seq); if (viewing(m.bot)) markSeen(m.bot); }
 }
@@ -788,7 +791,7 @@ function onMessage(m) {
     case "door": door = m; renderGates(); break;
     case "notice": toast(m.message); break;
     case "dictation": onDictation(m); break;
-    case "error": toast(m.message, true); break;
+    case "error": sendFailed(); toast(m.message, true); break;
   }
 }
 
@@ -1590,7 +1593,26 @@ const MB = 1024 * 1024, MAX_FILES = 10, MAX_FILE = 25 * MB, MAX_VIDEO = 200 * MB
 const VIDEO = /\.(mov|mp4|m4v)$/i;
 let chipSeq = 0;
 function chipsOf(bot) { if (!drafts.has(bot)) drafts.set(bot, []); return drafts.get(bot); }
-function uploading(bot) { return !!bot && chipsOf(bot).some((c) => c.state === "uploading"); }
+function uploading(bot) { return !!bot && chipsOf(bot).some((c) => c.state === "uploading" || c.state === "sending"); }
+/** The message with these files is in the chat: their chips go. */
+function filesSent(bot, files) {
+  const ids = new Set((files || []).map((f) => f.id));
+  if (!ids.size || !drafts.has(bot)) return;
+  drafts.set(bot, chipsOf(bot).filter((c) => !(c.att && ids.has(c.att.id))));
+  if (bot === current) { renderChips(); updateStatus(); }
+}
+/** A send didn't go through (the server said why): its files can be sent
+ *  again, and its words come back if the box is still empty. */
+function sendFailed() {
+  for (const [bot, chips] of drafts) {
+    const sending = chips.filter((c) => c.state === "sending");
+    if (!sending.length) continue;
+    for (const c of sending) c.state = "ready";
+    const text = sending[0].text;
+    if (bot === current && text && !$("input").value) { $("input").value = text; grow(); }
+  }
+  renderChips(); updateStatus();
+}
 function sizeText(n) { return n >= MB ? `${(n / MB).toFixed(n >= 10 * MB ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; }
 function addFiles(list) {
   const files = [...(list || [])];
@@ -1642,7 +1664,7 @@ function renderChips() {
   for (const c of chipsOf(current)) {
     const el = div("chip" + (c.state === "error" ? " bad" : ""));
     el.dataset.state = c.state;
-    if (c.state === "uploading") { const sp = document.createElement("span"); sp.className = "spin"; sp.setAttribute("aria-hidden", "true"); el.appendChild(sp); }
+    if (c.state === "uploading" || c.state === "sending") { const sp = document.createElement("span"); sp.className = "spin"; sp.setAttribute("aria-hidden", "true"); el.appendChild(sp); }
     const nm = document.createElement("span"); nm.className = "nm";
     // The server's message names the file itself, mostly.
     nm.textContent = c.state !== "error" ? c.name : c.error.includes(c.name) ? c.error : `${c.name}: ${c.error}`;
@@ -1650,11 +1672,12 @@ function renderChips() {
     el.appendChild(nm);
     if (c.state !== "error") {
       const sm = document.createElement("small");
-      sm.textContent = c.state === "uploading" ? (c.progress >= 1 ? "checking…" : `${Math.round(c.progress * 100)}%`) : c.att.note || sizeText(c.att.size);
+      sm.textContent = c.state === "sending" ? "sending…" : c.state === "uploading" ? (c.progress >= 1 ? "checking…" : `${Math.round(c.progress * 100)}%`) : c.att.note || sizeText(c.att.size);
       el.appendChild(sm);
     }
     const x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "✕";
     x.setAttribute("aria-label", `Remove ${c.name}`); x.onclick = () => removeChip(c);
+    x.hidden = c.state === "sending";
     el.appendChild(x);
     box.appendChild(el);
   }
@@ -1735,7 +1758,8 @@ $("composer").addEventListener("submit", (ev) => {
   const text = $("input").value.trim();
   const chips = chipsOf(current);
   if (uploading(current)) { toast("Wait until the files finish uploading."); return; }
-  const files = chips.filter((c) => c.state === "ready").map((c) => c.att.id);
+  const ready = chips.filter((c) => c.state === "ready");
+  const files = ready.map((c) => c.att.id);
   if (!text && !files.length) return;
   if (text.length > MAX_TEXT) { toast("That message is too long to send (over 1 MB). Attach it as a file instead.", true); return; }
   stopDictation();
@@ -1745,7 +1769,11 @@ $("composer").addEventListener("submit", (ev) => {
     return;
   }
   $("input").value = ""; grow();
-  drafts.set(current, []); renderChips();
+  // The chips stay, "sending…", until the message shows in the chat; an
+  // error (busy, say) makes them ready to send again. Refused ones go.
+  for (const c of ready) { c.state = "sending"; c.text = text; }
+  drafts.set(current, chips.filter((c) => c.state !== "error"));
+  renderChips(); updateStatus();
 });
 $("input").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $("composer").requestSubmit(); }
