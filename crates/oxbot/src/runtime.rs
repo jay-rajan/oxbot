@@ -114,6 +114,10 @@ impl RunningServer {
 ///
 /// # Errors
 /// Fails if the data folder can't be read or the port is taken.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one straight list of what a server is made of"
+)]
 pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     let home = match options.home {
         Some(home) => home,
@@ -145,11 +149,13 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         .await
         .with_context(|| format!("couldn't listen on {wanted}; is oxbot already running?"))?;
     let addr = listener.local_addr()?;
+    let helper = mac_helper();
     let config = HubConfig {
         claude_program: std::env::var_os("OXBOT_CLAUDE")
             .map_or_else(|| PathBuf::from("claude"), PathBuf::from),
         browser,
         extra_env: path_env,
+        mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
         ..HubConfig::new(home.bots_dir())
     };
@@ -200,6 +206,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         door: door.clone(),
         farm_key: farm_key.clone(),
         notifier: crate::notify::pick(options.notifier, e2e),
+        dictation: Arc::new(crate::dictation::Dictation::new(helper)),
+        next_conn: Arc::default(),
     };
     state.refresh_setup().await;
     crate::notify::start(&state);
@@ -245,6 +253,35 @@ fn find_built_in_tool() -> Option<BuiltInTool> {
     let exe = std::env::current_exe().ok()?;
     let resources = exe.parent()?.parent()?.join("Resources/tools");
     BuiltInTool::find_in(&resources)
+}
+
+/// oxbot's Mac helper (`oxbot-mac`: video frames and dictation): next to
+/// the program in oxbot.app, or built by `scripts/build-mac-helper.sh`
+/// for `oxbot serve` from a checkout. `OXBOT_MAC_HELPER` names another
+/// (tests), and `OXBOT_MAC_HELPER=off` none.
+fn mac_helper() -> Option<PathBuf> {
+    let found = std::env::var_os("OXBOT_MAC_HELPER").map_or_else(
+        || {
+            let exe = std::env::current_exe().ok()?;
+            let dir = exe.parent()?;
+            [
+                dir.join("oxbot-mac"),
+                dir.parent()?.join("mac-helper/oxbot-mac"),
+            ]
+            .into_iter()
+            .find(|p| p.is_file())
+        },
+        |path| {
+            let path = PathBuf::from(path);
+            (path.as_os_str() != "off" && path.is_file()).then_some(path)
+        },
+    );
+    if let Some(helper) = &found {
+        tracing::info!(helper = %helper.display(), "video frames and dictation through the Mac helper");
+    } else {
+        tracing::info!("no Mac helper: video frames and dictation aren't available");
+    }
+    found
 }
 
 /// The Mac's name, for showing in the apps.

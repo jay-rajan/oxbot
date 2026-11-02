@@ -73,7 +73,7 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
                         let answer = if line.trim() == "/yes" { Answer::AllowOnce } else { Answer::Deny };
                         ClientMsg::Answer { id, answer }
                     }
-                    text => ClientMsg::Send { bot: bot.to_owned(), text: text.to_owned() },
+                    text => ClientMsg::Send { bot: bot.to_owned(), text: text.to_owned(), files: Vec::new() },
                 };
                 sink.send(send(&msg)).await?;
             }
@@ -98,8 +98,11 @@ fn red(text: &str) -> String {
 impl View {
     fn show_event(&mut self, kind: &EventKind) {
         match kind {
-            EventKind::UserMessage { text, from } => {
+            EventKind::UserMessage { text, from, files } => {
                 println!("{} › {text}", from.as_deref().unwrap_or("you"));
+                for f in files {
+                    println!("      📎 {}", f.name);
+                }
             }
             EventKind::AssistantMessage { text } => {
                 if self.streaming {
@@ -231,6 +234,7 @@ impl View {
             }
             // The terminal client shows replies only; the page shows status and logs.
             ServerMsg::Log(_)
+            | ServerMsg::Dictation { .. }
             | ServerMsg::Pairing(_)
             | ServerMsg::PairingClosed
             | ServerMsg::Gates { .. }

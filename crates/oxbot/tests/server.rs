@@ -162,6 +162,7 @@ async fn chat_over_websocket_and_catch_up_later() {
         &ClientMsg::Send {
             bot: "assistant".into(),
             text: "save a note".into(),
+            files: vec![],
         },
     )
     .await;
@@ -172,6 +173,7 @@ async fn chat_over_websocket_and_catch_up_later() {
         EventKind::UserMessage {
             text: "save a note".into(),
             from: Some("Jay".into()),
+            files: vec![],
         }
     );
 
@@ -283,6 +285,7 @@ async fn opening_a_long_chat_sends_one_page_and_pages_back() {
         &ClientMsg::Send {
             bot: "assistant".into(),
             text: "one more".into(),
+            files: vec![],
         },
     )
     .await;
@@ -519,6 +522,7 @@ async fn catching_up_after_a_long_time_away_gets_the_latest_page() {
         &ClientMsg::Send {
             bot: "assistant".into(),
             text: "one more".into(),
+            files: vec![],
         },
     )
     .await;
@@ -605,6 +609,7 @@ async fn alerts_in_turn(ws: &mut Ws, text: &str) -> Vec<oxbot_protocol::UsageAle
         &ClientMsg::Send {
             bot: "assistant".into(),
             text: text.into(),
+            files: vec![],
         },
     )
     .await;

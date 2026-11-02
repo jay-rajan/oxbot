@@ -220,6 +220,14 @@ async fn a_phone_pairs_once_and_then_acts_as_its_person() {
     // The page comes from the Farm, through the pinned link.
     let (_, page) = oxbot_gate::fetch(&paired, "/").await.unwrap();
     assert!(String::from_utf8_lossy(&page).contains("<title>oxbot</title>"));
+    // Files can't come in through the door (sending files from a Gate is
+    // for later): there's no upload there at all.
+    assert!(
+        oxbot_gate::fetch(&paired, "/upload?bot=assistant&name=a.txt")
+            .await
+            .is_err(),
+        "no upload through the Gate door"
+    );
 
     // On the WebSocket it is Ann, a Gate: never the Farm.
     let (_, mut phone) = oxbot_gate::connect(&paired).await.unwrap();
@@ -509,6 +517,7 @@ async fn each_person_talks_to_their_own_herder() {
         &ClientMsg::Send {
             bot: "assistant".into(),
             text: "what did Jay ask you?".into(),
+            files: vec![],
         },
     )
     .await;
@@ -567,6 +576,7 @@ async fn opening_a_bot_is_checked_like_subscribing() {
         &ClientMsg::Send {
             bot: "assistant".into(),
             text: "hello".into(),
+            files: vec![],
         },
     )
     .await;

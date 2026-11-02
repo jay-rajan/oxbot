@@ -336,6 +336,42 @@ async fn version_of(program: &Path, path: &str) -> Option<String> {
     (out.status.success() && !text.is_empty()).then(|| format!("Installed ({text})."))
 }
 
+/// Whether this oxbot can take still frames from video and dictate (both
+/// through its Mac helper). Nice to have, not needed.
+#[must_use]
+pub fn mac_helper_check(helper: bool, dictation: bool, why_not: &str) -> SetupCheck {
+    let check = if !helper {
+        missing(
+            "mac_helper",
+            "Video and dictation",
+            "Not available on this Mac: this oxbot was built without its Mac helper.",
+            "Build oxbot with Xcode's Command Line Tools installed:  xcode-select --install  ",
+        )
+    } else if dictation {
+        ok(
+            "mac_helper",
+            "Video and dictation",
+            "Videos become still frames, and the microphone uses this Mac's on-device dictation.",
+        )
+    } else {
+        SetupCheck {
+            fix: Some(
+                "Turn on Dictation in System Settings → Keyboard, then Check again.".to_owned(),
+            ),
+            ..missing(
+                "mac_helper",
+                "Video and dictation",
+                &format!("Videos work. No microphone: {why_not}"),
+                "",
+            )
+        }
+    };
+    SetupCheck {
+        optional: true,
+        ..check
+    }
+}
+
 fn ok(id: &str, name: &str, detail: &str) -> SetupCheck {
     SetupCheck {
         id: id.to_owned(),

@@ -70,6 +70,10 @@ pub struct AppState {
     pub farm_key: String,
     /// Posts Mac notifications (see [`crate::notify`]); `None` posts none.
     pub notifier: Option<Arc<dyn crate::notify::Notifier>>,
+    /// Dictation with this Mac's microphone (see [`crate::dictation`]).
+    pub dictation: Arc<crate::dictation::Dictation>,
+    /// Numbers connections, so dictation goes back to the one that asked.
+    pub next_conn: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -109,6 +113,8 @@ impl AppState {
                 .as_ref()
                 .and_then(|a| a.window_visible())
                 .map(|_| self.hub.notify_when_hidden()),
+            // The Mac's own microphone: the Farm's alone.
+            dictation: viewer.farm && self.dictation.available(),
         }
     }
 
@@ -123,7 +129,13 @@ impl AppState {
 impl AppState {
     /// Runs the setup check again and keeps the result.
     pub async fn refresh_setup(&self) -> SetupReport {
-        let report = crate::setup::check(&self.search_path, self.tool_built_in).await;
+        self.dictation.check().await;
+        let mut report = crate::setup::check(&self.search_path, self.tool_built_in).await;
+        report.checks.push(crate::setup::mac_helper_check(
+            self.dictation.helper().is_some(),
+            self.dictation.available(),
+            &self.dictation.why_not(),
+        ));
         *self
             .setup
             .write()
@@ -167,6 +179,8 @@ impl AppState {
             door: None,
             farm_key: crate::secret::random_hex::<32>(),
             notifier: None,
+            dictation: Arc::new(crate::dictation::Dictation::new(None)),
+            next_conn: Arc::default(),
         }
     }
 }
@@ -174,13 +188,24 @@ impl AppState {
 /// The chat page, baked into the binary.
 const INDEX_HTML: &str = include_str!("../ui/index.html");
 
-/// The HTTP routes: the chat page at `/` and the WebSocket at `/ws`.
+/// The HTTP routes: the chat page at `/`, the WebSocket at `/ws`, and
+/// `POST /upload` for files sent with messages (this Mac only: not on the
+/// Gate door).
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
+        .route(
+            "/upload",
+            // The upload streams to disk with its own limit.
+            post(upload).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .with_state(state)
 }
+
+/// The most one WebSocket message may be: it carries only JSON (files go
+/// over `POST /upload`).
+const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 
 /// The Gate door's routes: `POST /pair` for anyone with the code, and the
 /// page and WebSocket for paired Gates only (see [`crate::door`]).
@@ -231,46 +256,228 @@ async fn ws_upgrade(
     State(state): State<AppState>,
     gate: Option<Extension<crate::door::http::GateAuth>>,
 ) -> Response {
+    let ws = ws
+        .max_message_size(MAX_WS_MESSAGE)
+        .max_frame_size(MAX_WS_MESSAGE);
     // Through the Gate door: the key was checked; always the Gate's person.
     if let Some(Extension(auth)) = gate {
         let viewer = auth.viewer;
         let id = auth.gate.id;
         return ws.on_upgrade(move |socket| connection(socket, state, viewer, Some(id)));
     }
-    // Browsers send an Origin header and let any web page open WebSockets to
-    // localhost. Only the oxbot page itself may connect.
+    let key = query.get("k").map(String::as_str);
+    let viewer = match local_viewer(&state, &headers, key, query.get("as").map(String::as_str)) {
+        Ok(viewer) => viewer,
+        Err(refused) => return refused,
+    };
+    ws.on_upgrade(move |socket| connection(socket, state, viewer, None))
+}
+
+/// Who a request from this Mac (not the Gate door) is: the Farm if it
+/// shows the Farm secret `key`; in test mode, the person it names with
+/// `as`. Refused from another website's page, or without either.
+#[allow(
+    clippy::result_large_err,
+    reason = "the refusal is the response to send"
+)]
+fn local_viewer(
+    state: &AppState,
+    headers: &HeaderMap,
+    key: Option<&str>,
+    as_name: Option<&str>,
+) -> Result<Viewer, Response> {
+    // Browsers send an Origin header and let any web page reach localhost.
+    // Only the oxbot page itself may connect.
     if let Some(origin) = headers.get(header::ORIGIN)
         && !is_local_origin(origin.to_str().unwrap_or(""))
     {
-        tracing::warn!(?origin, "refused a WebSocket from another website");
-        return (StatusCode::FORBIDDEN, "oxbot only accepts its own page").into_response();
+        tracing::warn!(?origin, "refused a request from another website");
+        return Err((StatusCode::FORBIDDEN, "oxbot only accepts its own page").into_response());
     }
     // Being on this Mac isn't enough to be the Farm: it takes the Farm
     // secret, which only oxbot's own windows and tools have.
-    let farm = query
-        .get("k")
-        .is_some_and(|k| crate::secret::same(k.trim(), &state.farm_key));
-    let viewer = match query.get("as").map(|n| n.trim()) {
-        _ if farm => state.farm_viewer(),
+    let farm = key.is_some_and(|k| crate::secret::same(k.trim(), &state.farm_key));
+    match as_name.map(str::trim) {
+        _ if farm => Ok(state.farm_viewer()),
         // Test mode only: the page names its person, made on purpose here
         // (as pairing would) so the connection carries their id.
         Some(name) if state.e2e && !name.is_empty() => match state.hub.person_named(name) {
-            Ok(person) => Viewer::person(person.id, person.name, false),
+            Ok(person) => Ok(Viewer::person(person.id, person.name, false)),
             Err(err) => {
                 tracing::warn!(%err, "couldn't make a test connection's person");
-                return (StatusCode::INTERNAL_SERVER_ERROR, "no such person").into_response();
+                Err((StatusCode::INTERNAL_SERVER_ERROR, "no such person").into_response())
             }
         },
         _ => {
             tracing::warn!("refused a local connection without the Farm secret");
-            return (
+            Err((
                 StatusCode::UNAUTHORIZED,
                 "Open oxbot from its app, or with the link `oxbot serve` printed.",
             )
-                .into_response();
+                .into_response())
+        }
+    }
+}
+
+/// How long an upload may go without sending anything before it's dropped.
+const UPLOAD_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// `POST /upload?bot=<id>&name=<file name>`, with the file as the body and
+/// the Farm secret in `X-Oxbot-Key`: saves a file to send with the next
+/// message to that bot. The answer is the file as an [`Attachment`] (JSON),
+/// or `{"error": "…"}` in plain words.
+///
+/// [`Attachment`]: oxbot_protocol::Attachment
+async fn upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    body: axum::body::Body,
+) -> Response {
+    use oxbot_core::attach;
+    let key = headers.get("x-oxbot-key").and_then(|v| v.to_str().ok());
+    let viewer = match local_viewer(&state, &headers, key, query.get("as").map(String::as_str)) {
+        Ok(viewer) => viewer,
+        Err(refused) => return refused,
+    };
+    let Some(bot) = query.get("bot").filter(|b| !b.is_empty()) else {
+        return upload_error(StatusCode::BAD_REQUEST, "Say which bot the file is for.");
+    };
+    let bot = if bot == DEFAULT_BOT {
+        herder_for(&state, &viewer)
+    } else {
+        bot.clone()
+    };
+    let name = attach::shown_name(query.get("name").map_or("file", String::as_str));
+    let (bot_id, inbox) = match state.hub.upload_inbox(&bot, &viewer) {
+        Ok(found) => found,
+        Err(err @ oxbot_core::HubError::UnknownBot(_)) => {
+            return upload_error(StatusCode::NOT_FOUND, &err.to_string());
+        }
+        Err(err) => return upload_error(StatusCode::FORBIDDEN, &err.to_string()),
+    };
+    // Too big to take, by what it says it is.
+    let length = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    let video = std::path::Path::new(&name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["mov", "mp4", "m4v"].contains(&e.to_ascii_lowercase().as_str()));
+    let (cap, what) = if video {
+        (attach::MAX_VIDEO, "videos")
+    } else {
+        (attach::MAX_FILE, "files")
+    };
+    if let Some(length) = length.filter(|l| *l > cap) {
+        return upload_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &attach::too_big(&name, length, cap, what),
+        );
+    }
+    let id = attach::new_upload_id();
+    let (path, file) = match inbox.incoming(&id) {
+        Ok(made) => made,
+        Err(err) => {
+            tracing::warn!(%err, "couldn't save an upload");
+            return upload_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "oxbot couldn't save the file.",
+            );
         }
     };
-    ws.on_upgrade(move |socket| connection(socket, state, viewer, None))
+    // However this ends (even if the page goes away), the partial file goes.
+    let _partial = RemoveOnDrop(path.clone());
+    if let Err(refused) = receive(body, file, &name, cap.max(attach::MAX_VIDEO)).await {
+        return refused;
+    }
+    // Checked and converted on its own, so it's never left half done.
+    let hub = Arc::clone(&state.hub);
+    let job = tokio::spawn(async move {
+        hub.accept_upload(&bot_id, &inbox, &viewer, &path, &id, &name)
+            .await
+    });
+    match job.await {
+        Ok(Ok(attachment)) => axum::Json(attachment).into_response(),
+        Ok(Err(err)) => {
+            let status = match err {
+                attach::AttachError::TooBig(_) => StatusCode::PAYLOAD_TOO_LARGE,
+                attach::AttachError::Unsupported(_) => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                attach::AttachError::Unreadable(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                attach::AttachError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            upload_error(status, &err.to_string())
+        }
+        Err(_) => upload_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "oxbot couldn't take the file.",
+        ),
+    }
+}
+
+/// Writes an upload's body to `file`, at most `cap` bytes.
+#[allow(
+    clippy::result_large_err,
+    reason = "the refusal is the response to send"
+)]
+async fn receive(
+    body: axum::body::Body,
+    file: std::fs::File,
+    name: &str,
+    cap: u64,
+) -> Result<(), Response> {
+    use tokio::io::AsyncWriteExt as _;
+    let mut file = tokio::fs::File::from_std(file);
+    let mut stream = body.into_data_stream();
+    let mut written: u64 = 0;
+    let failed = |_| {
+        upload_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "oxbot couldn't save the file.",
+        )
+    };
+    loop {
+        let chunk = match tokio::time::timeout(UPLOAD_IDLE, stream.next()).await {
+            Err(_) => {
+                return Err(upload_error(
+                    StatusCode::REQUEST_TIMEOUT,
+                    "The upload stopped coming in.",
+                ));
+            }
+            Ok(None) => break,
+            Ok(Some(Err(_))) => {
+                return Err(upload_error(
+                    StatusCode::BAD_REQUEST,
+                    "The upload was cut off.",
+                ));
+            }
+            Ok(Some(Ok(chunk))) => chunk,
+        };
+        written += chunk.len() as u64;
+        if written > cap {
+            return Err(upload_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &oxbot_core::attach::too_big(name, written, cap, "videos"),
+            ));
+        }
+        file.write_all(&chunk).await.map_err(failed)?;
+    }
+    file.flush().await.map_err(failed)?;
+    Ok(())
+}
+
+/// Deletes a file when dropped.
+struct RemoveOnDrop(std::path::PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn upload_error(status: StatusCode, message: &str) -> Response {
+    (status, axum::Json(serde_json::json!({ "error": message }))).into_response()
 }
 
 /// Whether a browser Origin is the oxbot page on this Mac.
@@ -294,6 +501,8 @@ struct Client {
     visible: std::collections::HashSet<String>,
     /// Bot id → last `seq` sent.
     subs: HashMap<String, u64>,
+    /// This connection's number (for dictation).
+    conn: u64,
 }
 
 impl Client {
@@ -320,6 +529,7 @@ impl Client {
             herder,
             visible,
             subs: HashMap::new(),
+            conn: 0,
         }
     }
 
@@ -380,9 +590,19 @@ impl Client {
                 before,
                 limit,
             },
-            ClientMsg::Send { bot, text } => ClientMsg::Send {
+            ClientMsg::Send { bot, text, files } => ClientMsg::Send {
                 bot: self.inner(bot),
                 text,
+                files,
+            },
+            ClientMsg::DropUpload { bot, id } => ClientMsg::DropUpload {
+                bot: self.inner(bot),
+                id,
+            },
+            ClientMsg::OpenFile { bot, seq, id } => ClientMsg::OpenFile {
+                bot: self.inner(bot),
+                seq,
+                id,
             },
             ClientMsg::Cancel { bot } => ClientMsg::Cancel {
                 bot: self.inner(bot),
@@ -555,13 +775,27 @@ async fn connection(socket: WebSocket, state: AppState, viewer: Viewer, gate: Op
         (Some(door), Some(id)) => Some(door.online(id)),
         _ => None,
     };
-    serve_client(socket, &state, viewer, gate.as_deref(), removals.as_mut()).await;
+    let conn = state
+        .next_conn
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // Dictation stops with the connection that started it.
+    let _dictation = StopDictation(Arc::clone(&state.dictation), conn);
+    serve_client(
+        socket,
+        &state,
+        viewer,
+        conn,
+        gate.as_deref(),
+        removals.as_mut(),
+    )
+    .await;
 }
 
 async fn serve_client(
     socket: WebSocket,
     state: &AppState,
     viewer: Viewer,
+    conn: u64,
     gate: Option<&str>,
     mut removals: Option<&mut broadcast::Receiver<String>>,
 ) {
@@ -573,6 +807,7 @@ async fn serve_client(
     let herder = herder_for(&state, &viewer);
     let visible = state.hub.visible_ids(&viewer);
     let mut client = Client::with_visible(viewer, visible, herder);
+    client.conn = conn;
 
     let mut logs = state.logs.as_ref().map(|l| l.subscribe());
     let mut first = vec![
@@ -684,6 +919,15 @@ fn usage_now(state: &AppState, client: &mut Client) -> Vec<ServerMsg> {
         .collect()
 }
 
+/// Stops a connection's dictation when it ends.
+struct StopDictation(Arc<crate::dictation::Dictation>, u64);
+
+impl Drop for StopDictation {
+    fn drop(&mut self) {
+        self.0.stop(self.1);
+    }
+}
+
 /// The next relayed log line; never resolves without a relay. A client that
 /// falls behind skips the lines it missed.
 async fn next_log(rx: Option<&mut broadcast::Receiver<LogLine>>) -> Option<LogLine> {
@@ -734,6 +978,10 @@ async fn handle(
         Ok(reply) => return reply,
         Err(other) => other,
     };
+    let msg = match handle_messages(msg, state, client, out).await {
+        Ok(reply) => return reply,
+        Err(other) => other,
+    };
     match msg {
         ClientMsg::ListBots => match state.hub.bots().await {
             Ok(bots) => {
@@ -746,20 +994,6 @@ async fn handle(
         },
         ClientMsg::Subscribe { .. } | ClientMsg::OpenBot { .. } | ClientMsg::Older { .. } => {
             handle_history(msg, state, client)
-        }
-        ClientMsg::Send { bot, text } => {
-            if let Err(e) = state.hub.bot_for(&bot, &viewer) {
-                return error(&e);
-            }
-            // Sending may wait for a free turn slot; don't block this connection.
-            tokio::spawn(send_as(
-                Arc::clone(&state.hub),
-                bot,
-                text,
-                viewer.clone(),
-                out.clone(),
-            ));
-            Vec::new()
         }
         ClientMsg::Cancel { bot } => match state.hub.bot_for(&bot, &viewer) {
             Ok(_) => reply(state.hub.cancel(&bot).await),
@@ -820,6 +1054,48 @@ async fn handle(
         | ClientMsg::DeleteReport { .. } => handle_reports(msg, state, client),
         other => handle_sign_ins(other, state, &viewer).await,
     }
+}
+
+/// Sending messages (with files), the Mac's dictation, and the setup
+/// check. Gives other messages back.
+async fn handle_messages(
+    msg: ClientMsg,
+    state: &AppState,
+    client: &Client,
+    out: &mpsc::Sender<ServerMsg>,
+) -> Result<Vec<ServerMsg>, ClientMsg> {
+    let viewer = &client.viewer;
+    Ok(match msg {
+        ClientMsg::Send { bot, text, files } => {
+            if let Err(e) = state.hub.bot_for(&bot, viewer) {
+                return Ok(reply(Err(e)));
+            }
+            // Sending may wait for a free turn slot; don't block this connection.
+            tokio::spawn(send_as(
+                Arc::clone(&state.hub),
+                Outgoing { bot, text, files },
+                viewer.clone(),
+                out.clone(),
+            ));
+            Vec::new()
+        }
+        ClientMsg::DropUpload { bot, id } => reply(state.hub.drop_upload(&bot, &id, viewer)),
+        ClientMsg::OpenFile { bot, seq, id } => open_file(state, &bot, seq, &id, viewer),
+        ClientMsg::Dictate { on } => {
+            if on {
+                state.dictation.start(client.conn, out.clone());
+            } else {
+                state.dictation.stop(client.conn);
+            }
+            Vec::new()
+        }
+        ClientMsg::CheckSetup => vec![
+            ServerMsg::Setup(state.refresh_setup().await),
+            // Whether the mic shows may have changed.
+            ServerMsg::Settings(state.settings_for(viewer)),
+        ],
+        other => return Err(other),
+    })
 }
 
 /// Opens, lists and deletes a bot's research reports. A report goes only
@@ -972,7 +1248,6 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
-        ClientMsg::CheckSetup => vec![ServerMsg::Setup(state.refresh_setup().await)],
         ClientMsg::RunSetup { action } => {
             if state
                 .setup_running
@@ -1030,18 +1305,56 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
             | ClientMsg::SetNotifyWhenHidden { .. }
+            // The Mac's own microphone, and opening files on its screen.
+            | ClientMsg::Dictate { .. }
+            | ClientMsg::OpenFile { .. }
     )
 }
 
-/// Sends `text` to `bot` from `from`, reporting a failure to the client.
-async fn send_as(
-    hub: Arc<Hub>,
+/// Opens a file sent in a chat on this Mac's screen, in the app macOS
+/// picks for it. Found from the stored message, never from a path the
+/// page sends.
+fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -> Vec<ServerMsg> {
+    match state.hub.attachment_file(bot, seq, id, viewer) {
+        Ok((file, path)) => {
+            // Tests never open windows on the Mac they run on.
+            if !state.e2e {
+                tokio::spawn(async move {
+                    let status = tokio::process::Command::new("/usr/bin/open")
+                        .arg(&path)
+                        .stdin(std::process::Stdio::null())
+                        .status()
+                        .await;
+                    if !status.as_ref().is_ok_and(std::process::ExitStatus::success) {
+                        tracing::warn!(?status, "couldn't open a file sent in a chat");
+                    }
+                });
+            }
+            vec![ServerMsg::Notice {
+                message: format!("Opening {} on this Mac.", file.name),
+                owner: None,
+                owner_id: None,
+            }]
+        }
+        Err(e) => vec![ServerMsg::Error {
+            message: e.to_string(),
+        }],
+    }
+}
+
+/// A message on its way: to `bot`, `text` with the uploaded `files`.
+struct Outgoing {
     bot: String,
     text: String,
-    from: Viewer,
-    out: mpsc::Sender<ServerMsg>,
-) {
-    if let Err(e) = hub.send_as(&bot, &text, &from).await {
+    files: Vec<String>,
+}
+
+/// Sends a message from `from`, reporting a failure to the client.
+async fn send_as(hub: Arc<Hub>, msg: Outgoing, from: Viewer, out: mpsc::Sender<ServerMsg>) {
+    if let Err(e) = hub
+        .send_files_as(&msg.bot, &msg.text, &msg.files, &from)
+        .await
+    {
         let _ = out
             .send(ServerMsg::Error {
                 message: e.to_string(),
@@ -1221,7 +1534,10 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             .then_some(msg),
         // The log names every bot, site and person; pairing is the Farm's
         // job: the Farm's only.
+        // Dictation goes straight to the connection that asked; if it were
+        // ever broadcast, only the Farm could have asked.
         ServerMsg::Log(_)
+        | ServerMsg::Dictation { .. }
         | ServerMsg::Pairing(_)
         | ServerMsg::PairingClosed
         | ServerMsg::Gates { .. }
@@ -1275,6 +1591,7 @@ mod tests {
             kind: EventKind::UserMessage {
                 text: String::new(),
                 from: None,
+                files: vec![],
             },
         })
     }
@@ -1614,6 +1931,7 @@ mod tests {
         let ClientMsg::Send { bot, .. } = ann.inbound(ClientMsg::Send {
             bot: DEFAULT_BOT.into(),
             text: "hi".into(),
+            files: vec![],
         }) else {
             panic!("a send")
         };
