@@ -147,7 +147,7 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .site-row button { font-size: .8rem; padding: 5px 10px; }
 
 /* chat */
-.chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
 .chat-head { display: flex; align-items: center; gap: 12px; padding: max(12px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 12px 18px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .chat-head h1 { font-size: 1.05rem; margin: 0; }
 .status { font-size: .8rem; color: var(--muted); }
@@ -179,6 +179,33 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .composer { display: flex; gap: 8px; align-items: flex-end; padding: 10px max(18px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) 18px; border-top: 1px solid var(--line); background: var(--surface); }
 .composer textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font: inherit; color: var(--ink); background: var(--bg); max-height: 40vh; min-width: 0; }
 .composer textarea:focus-visible, label input:focus-visible, label textarea:focus-visible { outline: none; border-color: var(--focus); }
+/* files waiting to be sent, above the box; and on sent messages */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px max(18px, env(safe-area-inset-right)) 0 18px; border-top: 1px solid var(--line); background: var(--surface); }
+.chips:empty { display: none; }
+.chips:not(:empty) + .composer { border-top: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; max-width: min(340px, 100%); min-width: 0; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: .82rem; line-height: 1.3; }
+.chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip small { color: var(--muted); white-space: nowrap; }
+.chip .x { all: unset; cursor: pointer; flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); }
+.chip .x:hover { background: var(--hover); color: var(--ink); }
+.chip .x:focus-visible { outline: 2px solid var(--focus); }
+.chip.bad { border-color: var(--err); background: var(--err-soft); color: var(--err); border-radius: 10px; max-width: 100%; }
+.chip.bad .nm { white-space: normal; overflow-wrap: anywhere; }
+.chip .spin { flex: none; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--rust); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .chip .spin { animation: none; } }
+.msg-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 100%; }
+button.chip { font: inherit; font-size: .82rem; cursor: pointer; padding-right: 10px; }
+button.chip:hover { background: var(--hover); }
+span.chip { padding-right: 10px; }
+.icon-btn { flex: none; width: 40px; height: 40px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--muted); }
+.icon-btn svg { width: 20px; height: 20px; }
+.icon-btn:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.icon-btn:disabled { opacity: .45; cursor: default; }
+.icon-btn.on, .icon-btn.on:hover:not(:disabled) { background: var(--rust-soft); color: var(--rust); border-color: var(--rust); }
+/* kept in the page (not display:none) so test drivers can set it */
+.file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.drop-zone { position: absolute; inset: 8px; z-index: 3; display: grid; place-items: center; border: 2px dashed var(--rust); border-radius: 14px; background: color-mix(in srgb, var(--bg) 85%, transparent); color: var(--rust); font-weight: 600; pointer-events: none; }
 .primary { background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge); border-radius: 10px; padding: 9px 16px; font-weight: 600; }
 .primary:hover:not(:disabled) { background: var(--btn-hover); } .primary:active:not(:disabled) { background: var(--btn-pressed); }
 .primary:disabled { opacity: .45; cursor: default; }
@@ -330,7 +357,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div class="side-foot"><button class="gear" id="settingsBtn" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-dasharray="2.83 2.83"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg><span class="badge" id="warnBadge" hidden>0</span></button><button class="foot-btn" id="gateBtn" type="button" aria-label="Add a Gate" title="Add a Gate: pair a phone or laptop" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5" stroke-linecap="round"/><rect x="5.8" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none"/><rect x="16.3" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none"/><rect x="5.8" y="16.3" width="1.9" height="1.9" fill="currentColor" stroke="none"/></svg><span class="label">Add a Gate</span></button><button class="foot-btn end" id="signedInBtn" type="button" title="The sites your bots are signed in to (Settings → Sign-ins)">Signed in<span class="count" id="signedInCount" hidden>0</span></button></div>
   </aside>
   <div class="scrim" id="scrim" aria-hidden="true"></div>
-  <main class="chat">
+  <main class="chat" id="chatMain">
     <header class="chat-head">
       <button class="menu" id="menu" type="button" aria-label="Show bots">☰</button>
       <span class="avatar head-avatar" id="botAvatar" hidden></span><div><h1 id="botName">oxbot</h1><div class="status" id="botStatus"></div></div><button class="head-more" id="botMore" type="button" aria-label="Bot settings" title="Bot settings" hidden>···</button>
@@ -340,11 +367,16 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div class="offline alert-banner" id="usageAlert" role="status" hidden><span class="alert-text" id="usageAlertText"></span><button type="button" class="alert-more" id="usageAlertMore">Details</button><button type="button" id="usageAlertClose" aria-label="Dismiss" title="Dismiss">✕</button></div>
     <div class="log" id="log" aria-live="polite"></div>
     <div class="cards" id="cards" aria-live="assertive"></div>
+    <div class="chips" id="chips" aria-live="polite"></div>
     <form class="composer" id="composer">
+      <button class="icon-btn" id="attach" type="button" aria-label="Attach files" title="Attach files (you can also drop or paste them)"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5 12.6 19.4a5 5 0 0 1-7.1-7.1l8.3-8.3a3.4 3.4 0 0 1 4.8 4.8l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></svg></button>
+      <input type="file" id="fileInput" class="file-input" multiple tabindex="-1" aria-hidden="true">
       <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
+      <button class="icon-btn" id="mic" type="button" aria-label="Dictate" aria-pressed="false" title="Dictate with this Mac's microphone (on-device: the audio stays on the Mac)" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
       <button class="ghost" id="stop" type="button" hidden>Stop</button>
       <button class="primary" id="send" type="submit">Send</button>
     </form>
+    <div class="drop-zone" id="dropZone" hidden>Drop files to attach</div>
   </main>
 </div>
 
@@ -523,6 +555,8 @@ const farmKey = (() => {
   return key;
 })();
 let startedMs = null, warnings = 0, settings = null, usage = null;
+const drafts = new Map(); // bot -> files waiting to be sent: { key, bot, name, size, state: uploading|ready|error, progress, att, error, xhr }
+let dictating = null;       // while dictating: { before, after } the cursor
 const usageAlerts = {};      // limit name -> its latest live usage alert
 let helloAt = 0;             // when this connection's hello came
 const approvals = new Map(); // id -> approval card
@@ -571,6 +605,7 @@ function connect() {
   };
   ws.onclose = () => {
     setConn(false);
+    if (dictating) { dictating = null; renderMic(); }
     // A phone off home Wi-Fi tries again often, and at once when the network
     // or the app comes back (below).
     clearTimeout(retryTimer);
@@ -645,7 +680,7 @@ function onMessage(m) {
       for (const k of Object.keys(usageAlerts)) delete usageAlerts[k]; // live ones too
       helloAt = Date.now(); renderAlert();
       break;
-    case "settings": settings = m; renderSettings(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
+    case "settings": settings = m; if (!m.dictation && dictating) { dictating = null; renderMic(); } renderSettings(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
     case "usage": usage = m; renderUsage(); break;
     case "usage_alert": {
       const known = usageAlerts[m.limit];
@@ -752,6 +787,7 @@ function onMessage(m) {
     case "gates": gates = m.gates; renderGates(); break;
     case "door": door = m; renderGates(); break;
     case "notice": toast(m.message); break;
+    case "dictation": onDictation(m); break;
     case "error": toast(m.message, true); break;
   }
 }
@@ -1294,7 +1330,8 @@ function select(id) {
   if (!b.subscribed && !isLocked(b)) { b.subscribed = true; follow(id, b); }
   $("botName").textContent = b.info.name || id;
   $("botAvatar").innerHTML = avatar(id); $("botAvatar").hidden = false;
-  renderLog(); renderBots(); updateStatus(); renderCards(true); $("input").focus();
+  stopDictation();
+  renderLog(); renderBots(); updateStatus(); renderCards(true); renderChips(); $("input").focus();
 }
 
 function updateStatus() {
@@ -1308,11 +1345,14 @@ function updateStatus() {
   $("botName").textContent = b.info.name || b.info.id;
   // Someone else's private bot: nothing to send, nothing to stop.
   const locked = isLocked(b);
-  $("input").disabled = locked; $("input").placeholder = locked ? "Private" : "Message";
+  $("input").disabled = locked; $("input").placeholder = locked ? "Private" : dictating ? "Listening…" : "Message";
+  $("attach").disabled = locked;
+  $("mic").hidden = locked || !(settings && settings.dictation);
   if (locked) $("botStatus").textContent = `private to ${b.info.created_by || "someone"}`;
+  else if (dictating) $("botStatus").textContent = "Listening… (on this Mac)";
   $("botAvatar").classList.toggle("working", !!b.busy && !locked);
   $("stop").hidden = !b.busy || locked;
-  $("send").disabled = b.busy || locked || !connected;
+  $("send").disabled = b.busy || locked || !connected || uploading(current);
 }
 
 // ---------- Settings tabs: General and Activity
@@ -1399,7 +1439,8 @@ function eventEl(e) {
         dot.style.background = color; who.append(dot, document.createTextNode(e.from));
         el.appendChild(who); el.style.setProperty("--person", color);
       }
-      const bubble = div("msg me"); bubble.textContent = e.text; el.appendChild(bubble);
+      if (e.text || !(e.files && e.files.length)) { const bubble = div("msg me"); bubble.textContent = e.text; el.appendChild(bubble); }
+      if (e.files && e.files.length) el.appendChild(sentFiles(e));
       break;
     }
     case "assistant_message": el = div("msg bot"); el.innerHTML = md(e.text); break;
@@ -1542,17 +1583,169 @@ function renderReportList() {
   }
 }
 
+// ---------- files: attached by button, drop or paste. Each uploads at once
+// (POST /upload, to the Farm's own folder for the bot) and shows as a chip
+// above the box; the server says what it made of it, or why not.
+const MB = 1024 * 1024, MAX_FILES = 10, MAX_FILE = 25 * MB, MAX_VIDEO = 200 * MB, MAX_TEXT = 1000000;
+const VIDEO = /\.(mov|mp4|m4v)$/i;
+let chipSeq = 0;
+function chipsOf(bot) { if (!drafts.has(bot)) drafts.set(bot, []); return drafts.get(bot); }
+function uploading(bot) { return !!bot && chipsOf(bot).some((c) => c.state === "uploading"); }
+function sizeText(n) { return n >= MB ? `${(n / MB).toFixed(n >= 10 * MB ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; }
+function addFiles(list) {
+  const files = [...(list || [])];
+  if (!current || !files.length) return;
+  // A phone or laptop Gate reaches the Farm only through its app.
+  if (window.oxbotGate) { toast("Sending files from a phone isn't possible yet. Send them from the Mac.", true); return; }
+  const b = bots.get(current); if (!b || isLocked(b)) return;
+  const chips = chipsOf(current);
+  for (const file of files) {
+    if (chips.filter((c) => c.state !== "error").length >= MAX_FILES) { toast(`oxbot takes up to ${MAX_FILES} files per message.`, true); break; }
+    const chip = { key: ++chipSeq, bot: current, name: file.name || "pasted file", size: file.size, state: "uploading", progress: 0, att: null, error: "", xhr: null };
+    chips.push(chip);
+    const video = VIDEO.test(chip.name), cap = video ? MAX_VIDEO : MAX_FILE;
+    if (file.size > cap) { chip.state = "error"; chip.error = `${chip.name} is ${sizeText(file.size)}; oxbot takes ${video ? "videos" : "files"} up to ${cap / MB} MB.`; continue; }
+    upload(chip, file);
+  }
+  renderChips(); updateStatus();
+}
+function upload(chip, file) {
+  const as = new URLSearchParams(location.search).get("as");
+  const q = new URLSearchParams({ bot: chip.bot, name: chip.name });
+  if (as) q.set("as", as);
+  const xhr = new XMLHttpRequest(); chip.xhr = xhr;
+  xhr.open("POST", "/upload?" + q);
+  // The Farm secret goes in a header, not the address.
+  if (farmKey && !as) xhr.setRequestHeader("X-Oxbot-Key", farmKey);
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) { chip.progress = e.loaded / e.total; renderChips(); } };
+  const failed = (why) => { chip.xhr = null; chip.state = "error"; chip.error = why; renderChips(); updateStatus(); };
+  xhr.onload = () => {
+    let body = null;
+    try { body = JSON.parse(xhr.responseText); } catch { body = null; }
+    if (xhr.status === 200 && body && body.id) { chip.xhr = null; chip.state = "ready"; chip.att = body; renderChips(); updateStatus(); return; }
+    failed((body && body.error) || xhr.responseText || "The file didn't upload.");
+  };
+  xhr.onerror = () => failed("The file didn't upload: oxbot isn't reachable.");
+  xhr.send(file);
+}
+function removeChip(chip) {
+  if (chip.xhr) chip.xhr.abort();
+  // Uploaded but not sent: the Farm deletes it.
+  if (chip.state === "ready") send({ type: "drop_upload", bot: chip.bot, id: chip.att.id });
+  const chips = chipsOf(chip.bot), i = chips.indexOf(chip);
+  if (i >= 0) chips.splice(i, 1);
+  renderChips(); updateStatus();
+}
+function renderChips() {
+  const box = $("chips"); box.textContent = "";
+  if (!current) return;
+  for (const c of chipsOf(current)) {
+    const el = div("chip" + (c.state === "error" ? " bad" : ""));
+    el.dataset.state = c.state;
+    if (c.state === "uploading") { const sp = document.createElement("span"); sp.className = "spin"; sp.setAttribute("aria-hidden", "true"); el.appendChild(sp); }
+    const nm = document.createElement("span"); nm.className = "nm";
+    // The server's message names the file itself, mostly.
+    nm.textContent = c.state !== "error" ? c.name : c.error.includes(c.name) ? c.error : `${c.name}: ${c.error}`;
+    nm.title = c.name;
+    el.appendChild(nm);
+    if (c.state !== "error") {
+      const sm = document.createElement("small");
+      sm.textContent = c.state === "uploading" ? (c.progress >= 1 ? "checking…" : `${Math.round(c.progress * 100)}%`) : c.att.note || sizeText(c.att.size);
+      el.appendChild(sm);
+    }
+    const x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "✕";
+    x.setAttribute("aria-label", `Remove ${c.name}`); x.onclick = () => removeChip(c);
+    el.appendChild(x);
+    box.appendChild(el);
+  }
+}
+/** The files sent with a message, under it. On the Farm a click opens one
+ *  on the Mac; elsewhere they only show. */
+function sentFiles(e) {
+  const row = div("msg-files");
+  const farm = !!(settings && settings.farm);
+  for (const f of e.files) {
+    const chip = document.createElement(farm ? "button" : "span");
+    chip.className = "chip";
+    if (farm) { chip.type = "button"; chip.title = "Open it on this Mac"; chip.onclick = () => send({ type: "open_file", bot: e.bot, seq: e.seq, id: f.id }); }
+    else chip.title = "Files open on the Mac";
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = f.name;
+    const sm = document.createElement("small"); sm.textContent = f.kind === "video" ? `Claude can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size);
+    chip.append(nm, sm);
+    row.appendChild(chip);
+  }
+  return row;
+}
+$("attach").onclick = () => {
+  if (window.oxbotGate) { toast("Sending files from a phone isn't possible yet. Send them from the Mac.", true); return; }
+  $("fileInput").click();
+};
+$("fileInput").addEventListener("change", () => { addFiles($("fileInput").files); $("fileInput").value = ""; });
+$("input").addEventListener("paste", (ev) => {
+  const files = ev.clipboardData && ev.clipboardData.files;
+  if (files && files.length) { ev.preventDefault(); addFiles(files); }
+});
+// Drop anywhere on the chat (not the sidebar's own bot dragging).
+const hasFiles = (ev) => !!ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
+let dragDepth = 0;
+$("chatMain").addEventListener("dragenter", (ev) => { if (!hasFiles(ev)) return; ev.preventDefault(); dragDepth++; $("dropZone").hidden = !current; });
+$("chatMain").addEventListener("dragover", (ev) => { if (!hasFiles(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; });
+$("chatMain").addEventListener("dragleave", (ev) => { if (!hasFiles(ev)) return; if (--dragDepth <= 0) { dragDepth = 0; $("dropZone").hidden = true; } });
+$("chatMain").addEventListener("drop", (ev) => { if (!hasFiles(ev)) return; ev.preventDefault(); dragDepth = 0; $("dropZone").hidden = true; addFiles(ev.dataTransfer.files); });
+
+// ---------- dictation: the Mac's own microphone and on-device speech
+// recognition, through the Farm (so the browser never hears anything).
+// What's heard goes in at the cursor and stays editable.
+function renderMic() {
+  const on = !!dictating;
+  $("mic").classList.toggle("on", on); $("mic").setAttribute("aria-pressed", String(on));
+  $("mic").title = on ? "Stop dictating" : "Dictate with this Mac's microphone (on-device: the audio stays on the Mac)";
+  updateStatus();
+}
+function startDictation() {
+  if (!settings || !settings.dictation || dictating) return;
+  const t = $("input");
+  let before = t.value.slice(0, t.selectionStart), after = t.value.slice(t.selectionEnd);
+  if (before && !/\s$/.test(before)) before += " ";
+  dictating = { before, after };
+  if (!send({ type: "dictate", on: true })) { dictating = null; toast("Not connected to oxbot.", true); return; }
+  renderMic();
+}
+function stopDictation() {
+  if (!dictating) return;
+  send({ type: "dictate", on: false });
+  dictating = null; renderMic();
+}
+function onDictation(m) {
+  if (!dictating) return;
+  const t = $("input");
+  t.value = dictating.before + m.text + dictating.after; grow();
+  const at = (dictating.before + m.text).length; t.setSelectionRange(at, at);
+  if (m.done) { dictating = null; renderMic(); t.focus(); if (m.error) toast(m.error, true); }
+}
+$("mic").onclick = () => (dictating ? stopDictation() : startDictation());
+// Typing takes over from dictation; Escape stops it.
+$("input").addEventListener("input", () => stopDictation());
+$("input").addEventListener("keydown", (ev) => { if (ev.key === "Escape" && dictating) { ev.preventDefault(); stopDictation(); } });
+
 // ---------- actions
 $("composer").addEventListener("submit", (ev) => {
   ev.preventDefault();
+  if (!current) return;
   const text = $("input").value.trim();
-  if (!text || !current) return;
+  const chips = chipsOf(current);
+  if (uploading(current)) { toast("Wait until the files finish uploading."); return; }
+  const files = chips.filter((c) => c.state === "ready").map((c) => c.att.id);
+  if (!text && !files.length) return;
+  if (text.length > MAX_TEXT) { toast("That message is too long to send (over 1 MB). Attach it as a file instead.", true); return; }
+  stopDictation();
   // Offline: the message stays in the box, to send once oxbot is back.
-  if (!connected || !send({ type: "send", bot: current, text })) {
+  if (!connected || !send({ type: "send", bot: current, text, files })) {
     toast("Not connected yet. Your message is still here: send it once you're back on.", true);
     return;
   }
   $("input").value = ""; grow();
+  drafts.set(current, []); renderChips();
 });
 $("input").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $("composer").requestSubmit(); }
