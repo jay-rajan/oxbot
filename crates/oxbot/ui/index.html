@@ -285,7 +285,14 @@ dialog.wide { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48p
 .limit .when { color: var(--muted); font-size: .8rem; }
 .bar { height: 10px; border-radius: 99px; background: var(--code-bg); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 99px; background: var(--rust); }
-.bar.warn i { background: var(--danger); }
+.bar.half i { background: var(--danger); }
+.bar.warn i { background: var(--err); }
+/* usage alert banner: the latest live alert, under the header */
+.alert-banner { border-left: 5px solid var(--danger); background: var(--danger-soft); color: var(--danger-ink); }
+.alert-banner .alert-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.alert-banner button { background: none; border: 0; color: inherit; padding: 2px 6px; border-radius: 6px; flex: none; }
+.alert-banner .alert-more { text-decoration: underline; }
+.alert-banner button:hover { background: var(--hover); }
 .tbl { overflow-x: auto; }
 table.usage { border-collapse: collapse; width: 100%; font-size: .85rem; font-variant-numeric: tabular-nums; }
 table.usage th, table.usage td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -330,6 +337,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     </header>
     <div class="setup" id="setupBox" hidden><h3>oxbot needs a few things first</h3><ul class="checks" id="setupChecks"></ul><div class="btns"><button class="primary" type="button" id="setupAgain">Check again</button></div></div>
     <div class="offline" id="offline" role="status" hidden><span class="offline-dot" aria-hidden="true"></span><span id="offlineText">Not connected.</span></div>
+    <div class="offline alert-banner" id="usageAlert" role="status" hidden><span class="alert-text" id="usageAlertText"></span><button type="button" class="alert-more" id="usageAlertMore">Details</button><button type="button" id="usageAlertClose" aria-label="Dismiss" title="Dismiss">✕</button></div>
     <div class="log" id="log" aria-live="polite"></div>
     <div class="cards" id="cards" aria-live="assertive"></div>
     <form class="composer" id="composer">
@@ -386,6 +394,13 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
         <tbody id="usageRows"></tbody>
       </table></div>
       <p class="hint">"Tokens in" counts new input plus prompt-cache reads and writes. "API cost" is what Claude says the API would charge; on a Claude plan, usage counts against the limits above instead.</p>
+    </section>
+
+    <section id="notifySection">
+      <h3>Notifications</h3>
+      <label class="check"><input type="checkbox" id="usageAlerts"> Tell me when Claude usage passes 50% and 80% of the 5-hour or weekly limit</label>
+      <label class="check" id="whenHiddenRow" hidden><input type="checkbox" id="notifyWhenHidden"> Tell me when a bot is waiting for my OK or a sign-in while oxbot is hidden</label>
+      <p class="hint" id="notifyHint">Once per limit and level, as a banner here and a Mac notification. Usage is as Claude last reported it, after a bot's reply. Mac notifications need permission in System Settings → Notifications.</p>
     </section>
 
     <section>
@@ -508,6 +523,8 @@ const farmKey = (() => {
   return key;
 })();
 let startedMs = null, warnings = 0, settings = null, usage = null;
+const usageAlerts = {};      // limit name -> its latest live usage alert
+let helloAt = 0;             // when this connection's hello came
 const approvals = new Map(); // id -> approval card
 const signIns = new Map();   // id -> sign-in request
 const setupRuns = new Map(); // setup action -> { text, running }
@@ -625,9 +642,19 @@ function onMessage(m) {
       $("server").textContent = m.server_name; $("aboutMac").textContent = m.server_name;
       logLines.length = 0; renderLogs();
       approvals.clear(); signIns.clear(); renderCards(); // open cards are re-sent after hello
+      for (const k of Object.keys(usageAlerts)) delete usageAlerts[k]; // live ones too
+      helloAt = Date.now(); renderAlert();
       break;
     case "settings": settings = m; renderSettings(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
     case "usage": usage = m; renderUsage(); break;
+    case "usage_alert": {
+      const known = usageAlerts[m.limit];
+      const fresh = !known || known.level !== m.level || known.resets_at_ms !== m.resets_at_ms;
+      usageAlerts[m.limit] = m; renderAlert();
+      // A live one, not the banner coming back on connect.
+      if (fresh && Date.now() - helloAt > 3000) toast(m.message);
+      break;
+    }
     case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); renderCards(); break;
     case "allow_rules": if (m.bot === rulesFor) { rules = m.rules; renderRules(); } break;
@@ -1847,6 +1874,8 @@ $("gateBtn").onclick = () => {
 };
 $("appClose").onclick = () => $("appDlg").close();
 $("launchAtLogin").onchange = (ev) => send({ type: "set_launch_at_login", on: ev.target.checked });
+$("usageAlerts").onchange = (ev) => send({ type: "set_usage_alerts", on: ev.target.checked });
+$("notifyWhenHidden").onchange = (ev) => send({ type: "set_notify_when_hidden", on: ev.target.checked });
 
 function renderSettings() {
   if (!settings) return;
@@ -1861,7 +1890,63 @@ function renderSettings() {
   $("loginSection").hidden = settings.launch_at_login === null || settings.launch_at_login === undefined;
   renderGates();
   $("launchAtLogin").checked = !!settings.launch_at_login;
+  // Notifications: everyone sees them; only the Farm changes them.
+  const alertsOn = settings.usage_alerts !== false;
+  $("usageAlerts").checked = alertsOn;
+  $("usageAlerts").disabled = !settings.farm;
+  $("whenHiddenRow").hidden = settings.notify_when_hidden === null || settings.notify_when_hidden === undefined;
+  $("notifyWhenHidden").checked = !!settings.notify_when_hidden;
+  $("notifyWhenHidden").disabled = !settings.farm;
+  $("notifyHint").textContent = settings.farm
+    ? "Once per limit and level, as a banner here and a Mac notification. Usage is as Claude last reported it, after a bot's reply. Mac notifications need permission in System Settings → Notifications."
+    : "Set on the Farm. Usage alerts show here as a banner.";
+  if (!alertsOn) { for (const k of Object.keys(usageAlerts)) delete usageAlerts[k]; }
+  renderAlert();
 }
+
+// ---------- usage alert banner
+const ALERT_NAMES = { five_hour: "5-hour limit", seven_day: "Weekly limit" };
+const alertKey = (a) => `${a.limit}:${a.resets_at_ms}:${a.level}`;
+// The alert to show: a live one not dismissed here, the highest level
+// first, then the soonest reset.
+function shownAlert() {
+  const now = Date.now();
+  let dismissed = [];
+  try { dismissed = JSON.parse(store.get("oxbotAlertsDismissed") || "[]"); } catch { dismissed = []; }
+  const live = Object.values(usageAlerts)
+    .filter((a) => !a.resets_at_ms || a.resets_at_ms > now)
+    .filter((a) => !dismissed.includes(alertKey(a)));
+  live.sort((a, b) => b.level - a.level || (a.resets_at_ms || Infinity) - (b.resets_at_ms || Infinity));
+  return live[0] || null;
+}
+function renderAlert() {
+  const a = shownAlert(), box = $("usageAlert");
+  box.hidden = !a;
+  if (!a) return;
+  const parts = [`${ALERT_NAMES[a.limit] || a.limit.replace(/_/g, " ")} at ${Math.round(a.used * 100)}%`];
+  const when = resetsIn(a.resets_at_ms);
+  if (when) parts.push(when);
+  parts.push(a.models.length ? `your bots use ${a.models.join(", ")}` : "your bots use Claude's default model");
+  const text = $("usageAlertText"); text.textContent = "";
+  const b = document.createElement("b"); b.textContent = parts[0];
+  text.append(b, document.createTextNode(" · " + parts.slice(1).join(" · ")));
+  box.title = a.message;
+}
+$("usageAlertClose").onclick = () => {
+  const a = shownAlert(); if (!a) return;
+  let dismissed = [];
+  try { dismissed = JSON.parse(store.get("oxbotAlertsDismissed") || "[]"); } catch { dismissed = []; }
+  dismissed = dismissed.filter((k) => Object.values(usageAlerts).some((x) => alertKey(x) === k));
+  dismissed.push(alertKey(a));
+  store.set("oxbotAlertsDismissed", JSON.stringify(dismissed));
+  renderAlert();
+};
+$("usageAlertMore").onclick = () => {
+  $("settingsBtn").onclick();
+  document.querySelector('.settings .tabs [data-tab="setGeneral"]').click();
+};
+// A window that resets takes its alert away, and "resets in" keeps up.
+setInterval(renderAlert, 60000);
 
 const LIMIT_NAMES = { five_hour: "Current session (5 hours)", seven_day: "Weekly", seven_day_opus: "Weekly (Opus)", seven_day_sonnet: "Weekly (Sonnet)" };
 const money = (c) => c > 0 && c < 0.01 ? "<$0.01" : `$${c.toFixed(2)}`;
@@ -1883,10 +1968,14 @@ function renderUsage() {
     row.querySelector(".name").textContent = LIMIT_NAMES[l.name] || l.name.replace(/_/g, " ");
     row.querySelector(".pct").textContent = `${pct}%`;
     row.querySelector(".when").textContent = `· ${resetsIn(l.resets_at_ms)}`;
-    row.querySelector(".bar").classList.toggle("warn", pct >= 80 || l.status !== "allowed");
+    // Amber from 50% (or when Claude warns), red from 80%: as the alerts go.
+    const red = pct >= 80 || l.status === "rejected";
+    row.querySelector(".bar").classList.toggle("warn", red);
+    row.querySelector(".bar").classList.toggle("half", !red && (pct >= 50 || l.status !== "allowed"));
     row.querySelector("i").style.width = `${Math.min(100, Math.max(1, pct))}%`;
     box.appendChild(row);
   }
+  renderAlert();
   $("limitsNote").textContent = usage.limits.length
     ? `As Claude last reported, ${new Date(usage.limits_seen_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Shared with everything else on your Claude plan.`
     : "Shows after a bot's first reply.";
