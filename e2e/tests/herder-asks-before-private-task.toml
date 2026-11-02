@@ -15,6 +15,9 @@ note = "The card names the private bot and whose sign-ins it uses"
 expect = "Write down: call the plumber"
 note = "The whole task, word for word"
 [[step]]
+expect_js = "![...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
+note = "Herder's cards never offer Always allow"
+[[step]]
 click = "Don't give it"
 [[step]]
 wait_for = "The user said no to giving Journal this task"

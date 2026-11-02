@@ -67,6 +67,22 @@ after = "Booked."
 denied = "Okay, I didn't book it."
 
 [[reply]]
+when = "save it"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "6_2" }
+snapshot = "## Pages\n1: Profile (https://jobs.example.com/profile) [selected]\n## Latest page snapshot\nuid=6_1 RootWebArea \"Profile\"\n  uid=6_2 button \"Save\""
+after = "Saved."
+denied = "Okay, I didn't save it."
+
+[[reply]]
+when = "pay it"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "7_2" }
+snapshot = "## Pages\n1: Cart (https://shop.example.com/cart) [selected]\n## Latest page snapshot\nuid=7_1 RootWebArea \"Cart\"\n  uid=7_2 button \"Pay now\""
+after = "Paid."
+denied = "Okay, I didn't pay."
+
+[[reply]]
 when = "take your time"
 say = "Done, slowly."
 delay_ms = 3000

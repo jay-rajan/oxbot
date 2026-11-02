@@ -11,6 +11,9 @@ wait_for = "Don't create"
 [[step]]
 expect = "Weather Notes"
 [[step]]
+expect_js = "![...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
+note = "Herder's cards never offer Always allow"
+[[step]]
 click = "Create"
 [[step]]
 wait_for = "Created it."

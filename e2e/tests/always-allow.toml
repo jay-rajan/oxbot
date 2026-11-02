@@ -1,0 +1,66 @@
+name = "Always allow a click"
+about = "Always allow on a Save card lets the same click through next time with a quiet line; the bot's ··· settings list the rule and Remove brings the card back; Pay now never offers it."
+covers = ["crates/oxbot-core/src/hub/rules.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/store/rules.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**", "crates/oxbot-browser/src/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "save it"
+[[step]]
+wait_for = "Always allow"
+note = "A Save card offers Always allow, with what it means"
+[[step]]
+expect = "Always lets Recipes click button \"Save\" on jobs.example.com without asking."
+shot = "card-offers-always"
+[[step]]
+click = "Always allow"
+[[step]]
+wait_for = "Saved."
+[[step]]
+expect = "You always allowed: click button \"Save\" on jobs.example.com"
+[[step]]
+send = "save it again"
+[[step]]
+wait_for = "allowed by your rule: click button \"Save\" on jobs.example.com"
+note = "The same click runs with no card, and says why"
+shot = "allowed-by-rule"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+[[step]]
+click = "Bot settings"
+[[step]]
+wait_for = "click button \"Save\" on jobs.example.com"
+note = "The bot's settings list the rule, who set it and when"
+[[step]]
+expect = "by Jay"
+shot = "rules-in-settings"
+[[step]]
+click = "Remove"
+[[step]]
+wait_for = "None. When a card offers Always allow"
+note = "Removed at once"
+[[step]]
+click = "Cancel"
+[[step]]
+send = "save it once more"
+[[step]]
+wait_for = "Allow once"
+note = "Without the rule, the card is back"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "didn't save it"
+[[step]]
+send = "pay it"
+[[step]]
+wait_for = "Allow once"
+note = "Paying never offers Always"
+[[step]]
+expect = "Pay now"
+[[step]]
+expect_js = "![...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
+shot = "pay-no-always"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "didn't pay"
