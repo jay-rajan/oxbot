@@ -36,7 +36,8 @@ impl Store {
         Ok(())
     }
 
-    /// Replaces the plan's limits with what Claude just reported.
+    /// Keeps the plan's limits Claude just reported. A window it didn't
+    /// mention this time keeps its last numbers.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -44,15 +45,47 @@ impl Store {
         let seen = now_ms();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM limits", [])?;
         for w in windows {
             tx.execute(
-                "INSERT INTO limits (name, used, resets_at_ms, status, seen_ms) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO limits (name, used, resets_at_ms, status, seen_ms) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(name) DO UPDATE SET
+                   used = excluded.used,
+                   resets_at_ms = excluded.resets_at_ms,
+                   status = excluded.status,
+                   seen_ms = excluded.seen_ms",
                 params![w.name, w.used, w.resets_at.saturating_mul(1000), w.status, seen],
             )?;
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Notes the model `bot`'s Claude said it uses, e.g.
+    /// `claude-sonnet-4-5-20250929`.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn set_model(&self, bot: &BotId, model: &str) -> Result<(), StoreError> {
+        self.conn().execute(
+            "INSERT INTO usage (bot, model) VALUES (?1, ?2)
+             ON CONFLICT(bot) DO UPDATE SET model = excluded.model",
+            params![bot.as_str(), model],
+        )?;
+        Ok(())
+    }
+
+    /// Each bot's last model, for bots whose Claude has said one.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn bot_models(&self) -> Result<Vec<(String, String)>, StoreError> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT bot, model FROM usage WHERE model <> '' ORDER BY bot")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// The plan's limits and every bot's totals, most used bot first.

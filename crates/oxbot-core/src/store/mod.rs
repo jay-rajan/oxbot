@@ -5,14 +5,17 @@
 //!
 //! One file per table group: [`migrations`] (the schema and its changes),
 //! people, sites, gates, events, sessions, usage, "Always allow" rules,
-//! sidebar sections, and research reports with the pages each session
-//! opened.
+//! sidebar sections, research reports with the pages each session
+//! opened, usage alerts and preferences.
 
+mod alerts;
+pub use alerts::{AlertChange, LimitAlert};
 mod events;
 pub use events::Replay;
 mod gates;
 mod migrations;
 mod people;
+mod prefs;
 mod reports;
 pub use reports::MAX_SESSION_PAGES;
 mod rules;

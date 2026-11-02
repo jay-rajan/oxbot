@@ -1237,3 +1237,157 @@ fn deleting_a_bot_deletes_its_reports_and_opened_pages() {
     assert_eq!(store.session_pages(&cafes).unwrap(), []);
     assert_eq!(store.reports(&bot("other")).unwrap().len(), 1);
 }
+
+fn limit(name: &str, used: f64, resets_at: i64) -> LimitWindow {
+    LimitWindow {
+        name: name.into(),
+        used,
+        resets_at,
+        status: "allowed".into(),
+    }
+}
+
+#[test]
+fn a_report_of_one_window_keeps_the_other() {
+    let store = Store::open_in_memory().unwrap();
+    store
+        .set_limits(&[limit("five_hour", 0.1, 10), limit("seven_day", 0.3, 20)])
+        .unwrap();
+    store.set_limits(&[limit("five_hour", 0.2, 10)]).unwrap();
+    let usage = store.usage().unwrap();
+    let limits: Vec<_> = usage
+        .limits
+        .iter()
+        .map(|l| (l.name.as_str(), l.used))
+        .collect();
+    assert_eq!(limits, [("five_hour", 0.2), ("seven_day", 0.3)]);
+}
+
+fn alert(name: &str, resets_at_ms: i64, level: u8) -> LimitAlert {
+    LimitAlert {
+        name: name.into(),
+        resets_at_ms,
+        level,
+        used: f64::from(level) / 100.0,
+        alerted_ms: 5,
+    }
+}
+
+#[test]
+fn usage_alerts_and_prefs_survive_a_restart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    {
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.limit_alert("five_hour").unwrap(), None);
+        store
+            .set_limit_alert(&alert("five_hour", 1_000, 50))
+            .unwrap();
+        store
+            .set_limit_alert(&alert("five_hour", 1_000, 80))
+            .unwrap();
+        assert_eq!(store.pref("usage_alerts").unwrap(), None);
+        store.set_pref("usage_alerts", "0").unwrap();
+        store.set_model(&bot("news"), "claude-haiku-4-5").unwrap();
+        store.set_model(&bot("mail"), "claude-sonnet-4-5").unwrap();
+        store.set_model(&bot("news"), "claude-sonnet-4-5").unwrap();
+    }
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        store.limit_alert("five_hour").unwrap(),
+        Some(alert("five_hour", 1_000, 80))
+    );
+    assert_eq!(store.limit_alerts().unwrap().len(), 1);
+    assert_eq!(store.pref("usage_alerts").unwrap().as_deref(), Some("0"));
+    assert_eq!(
+        store.bot_models().unwrap(),
+        [
+            ("mail".to_owned(), "claude-sonnet-4-5".to_owned()),
+            ("news".to_owned(), "claude-sonnet-4-5".to_owned())
+        ]
+    );
+    // A model noted before the first finished turn still counts the turn.
+    store
+        .add_usage(
+            &bot("news"),
+            &TurnUsage {
+                input_tokens: 1,
+                output_tokens: 1,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                cost_usd: 0.0,
+            },
+        )
+        .unwrap();
+    let usage = store.usage().unwrap();
+    assert!(usage.bots.iter().any(|b| b.bot == "news" && b.turns == 1));
+}
+
+#[test]
+fn alert_changes_are_decided_and_saved_together() {
+    let store = Store::open_in_memory().unwrap();
+    store
+        .set_limit_alert(&alert("seven_day", 2_000, 50))
+        .unwrap();
+    let windows = [limit("five_hour", 0.6, 1), limit("seven_day", 0.1, 2)];
+    let recorded = store
+        .change_limit_alerts(&windows, |prev, w| match (prev, w.name.as_str()) {
+            (None, "five_hour") => AlertChange::Record(alert("five_hour", 1_000, 50)),
+            (Some(_), "seven_day") => AlertChange::Clear,
+            _ => AlertChange::Keep,
+        })
+        .unwrap();
+    assert_eq!(recorded, [alert("five_hour", 1_000, 50)]);
+    assert_eq!(store.limit_alert("seven_day").unwrap(), None);
+    assert_eq!(store.limit_alerts().unwrap().len(), 1);
+}
+
+#[test]
+fn a_version_14_database_gets_usage_alerts_and_keeps_its_usage_and_reports() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 14).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO usage (bot, turns) VALUES ('news', 3);
+             INSERT INTO limits (name, used, resets_at_ms, status, seen_ms)
+             VALUES ('five_hour', 0.4, 10, 'allowed', 1);
+             INSERT INTO session_pages (bot, url, title, first_ms)
+             VALUES ('news', 'https://example.com/', 'Example', 1);",
+        )
+        .unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    let usage = store.usage().unwrap();
+    assert_eq!(usage.bots[0].turns, 3);
+    assert_eq!(usage.limits.len(), 1);
+    assert_eq!(store.bot_models().unwrap(), []);
+    store.set_model(&bot("news"), "claude-opus-4-1").unwrap();
+    assert_eq!(store.usage().unwrap().bots[0].turns, 3);
+    assert_eq!(store.bot_models().unwrap().len(), 1);
+    assert_eq!(store.pref("notify_when_hidden").unwrap(), None);
+    let pages: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM session_pages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(pages, 1, "migration 14's tables are kept");
+    assert!(
+        !tmp.path().join("oxbot.db.v14.bak").exists(),
+        "new tables need no copy"
+    );
+}
+
+#[test]
+fn migration_15_skips_what_is_already_there() {
+    let conn = &mut Connection::open_in_memory().unwrap();
+    conn.execute_batch(SCHEMA).unwrap();
+    migrate(conn, MIGRATIONS.len(), false).unwrap();
+    let tx = conn.transaction().unwrap();
+    migrations::usage_alerts_and_prefs(&tx).unwrap();
+    tx.commit().unwrap();
+}

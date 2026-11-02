@@ -205,7 +205,37 @@ pub(super) const MIGRATIONS: &[Step] = &[
             PRIMARY KEY (bot, url)
         );",
     ),
+    // 15: the usage alerts already sent for each plan window, app-wide
+    // preferences, and the model each bot's Claude last said it uses.
+    Step::Rust(usage_alerts_and_prefs),
 ];
+
+/// Migration 15. Skips what is already there (a database rewound to an
+/// older version for a test keeps its tables and columns).
+pub(super) fn usage_alerts_and_prefs(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS limit_alerts (
+            name         TEXT    PRIMARY KEY,
+            resets_at_ms INTEGER NOT NULL,
+            level        INTEGER NOT NULL,
+            used         REAL    NOT NULL,
+            alerted_ms   INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS prefs (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );",
+    )?;
+    let has_model: bool = tx.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('usage') WHERE name = 'model'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_model {
+        tx.execute_batch("ALTER TABLE usage ADD COLUMN model TEXT NOT NULL DEFAULT ''")?;
+    }
+    Ok(())
+}
 
 /// Migration 10. Skipped if the column is already there (a database
 /// rewound to an older version for a test keeps its columns).
