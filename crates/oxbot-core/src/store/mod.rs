@@ -4,14 +4,17 @@
 //! `seq` N can ask for everything after N and miss nothing.
 //!
 //! One file per table group: [`migrations`] (the schema and its changes),
-//! people, sites, gates, events, sessions, usage, "Always allow" rules and
-//! sidebar sections.
+//! people, sites, gates, events, sessions, usage, "Always allow" rules,
+//! sidebar sections, and research reports with the pages each session
+//! opened.
 
 mod events;
 pub use events::Replay;
 mod gates;
 mod migrations;
 mod people;
+mod reports;
+pub use reports::MAX_SESSION_PAGES;
 mod rules;
 pub use rules::{RuleKey, StoredRule};
 mod sections;

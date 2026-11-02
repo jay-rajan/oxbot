@@ -39,6 +39,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4"] }
 
+# Research reports: Markdown to HTML, with oxbot's own filter (versions
+# checked 2026-11-02). Only the HTML writer: no command-line parts.
+pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
+
 # The Gate link: TLS with the Farm's own certificate (versions checked 2026-10-30).
 # `ring` rather than aws-lc so it cross-compiles for Android without cmake.
 if-addrs = "0.15.0"

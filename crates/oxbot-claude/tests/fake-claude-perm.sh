@@ -7,8 +7,11 @@
 #   createbot: asks to call create_bot ("Mail Checker"), then calls it;
 #   task: asks to call give_task (bot "helper", "say hi"), then calls it;
 #   list: asks to call list_bots, then calls it;
-#   read: asks to call read_reply (bot "helper"), then calls it.
+#   read: asks to call read_reply (bot "helper"), then calls it;
+#   report: asks to call save_report with FAKE_REPORT (JSON arguments; by
+#   default one source, the page it reads), then calls it.
 # FAKE_TOOLS (e.g. "list,task") picks the tool for each message in turn.
+# FAKE_HELPER_TOOLS does the same for a bot whose folder is "helper".
 # FAKE_TARGET names the bot for task and read instead of "helper".
 # With FAKE_PRIVATE set, create_bot asks for a private bot.
 # With FAKE_NO_PAGE set it skips the page snapshot, so its turn reads no web
@@ -21,6 +24,10 @@
 # usage.
 tool=${FAKE_TOOL:-upload}
 target=${FAKE_TARGET:-helper}
+report=${FAKE_REPORT:-'{"title":"Jobs","summary":"One job fits.","markdown":"The apply page has one job [1].","sources":[{"url":"https://jobs.example.com/apply","title":"Jobs"}]}'}
+case "$PWD" in
+  */helper/*|*/helper) [ -n "$FAKE_HELPER_TOOLS" ] && FAKE_TOOLS=$FAKE_HELPER_TOOLS ;;
+esac
 cb_input='{"name":"Mail Checker","instructions":"Check my mail."}'
 if [ -n "$FAKE_PRIVATE" ]; then
   cb_input='{"name":"Mail Checker","instructions":"Check my mail.","private":true}'
@@ -52,6 +59,8 @@ while IFS= read -r line; do
         printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"list_bots","arguments":{}}}}}\n' "$n" "$n"
       elif [ "$tool" = task ] && [ "$behavior" = allow ]; then
         printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"give_task","arguments":{"bot":"%s","message":"say hi"}}}}}\n' "$n" "$n" "$target"
+      elif [ "$tool" = report ] && [ "$behavior" = allow ]; then
+        printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"save_report","arguments":%s}}}}\n' "$n" "$n" "$report"
       elif [ "$tool" = read ] && [ "$behavior" = allow ]; then
         printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"read_reply","arguments":{"bot":"%s"}}}}}\n' "$n" "$n" "$target"
       else
@@ -96,6 +105,9 @@ while IFS= read -r line; do
         read)
           printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c%s","name":"mcp__oxbot__read_reply","input":{"bot":"%s"}}]},"parent_tool_use_id":null}\n' "$n" "$target"
           printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__read_reply","input":{"bot":"%s"},"tool_use_id":"c%s"}}\n' "$n" "$target" "$n" ;;
+        report)
+          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c%s","name":"mcp__oxbot__save_report","input":%s}]},"parent_tool_use_id":null}\n' "$n" "$report"
+          printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__save_report","input":%s,"tool_use_id":"c%s"}}\n' "$n" "$report" "$n" ;;
         list)
           printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c%s","name":"mcp__oxbot__list_bots","input":{}}]},"parent_tool_use_id":null}\n' "$n"
           printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__list_bots","input":{},"tool_use_id":"c%s"}}\n' "$n" "$n" ;;

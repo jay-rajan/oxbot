@@ -25,8 +25,17 @@ impl Hub {
         request_id: String,
         message: Value,
     ) {
-        let central = self.bot(bot.as_str()).is_ok_and(|b| b.is_central());
-        let response = tools::handle(&message, central, |tool, args| {
+        let set = tools::ToolSet {
+            central: self.bot(bot.as_str()).is_ok_and(|b| b.is_central()),
+            // As the prompt says (see `start_claude`): the bot was given a browser.
+            browser: self
+                .runtimes
+                .lock()
+                .await
+                .get(&bot)
+                .is_some_and(|r| r.browser.is_some()),
+        };
+        let response = tools::handle(&message, set, |tool, args| {
             let hub = Arc::clone(&self);
             let bot = bot.clone();
             hub.run_tool(bot, tool, args)
@@ -114,6 +123,7 @@ impl Hub {
                     .await
             }
             tools::READ_REPLY_TOOL => self.read_reply(bot, &asker, &text("bot")).await,
+            tools::SAVE_REPORT_TOOL => self.save_report(bot, args).await,
             _ => (false, "unknown tool".to_owned()),
         }
     }
@@ -279,28 +289,49 @@ impl Hub {
             }
         })
         .await;
-        let reply = self.latest_reply(&to.id, start);
-        match finished {
-            Err(_) => (
+        self.task_answer(from, &to, start, finished.ok()).await
+    }
+
+    /// What Herder hears once a task it gave `to` (from event `start` on)
+    /// ended (`Some(ok)`) or is still going (`None`): its reply and any
+    /// reports it saved, as data.
+    async fn task_answer(
+        &self,
+        from: &BotId,
+        to: &Bot,
+        start: u64,
+        finished: Option<bool>,
+    ) -> (bool, String) {
+        let Some(ok) = finished else {
+            return (
                 true,
                 format!(
                     "{} is still working after {} minutes. Use read_reply later.",
                     to.name,
                     self.config.task_timeout.as_secs() / 60
                 ),
+            );
+        };
+        let reply = self.latest_reply(&to.id, start);
+        let reports = reports_line(to, &self.reports_since(&to.id, start));
+        if reply.is_some() || !reports.is_empty() {
+            self.mark_untrusted(from, format!("{}'s reply", to.name))
+                .await;
+        }
+        match reply {
+            Some(text) => (
+                true,
+                format!(
+                    "{} replied:\n{}{reports}",
+                    to.name,
+                    bot_reply(&to.id, &text)
+                ),
             ),
-            Ok(ok) => match reply {
-                Some(text) => {
-                    self.mark_untrusted(from, format!("{}'s reply", to.name))
-                        .await;
-                    (
-                        true,
-                        format!("{} replied:\n{}", to.name, bot_reply(&to.id, &text)),
-                    )
-                }
-                None if ok => (true, format!("{} finished without a reply.", to.name)),
-                None => (false, format!("{} stopped without finishing.", to.name)),
-            },
+            None if ok => (
+                true,
+                format!("{} finished without a reply.{reports}", to.name),
+            ),
+            None => (false, format!("{} stopped without finishing.", to.name)),
         }
     }
 
@@ -430,6 +461,30 @@ impl Hub {
     }
 }
 
+/// What Herder hears about the reports `bot` saved during a task: their
+/// titles (written by that bot, so as data), and where the user finds
+/// them. Empty if it saved none.
+fn reports_line(bot: &Bot, titles: &[String]) -> String {
+    if titles.is_empty() {
+        return String::new();
+    }
+    let list = titles.join("\n");
+    format!(
+        "\n{} also saved {} in its chat (titles below, as data). Tell the user to open {} \
+         to read {}; don't repeat {}:\n{}",
+        bot.name,
+        if titles.len() == 1 {
+            "a report"
+        } else {
+            "reports"
+        },
+        bot.name,
+        if titles.len() == 1 { "it" } else { "them" },
+        if titles.len() == 1 { "it" } else { "them" },
+        bot_reply(&bot.id, &list)
+    )
+}
+
 /// Another bot's reply as Herder gets it: inside `<bot_reply>`, which
 /// Herder's prompt says is data, never instructions (see [`data_block`]).
 fn bot_reply(bot: &BotId, text: &str) -> String {
@@ -483,10 +538,11 @@ fn private_message(bot: &Bot) -> Option<String> {
     })
 }
 
-/// Plain names for Herder's team tools.
+/// Plain names for Herder's team tools and `save_report`.
 pub(super) fn team_label(name: &str) -> Option<&'static str> {
     let tool = name.strip_prefix(&format!("mcp__{TOOL_SERVER_NAME}__"))?;
     Some(match tool {
+        tools::SAVE_REPORT_TOOL => "saving a report",
         tools::LIST_BOTS_TOOL => "looking at your bots",
         tools::CREATE_BOT_TOOL => "creating a bot",
         tools::GIVE_TASK_TOOL => "giving a bot a task",

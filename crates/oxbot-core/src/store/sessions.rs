@@ -26,7 +26,9 @@ impl Store {
             .optional()?)
     }
 
-    /// Saves `bot`'s Claude session, or forgets it with `None`.
+    /// Saves `bot`'s Claude session, or forgets it with `None`. A
+    /// different session (or none) starts clean: nothing read, no pages
+    /// opened.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -35,18 +37,30 @@ impl Store {
         bot: &BotId,
         session: Option<&SavedSession>,
     ) -> Result<(), StoreError> {
-        let conn = self.conn();
-        match session {
-            Some(s) => conn.execute(
-                // A different session starts clean (SET reads the old row).
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        if let Some(s) = session {
+            tx.execute(
+                "DELETE FROM session_pages WHERE bot = ?1 AND NOT EXISTS (
+                   SELECT 1 FROM sessions WHERE bot = ?1 AND claude_session = ?2)",
+                params![bot.as_str(), s.id],
+            )?;
+            tx.execute(
+                // SET reads the old row.
                 "INSERT INTO sessions (bot, claude_session, prompt, updated_ms) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(bot) DO UPDATE SET
                    tainted_by = CASE WHEN claude_session = ?2 THEN tainted_by ELSE NULL END,
                    claude_session = ?2, prompt = ?3, updated_ms = ?4",
                 params![bot.as_str(), s.id, s.prompt, now_ms()],
-            )?,
-            None => conn.execute("DELETE FROM sessions WHERE bot = ?1", params![bot.as_str()])?,
-        };
+            )?;
+        } else {
+            tx.execute("DELETE FROM sessions WHERE bot = ?1", params![bot.as_str()])?;
+            tx.execute(
+                "DELETE FROM session_pages WHERE bot = ?1",
+                params![bot.as_str()],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 

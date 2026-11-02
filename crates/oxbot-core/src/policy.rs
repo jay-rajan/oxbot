@@ -23,7 +23,7 @@
 //! | opening a page on this Mac or the home network (oxbot's own page, the Gate door, routers) | refuse |
 //! | reading or writing files outside the bot's folder | refuse |
 //! | anything else (extensions, audits, page tools…) | refuse |
-//! | oxbot's own `request_sign_in` | run |
+//! | oxbot's own `request_sign_in` and `save_report` | run |
 //! | Herder's `list_bots`, `give_task`, `read_reply` | run |
 //! | Herder's `create_bot` | card with the name and instructions |
 //!
@@ -43,7 +43,8 @@ use oxbot_protocol::ApprovalKind;
 use serde_json::Value;
 
 use crate::tools::{
-    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SIGN_IN_TOOL,
+    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
+    SIGN_IN_TOOL,
 };
 
 /// oxbot's answer to "may the bot run this?".
@@ -302,11 +303,13 @@ fn browser_action(tool: &str) -> Option<&str> {
         .strip_prefix("__")
 }
 
-/// oxbot's own tools: sign-in and Herder's team tools run (oxbot
-/// itself checks who may call them, see `tools`); creating a bot asks.
+/// oxbot's own tools: sign-in, saving a report (which stays inside oxbot)
+/// and Herder's team tools run (oxbot itself checks who may call them, see
+/// `tools`); creating a bot asks.
 fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     let runs = [
         SIGN_IN_TOOL,
+        SAVE_REPORT_TOOL,
         LIST_BOTS_TOOL,
         GIVE_TASK_TOOL,
         READ_REPLY_TOOL,
@@ -1166,6 +1169,16 @@ mod tests {
                 names
             ),
             Verdict::Allow
+        );
+        assert_eq!(
+            decide(
+                "mcp__oxbot__save_report",
+                &json!({"title":"Coffee","summary":"A","markdown":"A [1]","sources":[]}),
+                ctx(),
+                names
+            ),
+            Verdict::Allow,
+            "a report stays inside oxbot"
         );
         assert!(needs_facts(&tool("press_key")) && !needs_facts(&tool("click")));
         assert!(needs_facts(&tool("click_at")));

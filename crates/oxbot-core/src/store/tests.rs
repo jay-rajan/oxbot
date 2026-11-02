@@ -1091,3 +1091,149 @@ fn sections_stay_each_persons() {
     assert_eq!(store.placements(&sam).unwrap().len(), 0);
     assert_eq!(store.delete_bot(&bot("recipes")).unwrap().len(), 0);
 }
+
+fn a_report(id: &str, title: &str) -> crate::report::Report {
+    crate::report::Report {
+        id: id.into(),
+        created_ms: 0,
+        asked_by: None,
+        question: "research coffee".into(),
+        title: title.into(),
+        summary: "Cafe A wins.".into(),
+        markdown: "Cafe A [1].".into(),
+        sources: vec![crate::report::Source {
+            n: 1,
+            url: "https://cafe-a.example.com/".into(),
+            title: "Cafe A".into(),
+            site: "example.com".into(),
+            read_ms: 5,
+        }],
+        links: vec!["https://maps.example.com/".into()],
+    }
+}
+
+#[test]
+fn reports_come_with_migration_14_and_their_card() {
+    // A database at version 13 (with sections) upgrades to 14.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 13).unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert!(version >= 14);
+    assert!(
+        !tmp.path().join("oxbot.db.v13.bak").exists(),
+        "new tables need no copy"
+    );
+    let cafes = bot("cafes");
+    let sam = store.find_or_create_person("Sam").unwrap().0.id;
+    store
+        .append(
+            &cafes,
+            EventKind::UserMessage {
+                text: "research coffee".into(),
+                from: None,
+            },
+        )
+        .unwrap();
+    let mut report = a_report("r_1", "Coffee");
+    report.asked_by = Some(sam.clone());
+    let card = store.add_report(&cafes, &mut report).unwrap();
+    assert_eq!(card.seq, 2);
+    assert_eq!(
+        report.created_ms, card.ts_ms,
+        "the card's time is the report's"
+    );
+    assert_eq!(
+        card.kind,
+        EventKind::Report {
+            id: "r_1".into(),
+            title: "Coffee".into(),
+            summary: "Cafe A wins.".into(),
+            sources: 1
+        }
+    );
+    assert_eq!(store.history(&cafes, 1).unwrap(), [card]);
+    assert_eq!(store.report(&cafes, "r_1").unwrap(), Some(report.clone()));
+    assert_eq!(
+        store.report(&bot("other"), "r_1").unwrap(),
+        None,
+        "another bot's id finds nothing"
+    );
+    let mut newer = a_report("r_2", "Tea");
+    store.add_report(&cafes, &mut newer).unwrap();
+    let list = store.reports(&cafes).unwrap();
+    assert_eq!(
+        list.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+        ["r_2", "r_1"]
+    );
+    assert_eq!(list[1].sources, 1);
+    assert_eq!(store.all_reports(&cafes).unwrap(), [report, newer]);
+    assert!(!store.delete_report(&bot("other"), "r_1").unwrap());
+    assert!(store.delete_report(&cafes, "r_1").unwrap());
+    assert_eq!(store.report(&cafes, "r_1").unwrap(), None);
+}
+
+#[test]
+fn opened_pages_belong_to_one_session_and_are_capped() {
+    let store = Store::open_in_memory().unwrap();
+    let cafes = bot("cafes");
+    let session = |id: &str| SavedSession {
+        id: id.into(),
+        prompt: "p".into(),
+    };
+    store.set_session(&cafes, Some(&session("s1"))).unwrap();
+    store
+        .add_session_page(&cafes, "https://cafe-a.example.com/", "Cafe A")
+        .unwrap();
+    store
+        .add_session_page(&cafes, "https://cafe-a.example.com/", "Again")
+        .unwrap();
+    let pages = store.session_pages(&cafes).unwrap();
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].1.title, "Cafe A", "the first visit counts");
+    // Resuming the same session keeps them; a new one starts with none.
+    store.set_session(&cafes, Some(&session("s1"))).unwrap();
+    assert_eq!(store.session_pages(&cafes).unwrap().len(), 1);
+    store.set_session(&cafes, Some(&session("s2"))).unwrap();
+    assert_eq!(store.session_pages(&cafes).unwrap(), []);
+    store
+        .add_session_page(&cafes, "https://cafe-b.example.com/", "Cafe B")
+        .unwrap();
+    store.set_session(&cafes, None).unwrap();
+    assert_eq!(store.session_pages(&cafes).unwrap(), []);
+
+    for i in 0..MAX_SESSION_PAGES + 5 {
+        store
+            .add_session_page(&cafes, &format!("https://p{i}.example.com/"), "")
+            .unwrap();
+    }
+    let pages = store.session_pages(&cafes).unwrap();
+    assert_eq!(pages.len(), MAX_SESSION_PAGES);
+    assert_eq!(
+        pages[0].0, "https://p5.example.com/",
+        "the oldest went first"
+    );
+}
+
+#[test]
+fn deleting_a_bot_deletes_its_reports_and_opened_pages() {
+    let store = Store::open_in_memory().unwrap();
+    let cafes = bot("cafes");
+    store
+        .add_report(&cafes, &mut a_report("r_1", "Coffee"))
+        .unwrap();
+    store
+        .add_report(&bot("other"), &mut a_report("r_2", "Tea"))
+        .unwrap();
+    store
+        .add_session_page(&cafes, "https://cafe-a.example.com/", "Cafe A")
+        .unwrap();
+    store.delete_bot(&cafes).unwrap();
+    assert_eq!(store.reports(&cafes).unwrap(), []);
+    assert_eq!(store.session_pages(&cafes).unwrap(), []);
+    assert_eq!(store.reports(&bot("other")).unwrap().len(), 1);
+}

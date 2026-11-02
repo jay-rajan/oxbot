@@ -258,8 +258,9 @@ impl Hub {
         Ok(())
     }
 
-    /// Deletes a bot: stops it, saves its history as `history.jsonl` in its
-    /// folder, forgets the history, and moves the folder to oxbot's trash.
+    /// Deletes a bot: stops it, saves its history as `history.jsonl` (and
+    /// its reports as `reports.jsonl`) in its folder, forgets them, and
+    /// moves the folder to oxbot's trash.
     ///
     /// # Errors
     /// Fails if `viewer` may not change it, it's Herder, it's working, or
@@ -301,6 +302,32 @@ impl Hub {
             path: path.clone(),
             source,
         })?;
+        // Its reports too, as the bot wrote them.
+        let reports: String = self
+            .store
+            .all_reports(&bot.id)?
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.id,
+                    "created_ms": r.created_ms,
+                    "question": r.question,
+                    "title": r.title,
+                    "summary": r.summary,
+                    "markdown": r.markdown,
+                    "sources": r.sources,
+                })
+                .to_string()
+                    + "\n"
+            })
+            .collect();
+        if !reports.is_empty() {
+            let path = bot.dir.join("reports.jsonl");
+            std::fs::write(&path, reports).map_err(|source| crate::bot::BotError::Io {
+                path: path.clone(),
+                source,
+            })?;
+        }
         // Out of the list before its history goes, so a card answered late
         // (deleting said no to it) finds no bot and records nothing.
         let listed = self

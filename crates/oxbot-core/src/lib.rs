@@ -5,8 +5,10 @@
 //! - [`hub`]: runs the bots, one long-lived Claude per bot, and broadcasts
 //!   what happens
 //! - [`policy`]: what a bot may do with a tool, decided by oxbot
-//! - [`tools`]: oxbot's own tool for bots (`request_sign_in`), hosted in-process
+//! - [`tools`]: oxbot's own tools for bots (`request_sign_in`, `save_report`,
+//!   Herder's team tools), hosted in-process
 //! - [`prompt`]: the system prompt every bot gets
+//! - [`report`]: research reports: their checks and their safe HTML page
 //! - [`home`]: where all of that lives on disk
 
 pub mod bot;
@@ -15,6 +17,7 @@ pub mod hub;
 pub mod id;
 pub mod policy;
 pub mod prompt;
+pub mod report;
 pub mod store;
 pub mod tools;
 

@@ -64,6 +64,32 @@ pub enum Replay {
     Page(HistoryPage),
 }
 
+/// Adds an event for `bot` inside the caller's transaction, numbered
+/// after its latest.
+pub(super) fn append_in(
+    tx: &rusqlite::Transaction<'_>,
+    bot: &BotId,
+    kind: EventKind,
+) -> Result<BotEvent, StoreError> {
+    let body = serde_json::to_string(&kind)?;
+    let ts_ms = now_ms();
+    let seq: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE bot = ?1",
+        params![bot.as_str()],
+        |r| r.get(0),
+    )?;
+    tx.execute(
+        "INSERT INTO events (bot, seq, ts_ms, body) VALUES (?1, ?2, ?3, ?4)",
+        params![bot.as_str(), seq, ts_ms, body],
+    )?;
+    Ok(BotEvent {
+        bot: bot.to_string(),
+        seq: u64::try_from(seq).unwrap_or(0),
+        ts_ms,
+        kind,
+    })
+}
+
 pub(super) fn to_sql(n: u64) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
 }
@@ -74,8 +100,9 @@ pub(super) fn from_sql(n: i64) -> u64 {
 
 impl Store {
     /// Forgets everything about a deleted bot: its history, session, usage,
-    /// "Always allow" rules and where anyone filed it in their sections (a
-    /// new bot can get its id). Returns the people whose sections it was in.
+    /// "Always allow" rules, reports, the pages its session opened, and
+    /// where anyone filed it in their sections (a new bot can get its id).
+    /// Returns the people whose sections it was in.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -88,7 +115,15 @@ impl Store {
             let rows = stmt.query_map([bot.as_str()], |r| r.get(0))?;
             rows.collect::<Result<_, _>>()?
         };
-        for table in ["events", "sessions", "usage", "allow_rules", "bot_sections"] {
+        for table in [
+            "events",
+            "sessions",
+            "usage",
+            "allow_rules",
+            "bot_sections",
+            "reports",
+            "session_pages",
+        ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),
                 [bot.as_str()],
@@ -106,26 +141,11 @@ impl Store {
     /// # Errors
     /// Fails if SQLite fails.
     pub fn append(&self, bot: &BotId, kind: EventKind) -> Result<BotEvent, StoreError> {
-        let body = serde_json::to_string(&kind)?;
-        let ts_ms = now_ms();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        let seq: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE bot = ?1",
-            params![bot.as_str()],
-            |r| r.get(0),
-        )?;
-        tx.execute(
-            "INSERT INTO events (bot, seq, ts_ms, body) VALUES (?1, ?2, ?3, ?4)",
-            params![bot.as_str(), seq, ts_ms, body],
-        )?;
+        let event = append_in(&tx, bot, kind)?;
         tx.commit()?;
-        Ok(BotEvent {
-            bot: bot.to_string(),
-            seq: u64::try_from(seq).unwrap_or(0),
-            ts_ms,
-            kind,
-        })
+        Ok(event)
     }
 
     /// Events for `bot` with `seq > since`, oldest first.

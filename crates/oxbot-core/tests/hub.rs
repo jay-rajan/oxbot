@@ -1232,3 +1232,278 @@ async fn always_is_refused_for_uploads_and_herders_cards() {
     hub.answer(create.id, Answer::Deny);
     hub.shutdown().await;
 }
+
+/// The report arguments the fake sends, citing `sources` (addresses).
+fn report_args(markdown: &str, sources: &[&str]) -> String {
+    let list: Vec<serde_json::Value> = sources
+        .iter()
+        .map(|url| serde_json::json!({ "url": url, "title": "Jobs" }))
+        .collect();
+    serde_json::json!({
+        "title": "Jobs",
+        "summary": "One job fits.",
+        "markdown": markdown,
+        "sources": list,
+    })
+    .to_string()
+}
+
+#[tokio::test]
+async fn research_is_saved_as_a_report_with_a_card() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "report", &["scout"]);
+    let mut updates = hub.subscribe();
+    hub.send("scout", "research jobs for me", Some("Sam"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "scout").await;
+    assert!(said.starts_with("tool_ok=true Saved Jobs."), "{said}");
+    assert!(said.contains("2 to 4 lines"), "{said}");
+    let card = hub
+        .history("scout", 0)
+        .unwrap()
+        .into_iter()
+        .find_map(|e| match e.kind {
+            EventKind::Report {
+                id,
+                title,
+                summary,
+                sources,
+            } => Some((id, title, summary, sources)),
+            _ => None,
+        })
+        .expect("a report card in the chat");
+    assert_eq!(
+        (card.1.as_str(), card.2.as_str(), card.3),
+        ("Jobs", "One job fits.", 1)
+    );
+    let farm = hub.farm_viewer("Jay");
+    let list = hub.reports_for("scout", &farm).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].id, card.0);
+    let view = hub.report_for("scout", &card.0, &farm, 0).unwrap();
+    assert!(
+        view.html.contains("research jobs for me"),
+        "the question is kept"
+    );
+    assert!(view.html.contains("id=\"src-1\""));
+    assert!(
+        view.html
+            .contains("<a href=\"https://jobs.example.com/apply\" target=\"_blank\"")
+    );
+    assert!(view.html.contains("By scout"));
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_report_that_cites_badly_is_not_saved() {
+    let cases = [
+        (
+            report_args("Elsewhere [1].", &["https://other.example.com/"]),
+            "weren't opened in the browser",
+        ),
+        (
+            report_args("Jobs [1] [9].", &["https://jobs.example.com/apply"]),
+            "[9]",
+        ),
+        (
+            report_args(
+                "Jobs [1].",
+                &[
+                    "https://jobs.example.com/apply",
+                    "https://jobs.example.com/apply#x",
+                ],
+            ),
+            "more than once",
+        ),
+        (
+            report_args("Jobs.", &["https://jobs.example.com/apply"]),
+            "never cites [1]",
+        ),
+        (
+            report_args("Jobs [1].", &["javascript:alert(1)"]),
+            "aren't web pages",
+        ),
+        (report_args("Jobs.", &[]), "at least one source"),
+    ];
+    for (args, why) in cases {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = asking_hub_env(tmp.path(), "report", &["scout"], &[("FAKE_REPORT", &args)]);
+        let mut updates = hub.subscribe();
+        hub.send("scout", "research jobs", Some("Sam"))
+            .await
+            .unwrap();
+        let said = reply_of(&hub, &mut updates, "scout").await;
+        assert!(said.starts_with("tool_ok=false Not saved"), "{why}: {said}");
+        assert!(said.contains(why), "{why}: {said}");
+        assert_eq!(
+            hub.reports_for("scout", &hub.farm_viewer("Jay")).unwrap(),
+            [],
+            "{why}"
+        );
+        assert!(
+            !hub.history("scout", 0)
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::Report { .. })),
+            "{why}: no card"
+        );
+        hub.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn opened_pages_last_as_long_as_the_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    let once = tmp.path().join("page-read");
+    let once = once.to_str().unwrap();
+    let start = || {
+        asking_hub_store(
+            tmp.path(),
+            "report",
+            &["scout"],
+            &[("FAKE_PAGE_ONCE", once)],
+            Store::open(&tmp.path().join("oxbot.db")).unwrap(),
+        )
+    };
+    // Opens the page and cites it.
+    let hub = start();
+    let mut updates = hub.subscribe();
+    hub.send("scout", "research jobs", Some("Jay"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "scout").await;
+    assert!(said.starts_with("tool_ok=true"), "{said}");
+    hub.shutdown().await;
+    drop(hub);
+
+    // Started again, the session resumes: the page still counts, though
+    // this turn didn't open it.
+    let hub = start();
+    let mut updates = hub.subscribe();
+    hub.send("scout", "research again", Some("Jay"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "scout").await;
+    assert!(said.starts_with("tool_ok=true"), "{said}");
+    hub.shutdown().await;
+    drop(hub);
+
+    // A new session (its instructions changed) has opened nothing.
+    std::fs::write(tmp.path().join("bots/scout/instructions.md"), "Be brief.").unwrap();
+    let hub = start();
+    let mut updates = hub.subscribe();
+    hub.send("scout", "research once more", Some("Jay"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "scout").await;
+    assert!(said.contains("weren't opened in the browser"), "{said}");
+    assert_eq!(
+        hub.reports_for("scout", &hub.farm_viewer("Jay"))
+            .unwrap()
+            .len(),
+        2
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let sam = store.find_or_create_person("Sam").unwrap().0;
+    let ann = store.find_or_create_person("Ann").unwrap().0;
+    let bots = tmp.path().join("bots");
+    std::fs::create_dir_all(&bots).unwrap();
+    for id in ["bank", "scout"] {
+        let mut bot = Bot::create(&bots, BotId::new(id).unwrap(), id, "").unwrap();
+        bot.owner = Some(sam.id.clone());
+        bot.created_by = Some("Sam".into());
+        bot.private = id == "bank";
+        bot.save().unwrap();
+    }
+    let hub = asking_hub_store(tmp.path(), "report", &["bank", "scout"], &[], store);
+    let mut updates = hub.subscribe();
+    let sam = Viewer::person(sam.id, "Sam", false);
+    let ann = Viewer::person(ann.id, "Ann", false);
+    hub.send_as("bank", "research my bank", &sam).await.unwrap();
+    let said = reply_of(&hub, &mut updates, "bank").await;
+    assert!(said.starts_with("tool_ok=true"), "{said}");
+    let id = hub.reports_for("bank", &sam).unwrap()[0].id.clone();
+
+    assert!(hub.report_for("bank", &id, &sam, 0).is_ok());
+    assert!(
+        hub.report_for("bank", &id, &hub.farm_viewer("Jay"), 0)
+            .is_ok()
+    );
+    assert!(matches!(
+        hub.report_for("bank", &id, &ann, 0),
+        Err(HubError::UnknownBot(_))
+    ));
+    assert!(matches!(
+        hub.reports_for("bank", &ann),
+        Err(HubError::UnknownBot(_))
+    ));
+    // An id from one bot asked under another finds nothing.
+    let Err(HubError::NotAllowed(why)) = hub.report_for("scout", &id, &ann, 0) else {
+        panic!("another bot's report");
+    };
+    assert_eq!(why, "That report was deleted.");
+    // Only those who manage the bot delete its reports.
+    hub.set_private("bank", false, &sam).await.unwrap();
+    assert!(
+        hub.report_for("bank", &id, &ann, 0).is_ok(),
+        "made shared, its reports follow it, like its chat"
+    );
+    assert!(matches!(
+        hub.delete_report("bank", &id, &ann),
+        Err(HubError::NotAllowed(_))
+    ));
+    assert_eq!(hub.delete_report("bank", &id, &sam).unwrap(), []);
+    assert!(hub.report_for("bank", &id, &sam, 0).is_err());
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn herder_hears_about_a_report_saved_during_a_task() {
+    let tmp = tempfile::tempdir().unwrap();
+    // A shared helper: no card before the task.
+    let hub = asking_hub_env(
+        tmp.path(),
+        "task",
+        &["assistant", "helper"],
+        &[("FAKE_HELPER_TOOLS", "report")],
+    );
+    let mut updates = hub.subscribe();
+    let said = ask_herder(&hub, &mut updates).await;
+    assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
+    assert!(said.contains("also saved a report in its chat"), "{said}");
+    assert!(said.contains(">Jobs</bot_reply>"), "{said}");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn deleting_a_bot_keeps_its_reports_in_the_trash() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "report", &["scout"]);
+    let mut updates = hub.subscribe();
+    hub.send("scout", "research jobs", Some("Jay"))
+        .await
+        .unwrap();
+    let _ = reply_of(&hub, &mut updates, "scout").await;
+    let farm = hub.farm_viewer("Jay");
+    hub.delete_bot("scout", &farm).await.unwrap();
+    let trash = tmp.path().join("trash");
+    let kept = std::fs::read_dir(&trash)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path().join("reports.jsonl"))
+        .find(|p| p.exists())
+        .expect("reports.jsonl in the trash");
+    let text = std::fs::read_to_string(kept).unwrap();
+    assert!(text.contains("\"title\":\"Jobs\""), "{text}");
+    // A new bot with the same id starts with no reports.
+    hub.create_bot("scout", "", None).await.unwrap();
+    assert_eq!(hub.reports_for("scout", &farm).unwrap(), []);
+    hub.shutdown().await;
+}

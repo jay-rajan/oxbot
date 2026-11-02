@@ -179,6 +179,32 @@ pub(super) const MIGRATIONS: &[Step] = &[
     CREATE INDEX IF NOT EXISTS bot_sections_section ON bot_sections (section_id);
     CREATE INDEX IF NOT EXISTS bot_sections_bot ON bot_sections (bot);",
     ),
+    // 14: research reports, and the web pages each bot's Claude session
+    // has opened (a report's sources must be among them). A new session
+    // starts with none (see `set_session`).
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS reports (
+            id         TEXT    PRIMARY KEY,
+            bot        TEXT    NOT NULL,
+            seq        INTEGER NOT NULL,  -- its card in the bot's chat
+            created_ms INTEGER NOT NULL,
+            asked_by   TEXT,              -- person id (NULL: the Farm or unknown)
+            question   TEXT    NOT NULL,
+            title      TEXT    NOT NULL,
+            summary    TEXT    NOT NULL,
+            markdown   TEXT    NOT NULL,  -- as the bot wrote it; rendered on every open
+            sources    TEXT    NOT NULL,  -- JSON [{n, url, title, site, read_ms}]
+            links      TEXT    NOT NULL DEFAULT '[]'  -- JSON [url]: other opened pages it links
+        );
+        CREATE INDEX IF NOT EXISTS reports_by_bot ON reports (bot, created_ms);
+        CREATE TABLE IF NOT EXISTS session_pages (
+            bot      TEXT    NOT NULL,
+            url      TEXT    NOT NULL,
+            title    TEXT    NOT NULL,
+            first_ms INTEGER NOT NULL,
+            PRIMARY KEY (bot, url)
+        );",
+    ),
 ];
 
 /// Migration 10. Skipped if the column is already there (a database

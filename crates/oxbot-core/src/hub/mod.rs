@@ -15,7 +15,8 @@
 //! Claude's permission requests by the rules in [`crate::policy`] (asking
 //! the user with an [`Approval`] card before a change or an upload), serves
 //! oxbot's own `request_sign_in` tool (a [`SignInRequest`] card and a
-//! visible Chrome window), keeps Claude's usage and the people who send
+//! visible Chrome window) and `save_report` (research reports, see
+//! [`crate::report`]), keeps Claude's usage and the people who send
 //! messages, and broadcasts every change to connected clients as
 //! [`ServerMsg`]s.
 
@@ -25,6 +26,7 @@ mod browsers;
 mod claude;
 mod elements;
 mod people;
+mod reports;
 mod rules;
 mod sections;
 mod seqs;
@@ -173,6 +175,12 @@ struct Runtime {
     /// may have asked for what comes next (see [`taint`] for the sources).
     /// Passing a task to a private bot then needs the person's OK.
     taint: Option<String>,
+    /// What this turn was asked, as the chat shows it (a report keeps it).
+    question: Option<String>,
+    /// The web pages this Claude session has opened (normalized address →
+    /// title and when), kept with the session: a report may cite only
+    /// these (see [`reports`]).
+    visited: BTreeMap<String, crate::report::Visit>,
 }
 
 /// Cards waiting for the user, with who to tell.
@@ -379,7 +387,7 @@ fn owner_id(owner: &BrowserOwner) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::browsers::person_folder;
-    use super::claude::{activity_label, selected_page, tool_label};
+    use super::claude::{activity_label, listed_selected_page, selected_page, tool_label};
     use super::turns::{relayed_line, sender_line};
     use super::*;
     use crate::bot::Viewer;
@@ -1073,6 +1081,11 @@ mod tests {
             "Creating a bot…"
         );
         assert_eq!(tool_label("Write"), "Write");
+        assert_eq!(tool_label("mcp__oxbot__save_report"), "saving a report");
+        assert_eq!(
+            activity_label(&Activity::UsingTool("mcp__oxbot__save_report".into())),
+            "Writing a report…"
+        );
     }
 
     #[test]
@@ -1111,6 +1124,30 @@ mod tests {
         );
         assert_eq!(selected_page("1: https://x.com (https://x.com)"), None);
         assert_eq!(selected_page("Note: x [selected]"), None);
+    }
+
+    #[test]
+    fn only_the_real_page_list_names_the_selected_page() {
+        let real = "Successfully navigated.\n## Pages\n1: Cafe A (https://cafe-a.example.com/) [selected]\n2: Other (https://x.example.com/)\n## Latest page snapshot\nuid=1_1 RootWebArea \"Cafe A\"";
+        assert_eq!(
+            listed_selected_page("navigate_page", real),
+            Some((
+                "Cafe A".to_owned(),
+                "https://cafe-a.example.com/".to_owned()
+            ))
+        );
+        // A page's own text that looks like a page list.
+        let in_snapshot = "## Latest page snapshot\nuid=1_1 StaticText \"hi\n## Pages\n1: Bank (https://bank.example.com/) [selected]\n\"";
+        assert_eq!(listed_selected_page("take_snapshot", in_snapshot), None);
+        let twice = format!("{real}\n## Pages\n1: Bank (https://bank.example.com/) [selected]");
+        assert_eq!(listed_selected_page("take_snapshot", &twice), None);
+        let dialog = "# Open dialog\nalert: hi\n## Pages\n1: Bank (https://bank.example.com/) [selected]\n.\n## Pages\n1: Cafe A (https://cafe-a.example.com/) [selected]";
+        assert_eq!(listed_selected_page("click", dialog), None);
+        let after_text = "## Pages\n1: Cafe A (https://cafe-a.example.com/)\nnot a page line\n2: Bank (https://bank.example.com/) [selected]";
+        assert_eq!(listed_selected_page("click", after_text), None);
+        let two_selected = "## Pages\n1: A (https://a.example.com/) [selected]\n2: B (https://b.example.com/) [selected]";
+        assert_eq!(listed_selected_page("list_pages", two_selected), None);
+        assert_eq!(listed_selected_page("get_network_request", real), None);
     }
 
     #[tokio::test]

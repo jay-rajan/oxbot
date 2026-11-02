@@ -13,7 +13,7 @@
 //!   other than the person Herder acts for.
 //!
 //! Trusted ([`TRUSTED_TOOLS`]): oxbot's own tools, whose text oxbot writes
-//! (statuses, refusals, sign-in results); the team tools mark the session
+//! (statuses, refusals, sign-in results, whether a report was saved); the team tools mark the session
 //! themselves when they hand back someone else's text. Also Claude Code's
 //! planning tools ([`TRUSTED_BUILTINS`]), which only echo Claude's own plan
 //! or load tool definitions, never outside text.
@@ -28,16 +28,18 @@ use super::claude::tool_label;
 use super::{Hub, Runtime};
 use crate::id::BotId;
 use crate::tools::{
-    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SIGN_IN_TOOL,
+    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
+    SIGN_IN_TOOL,
 };
 
 /// oxbot's own tools: their results never taint a session.
-const TRUSTED_TOOLS: [&str; 5] = [
+const TRUSTED_TOOLS: [&str; 6] = [
     LIST_BOTS_TOOL,
     CREATE_BOT_TOOL,
     GIVE_TASK_TOOL,
     READ_REPLY_TOOL,
     SIGN_IN_TOOL,
+    SAVE_REPORT_TOOL,
 ];
 
 /// Claude Code's own tools that bring in no outside text: its to-do list

@@ -1,12 +1,12 @@
 //! A bot's `claude` child: starting it and turning its output into stored
 //! events, cards and tool results.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use oxbot_browser::MCP_SERVER_NAME;
+use oxbot_browser::{MCP_SERVER_NAME, normalize_web_url};
 use oxbot_claude::{Activity, ClaudeConfig, ClaudeEvent, ClaudeProcess, Session, ToolUse};
 use oxbot_protocol::{EventKind, ServerMsg};
 use serde_json::json;
@@ -18,8 +18,9 @@ use super::{Hub, HubError, Runtime, Shared, elements};
 use crate::bot::Bot;
 use crate::id::BotId;
 use crate::prompt::{Capabilities, system_prompt};
-use crate::store::SavedSession;
-use crate::tools::{self, SIGN_IN_TOOL, TOOL_SERVER_NAME};
+use crate::report::Visit;
+use crate::store::{MAX_SESSION_PAGES, SavedSession};
+use crate::tools::{self, SAVE_REPORT_TOOL, SIGN_IN_TOOL, TOOL_SERVER_NAME};
 
 impl Hub {
     /// Starts `bot`'s Claude and a task that turns its output into events.
@@ -40,10 +41,13 @@ impl Hub {
                 Session::New(uuid::Uuid::new_v4().to_string())
             }
         };
-        // A resumed session still remembers what it read.
-        let taint = match &session {
-            Session::Resume(_) => self.store.session_taint(&bot.id)?,
-            Session::New(_) => None,
+        // A resumed session still remembers what it read and opened.
+        let (taint, visited) = match &session {
+            Session::Resume(_) => (
+                self.store.session_taint(&bot.id)?,
+                self.store.session_pages(&bot.id)?.into_iter().collect(),
+            ),
+            Session::New(_) => (None, BTreeMap::new()),
         };
         let mut config = ClaudeConfig::new(bot.work_dir(), session.clone());
         config.program.clone_from(&self.config.claude_program);
@@ -120,7 +124,7 @@ impl Hub {
             }),
         )?;
         tokio::spawn(Arc::clone(self).pump(bot.id.clone(), events));
-        Ok(new_runtime(process, browser, &session, taint))
+        Ok(new_runtime(process, browser, &session, taint, visited))
     }
 
     /// Turns one bot's Claude output into stored events until the child exits.
@@ -256,13 +260,14 @@ impl Hub {
     async fn tool_result(&self, bot: &BotId, tool_use_id: &str, text: &str) {
         let mut untrusted = None;
         let mut files = Vec::new();
+        let mut visit = None;
         if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
             let name = r.tool_names.remove(tool_use_id);
-            if name
-                .as_ref()
-                .is_some_and(|n| n.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")))
+            if let Some(action) = name
+                .as_deref()
+                .and_then(|n| n.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")))
             {
-                learn_from_result(r, text);
+                visit = learn_from_result(r, action, text);
                 files = elements::files_in(text);
             }
             untrusted = match &name {
@@ -273,6 +278,11 @@ impl Hub {
         }
         if let Some(why) = untrusted {
             self.mark_untrusted(bot, why).await;
+        }
+        if let Some((url, title)) = visit
+            && let Err(err) = self.store.add_session_page(bot, &url, &title)
+        {
+            tracing::warn!(%bot, %err, "couldn't save a page the session opened");
         }
         if !files.is_empty() {
             self.learn_files(bot, files).await;
@@ -312,12 +322,14 @@ impl Hub {
 }
 
 /// A just-started `claude` child's runtime. A resumed session keeps what
-/// it had read (`taint`); a new one starts trusted.
+/// it had read (`taint`) and the pages it opened (`visited`); a new one
+/// starts trusted, with none.
 fn new_runtime(
     process: ClaudeProcess,
     browser: Option<Arc<Shared>>,
     session: &Session,
     taint: Option<String>,
+    visited: BTreeMap<String, Visit>,
 ) -> Runtime {
     let mut runtime = Runtime {
         process,
@@ -331,6 +343,8 @@ fn new_runtime(
         elements: elements::ElementBook::default(),
         asker: None,
         taint: None,
+        question: None,
+        visited,
     };
     match (session, taint) {
         (Session::Resume(_), Some(why)) => {
@@ -342,15 +356,98 @@ fn new_runtime(
     runtime
 }
 
-/// Reads what the browser tool reported: the selected page, and the
-/// element names from a page snapshot (added to what it knew).
-fn learn_from_result(runtime: &mut Runtime, text: &str) {
-    for line in text.lines() {
-        if let Some(page) = selected_page(line.trim()) {
-            runtime.page = Some(page);
+/// Reads what the browser tool's `action` reported: the selected page, and
+/// the element names from a page snapshot (added to what it knew). Returns
+/// a web page this session hadn't opened before, (address, title), to keep
+/// with the session.
+fn learn_from_result(runtime: &mut Runtime, action: &str, text: &str) -> Option<(String, String)> {
+    let mut visit = None;
+    if let Some((title, url)) = listed_selected_page(action, text) {
+        if let Some(key) = normalize_web_url(&url)
+            && !runtime.visited.contains_key(&key)
+        {
+            note_visit(&mut runtime.visited, &key, &title);
+            visit = Some((key, title.clone()));
         }
+        runtime.page = Some((title, url));
     }
     runtime.elements.learn(text);
+    visit
+}
+
+/// Adds a page to what the session opened, dropping the oldest past the
+/// store's limit (as the store does).
+pub(super) fn note_visit(visited: &mut BTreeMap<String, Visit>, url: &str, title: &str) {
+    visited.insert(
+        url.to_owned(),
+        Visit {
+            title: title.to_owned(),
+            first_ms: crate::store::now_ms(),
+        },
+    );
+    while visited.len() > MAX_SESSION_PAGES {
+        let Some(oldest) = visited
+            .iter()
+            .min_by_key(|(_, v)| v.first_ms)
+            .map(|(url, _)| url.clone())
+        else {
+            break;
+        };
+        visited.remove(&oldest);
+    }
+}
+
+/// Browser tools whose results carry text a page chose ahead of their own
+/// sections (network bodies, console messages, script results): their
+/// page lists aren't read.
+const PAGE_TEXT_FIRST: [&str; 5] = [
+    "evaluate_script",
+    "get_network_request",
+    "list_network_requests",
+    "get_console_message",
+    "list_console_messages",
+];
+
+/// The selected page from a browser result's page list, as (title,
+/// address). Text on a page can contain lines that look like a page list,
+/// so only the real one counts: the result's first `## ` heading must be
+/// `## Pages` with nothing a page wrote before it (an open dialog's text
+/// comes first), only page lines are read, it must be the only `## Pages`
+/// in the result, and exactly one page in it is selected.
+pub(super) fn listed_selected_page(action: &str, text: &str) -> Option<(String, String)> {
+    if PAGE_TEXT_FIRST.contains(&action) {
+        return None;
+    }
+    let mut lines = text.lines();
+    for line in lines.by_ref() {
+        if line.starts_with("# Open dialog") {
+            return None;
+        }
+        if line.starts_with("## ") {
+            if line.trim_end() != "## Pages" {
+                return None;
+            }
+            break;
+        }
+    }
+    let mut selected = Vec::new();
+    for line in lines.by_ref() {
+        if !is_page_line(line) {
+            break;
+        }
+        selected.extend(selected_page(line.trim()));
+    }
+    // A second list later on is a page's text.
+    if lines.any(|l| l.trim_end() == "## Pages") || selected.len() != 1 {
+        return None;
+    }
+    selected.pop()
+}
+
+/// `3: …`: a line of the page list.
+fn is_page_line(line: &str) -> bool {
+    line.split_once(": ")
+        .is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// `3: Inbox (https://mail.google.com/…) [selected]` → (`Inbox`, address).
@@ -402,6 +499,9 @@ pub(super) fn activity_label(activity: &Activity) -> String {
             if name == &format!("mcp__{TOOL_SERVER_NAME}__{SIGN_IN_TOOL}") =>
         {
             "Asking you to sign in…".to_owned()
+        }
+        Activity::UsingTool(name) if name == &tools::full_name(SAVE_REPORT_TOOL) => {
+            "Writing a report…".to_owned()
         }
         Activity::UsingTool(name) if team_label(name).is_some() => {
             format!("{}…", capitalized(team_label(name).unwrap_or_default()))

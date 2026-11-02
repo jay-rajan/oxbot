@@ -1,6 +1,8 @@
 //! oxbot's own tools for bots.
 //!
 //! - Every bot: `request_sign_in`.
+//! - Bots with the browser: `save_report`, to hand back research as a
+//!   report with sources instead of a long reply.
 //! - The central bot (Herder) only: `list_bots`, `create_bot`,
 //!   `give_task` and `read_reply`, so it can run the team. Other bots aren't
 //!   shown them and can't call them, so bots can't set each other off.
@@ -26,6 +28,8 @@ pub const CREATE_BOT_TOOL: &str = "create_bot";
 pub const GIVE_TASK_TOOL: &str = "give_task";
 /// Reads a bot's latest reply.
 pub const READ_REPLY_TOOL: &str = "read_reply";
+/// Saves research as a report (bots with the browser).
+pub const SAVE_REPORT_TOOL: &str = "save_report";
 /// Every central-only tool.
 pub const CENTRAL_TOOLS: &[&str] = &[
     LIST_BOTS_TOOL,
@@ -33,6 +37,26 @@ pub const CENTRAL_TOOLS: &[&str] = &[
     GIVE_TASK_TOOL,
     READ_REPLY_TOOL,
 ];
+
+/// Which of oxbot's tools a bot gets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ToolSet {
+    /// It's Herder, the central bot: the team tools.
+    pub central: bool,
+    /// It has the browser: `save_report` (with no browser there's no web
+    /// research, and nothing it could cite).
+    pub browser: bool,
+}
+
+impl ToolSet {
+    /// Whether `tool` is one of these.
+    #[must_use]
+    pub fn has(self, tool: &str) -> bool {
+        tool == SIGN_IN_TOOL
+            || (self.browser && tool == SAVE_REPORT_TOOL)
+            || (self.central && CENTRAL_TOOLS.contains(&tool))
+    }
+}
 
 /// Newest MCP protocol version this server knows; older clients get theirs back.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -50,7 +74,7 @@ pub fn full_name(tool: &str) -> String {
 }
 
 /// The tools a bot sees, as `tools/list` describes them.
-fn tools(central: bool) -> Vec<Value> {
+fn tools(set: ToolSet) -> Vec<Value> {
     let mut list = vec![json!({
         "name": SIGN_IN_TOOL,
         "description": "Ask the user to sign in to a website in the shared browser. oxbot shows them a card; \
@@ -66,7 +90,10 @@ fn tools(central: bool) -> Vec<Value> {
             "required": ["url", "why"]
         }
     })];
-    if central {
+    if set.browser {
+        list.push(save_report_schema());
+    }
+    if set.central {
         list.extend([
             json!({
                 "name": LIST_BOTS_TOOL,
@@ -120,11 +147,46 @@ fn tools(central: bool) -> Vec<Value> {
     list
 }
 
+/// `save_report`, as `tools/list` describes it.
+fn save_report_schema() -> Value {
+    json!({
+        "name": SAVE_REPORT_TOOL,
+        "description": "Save research (comparing options, looking things up across sites) as a report the \
+            user opens from a card in this chat, instead of pasting a long answer. Every source must be a \
+            page you opened in the browser in this conversation; cite each fact from a page as [1], [2] in \
+            the order of your sources. Afterwards reply in 2 to 4 lines with the answer in brief; don't \
+            repeat the report.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "maxLength": crate::report::MAX_TITLE, "description": "A short title, e.g. \"Coffee near home\"." },
+                "summary": { "type": "string", "maxLength": crate::report::MAX_SUMMARY, "description": "One line: the answer in brief, shown on the card." },
+                "markdown": { "type": "string", "description": "The report in Markdown: the short answer first, then sections; a table when comparing options (e.g. price, rating, distance). Cite facts as [1], [2]. No images or HTML." },
+                "sources": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": crate::report::MAX_SOURCES,
+                    "description": "The pages you used, numbered from 1 in this order. Only pages you opened in the browser in this conversation.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": { "type": "string", "description": "The page's address, as the browser showed it." },
+                            "title": { "type": "string", "description": "The page's title." }
+                        },
+                        "required": ["url"]
+                    }
+                }
+            },
+            "required": ["title", "summary", "markdown", "sources"]
+        }
+    })
+}
+
 /// Answers one MCP (JSON-RPC) message for a bot. A notification gets an
-/// empty `{}` (Claude Code wants every message answered). `central` says
-/// whether the bot is Herder, the central bot. `call(tool, arguments)` runs a tool and
+/// empty `{}` (Claude Code wants every message answered). `set` says which
+/// of oxbot's tools the bot has. `call(tool, arguments)` runs a tool and
 /// returns whether it worked and what to tell the bot.
-pub async fn handle<F, Fut>(msg: &Value, central: bool, call: F) -> Value
+pub async fn handle<F, Fut>(msg: &Value, set: ToolSet, call: F) -> Value
 where
     F: FnOnce(String, Value) -> Fut,
     Fut: Future<Output = (bool, String)>,
@@ -141,11 +203,10 @@ where
             "serverInfo": { "name": TOOL_SERVER_NAME, "version": env!("CARGO_PKG_VERSION") }
         }),
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tools(central) }),
+        "tools/list" => json!({ "tools": tools(set) }),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let known = name == SIGN_IN_TOOL || (central && CENTRAL_TOOLS.contains(&name));
-            if !known {
+            if !set.has(name) {
                 return error(&id, -32602, "unknown tool");
             }
             let arguments = params
@@ -170,6 +231,7 @@ fn missing_argument(tool: &str, arguments: &Value) -> Option<&'static str> {
         CREATE_BOT_TOOL => &["name", "instructions"],
         GIVE_TASK_TOOL => &["bot", "message"],
         READ_REPLY_TOOL => &["bot"],
+        SAVE_REPORT_TOOL => &["title", "summary", "markdown"],
         _ => &[],
     };
     required.iter().copied().find(|k| {
@@ -194,6 +256,19 @@ fn error(id: &Value, code: i64, message: &str) -> Value {
 mod tests {
     use super::*;
 
+    const PLAIN: ToolSet = ToolSet {
+        central: false,
+        browser: false,
+    };
+    const CENTRAL: ToolSet = ToolSet {
+        central: true,
+        browser: false,
+    };
+    const BROWSING: ToolSet = ToolSet {
+        central: false,
+        browser: true,
+    };
+
     async fn no_call(_: String, _: Value) -> (bool, String) {
         panic!("should not call")
     }
@@ -210,13 +285,13 @@ mod tests {
     #[tokio::test]
     async fn it_introduces_itself_and_lists_its_tools() {
         let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}});
-        let reply = handle(&init, false, no_call).await;
+        let reply = handle(&init, PLAIN, no_call).await;
         assert_eq!(reply["result"]["protocolVersion"], "2025-11-25");
         assert_eq!(reply["result"]["serverInfo"]["name"], "oxbot");
 
         let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
-        assert_eq!(names(&handle(&list, false, no_call).await), [SIGN_IN_TOOL]);
-        let central = names(&handle(&list, true, no_call).await);
+        assert_eq!(names(&handle(&list, PLAIN, no_call).await), [SIGN_IN_TOOL]);
+        let central = names(&handle(&list, CENTRAL, no_call).await);
         assert_eq!(central.len(), 5);
         assert!(central.iter().any(|n| n == CREATE_BOT_TOOL));
         assert_eq!(mcp_entry()["type"], "sdk");
@@ -226,14 +301,14 @@ mod tests {
     #[tokio::test]
     async fn notifications_get_an_empty_answer() {
         let note = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
-        assert_eq!(handle(&note, false, no_call).await, json!({}));
+        assert_eq!(handle(&note, PLAIN, no_call).await, json!({}));
     }
 
     #[tokio::test]
     async fn a_call_runs_the_tool_and_reports_back() {
         let call = json!({"jsonrpc":"2.0","id":3,"method":"tools/call",
             "params":{"name":SIGN_IN_TOOL,"arguments":{"url":"https://accounts.google.com","why":"to read mail"}}});
-        let reply = handle(&call, false, |tool, args| async move {
+        let reply = handle(&call, PLAIN, |tool, args| async move {
             assert_eq!(tool, SIGN_IN_TOOL);
             assert_eq!(text_arg(&args, "url"), "https://accounts.google.com");
             (true, "signed in".to_owned())
@@ -248,10 +323,10 @@ mod tests {
         let create = json!({"jsonrpc":"2.0","id":7,"method":"tools/call",
             "params":{"name":CREATE_BOT_TOOL,"arguments":{"name":"Mail","instructions":"Check mail."}}});
         assert_eq!(
-            handle(&create, false, no_call).await["error"]["code"],
+            handle(&create, PLAIN, no_call).await["error"]["code"],
             -32602
         );
-        let reply = handle(&create, true, |tool, _| async move {
+        let reply = handle(&create, CENTRAL, |tool, _| async move {
             assert_eq!(tool, CREATE_BOT_TOOL);
             (true, "created mail".to_owned())
         })
@@ -264,23 +339,67 @@ mod tests {
         let unknown =
             json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope"}});
         assert_eq!(
-            handle(&unknown, true, no_call).await["error"]["code"],
+            handle(&unknown, CENTRAL, no_call).await["error"]["code"],
             -32602
         );
         let no_url = json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":SIGN_IN_TOOL,"arguments":{}}});
         assert_eq!(
-            handle(&no_url, false, no_call).await["error"]["code"],
+            handle(&no_url, PLAIN, no_call).await["error"]["code"],
             -32602
         );
         let no_message = json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":GIVE_TASK_TOOL,"arguments":{"bot":"x","message":" "}}});
         assert_eq!(
-            handle(&no_message, true, no_call).await["error"]["code"],
+            handle(&no_message, CENTRAL, no_call).await["error"]["code"],
             -32602
         );
         let other = json!({"jsonrpc":"2.0","id":6,"method":"resources/list"});
         assert_eq!(
-            handle(&other, false, no_call).await["error"]["code"],
+            handle(&other, PLAIN, no_call).await["error"]["code"],
             -32601
         );
+    }
+
+    #[tokio::test]
+    async fn only_a_bot_with_the_browser_saves_reports() {
+        let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
+        let browsing = handle(&list, BROWSING, no_call).await;
+        assert_eq!(names(&browsing), [SIGN_IN_TOOL, SAVE_REPORT_TOOL]);
+        let schema = &browsing["result"]["tools"][1]["inputSchema"];
+        assert_eq!(
+            schema["required"],
+            json!(["title", "summary", "markdown", "sources"])
+        );
+        let both = ToolSet {
+            central: true,
+            browser: true,
+        };
+        assert_eq!(names(&handle(&list, both, no_call).await).len(), 6);
+
+        let save = |args: Value| {
+            json!({"jsonrpc":"2.0","id":9,"method":"tools/call",
+            "params":{"name":SAVE_REPORT_TOOL,"arguments":args}})
+        };
+        let full = json!({"title":"Coffee","summary":"A wins.","markdown":"A [1]","sources":[{"url":"https://a.example.com/"}]});
+        for set in [PLAIN, CENTRAL] {
+            assert_eq!(
+                handle(&save(full.clone()), set, no_call).await["error"]["code"],
+                -32602
+            );
+        }
+        for missing in ["title", "summary", "markdown"] {
+            let mut args = full.clone();
+            args[missing] = json!(" ");
+            let reply = handle(&save(args), BROWSING, no_call).await;
+            assert_eq!(
+                reply["error"]["message"],
+                format!("save_report needs {missing}")
+            );
+        }
+        let reply = handle(&save(full), BROWSING, |tool, _| async move {
+            assert_eq!(tool, SAVE_REPORT_TOOL);
+            (true, "Saved".to_owned())
+        })
+        .await;
+        assert_eq!(reply["result"]["isError"], false);
     }
 }

@@ -161,6 +161,34 @@ pub enum ClientMsg {
         /// [`AllowRule::id`].
         id: i64,
     },
+    /// Open one of a bot's research reports: answered with
+    /// [`ServerMsg::Report`] (the page to show), for anyone who may open
+    /// the bot.
+    OpenReport {
+        /// Bot id.
+        bot: String,
+        /// [`ReportInfo::id`].
+        id: String,
+        /// The viewer's time zone, in minutes east of UTC, for the dates
+        /// in the report (UTC if absent).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        utc_offset_min: Option<i32>,
+    },
+    /// A bot's research reports, answered with [`ServerMsg::Reports`], for
+    /// anyone who may open the bot.
+    ListReports {
+        /// Bot id.
+        bot: String,
+    },
+    /// Delete one of a bot's reports (its card stays in the chat and says
+    /// it was deleted). Only for those who may manage the bot; the answer
+    /// is a new [`ServerMsg::Reports`].
+    DeleteReport {
+        /// Bot id.
+        bot: String,
+        /// [`ReportInfo::id`].
+        id: String,
+    },
     /// Turn "Launch at login" on or off (desktop app only). Everyone gets
     /// the new [`ServerMsg::Settings`].
     SetLaunchAtLogin {
@@ -446,6 +474,17 @@ pub enum ServerMsg {
         bot: String,
         /// Newest first.
         rules: Vec<AllowRule>,
+    },
+    /// A research report to show: the answer to [`ClientMsg::OpenReport`],
+    /// for the client that asked.
+    Report(ReportView),
+    /// A bot's research reports: the answer to [`ClientMsg::ListReports`]
+    /// and [`ClientMsg::DeleteReport`].
+    Reports {
+        /// Bot id.
+        bot: String,
+        /// Newest first.
+        reports: Vec<ReportInfo>,
     },
     /// Something the client asked for went wrong.
     Error {
@@ -826,6 +865,38 @@ pub struct AllowRule {
     pub created_ms: i64,
 }
 
+/// A research report as a client shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportView {
+    /// Bot id.
+    pub bot: String,
+    /// [`ReportInfo::id`].
+    pub id: String,
+    /// Its title.
+    pub title: String,
+    /// When it was saved, in milliseconds since the Unix epoch.
+    pub created_ms: i64,
+    /// The whole report as one HTML document, made safe by the server: no
+    /// scripts, no images, links only to its sources. Shown in a sandboxed
+    /// frame.
+    pub html: String,
+}
+
+/// One research report in a bot's list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportInfo {
+    /// Its id, e.g. `r_3f…`.
+    pub id: String,
+    /// Its title.
+    pub title: String,
+    /// One line about it.
+    pub summary: String,
+    /// When it was saved, in milliseconds since the Unix epoch.
+    pub created_ms: i64,
+    /// How many sources it cites.
+    pub sources: u32,
+}
+
 /// The user's answer to an [`Approval`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -963,6 +1034,18 @@ pub enum EventKind {
         target: String,
         /// The site.
         site: String,
+    },
+    /// The bot saved a research report: a card in the chat that opens it
+    /// (see [`ClientMsg::OpenReport`]). The event's time is the report's.
+    Report {
+        /// [`ReportInfo::id`].
+        id: String,
+        /// Its title.
+        title: String,
+        /// One line about it.
+        summary: String,
+        /// How many sources it cites.
+        sources: u32,
     },
     /// oxbot refused something the bot tried (shown as a red line).
     Blocked {
@@ -1231,6 +1314,77 @@ mod tests {
         })
         .unwrap();
         assert!(line.contains(r#""kind":"allowed_by_rule""#), "{line}");
+    }
+
+    #[test]
+    fn reports_go_back_and_forth() {
+        let open: ClientMsg =
+            serde_json::from_str(r#"{"type":"open_report","bot":"cafes","id":"r_1"}"#).unwrap();
+        assert_eq!(
+            open,
+            ClientMsg::OpenReport {
+                bot: "cafes".into(),
+                id: "r_1".into(),
+                utc_offset_min: None
+            }
+        );
+        let local: ClientMsg = serde_json::from_str(
+            r#"{"type":"open_report","bot":"cafes","id":"r_1","utc_offset_min":-300}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            local,
+            ClientMsg::OpenReport {
+                utc_offset_min: Some(-300),
+                ..
+            }
+        ));
+        let list: ClientMsg =
+            serde_json::from_str(r#"{"type":"list_reports","bot":"cafes"}"#).unwrap();
+        assert_eq!(
+            list,
+            ClientMsg::ListReports {
+                bot: "cafes".into()
+            }
+        );
+        let delete: ClientMsg =
+            serde_json::from_str(r#"{"type":"delete_report","bot":"cafes","id":"r_1"}"#).unwrap();
+        assert_eq!(
+            delete,
+            ClientMsg::DeleteReport {
+                bot: "cafes".into(),
+                id: "r_1".into()
+            }
+        );
+        let view = ServerMsg::Report(ReportView {
+            bot: "cafes".into(),
+            id: "r_1".into(),
+            title: "Coffee".into(),
+            created_ms: 5,
+            html: "<p>x</p>".into(),
+        });
+        let json = serde_json::to_string(&view).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"report","bot":"cafes","id":"r_1","title":"Coffee","created_ms":5,"html":"<p>x</p>"}"#
+        );
+        assert_eq!(serde_json::from_str::<ServerMsg>(&json).unwrap(), view);
+        let event = serde_json::to_string(&BotEvent {
+            bot: "cafes".into(),
+            seq: 4,
+            ts_ms: 5,
+            kind: EventKind::Report {
+                id: "r_1".into(),
+                title: "Coffee".into(),
+                summary: "Cafe A wins.".into(),
+                sources: 2,
+            },
+        })
+        .unwrap();
+        assert_eq!(
+            event,
+            r#"{"bot":"cafes","seq":4,"ts_ms":5,"kind":"report","id":"r_1","title":"Coffee","summary":"Cafe A wins.","sources":2}"#
+        );
     }
 
     #[test]

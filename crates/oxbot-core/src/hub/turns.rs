@@ -158,6 +158,7 @@ impl Hub {
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
         runtime.asker = person.cloned();
+        runtime.question = Some(text.chars().take(crate::report::MAX_QUESTION).collect());
         // The taint stays: Claude still remembers what earlier turns read.
         drop(runtimes);
         self.announce_bots().await;

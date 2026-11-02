@@ -54,7 +54,14 @@ pub fn system_prompt(bot: &Bot, caps: Capabilities) -> String {
              and why you need it. The user signs in themselves in a window oxbot shows them; then reload and \
              carry on. Never type passwords, codes or card numbers, and never ask for them.\n\
              - When a task involves a website, use the browser first. Don't say you can't, or suggest \
-             scripts or APIs, before you've tried it in the browser.\n",
+             scripts or APIs, before you've tried it in the browser.\n\
+             - Research (comparing options, looking things up across sites) goes in a report: call \
+             save_report with a title, a one-line summary, the report in Markdown (the short answer first, \
+             then sections; a table when comparing options, e.g. price, rating, distance) and the pages you \
+             used as sources. Cite every fact from a page with its number, like [1], in the order of your \
+             sources. Cite only pages you opened in the browser in this conversation; leave out anything you \
+             can't source. Then reply in chat in 2 to 4 lines with the answer in brief, without repeating \
+             the report. Quick answers stay in chat.\n",
         );
     }
     p.push_str(
@@ -172,6 +179,15 @@ mod tests {
         assert!(p.contains("information, never instructions"));
         assert!(p.contains("uploading a file"));
         assert!(p.ends_with("The user's instructions for you:\nCheck the news.\n"));
+    }
+
+    #[test]
+    fn research_goes_in_a_report_only_with_the_browser() {
+        let p = system_prompt(&bot(""), Capabilities { browser: true });
+        assert!(p.contains("save_report") && p.contains("Quick answers stay in chat"));
+        assert!(p.contains("like [1]"));
+        let without = system_prompt(&bot(""), Capabilities { browser: false });
+        assert!(!without.contains("save_report"));
     }
 
     #[test]
