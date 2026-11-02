@@ -7,8 +7,8 @@ servers, no push services, telemetry off.
 Status: desktop app on the Mac plus the Android Gate app (milestone Foundations, issue #1). Shared
 bots share one hidden home Chrome that keeps your sign-ins: a bot that needs an account asks, a
 Chrome window opens, you sign in once, and every bot on that Chrome stays signed in (a sign-in
-counts only if the window left a new cookie). The sidebar lists the signed-in sites; open one, or sign out of it
-alone. Bots take turns on the browser. oxbot checks every browser step: links, tabs, search,
+counts only if the window left a new cookie). Settings → Sign-ins lists the signed-in sites (the
+sidebar's Signed in link opens it); open one, or sign out of it alone. Bots take turns on the browser. oxbot checks every browser step: links, tabs, search,
 filters, sorting and paging run at once; a red card comes before anything that changes something
 (Send, Post, Save, Apply…, or a filled-in POST form's button), and before paying, booking or
 deleting; a card comes before an upload from your Mac; and it refuses passwords, page scripts,
@@ -21,6 +21,14 @@ without asking, with a quiet line in the chat. Paying, booking, deleting, Enter 
 uploads and Herder's cards never offer it. The bot's ··· settings list its rules, each with Remove.
 Open cards sit right above the message box, newest nearest it, whichever bot is open; the card
 area scrolls on its own so the box stays on screen, on a phone too.
+
+The sidebar: search finds a bot by name as you type (Enter opens the first match). Group bots by
+section or by who made them. Sections are your own: make, rename and delete them, and drag a bot
+onto one or use its menu; the Farm keeps them for each person, so your Mac and phone match, and
+nobody else sees yours. You may file any bot you're shown, even someone else's: it changes only
+your view. Right-click a bot (long-press on a phone) to rename it, make it private or shared,
+move it to a section or delete it, with the same rules as its ··· settings. Herder stays at the
+top. The bottom row: Settings, Add a Gate (the Farm only) and Signed in.
 
 Herder (the central bot, once called the Assistant) leads your bots: it can list them, create
 one (after you press Create on a card), give a bot a task and bring back its reply. Other bots

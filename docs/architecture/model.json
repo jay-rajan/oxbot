@@ -105,7 +105,7 @@
     {
       "id": "sqlite",
       "label": "SQLite",
-      "sub": "history, people (ids), sites per owner, usage, gates",
+      "sub": "history, people (ids), sites per owner, usage, gates, sections",
       "kind": "store",
       "status": "built",
       "m": 2,
@@ -512,6 +512,18 @@
         "Herder may task its asker's own private bots; a session that has read web content, other bots' replies or other people's bot descriptions stays tainted and asks first with a GiveTask card (asker or Farm answers). Replies and purposes arrive as escaped data blocks; Herders can't task or read each other",
         "Sign-ins are kept only if the window left a new cookie"
       ]
+    },
+    {
+      "m": "Step 2",
+      "date": "2026-11-02",
+      "title": "Sidebar: sections, search, group by, right-click, bottom row (#2)",
+      "items": [
+        "Each person's own sidebar sections, kept by the server (migration 13: sections, bot_sections, every row keyed by person), so the Mac and the phone match; nobody else, the Farm included, gets them, and they never reach Claude",
+        "store/sections.rs and hub/sections.rs: names one line, at most 40 characters, unique ignoring case; 50 per person; any listed bot but Herder can be filed (it changes only your view); deleting a bot clears everyone's placements",
+        "Protocol: CreateSection, RenameSection, DeleteSection, MoveBot; ServerMsg::Sections routed by a server-only owner id. The phone's offline copy keeps the latest Sections",
+        "Page: search (case and accent blind), group by Sections or People (per device), collapsible section headers, drag onto a section, a right-click (long-press) menu with the same rules as the ··· dialog, and a bottom row of Settings, Add a Gate (Farm only) and a Signed in link; the sidebar's Signed in list is gone",
+        "e2e: a right_click step kind"
+      ]
     }
   ],
   "next": {
@@ -840,7 +852,7 @@
             "h": 150,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions (tainted_by), people (id, name, color, folder, Herder, Farm), sites per owner, usage, gates. Migrations 1\u201311."
+            "desc": "events, sessions (tainted_by), people (id, name, color, folder, Herder, Farm), sites per owner, usage, gates, Always allow rules, each person\u2019s sidebar sections. Migrations 1\u201313."
           },
           {
             "id": "server",
@@ -1320,7 +1332,7 @@
             "h": 170,
             "name": "Protocol",
             "tech": "oxbot-protocol",
-            "desc": "Wire types: ClientMsg (OpenBot, Older), ServerMsg (History pages: 200, max 500), BotInfo (can_manage, locked), Sites, Approval (GiveTask)\u2026 Shared with every client."
+            "desc": "Wire types: ClientMsg (OpenBot, Older), ServerMsg (History pages: 200, max 500), BotInfo (can_manage, locked), Sites, Sections (create, rename, delete, move_bot), Approval (GiveTask)\u2026 Shared with every client."
           },
           {
             "id": "web",
@@ -1361,7 +1373,7 @@
             "h": 150,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, rules, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped. Always-allow rules: set by the bot\u2019s owner or the Farm from the stored card; one applies only if Chrome says the tab is on its host."
+            "desc": "hub/: access, people, browsers, sign_ins, sections (each person\u2019s own; never in prompts), team, approvals, rules, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped. Always-allow rules: set by the bot\u2019s owner or the Farm from the stored card; one applies only if Chrome says the tab is on its host."
           },
           {
             "id": "policy",
@@ -1381,7 +1393,7 @@
             "h": 175,
             "name": "Store",
             "tech": "oxbot-core::store",
-            "desc": "store/: migrations (1\u201312; refuses a newer DB; VACUUM INTO backup before a rebuild), events (pages), sessions (tainted_by), people, sites per owner, gates, usage, allow_rules."
+            "desc": "store/: migrations (1\u201313; refuses a newer DB; VACUUM INTO backup before a rebuild), events (pages), sessions (tainted_by), people, sites per owner, gates, usage, allow_rules, sections (scoped by person)."
           },
           {
             "id": "bots",
@@ -1422,7 +1434,7 @@
             "h": 90,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people, sites, usage, gates"
+            "desc": "events, sessions, people, sites, usage, gates, sections"
           },
           {
             "id": "folders",
