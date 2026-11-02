@@ -973,7 +973,7 @@ fn always_allow_rules_come_with_migration_12() {
 }
 
 #[test]
-fn sections_come_with_migration_13_and_stay_each_persons() {
+fn a_version_12_database_gets_sections_and_keeps_its_rules() {
     // A database from the previous release (version 12, with an "Always
     // allow" rule) upgrades to 13 and keeps its rule.
     let tmp = tempfile::tempdir().unwrap();
@@ -1011,7 +1011,11 @@ fn sections_come_with_migration_13_and_stay_each_persons() {
         !tmp.path().join("oxbot.db.v12.bak").exists(),
         "new tables need no copy"
     );
+}
 
+#[test]
+fn sections_stay_each_persons() {
+    let store = Store::open_in_memory().unwrap();
     let (jay, sam) = (PersonId::random(), PersonId::random());
     let kitchen = store
         .create_section(&jay, "Kitchen", Some(&bot("recipes")), 50)
