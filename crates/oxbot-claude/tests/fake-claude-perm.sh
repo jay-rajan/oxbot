@@ -7,11 +7,18 @@
 #   createbot: asks to call create_bot ("Mail Checker"), then calls it;
 #   task: asks to call give_task (bot "helper", "say hi"), then calls it;
 #   list: asks to call list_bots, then calls it.
+# With FAKE_PRIVATE set, create_bot asks for a private bot.
+# With FAKE_NO_PAGE set it skips the page snapshot, so its turn reads no web
+# page before the tool.
 # It replies with oxbot's answer ("behavior=allow" / "behavior=deny", or
 # "signed_in=true|false" for a sign-in, "tool_ok=true|false" for the other
 # oxbot tools, with the tool's text after it), and reports plan limits and
 # usage.
 tool=${FAKE_TOOL:-upload}
+cb_input='{"name":"Mail Checker","instructions":"Check my mail."}'
+if [ -n "$FAKE_PRIVATE" ]; then
+  cb_input='{"name":"Mail Checker","instructions":"Check my mail.","private":true}'
+fi
 n=0
 finish() {
   printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"c%s","content":"done"}]},"parent_tool_use_id":null}\n' "$n"
@@ -34,7 +41,7 @@ while IFS= read -r line; do
       if [ "$tool" = signin ] && [ "$behavior" = allow ]; then
         printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"request_sign_in","arguments":{"url":"https://mail.example.com/login","why":"to read your mail"}}}}}\n' "$n" "$n"
       elif [ "$tool" = createbot ] && [ "$behavior" = allow ]; then
-        printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"create_bot","arguments":{"name":"Mail Checker","instructions":"Check my mail."}}}}}\n' "$n" "$n"
+        printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"create_bot","arguments":%s}}}}\n' "$n" "$n" "$cb_input"
       elif [ "$tool" = list ] && [ "$behavior" = allow ]; then
         printf '{"type":"control_request","request_id":"m%s","request":{"subtype":"mcp_message","server_name":"oxbot","message":{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"list_bots","arguments":{}}}}}\n' "$n" "$n"
       elif [ "$tool" = task ] && [ "$behavior" = allow ]; then
@@ -48,8 +55,10 @@ while IFS= read -r line; do
     *'"type":"user"'*)
       n=$((n+1))
       printf '{"type":"system","subtype":"init","session_id":"s","model":"fake"}\n'
+      if [ -z "$FAKE_NO_PAGE" ]; then
       printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"s%s","name":"mcp__chrome-devtools__take_snapshot","input":{}}]},"parent_tool_use_id":null}\n' "$n"
       printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"s%s","content":"## Pages\\n1: Jobs (https://jobs.example.com/apply) [selected]\\n## Latest page snapshot\\nuid=1_1 RootWebArea \\"Jobs\\"\\n  uid=1_2 button \\"Upload CV\\"\\n  uid=1_3 button \\"Post\\""}]},"parent_tool_use_id":null}\n' "$n"
+      fi
       case "$tool" in
         post)
           printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c%s","name":"mcp__chrome-devtools__click","input":{"uid":"1_3"}}]},"parent_tool_use_id":null}\n' "$n"
@@ -58,7 +67,7 @@ while IFS= read -r line; do
           printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c%s","name":"mcp__oxbot__request_sign_in","input":{"url":"https://mail.example.com/login","why":"to read your mail"}}]},"parent_tool_use_id":null}\n' "$n"
           printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__request_sign_in","input":{"url":"https://mail.example.com/login","why":"to read your mail"},"tool_use_id":"c%s"}}\n' "$n" "$n" ;;
         createbot)
-          printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__create_bot","input":{"name":"Mail Checker","instructions":"Check my mail."},"tool_use_id":"c%s"}}\n' "$n" "$n" ;;
+          printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__create_bot","input":%s,"tool_use_id":"c%s"}}\n' "$n" "$cb_input" "$n" ;;
         task)
           printf '{"type":"control_request","request_id":"r%s","request":{"subtype":"can_use_tool","tool_name":"mcp__oxbot__give_task","input":{"bot":"helper","message":"say hi"},"tool_use_id":"c%s"}}\n' "$n" "$n" ;;
         list)

@@ -290,7 +290,7 @@ impl Hub {
                 std::path::Path::to_path_buf,
             )
             .join("trash");
-        let moved = bot.move_to(&trash, now_ms())?;
+        bot.move_to(&trash, now_ms())?;
         self.bots
             .write()
             .unwrap_or_else(PoisonError::into_inner)
@@ -299,7 +299,7 @@ impl Hub {
             .id
             .as_ref()
             .map_or_else(|| "the Farm".to_owned(), ToString::to_string);
-        tracing::info!(bot = %bot.id, by, to = %moved.display(), "deleted a bot");
+        tracing::info!(bot = %bot.id, by, "deleted a bot; its folder is in the trash");
         Ok(())
     }
 

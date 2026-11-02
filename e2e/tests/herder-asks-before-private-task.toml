@@ -1,0 +1,29 @@
+name = "Herder asks before tasking your private bot after reading the web"
+about = "After Herder reads a web page, passing a task to your own private bot shows a card with the whole task; no stops it, yes sends it."
+covers = ["crates/oxbot-core/src/hub/team.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Herder"
+[[step]]
+send = "read the page, then ask journal to note it"
+[[step]]
+wait_for = "Give the task"
+[[step]]
+expect = "Journal (private, Jay's sign-ins)"
+note = "The card names the private bot and whose sign-ins it uses"
+[[step]]
+expect = "Write down: call the plumber"
+note = "The whole task, word for word"
+[[step]]
+click = "Don't give it"
+[[step]]
+wait_for = "The user said no to giving Journal this task"
+[[step]]
+send = "read the page, then ask journal to note it"
+[[step]]
+wait_for = "Give the task"
+[[step]]
+click = "Give the task"
+[[step]]
+wait_for = "Journal says:"
+note = "Sent after the yes"

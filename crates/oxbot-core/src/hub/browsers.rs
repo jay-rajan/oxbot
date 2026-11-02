@@ -233,10 +233,10 @@ impl Hub {
         };
         shared.browser.sign_out().await?;
         lock(&shared.last).take();
-        for site in self.store.sites(&owner).unwrap_or_default() {
-            let _ = self.store.remove_site(&owner, &site.site);
-        }
+        let cleared = self.store.clear_sites(&owner);
         self.announce_sites(&shared);
+        // The browser is signed out either way; say so if the list wasn't cleared.
+        cleared?;
         self.notice_for(
             self.owner_label(&owner),
             "Signed out of every site. Bots will ask you to sign in again where they need to.",

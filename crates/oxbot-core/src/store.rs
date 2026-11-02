@@ -761,6 +761,47 @@ impl Store {
         )? > 0)
     }
 
+    /// Forgets every site for `owner`'s browser, in one go. Returns how
+    /// many there were.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails (then none are forgotten).
+    pub fn clear_sites(&self, owner: impl AsRef<str>) -> Result<usize, StoreError> {
+        Ok(self
+            .conn()
+            .execute("DELETE FROM sites WHERE owner = ?1", [owner.as_ref()])?)
+    }
+
+    /// Forgets `owner`'s sites that aren't in `held` (the sites its browser
+    /// still has cookies for), in one transaction. Returns the ones
+    /// forgotten.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails (then none are forgotten).
+    pub fn keep_only_sites(
+        &self,
+        owner: impl AsRef<str>,
+        held: &[String],
+    ) -> Result<Vec<String>, StoreError> {
+        let owner = owner.as_ref();
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let known: Vec<String> = {
+            let mut stmt = tx.prepare("SELECT site FROM sites WHERE owner = ?1")?;
+            let rows = stmt.query_map([owner], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let gone: Vec<String> = known.into_iter().filter(|s| !held.contains(s)).collect();
+        for site in &gone {
+            tx.execute(
+                "DELETE FROM sites WHERE owner = ?1 AND site = ?2",
+                params![owner, site],
+            )?;
+        }
+        tx.commit()?;
+        Ok(gone)
+    }
+
     /// The sites `owner`'s browser signed in to, newest first.
     ///
     /// # Errors
@@ -1244,6 +1285,33 @@ mod tests {
 
     fn bot(id: &str) -> BotId {
         BotId::new(id).unwrap()
+    }
+
+    #[test]
+    fn sites_are_cleared_or_trimmed_per_browser() {
+        let store = Store::open_in_memory().unwrap();
+        for site in ["a.example", "b.example", "c.example"] {
+            store.add_site(HOME, site).unwrap();
+        }
+        store.add_site("p_1", "a.example").unwrap();
+        let gone = store
+            .keep_only_sites(HOME, &["b.example".to_owned()])
+            .unwrap();
+        assert_eq!(gone, ["a.example", "c.example"]);
+        let left: Vec<_> = store
+            .sites(HOME)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.site)
+            .collect();
+        assert_eq!(left, ["b.example"]);
+        assert_eq!(store.clear_sites(HOME).unwrap(), 1);
+        assert_eq!(store.sites(HOME).unwrap().len(), 0);
+        assert_eq!(
+            store.sites("p_1").unwrap().len(),
+            1,
+            "other browsers keep theirs"
+        );
     }
 
     #[test]

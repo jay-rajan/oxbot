@@ -124,7 +124,7 @@ async fn the_shared_browser_keeps_its_profile_until_sign_out() {
         browser.cookie_sites().await.unwrap(),
         ["google.com", "substack.com"]
     );
-    assert_eq!(browser.forget_site("substack.com").await.unwrap(), 2);
+    assert_eq!(browser.sign_out_site("substack.com").await.unwrap(), 2);
     assert_eq!(browser.cookie_sites().await.unwrap(), ["google.com"]);
 
     let other = tmp.path().join("bot2/downloads");

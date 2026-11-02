@@ -1130,13 +1130,27 @@ function renderCards() {
     if (a.kind === "create_bot") {
       // Herder wants to make a bot: show its name and instructions.
       const card = div("card newbot");
-      const h = document.createElement("h3"); h.textContent = `${who} wants to create a bot: ${a.target}`;
+      // The server says who it's for: "create a private bot for Sam" or "create a shared bot".
+      const h = document.createElement("h3"); h.textContent = `${who} wants to ${a.action || "create a bot"}: ${a.target}`;
       const where = div("where"); where.textContent = "It will follow these instructions. You can change or remove it later.";
       card.append(h, where);
       if (a.detail) { const pre = document.createElement("pre"); pre.textContent = a.detail; card.appendChild(pre); }
       const btns = div("btns");
       btn(btns, "Create", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
       btn(btns, "Don't create", "ghost", () => send({ type: "answer", id: a.id, answer: "deny" }));
+      card.appendChild(btns); box.appendChild(card);
+      continue;
+    }
+    if (a.kind === "give_task") {
+      // Herder read a web page or another bot's reply, then wants to use a private bot: show the whole task.
+      const card = div("card change");
+      const h = document.createElement("h3"); h.textContent = `⚠ ${who} wants to ${a.action} ${a.target}`;
+      const where = div("where"); where.textContent = "Herder read a web page or another bot's reply this turn, which may have asked for this. The task, word for word:";
+      card.append(h, where);
+      const pre = document.createElement("pre"); pre.textContent = a.detail || ""; card.appendChild(pre);
+      const btns = div("btns");
+      btn(btns, "Give the task", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
+      btn(btns, "Don't give it", "deny red", () => send({ type: "answer", id: a.id, answer: "deny" }));
       card.appendChild(btns); box.appendChild(card);
       continue;
     }

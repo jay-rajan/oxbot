@@ -311,9 +311,14 @@ impl Browser {
     /// storage, databases, caches). Other sites stay signed in. Returns how
     /// many cookies went. Starts hidden Chrome if it's off.
     ///
+    /// The site's history and saved icon stay: Chrome's remote control has
+    /// no call to delete one site's history, and Chrome holds its `History`
+    /// and `Favicons` files open while it runs, so they can't be edited
+    /// safely either.
+    ///
     /// # Errors
     /// Fails if Chrome can't start or refuses.
-    pub async fn forget_site(self: &Arc<Self>, site: &str) -> Result<usize, BrowserError> {
+    pub async fn sign_out_site(self: &Arc<Self>, site: &str) -> Result<usize, BrowserError> {
         let site = site_of(site);
         let cookies = self.cookies().await?;
         let guard = self.guard.lock().await;
@@ -352,12 +357,7 @@ impl Browser {
                 tracing::debug!(host, err, "couldn't clear site data");
             }
         }
-        tracing::info!(
-            browser = self.label,
-            site,
-            cookies = gone,
-            "signed out of one site"
-        );
+        tracing::info!(cookies = gone, "signed out of one site");
         Ok(gone)
     }
 

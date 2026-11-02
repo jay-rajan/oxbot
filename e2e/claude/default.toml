@@ -20,6 +20,13 @@ args = { bot = "bank", message = "what's my balance?" }
 after = "{result}"
 
 [[reply]]
+when = "ask journal"
+snapshot = "## Pages\n1: Notes (https://notes.example.com/) [selected]\n## Latest page snapshot\nuid=1_1 RootWebArea \"Notes\""
+tool = "give_task"
+args = { bot = "journal", message = "Write down: call the plumber" }
+after = "Journal says: {result}"
+
+[[reply]]
 when = "post it"
 tool = "mcp__chrome-devtools__click"
 args = { uid = "1_3" }

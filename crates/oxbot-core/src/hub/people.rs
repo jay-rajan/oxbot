@@ -9,7 +9,7 @@ use std::sync::PoisonError;
 use oxbot_protocol::{GateInfo, Person, ServerMsg};
 
 use super::{Hub, HubError, MAX_PERSON, RESERVED_PEOPLE, lock};
-use crate::bot::{Bot, CENTRAL_NAME, DEFAULT_BOT, Viewer};
+use crate::bot::{Bot, CENTRAL_NAME, DEFAULT_BOT, Viewer, is_personal_herder};
 use crate::id::{BotId, PersonId};
 use crate::store::{PersonRecord, Store};
 
@@ -162,7 +162,7 @@ impl Hub {
     }
 
     /// The Farm's person's id, if chosen.
-    fn farm_id(&self) -> Option<PersonId> {
+    pub(super) fn farm_id(&self) -> Option<PersonId> {
         if let Some(id) = lock(&self.farm).clone() {
             return Some(id);
         }
@@ -177,6 +177,21 @@ impl Hub {
                 tracing::warn!(bot = %bot.id, %err, "couldn't give a bot its owner");
             }
         }
+    }
+
+    /// Whether `herder` is `asker`'s own Herder: their personal one, or the
+    /// Farm's (`assistant`) when they are the Farm's person. Compared by
+    /// person id.
+    pub(super) fn is_own_herder(&self, herder: &BotId, asker: &Viewer) -> bool {
+        let Some(person) = asker.id.as_ref() else {
+            return false;
+        };
+        if herder.as_str() == DEFAULT_BOT {
+            return self.farm_id().as_ref() == Some(person);
+        }
+        self.bot(herder.as_str()).is_ok_and(|b| {
+            is_personal_herder(b.id.as_str()) && b.private && b.owner.as_ref() == Some(person)
+        })
     }
 
     /// Which Herder `viewer` talks to: the Farm and the Farm's own person

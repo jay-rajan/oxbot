@@ -76,25 +76,39 @@ impl Hub {
         let host = web_host(&url).ok_or_else(|| HubError::BadSite(url.clone()))?;
         let shared = self.idle_browser(&owner.into())?;
         *lock(&shared.adding_site) = Some(host);
-        shared.browser.open_window(&url).await?;
+        if let Err(err) = shared.browser.open_window(&url).await {
+            // No window, so nothing to add when one closes.
+            lock(&shared.adding_site).take();
+            return Err(err.into());
+        }
         Ok(())
     }
 
     /// Checks a browser's list against its cookies, drops sites it's no
-    /// longer signed in to (say, the window closed before signing in), and
+    /// longer signed in to (say, the window closed before signing in, or
+    /// the address was mistyped; never one on the home network), and
     /// tells every client. Returns whether the cookies could be read.
     pub(super) async fn refresh_sites(&self, shared: &Shared) -> bool {
         let checked = match shared.browser.cookie_sites().await {
-            Ok(held) => {
-                for site in self.store.sites(&shared.owner).unwrap_or_default() {
-                    if !held.contains(&site.site) {
-                        tracing::info!(
-                            site = site.site,
-                            browser = %shared.owner,
-                            "no sign-in cookies left; dropping it"
-                        );
-                        let _ = self.store.remove_site(&shared.owner, &site.site);
-                    }
+            Ok(mut held) => {
+                // Devices on the home network often sign in without cookies
+                // (a router's password box): cookies say nothing about them.
+                held.extend(
+                    self.store
+                        .sites(&shared.owner)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|s| s.site)
+                        .filter(|s| oxbot_browser::is_home_network(&format!("https://{s}/"))),
+                );
+                match self.store.keep_only_sites(&shared.owner, &held) {
+                    Ok(gone) if !gone.is_empty() => tracing::info!(
+                        browser = %shared.owner,
+                        dropped = gone.len(),
+                        "no sign-in cookies left for some sites; dropped them"
+                    ),
+                    Ok(_) => {}
+                    Err(err) => tracing::warn!(%err, "couldn't drop signed-out sites"),
                 }
                 if let Err(err) = self.store.site_check_done(&shared.owner) {
                     tracing::warn!(%err, "couldn't note the sites were checked");
@@ -155,12 +169,11 @@ impl Hub {
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
             return Err(self.busy_error(&shared));
         };
-        shared.browser.forget_site(site).await?;
-        if let Err(err) = self.store.remove_site(&owner, site) {
-            tracing::warn!(%err, "couldn't forget the site");
-        }
+        shared.browser.sign_out_site(site).await?;
+        let removed = self.store.remove_site(&owner, site);
         lock(&shared.last).take();
         self.announce_sites(&shared);
+        removed?;
         self.notice_for(
             self.owner_label(&owner),
             &format!("Signed out of {site}. Bots will ask you to sign in again if they need it."),
@@ -201,10 +214,10 @@ impl Hub {
             bot: bot.to_string(),
             text: format!("Waiting for you to sign in to {site}…"),
         });
-        tracing::info!(%bot, site, browser = %shared.owner, "asking the user to sign in");
+        tracing::info!(%bot, browser = %shared.owner, "asking the user to sign in");
         // Open the sign-in window right away; the card's button is the fallback.
         if let Err(err) = self.open_sign_in(id).await {
-            tracing::warn!(%bot, site, %err, "couldn't open the sign-in window");
+            tracing::warn!(%bot, %err, "couldn't open the sign-in window");
         }
 
         let minutes = self.config.sign_in_timeout.as_secs() / 60;
@@ -309,12 +322,20 @@ impl Hub {
 
     /// A browser's sign-in window closed: requests on it whose window was
     /// open count as done (the user closes it when they've signed in).
-    pub(super) fn sign_in_window_closed(&self, shared: &Shared) {
+    /// A site added from Settings is kept only if the browser now has
+    /// cookies for it (a cancelled or mistyped sign-in leaves none).
+    pub(super) fn sign_in_window_closed(&self, shared: &Arc<Shared>) {
         if let Some(host) = lock(&shared.adding_site).take() {
             if let Err(err) = self.store.add_site(&shared.owner, &site_of(&host)) {
                 tracing::warn!(%err, "couldn't remember the site");
             }
             self.announce_sites(shared);
+            if let Some(hub) = self.me.upgrade() {
+                let shared = Arc::clone(shared);
+                tokio::spawn(async move {
+                    hub.refresh_sites(&shared).await;
+                });
+            }
         }
         let ids: Vec<u64> = lock(&self.sign_ins)
             .iter()

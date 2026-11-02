@@ -95,9 +95,11 @@ impl Hub {
         }
         if !servers.is_empty() {
             config.mcp_config = Some(json!({ "mcpServers": servers }).to_string());
-            // A sign-in or a task can take minutes: let a tool call wait that long.
-            let wait =
-                self.config.sign_in_timeout.max(self.config.task_timeout) + Duration::from_mins(1);
+            // A sign-in or a task can take minutes, and a task for a private
+            // bot may wait for a card first: let a tool call wait that long.
+            let wait = self.config.sign_in_timeout.max(self.config.task_timeout)
+                + self.config.approval_timeout
+                + Duration::from_mins(1);
             config
                 .extra_env
                 .push(("MCP_TOOL_TIMEOUT".to_owned(), wait.as_millis().to_string()));
@@ -123,6 +125,7 @@ impl Hub {
             page: None,
             elements: HashMap::new(),
             asker: None,
+            tainted: false,
         })
     }
 
@@ -190,6 +193,7 @@ impl Hub {
                         .is_some_and(|n| n.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")));
                     if is_browser {
                         learn_from_result(r, &text);
+                        r.tainted = true;
                     }
                     r.last_active = Instant::now();
                 }

@@ -143,10 +143,62 @@ impl Hub {
         ask: policy::Ask,
         page: Option<(String, String)>,
     ) -> Result<Decision, HubError> {
+        let ask = self.with_maker(bot, ask).await;
+        let outcome = self.confirm(bot, &ask, page).await?;
+        Ok(match outcome {
+            Outcome::Allowed => Decision::Allow,
+            Outcome::TimedOut => Decision::Deny(format!(
+                "The user didn't answer within {} minutes, so oxbot said no. Tell them what you \
+                 wanted to do, and stop.",
+                self.config.approval_timeout.as_secs() / 60
+            )),
+            Outcome::Denied => Decision::Deny(format!(
+                "The user said no to: {} {}. Don't try another way; tell them what you wanted to \
+                 do, and stop.",
+                ask.action, ask.target
+            )),
+        })
+    }
+
+    /// A create-bot card says who the bot will be for: the person whose
+    /// turn asked for it (private), or everyone (shared).
+    async fn with_maker(&self, bot: &Bot, mut ask: policy::Ask) -> policy::Ask {
+        if ask.kind != ApprovalKind::CreateBot {
+            return ask;
+        }
+        let private = ask.action.contains("private");
+        let asker = self
+            .runtimes
+            .lock()
+            .await
+            .get(&bot.id)
+            .and_then(|r| r.asker.clone());
+        let name = asker.as_ref().and_then(|id| self.person_name(id));
+        ask.action = match (private, name) {
+            (true, Some(name)) => format!("create a private bot for {name}"),
+            (true, None) => "create a private bot".to_owned(),
+            (false, _) => "create a shared bot".to_owned(),
+        };
+        ask
+    }
+
+    /// Shows the person `bot`'s turn acts for (and the Farm) a card for
+    /// `ask`, waits for their answer, and records it in `bot`'s chat. No
+    /// answer within `approval_timeout` is a no.
+    ///
+    /// # Errors
+    /// Fails if the answer can't be recorded.
+    pub(super) async fn confirm(
+        &self,
+        bot: &Bot,
+        ask: &policy::Ask,
+        page: Option<(String, String)>,
+    ) -> Result<Outcome, HubError> {
         let bot_id = &bot.id;
         let screenshot = match self.browser_of(bot) {
-            // A new bot has nothing to do with the page on screen.
-            _ if ask.kind == ApprovalKind::CreateBot => None,
+            // A new bot or a task for another bot has nothing to do with
+            // the page on screen.
+            _ if matches!(ask.kind, ApprovalKind::CreateBot | ApprovalKind::GiveTask) => None,
             Some(s) => {
                 s.browser
                     .screenshot(page.as_ref().map(|(_, u)| u.as_str()))
@@ -181,45 +233,26 @@ impl Hub {
             bot: bot_id.to_string(),
             text: "Waiting for your OK…".to_owned(),
         });
-        tracing::info!(bot = %bot_id, action = ask.action, site = ask.site, "asking the user");
+        tracing::info!(bot = %bot_id, kind = ?ask.kind, "asking the user");
 
-        let answer = match tokio::time::timeout(self.config.approval_timeout, rx).await {
-            Ok(Ok(answer)) => Some(answer),
-            Ok(Err(_)) => Some(Answer::Deny),
+        let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
+            Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
+            Ok(Ok(Answer::Deny) | Err(_)) => Outcome::Denied,
             Err(_) => {
                 self.answer(id, Answer::Deny);
-                None
+                Outcome::TimedOut
             }
-        };
-        let (outcome, decision) = match answer {
-            None => (
-                Outcome::TimedOut,
-                Decision::Deny(format!(
-                    "The user didn't answer within {} minutes, so oxbot said no. Tell them what you \
-                     wanted to do, and stop.",
-                    self.config.approval_timeout.as_secs() / 60
-                )),
-            ),
-            Some(Answer::Deny) => (
-                Outcome::Denied,
-                Decision::Deny(format!(
-                    "The user said no to: {} {}. Don't try another way; tell them what you wanted to \
-                     do, and stop.",
-                    ask.action, ask.target
-                )),
-            ),
-            Some(Answer::AllowOnce) => (Outcome::Allowed, Decision::Allow),
         };
         self.record(
             bot_id,
             EventKind::Approval {
-                action: ask.action,
-                target: ask.target,
-                site: ask.site,
+                action: ask.action.clone(),
+                target: ask.target.clone(),
+                site: ask.site.clone(),
                 outcome,
             },
         )?;
-        Ok(decision)
+        Ok(outcome)
     }
 }
 

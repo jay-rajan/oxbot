@@ -661,6 +661,9 @@ pub enum ApprovalKind {
     Change,
     /// Herder (the central bot) wants to create a new bot.
     CreateBot,
+    /// Herder wants to pass a task to someone's private bot, after reading
+    /// web pages or other bots' replies (which may have asked it to).
+    GiveTask,
 }
 
 /// Something a bot wants to do that needs the user's yes.

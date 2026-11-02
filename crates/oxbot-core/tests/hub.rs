@@ -46,6 +46,11 @@ fn asking_hub(dir: &Path) -> Arc<Hub> {
 
 /// Like [`asking_hub`], with the fake's `FAKE_TOOL` and more bots.
 fn asking_hub_with(dir: &Path, tool: &str, ids: &[&str]) -> Arc<Hub> {
+    asking_hub_env(dir, tool, ids, &[])
+}
+
+/// Like [`asking_hub_with`], with more environment for the fake.
+fn asking_hub_env(dir: &Path, tool: &str, ids: &[&str], env: &[(&str, &str)]) -> Arc<Hub> {
     let mut tools = ToolsConfig::in_home(&dir.join("home"));
     tools.chrome = PathBuf::from("/no/chrome");
     let package = tools.tools_dir.join("node_modules/chrome-devtools-mcp");
@@ -65,7 +70,9 @@ fn asking_hub_with(dir: &Path, tool: &str, ids: &[&str]) -> Arc<Hub> {
         browser: Some(Tools::new(tools)),
         approval_timeout: Duration::from_secs(5),
         sign_in_timeout: Duration::from_secs(5),
-        extra_env: vec![("FAKE_TOOL".into(), tool.into())],
+        extra_env: std::iter::once(("FAKE_TOOL".to_owned(), tool.to_owned()))
+            .chain(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())))
+            .collect(),
         ..HubConfig::new(&bots)
     };
     Hub::new(all, Store::open_in_memory().unwrap(), config)
@@ -496,6 +503,27 @@ async fn the_assistant_creates_a_bot_only_after_the_users_ok() {
 }
 
 #[tokio::test]
+async fn a_create_bot_card_says_who_the_bot_is_for() {
+    for (env, action) in [
+        (&[][..], "create a shared bot"),
+        (&[("FAKE_PRIVATE", "1")][..], "create a private bot for Sam"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = asking_hub_env(tmp.path(), "createbot", &["assistant"], env);
+        let mut updates = hub.subscribe();
+        hub.send("assistant", "make me a mail bot", Some("Sam"))
+            .await
+            .unwrap();
+        let card = next_card(&mut updates).await;
+        assert_eq!(card.kind, ApprovalKind::CreateBot);
+        assert_eq!(card.action, action);
+        hub.answer(card.id, Answer::Deny);
+        let _ = reply_of(&hub, &mut updates, "assistant").await;
+        hub.shutdown().await;
+    }
+}
+
+#[tokio::test]
 async fn the_assistant_gives_a_task_and_other_bots_cant() {
     let tmp = tempfile::tempdir().unwrap();
     let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]);
@@ -671,6 +699,163 @@ async fn herder_never_relays_a_private_bot() {
         hub.history("helper", 0).unwrap().is_empty(),
         "nothing reached it"
     );
+    hub.shutdown().await;
+}
+
+/// A hub whose Herder gives "helper" a task, with "helper" made private
+/// to the Farm's own person, Jay. `page`: whether each turn reads a web
+/// page first.
+async fn jays_private_helper(
+    dir: &Path,
+    page: bool,
+) -> (Arc<Hub>, oxbot_core::store::PersonRecord) {
+    let env: &[(&str, &str)] = if page { &[] } else { &[("FAKE_NO_PAGE", "1")] };
+    let hub = asking_hub_env(dir, "task", &["assistant", "helper"], env);
+    let jay = hub.farm_person("Jay").unwrap();
+    hub.set_private("helper", true, &hub.farm_viewer("Jay"))
+        .await
+        .unwrap();
+    assert_eq!(hub.bot("helper").unwrap().owner, Some(jay.id.clone()));
+    (hub, jay)
+}
+
+async fn next_card(updates: &mut Receiver<ServerMsg>) -> Approval {
+    next(updates, |m| match m {
+        ServerMsg::ApprovalNeeded(a) => Some(a),
+        _ => None,
+    })
+    .await
+}
+
+fn approvals_in(hub: &Arc<Hub>, bot: &str) -> usize {
+    hub.history(bot, 0)
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e.kind, EventKind::Approval { .. }))
+        .count()
+}
+
+#[tokio::test]
+async fn the_farms_person_tasks_their_private_bot_without_a_card_before_reading_the_web() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (hub, _) = jays_private_helper(tmp.path(), false).await;
+    let mut updates = hub.subscribe();
+
+    hub.send("assistant", "ask the helper to say hi", Some("Jay"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
+    // The reply comes back marked as data (the fake drops its quotes).
+    assert!(
+        said.contains("<bot_reply bot=helper>") && said.contains("</bot_reply>"),
+        "{said}"
+    );
+    assert_eq!(approvals_in(&hub, "assistant"), 0, "no card");
+    let got = hub
+        .history("helper", 0)
+        .unwrap()
+        .into_iter()
+        .any(|e| matches!(e.kind, EventKind::UserMessage { ref text, .. } if text == "say hi"));
+    assert!(got, "the task reached it, stored as sent");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn after_reading_the_web_herder_asks_before_tasking_a_private_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (hub, jay) = jays_private_helper(tmp.path(), true).await;
+    let mut updates = hub.subscribe();
+    // No: nothing reaches the bot, and Herder is told plainly.
+    hub.send("assistant", "ask the helper to say hi", Some("Jay"))
+        .await
+        .unwrap();
+    let asked = next_card(&mut updates).await;
+    assert_eq!(asked.kind, ApprovalKind::GiveTask);
+    assert_eq!(asked.bot, "assistant");
+    assert_eq!(asked.action, "give a task to");
+    assert_eq!(asked.target, "helper (private, Jay's sign-ins)");
+    assert_eq!(asked.site, "oxbot");
+    assert_eq!(asked.detail.as_deref(), Some("say hi"));
+    assert_eq!(asked.asker.as_deref(), Some("Jay"));
+    assert_eq!(asked.screenshot, None);
+    // Only Jay (or the Farm) may answer it.
+    assert!(!hub.approval_visible(asked.id, &Viewer::gate("Sam")));
+    assert!(hub.approval_visible(asked.id, &Viewer::person(jay.id.clone(), "Jay", false)));
+    hub.answer(asked.id, Answer::Deny);
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(
+        said.starts_with("tool_ok=false The user said no to giving helper this task"),
+        "{said}"
+    );
+    assert!(
+        hub.history("helper", 0).unwrap().is_empty(),
+        "nothing reached it"
+    );
+
+    // Yes: the task goes through.
+    hub.send("assistant", "ask the helper to say hi", Some("Jay"))
+        .await
+        .unwrap();
+    let asked = next_card(&mut updates).await;
+    assert_eq!(asked.kind, ApprovalKind::GiveTask);
+    hub.answer(asked.id, Answer::AllowOnce);
+    let said = reply_of(&hub, &mut updates, "assistant").await;
+    assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
+    assert!(!hub.history("helper", 0).unwrap().is_empty(), "delivered");
+    assert_eq!(
+        approvals_in(&hub, "assistant"),
+        2,
+        "both answers are in the chat"
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn someone_elses_herder_cant_task_a_private_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (hub, _) = jays_private_helper(tmp.path(), false).await;
+    let sams = hub.herder_for("Sam").unwrap();
+    let mut updates = hub.subscribe();
+
+    hub.send(sams.as_str(), "ask the helper to say hi", Some("Sam"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, sams.as_str()).await;
+    assert!(
+        said.starts_with("tool_ok=false helper is private to Jay"),
+        "{said}"
+    );
+    assert!(
+        hub.history("helper", 0).unwrap().is_empty(),
+        "nothing reached it"
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_persons_own_herder_tasks_their_private_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_env(
+        tmp.path(),
+        "task",
+        &["assistant", "helper"],
+        &[("FAKE_NO_PAGE", "1")],
+    );
+    let sam = Viewer::gate("Sam");
+    // An unowned bot made private on the Farm under Sam's name becomes his.
+    hub.set_private("helper", true, &Viewer::farm("Sam"))
+        .await
+        .unwrap();
+    let sams = hub.herder_of(&sam).unwrap();
+    assert_ne!(sams.as_str(), "assistant");
+    let mut updates = hub.subscribe();
+
+    hub.send(sams.as_str(), "ask the helper to say hi", Some("Sam"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, sams.as_str()).await;
+    assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
     hub.shutdown().await;
 }
 
