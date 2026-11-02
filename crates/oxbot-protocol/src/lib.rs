@@ -94,12 +94,42 @@ pub enum ClientMsg {
         #[serde(default)]
         limit: Option<u32>,
     },
-    /// Send the user's message to a bot.
+    /// Send the user's message to a bot, with any files uploaded for it
+    /// (`POST /upload`; see [`Attachment`]). The text may be empty when
+    /// there are files.
     Send {
         /// Bot id.
         bot: String,
         /// What the user typed.
         text: String,
+        /// The upload ids ([`Attachment::id`]) of the files sent with it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<String>,
+    },
+    /// Forget a file uploaded for `bot` that won't be sent after all (its
+    /// chip was removed): oxbot deletes it.
+    DropUpload {
+        /// Bot id.
+        bot: String,
+        /// [`Attachment::id`].
+        id: String,
+    },
+    /// Farm only: open a file sent in a chat on this Mac (in Preview,
+    /// Numbers and so on).
+    OpenFile {
+        /// Bot id.
+        bot: String,
+        /// The message it was sent with ([`BotEvent::seq`]).
+        seq: u64,
+        /// [`Attachment::id`].
+        id: String,
+    },
+    /// Farm only: start or stop dictating with this Mac's microphone and
+    /// its on-device speech recognition. The text comes back to this
+    /// connection only, as [`ServerMsg::Dictation`].
+    Dictate {
+        /// Start or stop.
+        on: bool,
     },
     /// Stop the bot's current turn.
     Cancel {
@@ -503,6 +533,19 @@ pub enum ServerMsg {
     /// once per level per window, and on connect for a window's latest
     /// alert until the window resets. Never sent while alerts are off.
     UsageAlert(UsageAlert),
+    /// What the Mac heard so far while dictating ([`ClientMsg::Dictate`]),
+    /// for the connection that asked only. Each one replaces the last;
+    /// `done` ends it.
+    Dictation {
+        /// Everything heard since dictation started.
+        text: String,
+        /// Dictation stopped.
+        #[serde(default)]
+        done: bool,
+        /// Why it stopped early, for the user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// Something the client asked for went wrong.
     Error {
         /// What went wrong, for the user.
@@ -553,6 +596,10 @@ pub struct AppSettings {
     /// can't tell (it isn't the desktop app).
     #[serde(default)]
     pub notify_when_hidden: Option<bool>,
+    /// Whether this client may dictate with the Mac's microphone: the Farm
+    /// only, and only where the Mac can recognize speech on-device.
+    #[serde(default)]
+    pub dictation: bool,
 }
 
 fn yes() -> bool {
@@ -944,6 +991,63 @@ pub struct ReportInfo {
     pub sources: u32,
 }
 
+/// A file sent with a message. It's saved in the bot's folder under
+/// `inbox/`, and Claude opens it with its own Read tool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attachment {
+    /// Its upload id (random hex).
+    pub id: String,
+    /// Its name as shown, e.g. `bill.pdf` (cleaned by the server).
+    pub name: String,
+    /// Its size in bytes, as uploaded.
+    pub size: u64,
+    /// What kind of file it is.
+    pub kind: AttachmentKind,
+    /// Where it's saved, relative to the bot's work folder, e.g.
+    /// `inbox/2026-11-02/1-bill.pdf`.
+    pub path: String,
+    /// What Claude reads instead, relative to the work folder: a text copy
+    /// of a Word file, a smaller copy of a photo, or a video's folder of
+    /// still frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readable: Option<String>,
+    /// How many still frames were taken (videos only).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub frames: u32,
+    /// A few words about what oxbot did with it, for its chip, e.g. `as
+    /// text` or `3 still frames`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// What kind of file an [`Attachment`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentKind {
+    /// A photo or picture: PNG, JPEG, GIF, WebP or HEIC.
+    Image,
+    /// A PDF.
+    Pdf,
+    /// Plain text: notes, Markdown, CSV, JSON, code.
+    Text,
+    /// A Word file (`.docx`, `.doc`), RTF or `.odt` (read as text).
+    Document,
+    /// A spreadsheet: `.xlsx`, `.xls` or `.ods` (read as text).
+    Sheet,
+    /// Slides: a `.pptx` deck (read as text).
+    Slides,
+    /// A video (read as still frames).
+    Video,
+}
+
 /// The user's answer to an [`Approval`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1036,11 +1140,14 @@ pub struct BotEvent {
 pub enum EventKind {
     /// The user's message.
     UserMessage {
-        /// What the user typed.
+        /// What the user typed (may be empty when files were sent).
         text: String,
         /// Who sent it, e.g. `Jayadev` (missing in old history).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from: Option<String>,
+        /// The files sent with it (missing in old history).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<Attachment>,
     },
     /// A complete piece of the bot's reply.
     AssistantMessage {
@@ -1444,6 +1551,7 @@ mod tests {
             farm: true,
             usage_alerts: true,
             notify_when_hidden: None,
+            dictation: false,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
@@ -1496,15 +1604,91 @@ mod tests {
             kind,
             EventKind::UserMessage {
                 text: "hi".into(),
-                from: None
+                from: None,
+                files: vec![]
             }
         );
         let json = serde_json::to_string(&EventKind::UserMessage {
             text: "hi".into(),
             from: Some("Jay".into()),
+            files: vec![],
         })
         .unwrap();
         assert_eq!(json, r#"{"kind":"user_message","text":"hi","from":"Jay"}"#);
+    }
+
+    #[test]
+    fn files_ride_along_with_a_message_and_old_clients_still_fit() {
+        // An old client's send, and old history, have no files.
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"send","bot":"a","text":"hi"}"#).unwrap();
+        assert!(matches!(msg, ClientMsg::Send { ref files, .. } if files.is_empty()));
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"send","bot":"a","text":"","files":["f1"]}"#).unwrap();
+        assert!(matches!(msg, ClientMsg::Send { ref files, .. } if files == &["f1"]));
+
+        let sent = EventKind::UserMessage {
+            text: "what's due?".into(),
+            from: Some("Jay".into()),
+            files: vec![Attachment {
+                id: "0a1b".into(),
+                name: "bill.pdf".into(),
+                size: 1234,
+                kind: AttachmentKind::Pdf,
+                path: "inbox/2026-11-02/1-bill.pdf".into(),
+                readable: None,
+                frames: 0,
+                note: None,
+            }],
+        };
+        let json = serde_json::to_string(&sent).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"user_message","text":"what's due?","from":"Jay","files":[{"id":"0a1b","name":"bill.pdf","size":1234,"kind":"pdf","path":"inbox/2026-11-02/1-bill.pdf"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<EventKind>(&json).unwrap(), sent);
+        let video = Attachment {
+            kind: AttachmentKind::Video,
+            readable: Some("inbox/2026-11-02/2-clip.mov.frames".into()),
+            frames: 3,
+            note: Some("3 still frames".into()),
+            ..match sent {
+                EventKind::UserMessage { mut files, .. } => files.remove(0),
+                _ => unreachable!(),
+            }
+        };
+        let json = serde_json::to_string(&video).unwrap();
+        assert!(
+            json.contains(r#""frames":3"#) && json.contains(r#""kind":"video""#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<Attachment>(&json).unwrap(), video);
+    }
+
+    #[test]
+    fn dictation_and_opening_files_are_snake_case() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"type":"dictate","on":true}"#).unwrap();
+        assert_eq!(msg, ClientMsg::Dictate { on: true });
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"open_file","bot":"a","seq":4,"id":"f1"}"#).unwrap();
+        assert!(matches!(msg, ClientMsg::OpenFile { seq: 4, .. }));
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"drop_upload","bot":"a","id":"f1"}"#).unwrap();
+        assert!(matches!(msg, ClientMsg::DropUpload { .. }));
+        let json = serde_json::to_string(&ServerMsg::Dictation {
+            text: "call the plumber".into(),
+            done: false,
+            error: None,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"dictation","text":"call the plumber","done":false}"#
+        );
+        let old: AppSettings =
+            serde_json::from_str(r#"{"version":"1","data_dir":"/d","launch_at_login":null}"#)
+                .unwrap();
+        assert!(!old.dictation, "no mic unless the server says so");
     }
 
     #[test]
@@ -1624,6 +1808,7 @@ mod tests {
         let msg = ClientMsg::Send {
             bot: "assistant".into(),
             text: "hi".into(),
+            files: vec![],
         };
         assert_eq!(
             serde_json::to_string(&msg).unwrap(),
