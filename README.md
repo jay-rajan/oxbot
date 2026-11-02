@@ -74,6 +74,17 @@ Setup: oxbot installs Claude Code for you (Anthropic's installer) and signs you 
 (`claude auth login`); the browser tool and Node.js ship inside the app. You only need Google
 Chrome. Settings (the gear) shows setup, your Claude usage and oxbot's activity log.
 
+Usage alerts: when Claude usage passes 50% and again at 80% of your plan's 5-hour or weekly
+limit, oxbot shows a banner (until the window resets, or you dismiss it) and posts a Mac
+notification, once per level per window, restarts included. Each alert names the limit, when it
+resets and the models your bots use; model-specific limits don't alert. Usage is as Claude last
+reported it, after a bot's reply. In the app, a bot waiting for your OK or a sign-in while the
+window is hidden also posts a notification, with the bot's name only (just "A bot" for someone
+else's private bot). Both switch off in Settings → General → Notifications (the Farm only); off,
+levels are still noted, so turning alerts back on brings no late one. `oxbot serve` posts through
+`osascript` (shown as Script Editor); an app showing an `oxbot serve` that was already running
+leaves notifications to it. macOS asks for permission the first time.
+
 Brand (`docs/brand/`): the "O"xbot wordmark (a round O with red horns, then xbot in bold) and
 the same O with horns on a black tile as the app icon. Minimal UI: white backgrounds, white
 buttons with red text. Each bot gets a little ox avatar.
