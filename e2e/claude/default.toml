@@ -83,6 +83,29 @@ after = "Paid."
 denied = "Okay, I didn't pay."
 
 [[reply]]
+when = "research coffee"
+snapshots = [
+  "## Pages\n1: Cafe A (https://cafe-a.example.com/) [selected]\n## Latest page snapshot\nuid=8_1 RootWebArea \"Cafe A\"",
+  "## Pages\n1: Cafe B menu (https://cafe-b.example.com/menu) [selected]\n## Latest page snapshot\nuid=8_2 RootWebArea \"Cafe B menu\"",
+]
+tool = "save_report"
+args = { title = "Coffee near home", summary = "Cafe A is closest and best rated.", markdown = "**Cafe A** is the pick: closest and best rated [1].\n\n## Compared\n\n| Cafe | Rating | Distance |\n|---|---|---|\n| [Cafe A](https://cafe-a.example.com/) | 4.8 [1] | 300 m |\n| Cafe B | 4.1 [2] | 1.2 km |\n\n<script>alert(1)</script>\n\nSee [this deal](https://evil.example/) and [that](javascript:alert(1)).", sources = [{ url = "https://cafe-a.example.com/", title = "Cafe A" }, { url = "https://cafe-b.example.com/menu", title = "Cafe B menu" }] }
+after = "Cafe A is closest and best rated.\nFull comparison in the report."
+
+[[reply]]
+when = "research tea"
+snapshot = "## Pages\n1: Tea (https://tea.example.com/) [selected]\n## Latest page snapshot\nuid=9_1 RootWebArea \"Tea\""
+tool = "save_report"
+args = { title = "<img src=x onerror=alert(1)>", summary = "<b>bold?</b>", markdown = "Tea [1].", sources = [{ url = "https://tea.example.com/" }] }
+after = "Saved the tea notes."
+
+[[reply]]
+when = "research unopened"
+tool = "save_report"
+args = { title = "Made up", summary = "No pages.", markdown = "Trust me [1].", sources = [{ url = "https://never-opened.example.com/" }] }
+after = "Saved."
+
+[[reply]]
 when = "take your time"
 say = "Done, slowly."
 delay_ms = 3000

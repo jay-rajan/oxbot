@@ -1,0 +1,26 @@
+name = "Someone else's private report won't open"
+about = "Ann can't open, list or see a report in Sam's private bot, even by asking for it by id."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-protocol/**"]
+as = "Ann"
+
+[[step]]
+click = "Bank"
+[[step]]
+expect = "Sam's private bot"
+[[step]]
+expect_js = "document.getElementById('botMore').hidden"
+note = "No ··· (and no Reports) on someone else's private bot"
+[[step]]
+expect_js = "(openReport('bank', 'r_5ec2e75ec2e75ec2e75ec2e75ec2e75e'), send({ type: 'list_reports', bot: 'bank' }), true)"
+note = "Ask for the report by its id anyway"
+[[step]]
+wait_for = "no bot called"
+note = "The Farm answers as if the bot weren't there"
+[[step]]
+wait_ms = 800
+[[step]]
+expect_js = "!document.getElementById('reportDlg').open && !document.getElementById('reportFrame').srcdoc"
+[[step]]
+expect_js = "!document.documentElement.innerHTML.includes('SECRET-REPORT')"
+note = "Nothing of it anywhere in the page"
+shot = "private-report-refused"

@@ -12,6 +12,7 @@
 //! tool = "create_bot"                      # oxbot's own tool, or a full mcp__… name
 //! args = { name = "Recipes", instructions = "Find recipes." }
 //! say = "Making it…"                        # said before the tool (optional)
+//! snapshots = ["## Pages\n1: A (https://a.example.com/) [selected]"]  # pages "read" first
 //! after = "Done: {result}"                  # said after it worked
 //! denied = "Okay, I won't."                 # said if the user said no
 //!
@@ -39,6 +40,10 @@ struct Reply {
     args: toml::Table,
     /// A fake page snapshot to "read" first (for browser tools).
     snapshot: Option<String>,
+    /// More fake page snapshots to "read" first, in order (after
+    /// `snapshot`), e.g. the pages a report cites.
+    #[serde(default)]
+    snapshots: Vec<String>,
     after: Option<String>,
     denied: Option<String>,
     /// Wait this long before answering (to see "working" states).
@@ -208,7 +213,7 @@ fn start(out: &mut Out, reply: Reply) -> Waiting {
     } else {
         format!("mcp__oxbot__{tool}")
     };
-    if let Some(snapshot) = &reply.snapshot {
+    for snapshot in reply.snapshot.iter().chain(&reply.snapshots) {
         let n = out.next();
         out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("s{n}"),"name":"mcp__chrome-devtools__take_snapshot","input":{}}]},"parent_tool_use_id":null}));
         out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("s{n}"),"content":snapshot}]},"parent_tool_use_id":null}));

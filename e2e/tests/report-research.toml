@@ -1,0 +1,70 @@
+name = "Research comes back as a report"
+about = "A research question gets a short reply and a report card; the report opens in a sandboxed frame with sections, a table and numbered sources; the ··· menu lists it and deletes it; a hostile title shows as text; a report citing a page the bot never opened isn't saved."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot-core/src/store/reports.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-protocol/**", "crates/oxbot-browser/src/web.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "research coffee near home"
+[[step]]
+wait_for = "Full comparison in the report."
+note = "A short reply, not a wall of text"
+[[step]]
+expect = "Coffee near home"
+note = "…and a card with the report's title"
+[[step]]
+expect = "2 sources"
+shot = "report-card"
+[[step]]
+click = "Coffee near home"
+[[step]]
+expect_js = "document.getElementById('reportDlg').open && document.getElementById('reportFrame').srcdoc.includes('id=\"src-2\"')"
+note = "The report opens over the chat, with its numbered sources"
+[[step]]
+expect_js = "(() => { const f = document.getElementById('reportFrame'); const s = f.getAttribute('sandbox') || ''; return s.includes('allow-popups') && !s.includes('allow-scripts') && !s.includes('allow-same-origin'); })()"
+note = "In a sandbox: no scripts, no access to the page"
+[[step]]
+expect_js = "(() => { const h = document.getElementById('reportFrame').srcdoc; return h.includes('href=\"https://cafe-a.example.com/\"') && h.includes('href=\"about:srcdoc#src-1\"') && h.includes('<table>') && h.includes('Content-Security-Policy'); })()"
+note = "Sources are links; [1] jumps to them; the table is there; a strict CSP"
+[[step]]
+expect_js = "(() => { const h = document.getElementById('reportFrame').srcdoc; return !h.includes('<script') && h.includes('&lt;script&gt;') && h.includes('See this deal and that.') && !h.includes('href=\"https://evil') && !h.includes('href=\"javascript'); })()"
+note = "Raw HTML shows as text; links to pages it never opened, and javascript:, aren't links"
+[[step]]
+wait_ms = 400
+shot = "report-open"
+[[step]]
+click = "← Back"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "[...document.querySelectorAll('#bdReports .report-row')].some(r => r.innerText.includes('Coffee near home') && r.innerText.includes('2 sources'))"
+note = "··· lists the bot's reports"
+shot = "reports-in-settings"
+[[step]]
+click = "Delete"
+[[step]]
+click = "Yes, delete"
+[[step]]
+wait_for = "None yet."
+[[step]]
+click = "Cancel"
+[[step]]
+click = "Coffee near home"
+[[step]]
+wait_for = "That report was deleted."
+note = "Its card stays, and says so"
+[[step]]
+send = "research tea"
+[[step]]
+wait_for = "Saved the tea notes."
+[[step]]
+expect = "<img src=x onerror=alert(1)>"
+note = "A hostile title shows as text"
+[[step]]
+expect_js = "!document.querySelector('img[src=\"x\"]') && !document.querySelector('.report-card b')"
+[[step]]
+send = "research unopened"
+[[step]]
+wait_for = "weren't opened in the browser"
+note = "Citing a page the bot never opened is refused"
+shot = "report-refused"

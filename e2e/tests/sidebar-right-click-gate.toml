@@ -1,5 +1,5 @@
 name = "Right-click as a Gate person: the same rules as ···"
-about = "Sam (on a Gate) can only file Jay's shared bot (into a section of Sam's own); renaming, privacy and deleting show only on Sam's own bot, exactly where ··· shows."
+about = "Sam (on a Gate) can only file Jay's shared bot (into a section of Sam's own); renaming, privacy and deleting show only on Sam's own bot, exactly where ··· offers them (elsewhere ··· only lists reports)."
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
 as = "Sam"
 
@@ -32,12 +32,18 @@ key = "Escape"
 [[step]]
 click = "Recipes by Jay"
 [[step]]
-expect_js = "document.getElementById('botMore').hidden"
-note = "··· is hidden on Jay's bot too: the same rule"
+expect_js = "!document.getElementById('botMore').hidden && document.getElementById('botMore').getAttribute('aria-label') === 'Reports'"
+note = "On Jay's bot ··· only lists its reports (#14): no rename, privacy or delete, the same rule"
+[[step]]
+click = "Reports"
+[[step]]
+expect_js = "document.getElementById('botDlg').open && document.getElementById('bdManage').hidden && document.getElementById('bdDelete').hidden"
+[[step]]
+click = "Close"
 [[step]]
 click = "Bank by Sam"
 [[step]]
-expect_js = "!document.getElementById('botMore').hidden"
+expect_js = "!document.getElementById('botMore').hidden && document.getElementById('botMore').getAttribute('aria-label') === 'Bot settings'"
 [[step]]
 right_click = "Recipes by Jay"
 [[step]]

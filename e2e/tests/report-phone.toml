@@ -1,0 +1,26 @@
+name = "A report on a phone"
+about = "On a phone-size screen the report fills the screen, its table scrolls on its own, and Back returns to the chat."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/report.rs"]
+viewport = { width = 390, height = 844 }
+
+[[step]]
+click = "Show bots"
+[[step]]
+click = "Recipes"
+[[step]]
+send = "research coffee near home"
+[[step]]
+wait_for = "Full comparison in the report."
+shot = "phone-report-card"
+[[step]]
+click = "Coffee near home"
+[[step]]
+expect_js = "(() => { const d = document.getElementById('reportDlg'); const r = d.getBoundingClientRect(); return d.open && r.width >= 389 && r.height >= 840; })()"
+note = "It fills the screen"
+[[step]]
+wait_ms = 400
+shot = "phone-report-open"
+[[step]]
+click = "← Back"
+[[step]]
+expect_js = "!document.getElementById('reportDlg').open"

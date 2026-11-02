@@ -12,7 +12,8 @@ const SEED_SCHEMA: usize = 8;
 
 /// Fills `home` from the seed: copies `seed/bots/`, creates `oxbot.db`
 /// with oxbot's own tables as of [`SEED_SCHEMA`], runs `seed/seed.sql`
-/// (where `NOW_MS` is the current time in milliseconds), then upgrades it.
+/// (where `NOW_MS` is the current time in milliseconds), upgrades it, then
+/// runs `seed/seed-latest.sql` (rows for newer tables).
 ///
 /// # Errors
 /// Fails if a file can't be copied or the SQL fails.
@@ -30,6 +31,14 @@ pub fn make_home(repo: &Path, home: &Path) -> anyhow::Result<()> {
         conn.execute_batch(&sql).context("running seed.sql")?;
     }
     drop(oxbot_core::Store::open(&db).context("upgrading the database")?);
+    // Rows for tables newer than the seed's schema, once upgraded.
+    let latest = seed.join("seed-latest.sql");
+    if latest.exists() {
+        let sql = std::fs::read_to_string(&latest)?.replace("NOW_MS", &crate::now_ms().to_string());
+        let conn = rusqlite::Connection::open(&db)?;
+        conn.execute_batch(&sql)
+            .context("running seed-latest.sql")?;
+    }
     Ok(())
 }
 
