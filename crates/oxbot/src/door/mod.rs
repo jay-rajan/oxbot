@@ -403,14 +403,15 @@ impl Door {
     /// The name isn't usable, phones may not use this network, or the door
     /// can't open.
     pub async fn start_pairing(&self, person: &str) -> anyhow::Result<PairingCode> {
-        let person = self.hub.gate_person(person)?;
+        let (person, person_id) = self.hub.gate_pick(person)?;
         self.refresh().await;
         let here = lock(&self.here).clone();
         anyhow::ensure!(
             here.is_some_and(|h| lock(&self.settings).allows(&h.id)),
             "Phones can't use the network this Mac is on yet. Add it under “Networks phones can use” first."
         );
-        let (code, expires_ms) = lock(&self.codes).show(&person, crate::runtime::now_ms());
+        let (code, expires_ms) =
+            lock(&self.codes).show_for(&person, person_id, crate::runtime::now_ms());
         let state = self.apply().await;
         let Some(addr) = self.addr() else {
             lock(&self.codes).cancel();
@@ -448,7 +449,7 @@ impl Door {
     /// # Errors
     /// No code showing, the wrong code, or the database failing.
     pub fn pair(&self, req: &PairRequest) -> Result<PairReply, PairError> {
-        let check = lock(&self.codes).check(&req.code, crate::runtime::now_ms());
+        let (check, person_id) = lock(&self.codes).check_for(&req.code, crate::runtime::now_ms());
         let person = match check {
             Check::Paired(person) => person,
             Check::NoCode => return Err(PairError::NoCode),
@@ -477,21 +478,21 @@ impl Door {
         } else {
             device
         };
-        let gate = self
-            .hub
-            .add_gate(
-                &id,
-                &person,
-                &device,
-                &oxbot_gate::fingerprint(key.as_bytes()),
-            )
-            .map_err(|e| PairError::Farm(e.to_string()))?;
+        let key_hash = oxbot_gate::fingerprint(key.as_bytes());
+        // The person picked when the code was shown, by id; someone new is
+        // made now.
+        let gate = match &person_id {
+            Some(person) => self.hub.add_gate_for(&id, person, &device, &key_hash),
+            None => self.hub.add_gate(&id, &person, &device, &key_hash),
+        }
+        .map_err(|e| PairError::Farm(e.to_string()))?;
         tracing::info!(gate = gate.id, "a Gate paired");
         self.hub.announce(ServerMsg::PairingClosed);
         self.announce_gates();
         Ok(PairReply {
             id,
-            person,
+            // Their name as it is now.
+            person: gate.person,
             farm: self.name(),
             key,
         })

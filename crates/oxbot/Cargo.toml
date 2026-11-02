@@ -35,6 +35,8 @@ uuid.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+# Tests name people (`Viewer::gate("Sam")`) without pairing them first.
+oxbot-core = { workspace = true, features = ["test-people"] }
 tempfile.workspace = true
 
 [lints]

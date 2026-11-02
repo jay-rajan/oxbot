@@ -195,6 +195,20 @@ impl Viewer {
         bots
     }
 
+    /// Whether they're the person a message or card is for: `id` (a person
+    /// id) decides when both sides have one. Only when neither has an id
+    /// (a viewer the hub hasn't looked up, as in tests) is `name` compared.
+    /// One with an id is never matched by name alone, nor one without by an
+    /// id.
+    #[must_use]
+    pub fn is_person(&self, id: Option<&str>, name: Option<&str>) -> bool {
+        match (id, &self.id) {
+            (Some(id), Some(mine)) => id == mine.as_str(),
+            (None, None) => name.is_some_and(|n| !n.is_empty() && n == self.name),
+            _ => false,
+        }
+    }
+
     fn made(&self, made_by: Option<&str>) -> bool {
         match &self.id {
             Some(id) => made_by == Some(id.as_str()),

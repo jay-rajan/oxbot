@@ -238,7 +238,7 @@ impl Hub {
         // The browser is signed out either way; say so if the list wasn't cleared.
         cleared?;
         self.notice_for(
-            self.owner_label(&owner),
+            &owner,
             "Signed out of every site. Bots will ask you to sign in again where they need to.",
         );
         Ok(())

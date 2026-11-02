@@ -3,6 +3,7 @@
 //! rule can be tested without waiting.
 
 use anyhow::Context as _;
+use oxbot_core::id::PersonId;
 
 /// How long a pairing code works.
 pub const CODE_LIFE_MS: i64 = 10 * 60 * 1000;
@@ -15,6 +16,8 @@ const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 #[derive(Debug, Clone)]
 struct Showing {
     person: String,
+    /// The person's id, if they were known when the code was shown.
+    person_id: Option<PersonId>,
     code: String,
     expires_ms: i64,
     tries_left: u8,
@@ -44,10 +47,23 @@ impl PairingCodes {
     /// Shows a new code for `person`, replacing any other. Returns the code
     /// (`K7QMR3XP`) and when it stops working.
     pub fn show(&mut self, person: &str, now_ms: i64) -> (String, i64) {
+        self.show_for(person, None, now_ms)
+    }
+
+    /// Like [`PairingCodes::show`], for a person oxbot knows already
+    /// (`person_id`), so the Gate pairs for them whatever their name is by
+    /// then.
+    pub fn show_for(
+        &mut self,
+        person: &str,
+        person_id: Option<PersonId>,
+        now_ms: i64,
+    ) -> (String, i64) {
         let code = new_code();
         let expires_ms = now_ms + CODE_LIFE_MS;
         self.showing = Some(Showing {
             person: person.to_owned(),
+            person_id,
             code: code.clone(),
             expires_ms,
             tries_left: CODE_TRIES,
@@ -70,12 +86,18 @@ impl PairingCodes {
 
     /// Checks a typed code at `now_ms`.
     pub fn check(&mut self, typed: &str, now_ms: i64) -> Check {
+        self.check_for(typed, now_ms).0
+    }
+
+    /// Like [`PairingCodes::check`], with the person's id when the code was
+    /// shown for someone oxbot knew (see [`PairingCodes::show_for`]).
+    pub fn check_for(&mut self, typed: &str, now_ms: i64) -> (Check, Option<PersonId>) {
         let Some(showing) = self.showing.as_mut() else {
-            return Check::NoCode;
+            return (Check::NoCode, None);
         };
         if showing.expires_ms < now_ms {
             self.showing = None;
-            return Check::NoCode;
+            return (Check::NoCode, None);
         }
         if !crate::secret::same(&normalize_code(typed), &showing.code) {
             showing.tries_left = showing.tries_left.saturating_sub(1);
@@ -83,9 +105,11 @@ impl PairingCodes {
             if closed {
                 self.showing = None;
             }
-            return Check::Wrong { closed };
+            return (Check::Wrong { closed }, None);
         }
-        Check::Paired(self.showing.take().map(|s| s.person).unwrap_or_default())
+        let showing = self.showing.take();
+        let (person, id) = showing.map_or_else(Default::default, |s| (s.person, s.person_id));
+        (Check::Paired(person), id)
     }
 }
 
@@ -156,6 +180,23 @@ mod tests {
         let typed = display_code(&code).to_lowercase();
         assert_eq!(codes.check(&typed, NOW + 1), Check::Paired("Ann".into()));
         assert_eq!(codes.check(&code, NOW + 2), Check::NoCode);
+    }
+
+    #[test]
+    fn a_code_shown_for_someone_known_pairs_for_them_by_id() {
+        let mut codes = PairingCodes::default();
+        let sam = PersonId::random();
+        let (code, _) = codes.show_for("Sam", Some(sam.clone()), NOW);
+        assert_eq!(
+            codes.check_for(&code, NOW + 1),
+            (Check::Paired("Sam".into()), Some(sam))
+        );
+        let (code, _) = codes.show("Ann", NOW);
+        assert_eq!(
+            codes.check_for(&code, NOW + 1),
+            (Check::Paired("Ann".into()), None),
+            "someone new is made when the Gate pairs"
+        );
     }
 
     #[test]

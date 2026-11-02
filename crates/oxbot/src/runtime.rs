@@ -171,12 +171,14 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             probe,
         )
     });
-    let local_person = std::env::var("OXBOT_PERSON")
+    // Tests name the Farm's person outright, as an account would.
+    let (local_person, from_account) = std::env::var("OXBOT_PERSON")
         .ok()
         .filter(|p| e2e && !p.trim().is_empty())
-        .unwrap_or_else(|| setup::local_person(&device));
-    // Chosen once (the first run), then found by id.
-    if let Err(err) = hub.farm_person(&local_person) {
+        .map_or_else(|| setup::local_person_from(&device), |p| (p, true));
+    // Chosen once (the first run), then found by id; renamed only to the
+    // account's own name.
+    if let Err(err) = hub.farm_person_from(&local_person, from_account) {
         tracing::warn!(%err, "couldn't choose the Farm's person yet");
     }
     let state = AppState {

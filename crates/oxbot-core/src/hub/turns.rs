@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oxbot_browser::BrowserStatus;
-use oxbot_protocol::{EventKind, ServerMsg};
+use oxbot_protocol::EventKind;
 use tokio::sync::OwnedSemaphorePermit;
 
 use super::{Hub, HubError, lock};
@@ -14,8 +14,9 @@ use crate::bot::{Bot, Viewer};
 use crate::id::{BotId, PersonId};
 
 impl Hub {
-    /// Sends a message to a bot from the person called `from`, if known
-    /// (made if new). Returns once Claude has it; the reply arrives through
+    /// Sends a message to a bot from the person called `from` (made if new,
+    /// see [`Hub::person_named`]; for `oxbot chat` and tests: connections
+    /// use [`Hub::send_as`]). Returns once Claude has it; the reply arrives through
     /// [`Hub::subscribe`]. Waits if `max_concurrent_turns` turns are already
     /// running.
     ///
@@ -29,7 +30,7 @@ impl Hub {
     ) -> Result<(), HubError> {
         let from = from.map(str::trim).filter(|f| !f.is_empty());
         let person = match from {
-            Some(name) => Some(self.sender(name)?),
+            Some(name) => Some(self.person_named(name)?.id),
             None => None,
         };
         self.send_for(bot, text, from, person.as_ref(), false).await
@@ -49,17 +50,6 @@ impl Hub {
         let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
         self.send_for(bot, text, from, viewer.id.as_ref(), false)
             .await
-    }
-
-    /// The person called `name`, telling every client if they're new.
-    fn sender(&self, name: &str) -> Result<PersonId, HubError> {
-        let (person, new) = self.store.find_or_create_person(name)?;
-        if new {
-            let _ = self.updates.send(ServerMsg::People {
-                people: self.people()?,
-            });
-        }
-        Ok(person.id)
     }
 
     /// Delivers a message shown as from `from`, for a turn that acts for

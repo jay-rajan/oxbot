@@ -325,6 +325,10 @@ pub enum ServerMsg {
         /// only gets home and its own person's.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         owner: Option<String>,
+        /// Server only, never sent: the owner's person id, which decides
+        /// who gets it (names are only shown).
+        #[serde(skip)]
+        owner_id: Option<String>,
     },
     /// Farm only: a pairing code is ready to scan or type. Good once,
     /// until `expires_ms`.
@@ -364,6 +368,10 @@ pub enum ServerMsg {
         /// (and the Farm) get it. `None` for everyone.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         owner: Option<String>,
+        /// Server only, never sent: the owner's person id, which decides
+        /// who gets it (names are only shown).
+        #[serde(skip)]
+        owner_id: Option<String>,
     },
     /// Something the client asked for went wrong.
     Error {
@@ -694,6 +702,10 @@ pub struct Approval {
     /// see and answer it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asker: Option<String>,
+    /// Server only, never sent: the asker's person id, which decides who
+    /// gets the card (the name is only shown).
+    #[serde(skip)]
+    pub asker_id: Option<String>,
 }
 
 /// The user's answer to an [`Approval`].
@@ -948,9 +960,48 @@ mod tests {
         let json = serde_json::to_string(&ServerMsg::Sites {
             sites: vec![],
             owner: None,
+            owner_id: None,
         })
         .unwrap();
         assert_eq!(json, r#"{"type":"sites","sites":[]}"#);
+    }
+
+    #[test]
+    fn person_ids_never_leave_the_server() {
+        let json = serde_json::to_string(&ServerMsg::Sites {
+            sites: vec![],
+            owner: Some("Sam".into()),
+            owner_id: Some("p_0123456789abcdef".into()),
+        })
+        .unwrap();
+        assert_eq!(json, r#"{"type":"sites","sites":[],"owner":"Sam"}"#);
+        let json = serde_json::to_string(&ServerMsg::Notice {
+            message: "Hi".into(),
+            owner: None,
+            owner_id: Some("p_0123456789abcdef".into()),
+        })
+        .unwrap();
+        assert!(!json.contains("p_0123"), "{json}");
+        let card = Approval {
+            id: 1,
+            bot: "b".into(),
+            kind: ApprovalKind::Change,
+            action: "click".into(),
+            target: "Buy".into(),
+            site: "shop.example".into(),
+            page: None,
+            detail: None,
+            screenshot: None,
+            asker: Some("Sam".into()),
+            asker_id: Some("p_0123456789abcdef".into()),
+        };
+        let json = serde_json::to_string(&card).unwrap();
+        assert!(
+            !json.contains("p_0123") && json.contains("\"asker\":\"Sam\""),
+            "{json}"
+        );
+        let back: Approval = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.asker_id, None);
     }
 
     #[test]

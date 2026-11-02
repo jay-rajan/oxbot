@@ -364,8 +364,10 @@ fn missing(id: &str, name: &str, detail: &str, fix: &str) -> SetupCheck {
 /// account (`Jayadev`); if it has none, the device's name (`device`, e.g.
 /// `Jay's MacBook Air`), so each device still shows up as someone. Phones
 /// will do the same with the name given at pairing, then the phone's name.
+/// Also says whether the name is the Mac account's own (`false` for the
+/// device name or `Me`, which only stand in for one).
 #[must_use]
-pub fn local_person(device: &str) -> String {
+pub fn local_person_from(device: &str) -> (String, bool) {
     let full = std::process::Command::new("id")
         .arg("-F")
         .output()
@@ -373,7 +375,7 @@ pub fn local_person(device: &str) -> String {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_owned())
         .unwrap_or_default();
-    pick_name(&full, device)
+    (pick_name(&full, device), first_name(&full).is_some())
 }
 
 /// The account's first name, else the device name, else `Me`.

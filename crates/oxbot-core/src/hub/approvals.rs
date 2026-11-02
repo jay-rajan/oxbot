@@ -222,8 +222,9 @@ impl Hub {
             page: page.map(|(title, url)| if title.is_empty() { url } else { title }),
             detail: ask.detail.clone(),
             screenshot,
-            // Their name, for showing; answering is checked by id.
+            // Their name, for showing; who gets it is decided by id.
             asker: asker.as_ref().and_then(|id| self.person_name(id)),
+            asker_id: asker.as_ref().map(ToString::to_string),
         };
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
@@ -256,14 +257,10 @@ impl Hub {
 }
 
 /// Whether `viewer` should be shown `card`: the Farm, or the person the
-/// card's turn acts for (by name, as cards carry it; answering is checked
-/// by id in [`Hub::approval_visible`]). A card nobody asked for (no person)
-/// is the Farm's.
+/// card's turn acts for, by person id (see [`Viewer::is_person`]; answering
+/// is checked again in [`Hub::approval_visible`]). A card nobody asked for
+/// (no person) is the Farm's.
 #[must_use]
 pub fn answers(card: &Approval, viewer: &Viewer) -> bool {
-    viewer.farm
-        || card
-            .asker
-            .as_deref()
-            .is_some_and(|a| !a.is_empty() && a == viewer.name)
+    viewer.farm || viewer.is_person(card.asker_id.as_deref(), card.asker.as_deref())
 }

@@ -75,15 +75,7 @@ impl ChatCopy {
         };
         match msg {
             ServerMsg::Event(e) => self.keep_event(&e, text, now_ms)?,
-            // A page of history is kept as the events it holds, so the copy
-            // replays the same way however the chat arrived.
-            ServerMsg::History { events, .. } => {
-                for e in events {
-                    if let Ok(json) = serde_json::to_string(&ServerMsg::Event(e.clone())) {
-                        self.keep_event(&e, &json, now_ms)?;
-                    }
-                }
-            }
+            ServerMsg::History { events, .. } => self.keep_page(&events, now_ms)?,
             ServerMsg::Bots { bots } => {
                 self.keep_latest("bots", text)?;
                 self.drop_hidden(&bots)?;
@@ -98,19 +90,28 @@ impl ChatCopy {
 
     /// Keeps one event; `json` is it as a [`ServerMsg::Event`].
     fn keep_event(&mut self, e: &BotEvent, json: &str, now_ms: i64) -> Result<(), CopyError> {
-        let message = matches!(
-            e.kind,
-            EventKind::UserMessage { .. } | EventKind::AssistantMessage { .. }
-        );
-        self.conn.execute(
-            "INSERT OR REPLACE INTO events (bot, seq, ts_ms, message, json) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![e.bot, i64::try_from(e.seq).unwrap_or(i64::MAX), e.ts_ms, message, json],
-        )?;
+        insert_event(&self.conn, e, json)?;
         self.since_tidy += 1;
         if self.since_tidy >= TIDY_EVERY {
             self.tidy(now_ms)?;
         }
         Ok(())
+    }
+
+    /// Keeps a page of history as the events it holds (so the copy replays
+    /// the same way however the chat arrived), in one write, then tidies:
+    /// a page can hold hundreds. Events older than [`KEEP_DAYS`] days are
+    /// skipped rather than written and deleted.
+    fn keep_page(&mut self, events: &[BotEvent], now_ms: i64) -> Result<(), CopyError> {
+        let oldest = oldest_kept(now_ms);
+        let tx = self.conn.transaction()?;
+        for e in events.iter().filter(|e| e.ts_ms >= oldest) {
+            if let Ok(json) = serde_json::to_string(&ServerMsg::Event(e.clone())) {
+                insert_event(&tx, e, &json)?;
+            }
+        }
+        tx.commit()?;
+        self.tidy(now_ms)
     }
 
     fn keep_latest(&self, kind: &str, text: &str) -> Result<(), CopyError> {
@@ -122,10 +123,18 @@ impl ChatCopy {
     }
 
     /// Deletes chats of bots that are gone or this person may no longer open.
+    /// The Farm says which: a bot `locked` to this phone's person goes. A
+    /// private one also needs to be theirs (they may manage it), or, from a
+    /// Farm too old to say, made under their name.
     fn drop_hidden(&self, bots: &[BotInfo]) -> Result<(), CopyError> {
         let open: Vec<&str> = bots
             .iter()
-            .filter(|b| !b.private || b.created_by.as_deref() == Some(self.person.as_str()))
+            .filter(|b| {
+                !b.locked
+                    && (!b.private
+                        || b.can_manage
+                        || b.created_by.as_deref() == Some(self.person.as_str()))
+            })
             .map(|b| b.id.as_str())
             .collect();
         let mut stmt = self.conn.prepare("SELECT DISTINCT bot FROM events")?;
@@ -147,7 +156,7 @@ impl ChatCopy {
     /// The file can't be written.
     pub fn tidy(&mut self, now_ms: i64) -> Result<(), CopyError> {
         self.since_tidy = 0;
-        let oldest = now_ms - KEEP_DAYS * 24 * 60 * 60 * 1000;
+        let oldest = oldest_kept(now_ms);
         self.conn
             .execute("DELETE FROM events WHERE ts_ms < ?1", params![oldest])?;
         let mut stmt = self.conn.prepare("SELECT DISTINCT bot FROM events")?;
@@ -210,6 +219,24 @@ impl ChatCopy {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
     }
+}
+
+/// The time of the oldest event kept at `now_ms`.
+fn oldest_kept(now_ms: i64) -> i64 {
+    now_ms - KEEP_DAYS * 24 * 60 * 60 * 1000
+}
+
+/// Writes one event; `json` is it as a [`ServerMsg::Event`].
+fn insert_event(conn: &Connection, e: &BotEvent, json: &str) -> Result<(), CopyError> {
+    let message = matches!(
+        e.kind,
+        EventKind::UserMessage { .. } | EventKind::AssistantMessage { .. }
+    );
+    conn.execute(
+        "INSERT OR REPLACE INTO events (bot, seq, ts_ms, message, json) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![e.bot, i64::try_from(e.seq).unwrap_or(i64::MAX), e.ts_ms, message, json],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -318,6 +345,72 @@ mod tests {
             };
             assert_eq!(e.seq, u64::try_from(i).unwrap() + 1);
         }
+    }
+
+    #[test]
+    fn a_page_skips_old_events_and_is_tidied_at_once() {
+        let (_dir, mut copy) = copy();
+        let total = u64::try_from(KEEP_MESSAGES).unwrap() + 5;
+        let page = serde_json::to_string(&ServerMsg::History {
+            bot: "recipes".into(),
+            events: (1..=total)
+                .map(|seq| BotEvent {
+                    bot: "recipes".into(),
+                    seq,
+                    ts_ms: if seq == 1 { NOW - 31 * DAY } else { NOW },
+                    kind: EventKind::AssistantMessage {
+                        text: format!("reply {seq}"),
+                    },
+                })
+                .collect(),
+            first_seq: 1,
+            has_older: false,
+        })
+        .unwrap();
+        copy.record(&page, NOW).unwrap();
+        let replay = copy.replay().unwrap();
+        assert_eq!(
+            replay.len(),
+            usize::try_from(KEEP_MESSAGES).unwrap(),
+            "tidied right after the page"
+        );
+        assert!(replay.iter().all(|j| !j.contains("\"seq\":1,")));
+    }
+
+    #[test]
+    fn the_farm_says_which_bots_this_person_cant_open() {
+        let (_dir, mut copy) = copy();
+        for bot in ["locked", "renamed", "shared"] {
+            copy.record(&event(bot, 1, NOW, true), NOW).unwrap();
+        }
+        let list = |bots: Vec<BotInfo>| serde_json::to_string(&ServerMsg::Bots { bots }).unwrap();
+        let bot = |id: &str, private, by: &str, locked, can_manage| BotInfo {
+            id: id.into(),
+            name: id.into(),
+            created_by: Some(by.into()),
+            private,
+            locked,
+            can_manage,
+            ..BotInfo::default()
+        };
+        copy.record(
+            &list(vec![
+                // Made under Ann's name, but someone else's now.
+                bot("locked", true, "Ann", true, false),
+                // Ann's, though shown under her new name.
+                bot("renamed", true, "Annie", false, true),
+                bot("shared", false, "Sam", false, false),
+            ]),
+            NOW,
+        )
+        .unwrap();
+        let replay = copy.replay().unwrap();
+        let kept = |id: &str| {
+            replay
+                .iter()
+                .any(|j| j.contains(&format!("\"bot\":\"{id}\"")))
+        };
+        assert!(!kept("locked") && kept("renamed") && kept("shared"));
     }
 
     #[test]

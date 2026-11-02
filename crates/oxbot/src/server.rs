@@ -238,9 +238,15 @@ async fn ws_upgrade(
         .is_some_and(|k| crate::secret::same(k.trim(), &state.farm_key));
     let viewer = match query.get("as").map(|n| n.trim()) {
         _ if farm => state.farm_viewer(),
-        Some(name) if state.e2e && !name.is_empty() => {
-            state.hub.resolve(&Viewer::gate(name)).into_owned()
-        }
+        // Test mode only: the page names its person, made on purpose here
+        // (as pairing would) so the connection carries their id.
+        Some(name) if state.e2e && !name.is_empty() => match state.hub.person_named(name) {
+            Ok(person) => Viewer::person(person.id, person.name, false),
+            Err(err) => {
+                tracing::warn!(%err, "couldn't make a test connection's person");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "no such person").into_response();
+            }
+        },
         _ => {
             tracing::warn!("refused a local connection without the Farm secret");
             return (
@@ -797,6 +803,7 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
                 return Ok(vec![ServerMsg::Notice {
                     message: "A setup step is already running.".to_owned(),
                     owner: None,
+                    owner_id: None,
                 }]);
             }
             tokio::spawn(run_setup(state.clone(), action));
@@ -991,8 +998,15 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             (client.sees(&a.bot) && answers(a, &client.viewer)).then_some(msg)
         }
         ServerMsg::SignInNeeded(ref r) => client.sees(&r.bot).then_some(msg),
-        ServerMsg::Sites { ref owner, .. } => (owner.is_none()
-            || owner.as_deref() == Some(client.viewer.name.as_str()))
+        // A person's own sign-ins go to them alone, by id.
+        ServerMsg::Sites {
+            ref owner,
+            ref owner_id,
+            ..
+        } => (owner.is_none()
+            || client
+                .viewer
+                .is_person(owner_id.as_deref(), owner.as_deref()))
         .then_some(msg),
         ServerMsg::Usage(mut usage) => {
             usage.bots.retain(|b| client.sees(&b.bot));
@@ -1005,9 +1019,15 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::PairingClosed
         | ServerMsg::Gates { .. }
         | ServerMsg::Door(_) => client.viewer.farm.then_some(msg),
-        ServerMsg::Notice { ref owner, .. } => (owner.is_none()
+        ServerMsg::Notice {
+            ref owner,
+            ref owner_id,
+            ..
+        } => (owner.is_none()
             || client.viewer.farm
-            || owner.as_deref() == Some(client.viewer.name.as_str()))
+            || client
+                .viewer
+                .is_person(owner_id.as_deref(), owner.as_deref()))
         .then_some(msg),
         // Nothing about any one bot or person. Every variant is listed, so a
         // new one has to decide who gets it.
@@ -1103,6 +1123,7 @@ mod tests {
         let notice = |owner: Option<&str>| ServerMsg::Notice {
             message: "Signed out of bank.example.".into(),
             owner: owner.map(str::to_owned),
+            owner_id: None,
         };
         let mut farm = Client::new(Viewer::farm("Jay"), &[]);
         let mut sam = Client::new(Viewer::gate("Sam"), &[]);
@@ -1155,6 +1176,7 @@ mod tests {
         let sams = ServerMsg::Sites {
             sites: vec![],
             owner: Some("Sam".into()),
+            owner_id: None,
         };
         assert!(
             forward(sams.clone(), &mut ann).is_none(),
@@ -1164,6 +1186,7 @@ mod tests {
         let home = ServerMsg::Sites {
             sites: vec![],
             owner: None,
+            owner_id: None,
         };
         assert!(forward(home, &mut ann).is_some());
 
@@ -1185,6 +1208,7 @@ mod tests {
             detail: None,
             screenshot: None,
             asker: asker.map(Into::into),
+            asker_id: None,
         })
     }
 
@@ -1205,6 +1229,70 @@ mod tests {
             "nobody asked: the Farm's"
         );
         assert!(forward(card("shared", None), &mut farm).is_some());
+    }
+
+    #[test]
+    fn a_persons_sites_notices_and_cards_go_to_them_by_id() {
+        let sam = oxbot_core::id::PersonId::random();
+        let mut real = Client::new(Viewer::person(sam.clone(), "Samuel", false), &[]);
+        let mut lookalike = Client::new(
+            Viewer::person(oxbot_core::id::PersonId::random(), "Sam", false),
+            &[],
+        );
+        let mut by_name = Client::new(Viewer::gate("Sam"), &[]);
+        let sites = ServerMsg::Sites {
+            sites: vec![],
+            owner: Some("Sam".into()),
+            owner_id: Some(sam.to_string()),
+        };
+        let notice = ServerMsg::Notice {
+            message: "Signed out.".into(),
+            owner: Some("Sam".into()),
+            owner_id: Some(sam.to_string()),
+        };
+        for msg in [sites, notice] {
+            assert!(forward(msg.clone(), &mut real).is_some(), "theirs, renamed");
+            assert!(forward(msg.clone(), &mut lookalike).is_none(), "same name");
+            assert!(forward(msg, &mut by_name).is_none(), "a name alone");
+        }
+        let bots = [info("shared", None, false)];
+        let mut real = Client::new(Viewer::person(sam.clone(), "Samuel", false), &bots);
+        let mut lookalike = Client::new(
+            Viewer::person(oxbot_core::id::PersonId::random(), "Sam", false),
+            &bots,
+        );
+        let ServerMsg::ApprovalNeeded(mut theirs) = card("shared", Some("Sam")) else {
+            panic!("a card")
+        };
+        theirs.asker_id = Some(sam.to_string());
+        let theirs = ServerMsg::ApprovalNeeded(theirs);
+        assert!(forward(theirs.clone(), &mut real).is_some());
+        assert!(forward(theirs, &mut lookalike).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_test_connection_names_its_person_on_purpose() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = Hub::new(
+            vec![],
+            oxbot_core::Store::open_in_memory().unwrap(),
+            oxbot_core::HubConfig {
+                enrol_named_viewers: false,
+                ..oxbot_core::HubConfig::new(tmp.path())
+            },
+        );
+        let state = AppState {
+            e2e: true,
+            ..AppState::new(hub, "test-mac")
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(serve(listener, state.clone(), std::future::pending()));
+        let (_ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws?as=Ann"))
+            .await
+            .unwrap();
+        let ann = state.hub.resolve(&Viewer::gate("Ann")).into_owned();
+        assert!(ann.id.is_some(), "made when the page connected");
     }
 
     fn state(dir: &std::path::Path) -> AppState {

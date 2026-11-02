@@ -38,11 +38,13 @@ impl Hub {
         let mut lists = vec![ServerMsg::Sites {
             sites: self.sites(BrowserOwner::Home),
             owner: None,
+            owner_id: None,
         }];
         if let Some(id) = &viewer.id {
             lists.push(ServerMsg::Sites {
                 sites: self.sites(BrowserOwner::Person(id.clone())),
                 owner: Some(viewer.name.clone()),
+                owner_id: Some(id.to_string()),
             });
         }
         lists
@@ -52,6 +54,7 @@ impl Hub {
         self.announce(ServerMsg::Sites {
             sites: self.sites(&shared.owner),
             owner: self.owner_label(&shared.owner),
+            owner_id: super::owner_id(&shared.owner),
         });
     }
 
@@ -175,7 +178,7 @@ impl Hub {
         self.announce_sites(&shared);
         removed?;
         self.notice_for(
-            self.owner_label(&owner),
+            &owner,
             &format!("Signed out of {site}. Bots will ask you to sign in again if they need it."),
         );
         Ok(())

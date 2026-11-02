@@ -337,24 +337,43 @@ fn find_person(conn: &Connection, by: &str, key: &str) -> Result<Option<PersonRe
 /// whether they're new. A new person's browser folder is their id, and
 /// their Herder's id comes from their name unless someone has it already.
 fn find_or_create(conn: &Connection, name: &str) -> Result<(PersonRecord, bool), StoreError> {
+    find_or_create_with(conn, name, false)
+}
+
+/// Like [`find_or_create`]; with `legacy`, someone new gets the browser
+/// folder an older oxbot made for that name (see [`person_folder`]) unless
+/// someone has it already, so sign-ins made before person ids are theirs.
+fn find_or_create_with(
+    conn: &Connection,
+    name: &str,
+    legacy: bool,
+) -> Result<(PersonRecord, bool), StoreError> {
     if let Some(found) = find_person(conn, "name", name)? {
         return Ok((found, false));
     }
     let id = PersonId::random();
+    let taken = |column: &str, value: &str| -> Result<bool, StoreError> {
+        Ok(conn.query_row(
+            &format!("SELECT EXISTS (SELECT 1 FROM people WHERE {column} = ?1)"),
+            [value],
+            |r| r.get(0),
+        )?)
+    };
     let by_name = personal_herder_id(name);
-    let taken: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM people WHERE herder = ?1)",
-        [by_name.as_str()],
-        |r| r.get(0),
-    )?;
-    let herder = if taken {
+    let herder = if taken("herder", by_name.as_str())? {
         personal_herder_id_for(name, &id)
     } else {
         by_name
     };
+    let old_folder = person_folder(name);
+    let folder = if legacy && !taken("folder", &old_folder)? {
+        old_folder
+    } else {
+        id.as_str().to_owned()
+    };
     conn.execute(
-        "INSERT INTO people (id, name, color, first_ms, folder, herder) VALUES (?1, ?2, ?3, ?4, ?1, ?5)",
-        params![id.as_str(), name, next_color(conn)?, now_ms(), herder.as_str()],
+        "INSERT INTO people (id, name, color, first_ms, folder, herder) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id.as_str(), name, next_color(conn)?, now_ms(), folder, herder.as_str()],
     )?;
     let made = find_person(conn, "id", id.as_str())?
         .ok_or(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))?;
@@ -656,6 +675,32 @@ impl Store {
         Ok(found)
     }
 
+    /// Like [`Store::find_or_create_person`], for a name found in a bot
+    /// made before person ids: someone new keeps the browser folder an older
+    /// oxbot used for that name (if nobody has it), so their sign-ins carry
+    /// over, and the Herder id it used (if free).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn find_or_create_legacy_person(
+        &self,
+        name: &str,
+    ) -> Result<(PersonRecord, bool), StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let found = find_or_create_with(&tx, name, true)?;
+        tx.commit()?;
+        Ok(found)
+    }
+
+    /// The person whose own Herder is `herder`, if any.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn person_by_herder(&self, herder: &BotId) -> Result<Option<PersonRecord>, StoreError> {
+        find_person(&self.conn(), "herder", herder.as_str())
+    }
+
     /// The person with this id, if any.
     ///
     /// # Errors
@@ -874,7 +919,8 @@ impl Store {
     }
 
     /// Remembers a newly paired Gate for the person called exactly `person`
-    /// (made if new). `key_hash` is the hash of its key.
+    /// (made if new, in the same transaction). `key_hash` is the hash of its
+    /// key. The flag says whether the person is new.
     ///
     /// # Errors
     /// Fails if the database does (a key already used, say).
@@ -884,13 +930,13 @@ impl Store {
         person: &str,
         name: &str,
         key_hash: &str,
-    ) -> Result<GateInfo, StoreError> {
+    ) -> Result<(GateInfo, bool), StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        let (found, _) = find_or_create(&tx, person)?;
+        let (found, new) = find_or_create(&tx, person)?;
         let gate = insert_gate(&tx, id, &found, name, key_hash)?;
         tx.commit()?;
-        Ok(gate)
+        Ok((gate, new))
     }
 
     /// Remembers a newly paired Gate for the person `person`.

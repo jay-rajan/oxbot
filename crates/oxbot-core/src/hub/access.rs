@@ -349,7 +349,9 @@ impl Hub {
     }
 
     /// Creates a bot, picking its id from `name`, and tells every client.
-    /// `created_by` names its maker (made a person if new).
+    /// `created_by` names its maker (made a person if new, see
+    /// [`Hub::person_named`]). For `oxbot chat` and tests: connections use
+    /// [`Hub::create_bot_as`].
     ///
     /// # Errors
     /// Fails if its files can't be written.
@@ -375,13 +377,21 @@ impl Hub {
         created_by: Option<&str>,
         private: bool,
     ) -> Result<BotInfo, HubError> {
-        let maker = created_by
-            .map(str::trim)
-            .filter(|c| !c.is_empty())
-            .map(|c| self.resolve(&Viewer::gate(c)).into_owned())
-            .filter(|v| v.id.is_some());
-        self.create_bot_as(name, instructions, maker.as_ref(), private)
-            .await
+        let (maker, new) = match created_by.map(str::trim).filter(|c| !c.is_empty()) {
+            Some(name) => {
+                let (person, new) = self.person_named_quietly(name)?;
+                (Some(Viewer::person(person.id, person.name, false)), new)
+            }
+            None => (None, false),
+        };
+        let made = self
+            .create_bot_as(name, instructions, maker.as_ref(), private)
+            .await;
+        // After the new bot list, as before people were told about.
+        if new {
+            self.announce_people();
+        }
+        made
     }
 
     /// Creates a bot owned by `maker` (a viewer with a person id; `None`

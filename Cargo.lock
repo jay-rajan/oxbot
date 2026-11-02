@@ -2778,6 +2778,7 @@ dependencies = [
  "dirs 7.0.0",
  "oxbot-browser",
  "oxbot-claude",
+ "oxbot-core",
  "oxbot-protocol",
  "rusqlite",
  "serde",

@@ -22,7 +22,15 @@ toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
+[features]
+# Tests only: a viewer known only by name becomes a person the first time
+# the hub sees them (see `HubConfig::enrol_named_viewers`). Never on in a
+# normal build: there, people are made only on purpose.
+test-people = []
+
 [dev-dependencies]
+# This crate's own tests use the test-only feature.
+oxbot-core = { path = ".", features = ["test-people"] }
 tempfile.workspace = true
 
 [lints]

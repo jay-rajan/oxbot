@@ -70,6 +70,13 @@ pub struct HubConfig {
     /// Extra environment for every `claude` child (tests use this; the app
     /// passes a `PATH` that finds Node.js).
     pub extra_env: Vec<(String, String)>,
+    /// Tests only (the `test-people` feature): a viewer known only by name
+    /// becomes the person called that, made if new, the first time the hub
+    /// sees them, so tests can say `Viewer::gate("Sam")`. Without it (every
+    /// normal build) people are made only on purpose (see
+    /// [`Hub::person_named`]) and a name alone gets nobody new.
+    #[cfg(any(test, feature = "test-people"))]
+    pub enrol_named_viewers: bool,
 }
 
 impl HubConfig {
@@ -87,6 +94,8 @@ impl HubConfig {
             task_timeout: Duration::from_mins(10),
             idle_stop: Duration::from_mins(15),
             extra_env: Vec::new(),
+            #[cfg(any(test, feature = "test-people"))]
+            enrol_named_viewers: true,
         }
     }
 }
@@ -255,7 +264,8 @@ impl Hub {
                 None
             }
         };
-        let bots = people::adopt_bots(bots, &store, farm.as_ref());
+        // Nobody is listening yet: no need to tell anyone who's new.
+        let (bots, _) = people::adopt_bots(bots, &store, farm.as_ref());
         let seqs = load_seqs(&store);
         let hub = Arc::new_cyclic(|me| Self {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
@@ -356,16 +366,26 @@ impl Hub {
 
     /// Tells every connected client something, without storing it.
     fn notice(&self, message: &str) {
-        self.notice_for(None, message);
+        self.notice_for(&BrowserOwner::Home, message);
     }
 
-    /// Like [`Hub::notice`], for `owner` alone when it's about their own
-    /// browser (`None` for everyone).
-    fn notice_for(&self, owner: Option<String>, message: &str) {
+    /// Like [`Hub::notice`], about `owner`'s browser: a person's own goes to
+    /// them alone (and the Farm), home's to everyone.
+    fn notice_for(&self, owner: &BrowserOwner, message: &str) {
         let _ = self.updates.send(ServerMsg::Notice {
             message: message.to_owned(),
-            owner,
+            owner: self.owner_label(owner),
+            owner_id: owner_id(owner),
         });
+    }
+}
+
+/// A person's own browser's owner as a person id (server-side only, see
+/// [`ServerMsg::Sites`]); `None` for home.
+fn owner_id(owner: &BrowserOwner) -> Option<String> {
+    match owner {
+        BrowserOwner::Home => None,
+        BrowserOwner::Person(id) => Some(id.to_string()),
     }
 }
 
@@ -426,6 +446,7 @@ mod tests {
             detail: None,
             screenshot: None,
             asker: asker.map(Into::into),
+            asker_id: None,
         };
         assert!(answers(&card(Some("Jay")), &Viewer::gate("Jay")));
         assert!(!answers(&card(Some("Jay")), &Viewer::gate("Sam")));
@@ -606,7 +627,7 @@ mod tests {
         );
         let lists = hub.sites_for(&phone);
         assert!(
-            matches!(&lists[1], ServerMsg::Sites { sites, owner: Some(o) }
+            matches!(&lists[1], ServerMsg::Sites { sites, owner: Some(o), .. }
                 if o == "Jayadev" && sites[0].site == "bank.example"),
             "{lists:?}"
         );
@@ -746,6 +767,260 @@ mod tests {
         assert!(text.contains(&format!("owner = \"{}\"", sam.id)), "{text}");
         assert!(!bank.dir.join("bot.toml.tmp").exists(), "written whole");
         assert_eq!(hub.bot("bank").unwrap().owner, Some(sam.id));
+    }
+
+    /// A hub that, like a normal build, never makes a person from a name.
+    fn strict_hub(dir: &std::path::Path, bots: Vec<Bot>, store: Store) -> Arc<Hub> {
+        let config = HubConfig {
+            enrol_named_viewers: false,
+            ..HubConfig::new(dir)
+        };
+        Hub::new(bots, store, config)
+    }
+
+    #[tokio::test]
+    async fn a_name_alone_never_makes_a_person_and_gets_nothing_of_theirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        hub.create_bot_with("Bank", "", Some("Sam"), true)
+            .await
+            .unwrap();
+        let people = hub.people().unwrap().len();
+
+        // Every way in that takes a viewer only looks people up.
+        let ghost = Viewer::gate("Ghost");
+        assert!(hub.visible_ids(&ghost).is_empty());
+        let list = hub.bots_for(&ghost).await.unwrap();
+        assert!(list.iter().all(|b| b.locked && !b.can_manage));
+        assert!(hub.bot_for("bank", &ghost).is_err());
+        assert!(hub.history_for("bank", 0, &ghost).is_err());
+        assert!(hub.history_page_for("bank", None, 10, &ghost).is_err());
+        assert!(hub.set_private("bank", false, &ghost).await.is_err());
+        assert!(hub.rename_bot("bank", "Mine", &ghost).await.is_err());
+        assert!(hub.delete_bot("bank", &ghost).await.is_err());
+        assert_eq!(hub.sites_for(&ghost).len(), 1, "home's only");
+        assert!(hub.herder_of(&ghost).is_err());
+        assert!(!hub.approval_visible(1, &ghost));
+        assert!(!hub.sign_in_visible(1, &ghost));
+        assert!(hub.send_as("nope", "hi", &ghost).await.is_err());
+        let resolved = hub.resolve(&Viewer::farm("Ghost")).into_owned();
+        assert!(resolved.farm && resolved.id.is_none() && resolved.name.is_empty());
+        assert!(hub.store.person_by_name("Ghost").unwrap().is_none());
+        assert_eq!(hub.people().unwrap().len(), people, "nobody new");
+
+        // Someone oxbot knows is found by their exact name.
+        let sam = hub.store.person_by_name("Sam").unwrap().unwrap();
+        let found = hub.resolve(&Viewer::gate("Sam")).into_owned();
+        assert_eq!(found.id, Some(sam.id));
+        assert!(hub.bot_for("bank", &found).is_ok());
+        assert!(hub.resolve(&Viewer::gate("sam")).id.is_none(), "exactly");
+    }
+
+    #[tokio::test]
+    async fn someone_new_is_announced_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        let mut updates = hub.subscribe();
+        let ann = hub.person_named(" Ann ").unwrap();
+        assert_eq!(ann.name, "Ann");
+        assert!(matches!(
+            updates.try_recv(),
+            Ok(ServerMsg::People { people }) if people.iter().any(|p| p.name == "Ann")
+        ));
+        assert_eq!(hub.person_named("Ann").unwrap().id, ann.id);
+        assert!(updates.try_recv().is_err(), "not new the second time");
+        assert!(hub.person_named("  ").is_err());
+
+        let (_, new) = hub.store.add_gate("g1", "Bea", "Phone", "hash-1").unwrap();
+        assert!(new);
+        hub.add_gate("g2", "Cy", "Phone", "hash-2").unwrap();
+        assert!(matches!(updates.try_recv(), Ok(ServerMsg::People { .. })));
+        hub.add_gate_for("g3", &ann.id, "Laptop", "hash-3").unwrap();
+        assert!(updates.try_recv().is_err(), "Ann isn't new");
+        let gates = hub.gates().unwrap();
+        assert_eq!(gates.len(), 3);
+        assert_eq!(gates[2].person, "Ann");
+    }
+
+    #[tokio::test]
+    async fn a_maker_from_before_person_ids_keeps_their_old_browser_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bank = Bot::create_by(
+            tmp.path(),
+            BotId::new("bank").unwrap(),
+            "Bank",
+            "",
+            Some("Sam"),
+        )
+        .unwrap();
+        let hub = strict_hub(tmp.path(), vec![bank], Store::open_in_memory().unwrap());
+        let sam = hub.store.person_by_name("Sam").unwrap().unwrap();
+        assert_eq!(
+            sam.folder,
+            person_folder("Sam"),
+            "their sign-ins carry over"
+        );
+        assert_eq!(sam.herder, crate::bot::personal_herder_id("Sam"));
+        assert_eq!(hub.bot("bank").unwrap().owner, Some(sam.id));
+    }
+
+    #[test]
+    fn an_old_folder_someone_has_goes_to_nobody_else() {
+        let store = Store::open_in_memory().unwrap();
+        // Jay, renamed, keeps the folder oxbot made for "Jay".
+        let (jay, _) = store.find_or_create_legacy_person("Jay").unwrap();
+        assert_eq!(jay.folder, person_folder("Jay"));
+        assert!(store.rename_person(&jay.id, "Jayadev").unwrap());
+        let (other, new) = store.find_or_create_legacy_person("Jay").unwrap();
+        assert!(new && other.id != jay.id);
+        assert_eq!(other.folder, other.id.as_str(), "not Jayadev's");
+        assert_ne!(other.herder, jay.herder);
+    }
+
+    #[tokio::test]
+    async fn a_personal_herder_belongs_to_the_person_it_is_kept_with() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let (sam, _) = store.find_or_create_person("Sam").unwrap();
+        assert!(store.rename_person(&sam.id, "Samuel").unwrap());
+        let mut herder = Bot::create_by(
+            tmp.path(),
+            sam.herder.clone(),
+            crate::bot::CENTRAL_NAME,
+            "",
+            Some("Sam"),
+        )
+        .unwrap();
+        herder.private = true;
+        herder.save().unwrap();
+        let hub = strict_hub(tmp.path(), vec![herder], store);
+        assert_eq!(hub.bot(sam.herder.as_str()).unwrap().owner, Some(sam.id));
+        assert!(
+            hub.store.person_by_name("Sam").unwrap().is_none(),
+            "nobody new for its old name"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_private_bot_nobody_made_stays_the_farms_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut diary = Bot::create(tmp.path(), BotId::new("diary").unwrap(), "Diary", "").unwrap();
+        diary.private = true;
+        diary.save().unwrap();
+        let hub = strict_hub(tmp.path(), vec![diary], Store::open_in_memory().unwrap());
+        let jay = hub.farm_person("Jay").unwrap();
+        let diary = hub.bot("diary").unwrap();
+        assert_eq!(diary.owner, None, "not given to the Mac owner");
+        assert_eq!(Bot::load(&diary.dir).unwrap().owner, None);
+        let phone = Viewer::person(jay.id, "Jay", false);
+        assert!(hub.bot_for("diary", &phone).is_err());
+        let farm = hub.farm_viewer("Jay");
+        let list = hub.bots_for(&farm).await.unwrap();
+        assert!(
+            list.iter()
+                .any(|b| b.id == "diary" && b.can_manage && !b.locked)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_gate_never_pairs_as_the_farms_person_by_a_lookalike_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        let jay = hub.farm_person("Jay").unwrap();
+        let sam = hub.person_named("Sam").unwrap();
+        assert_eq!(hub.gate_pick("jay").unwrap(), ("jay".to_owned(), None));
+        assert_eq!(hub.gate_person("JAY").unwrap(), "JAY");
+        assert_eq!(
+            hub.gate_pick("Jay").unwrap(),
+            ("Jay".to_owned(), Some(jay.id))
+        );
+        assert_eq!(
+            hub.gate_pick(" sam").unwrap(),
+            ("Sam".to_owned(), Some(sam.id))
+        );
+    }
+
+    #[tokio::test]
+    async fn only_the_account_name_renames_the_farms_person() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("oxbot.db");
+        let start = || strict_hub(tmp.path(), vec![], Store::open(&db).unwrap());
+        let hub = start();
+        let jay = hub.farm_person_from("Jay", true).unwrap();
+        hub.person_named("Jayadev").unwrap();
+        hub.shutdown().await;
+        drop(hub);
+
+        // The device's name stands in for an account name: no rename.
+        let hub = start();
+        let kept = hub.farm_person_from("Jay's Mac", false).unwrap();
+        assert_eq!((&kept.id, kept.name.as_str()), (&jay.id, "Jay"));
+        hub.shutdown().await;
+        drop(hub);
+
+        // Someone else has the account's name: kept, and nobody is merged.
+        let hub = start();
+        let kept = hub.farm_person_from("Jayadev", true).unwrap();
+        assert_eq!((&kept.id, kept.name.as_str()), (&jay.id, "Jay"));
+        hub.shutdown().await;
+        drop(hub);
+
+        // A free account name: renamed, and everyone is told.
+        let hub = start();
+        let mut updates = hub.subscribe();
+        let renamed = hub.farm_person_from("Jay R", true).unwrap();
+        assert_eq!((&renamed.id, renamed.name.as_str()), (&jay.id, "Jay R"));
+        assert!(matches!(
+            updates.try_recv(),
+            Ok(ServerMsg::People { people }) if people.iter().any(|p| p.name == "Jay R")
+        ));
+        hub.shutdown().await;
+    }
+
+    #[test]
+    fn a_card_or_notice_is_matched_by_id_never_by_name_alone() {
+        let sam = PersonId::random();
+        let card = Approval {
+            id: 1,
+            bot: "shared".into(),
+            kind: ApprovalKind::Change,
+            action: "click".into(),
+            target: "Buy".into(),
+            site: "shop.example".into(),
+            page: None,
+            detail: None,
+            screenshot: None,
+            asker: Some("Sam".into()),
+            asker_id: Some(sam.to_string()),
+        };
+        assert!(answers(
+            &card,
+            &Viewer::person(sam.clone(), "Samuel", false)
+        ));
+        let lookalike = Viewer::person(PersonId::random(), "Sam", false);
+        assert!(!answers(&card, &lookalike), "same name, someone else");
+        assert!(!answers(&card, &Viewer::gate("Sam")), "a name alone");
+        assert!(answers(&card, &Viewer::farm("")));
+    }
+
+    #[tokio::test]
+    async fn a_persons_own_sites_carry_their_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        let sam = hub.person_named("Sam").unwrap();
+        let lists = hub.sites_for(&Viewer::person(sam.id.clone(), "Sam", false));
+        assert!(matches!(
+            &lists[0],
+            ServerMsg::Sites {
+                owner: None,
+                owner_id: None,
+                ..
+            }
+        ));
+        assert!(
+            matches!(&lists[1], ServerMsg::Sites { owner: Some(n), owner_id: Some(id), .. }
+                if n == "Sam" && id == sam.id.as_str())
+        );
     }
 
     #[test]
