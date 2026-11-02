@@ -12,7 +12,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, watch};
 
 use crate::guard::Guard;
-use crate::{BrowserError, CookieMarks, Tools, http};
+use crate::{BrowserError, CookieMarks, ElementFacts, Tools, http};
 
 /// What the shared browser should be.
 #[derive(Debug, Clone)]
@@ -280,12 +280,28 @@ impl Browser {
         guard.as_ref()?.screenshot(page_url).await
     }
 
-    /// Runs `expression` (JavaScript) in the page at `page_url` (or the one
-    /// used last) and returns its JSON value. For oxbot's own checks only;
-    /// bots never run scripts.
+    /// Runs `expression` (JavaScript) in oxbot's isolated world of the page
+    /// at `page_url` (or the one used last) and returns its JSON value. For
+    /// oxbot's own checks only; bots never run scripts.
     pub async fn inspect(&self, page_url: Option<&str>, expression: &str) -> Option<Value> {
         let guard = self.guard.lock().await;
         guard.as_ref()?.evaluate(page_url, expression).await
+    }
+
+    /// What the elements with accessibility `role` and `name` on the page at
+    /// `page_url` (or the one used last) are: whether they submit a form,
+    /// and what kind. One entry per match; empty if none was found in time.
+    pub async fn describe(
+        &self,
+        page_url: Option<&str>,
+        role: &str,
+        name: &str,
+    ) -> Vec<ElementFacts> {
+        let guard = self.guard.lock().await;
+        match guard.as_ref() {
+            Some(guard) => guard.describe(page_url, role, name).await,
+            None => Vec::new(),
+        }
     }
 
     /// The sites the shared browser holds cookies for, as main domains
