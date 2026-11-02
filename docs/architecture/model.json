@@ -1361,7 +1361,7 @@
             "h": 150,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, claude, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie."
+            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped."
           },
           {
             "id": "policy",
@@ -1371,7 +1371,7 @@
             "h": 170,
             "name": "Policy",
             "tech": "oxbot-core::policy",
-            "desc": "Every browser call. Read, type: run. Change clicks and Enter: red card. Uploads: amber. create_bot: Create card. Refused: password fields, page scripts, non-web URLs, other files."
+            "desc": "Every browser call. Read, type, links, search, filters: run. Clicks: query, plain, change, final (pay, book, delete) or unknown (runs, logged). Change and final clicks, Enter: red card. Uploads: amber. create_bot: Create card. Refused: password fields, page scripts, non-web URLs, other files."
           },
           {
             "id": "store",
@@ -1411,7 +1411,7 @@
             "h": 175,
             "name": "Browser",
             "tech": "oxbot-browser",
-            "desc": "One Browser per owner: home or a person's profile. Hidden; visible to sign in. Guard (CDP): pages, downloads, screenshots, cookies, sign out per site. Icons from Favicons, read-only.",
+            "desc": "One Browser per owner: home or a person's profile. Hidden; visible to sign in. Guard (CDP): pages and button forms in an isolated world, downloads, screenshots, cookies, sign out per site. Icons from Favicons, read-only.",
             "stack": true
           },
           {

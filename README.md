@@ -8,9 +8,14 @@ Status: desktop app on the Mac plus the Android Gate app (milestone Foundations,
 bots share one hidden home Chrome that keeps your sign-ins: a bot that needs an account asks, a
 Chrome window opens, you sign in once, and every bot on that Chrome stays signed in (a sign-in
 counts only if the window left a new cookie). The sidebar lists the signed-in sites; open one, or sign out of it
-alone. Bots take turns on the browser. oxbot checks every browser step: a red card before
-anything that changes something (Send, Post, Delete, Buy…), a card before an upload from your
-Mac, and it refuses passwords, page scripts, non-web pages and files outside the bot's folder.
+alone. Bots take turns on the browser. oxbot checks every browser step: links, tabs, search,
+filters, sorting and paging run at once; a red card comes before anything that changes something
+(Send, Post, Save, Apply…, or a filled-in POST form's button), and before paying, booking or
+deleting; a card comes before an upload from your Mac; and it refuses passwords, page scripts,
+non-web pages and files outside the bot's folder. oxbot names what a click aims at from every page
+snapshot the bot has read (also the large ones Claude saves to a file), and for an unclear button
+it reads the button's form itself, in its own isolated world the page's scripts can't touch. A
+click oxbot still can't name runs, and is logged.
 Open cards sit right above the message box, newest nearest it, whichever bot is open; the card
 area scrolls on its own so the box stays on screen, on a phone too.
 
