@@ -531,3 +531,205 @@ async fn catching_up_after_a_long_time_away_gets_the_latest_page() {
         assert_eq!(first.seq, SEEDED + 1);
     }
 }
+
+/// Counts the notifications posted, instead of posting them.
+#[derive(Debug, Default)]
+struct CountingNotifier(Mutex<Vec<(String, String)>>);
+
+impl oxbot::notify::Notifier for CountingNotifier {
+    fn notify(&self, title: &str, body: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .push((title.to_owned(), body.to_owned()));
+    }
+}
+
+impl CountingNotifier {
+    fn bodies(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, b)| b.clone())
+            .collect()
+    }
+}
+
+/// A server whose Claude says usage is at each of `limits` in turn (both
+/// windows), with notifications counted. Returns the Farm's address and
+/// a Gate person's (`?as=Sam`, test mode).
+async fn start_alerting(
+    dir: &std::path::Path,
+    limits: &str,
+    notifier: Arc<CountingNotifier>,
+) -> (String, String) {
+    let claude_tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxbot-claude/tests");
+    let bot = Bot::create(dir, BotId::new("assistant").unwrap(), "Assistant", "").unwrap();
+    let env = [
+        ("FAKE_TOOL", "none"),
+        ("FAKE_NO_PAGE", "1"),
+        ("FAKE_LIMITS", limits),
+        ("FAKE_MODEL", "claude-sonnet-4-5-20250929"),
+    ];
+    let config = HubConfig {
+        claude_program: claude_tests.join("fake-claude-perm.sh"),
+        extra_env: env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect(),
+        ..HubConfig::new(dir)
+    };
+    let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let state = AppState {
+        data_dir: dir.to_owned(),
+        local_person: "Jay".to_owned(),
+        e2e: true,
+        notifier: Some(notifier),
+        ..AppState::new(hub, "test-mac")
+    };
+    let addr = listener.local_addr().unwrap();
+    let farm = format!("ws://{addr}/ws?k={}", state.farm_key);
+    let gate = format!("ws://{addr}/ws?as=Sam");
+    oxbot::notify::start(&state);
+    tokio::spawn(server::serve(listener, state, std::future::pending()));
+    (farm, gate)
+}
+
+/// Sends `text` to the assistant and reads until its turn is done,
+/// returning the usage alerts that came meanwhile.
+async fn alerts_in_turn(ws: &mut Ws, text: &str) -> Vec<oxbot_protocol::UsageAlert> {
+    send(
+        ws,
+        &ClientMsg::Send {
+            bot: "assistant".into(),
+            text: text.into(),
+        },
+    )
+    .await;
+    let mut alerts = Vec::new();
+    loop {
+        match next(ws).await {
+            ServerMsg::UsageAlert(a) => alerts.push(a),
+            ServerMsg::Event(e) if matches!(e.kind, EventKind::TurnDone { .. }) => {
+                return alerts;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Reads the opening messages up to the people list, returning the usage
+/// alerts among them.
+async fn opening_alerts(url: &str) -> (Ws, Vec<oxbot_protocol::UsageAlert>) {
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    let mut alerts = Vec::new();
+    let mut seen_usage = false;
+    loop {
+        match next(&mut ws).await {
+            ServerMsg::Usage(_) => seen_usage = true,
+            ServerMsg::UsageAlert(a) => {
+                assert!(seen_usage, "alerts come after usage");
+                alerts.push(a);
+            }
+            ServerMsg::People { .. } => return (ws, alerts),
+            _ => {}
+        }
+    }
+}
+
+async fn subscribe(ws: &mut Ws) {
+    send(
+        ws,
+        &ClientMsg::Subscribe {
+            bot: "assistant".into(),
+            since: 0,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn usage_alerts_reach_everyone_with_one_notification_each() {
+    let tmp = tempfile::tempdir().unwrap();
+    let notifier = Arc::new(CountingNotifier::default());
+    let (farm, gate) = start_alerting(tmp.path(), "0.55,0.6,0.85", Arc::clone(&notifier)).await;
+    let (mut ws, alerts) = opening_alerts(&farm).await;
+    assert_eq!(alerts, []);
+    let (mut sam, _) = opening_alerts(&gate).await;
+    subscribe(&mut ws).await;
+
+    let first = alerts_in_turn(&mut ws, "one").await;
+    let got: Vec<_> = first.iter().map(|a| (a.limit.as_str(), a.level)).collect();
+    assert_eq!(got, [("five_hour", 50), ("seven_day", 50)]);
+    assert!(
+        first[0].message.contains("Sonnet 4.5"),
+        "{}",
+        first[0].message
+    );
+    assert_eq!(
+        alerts_in_turn(&mut ws, "two").await,
+        [],
+        "60% is no new level"
+    );
+    let third = alerts_in_turn(&mut ws, "three").await;
+    assert_eq!(third.len(), 2);
+    assert!(third.iter().all(|a| a.level == 80));
+
+    // A Gate person gets them too: nothing in them is anyone's.
+    let mut on_gate = Vec::new();
+    while on_gate.len() < 4 {
+        if let ServerMsg::UsageAlert(a) = next(&mut sam).await {
+            on_gate.push(a);
+        }
+    }
+    // One Mac notification per alert, saying the same.
+    for _ in 0..50 {
+        if notifier.bodies().len() >= 4 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let bodies = notifier.bodies();
+    assert_eq!(bodies.len(), 4, "{bodies:?}");
+    assert_eq!(bodies[0], first[0].message);
+
+    // Connecting later: the latest live alert of each window, for the
+    // banner.
+    let (_, live) = opening_alerts(&farm).await;
+    let live: Vec<_> = live.iter().map(|a| (a.limit.as_str(), a.level)).collect();
+    assert_eq!(live, [("five_hour", 80), ("seven_day", 80)]);
+}
+
+#[tokio::test]
+async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
+    let tmp = tempfile::tempdir().unwrap();
+    let notifier = Arc::new(CountingNotifier::default());
+    let (farm, gate) = start_alerting(tmp.path(), "0.55,0.85", Arc::clone(&notifier)).await;
+    let (mut sam, _) = opening_alerts(&gate).await;
+    send(&mut sam, &ClientMsg::SetUsageAlerts { on: false }).await;
+    loop {
+        if let ServerMsg::Error { message } = next(&mut sam).await {
+            assert!(message.contains("Only the Farm"), "{message}");
+            break;
+        }
+    }
+
+    let (mut ws, _) = opening_alerts(&farm).await;
+    send(&mut ws, &ClientMsg::SetUsageAlerts { on: false }).await;
+    let settings = loop {
+        if let ServerMsg::Settings(s) = next(&mut ws).await {
+            break s;
+        }
+    };
+    assert!(!settings.usage_alerts);
+    assert_eq!(settings.notify_when_hidden, None, "not the desktop app");
+    subscribe(&mut ws).await;
+    assert_eq!(alerts_in_turn(&mut ws, "one").await, []);
+    assert_eq!(alerts_in_turn(&mut ws, "two").await, []);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(notifier.bodies(), Vec::<String>::new());
+    let (_, live) = opening_alerts(&farm).await;
+    assert_eq!(live, [], "no banner while off");
+}

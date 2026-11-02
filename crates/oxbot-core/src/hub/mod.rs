@@ -16,11 +16,13 @@
 //! the user with an [`Approval`] card before a change or an upload), serves
 //! oxbot's own `request_sign_in` tool (a [`SignInRequest`] card and a
 //! visible Chrome window) and `save_report` (research reports, see
-//! [`crate::report`]), keeps Claude's usage and the people who send
-//! messages, and broadcasts every change to connected clients as
+//! [`crate::report`]), keeps Claude's usage (alerting at 50% and 80% of
+//! the plan's windows) and the people who send messages, and broadcasts
+//! every change to connected clients as
 //! [`ServerMsg`]s.
 
 mod access;
+mod alerts;
 mod approvals;
 mod browsers;
 mod claude;
@@ -35,6 +37,7 @@ mod taint;
 mod team;
 mod turns;
 
+pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 

@@ -161,7 +161,10 @@ impl Hub {
         started: &mut bool,
     ) -> Result<(), HubError> {
         match event {
-            ClaudeEvent::Init { .. } => *started = true,
+            ClaudeEvent::Init { model, .. } => {
+                *started = true;
+                self.note_model(bot, &model);
+            }
             ClaudeEvent::TextDelta(text) => {
                 let _ = self.updates.send(ServerMsg::Delta {
                     bot: bot.to_string(),
@@ -202,6 +205,7 @@ impl Hub {
             }
             ClaudeEvent::Limits(windows) => {
                 self.store.set_limits(&windows)?;
+                self.check_limit_alerts(&windows);
                 self.announce_usage();
             }
             ClaudeEvent::TurnResult {

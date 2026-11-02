@@ -225,6 +225,7 @@ impl View {
                 }
             }
             ServerMsg::Notice { message, .. } => println!("   · {message}"),
+            ServerMsg::UsageAlert(alert) => println!("   ! {}", alert.message),
             ServerMsg::Log(line) if line.level != "info" => {
                 println!("   [{}] {}", line.level, line.message);
             }

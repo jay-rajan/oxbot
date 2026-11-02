@@ -195,6 +195,19 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
+    /// Farm only: turn the 50% and 80% Claude usage alerts on or off. The
+    /// asker gets the new [`ServerMsg::Settings`].
+    SetUsageAlerts {
+        /// On or off.
+        on: bool,
+    },
+    /// Farm only: turn the Mac notification for a bot waiting for an OK or
+    /// a sign-in while oxbot's window is hidden on or off (desktop app
+    /// only). The asker gets the new [`ServerMsg::Settings`].
+    SetNotifyWhenHidden {
+        /// On or off.
+        on: bool,
+    },
     /// Open the sign-in window for a [`SignInRequest`].
     OpenSignIn {
         /// The request's id.
@@ -486,11 +499,33 @@ pub enum ServerMsg {
         /// Newest first.
         reports: Vec<ReportInfo>,
     },
+    /// Claude usage passed 50% or 80% of a plan window. Sent to everyone
+    /// once per level per window, and on connect for a window's latest
+    /// alert until the window resets. Never sent while alerts are off.
+    UsageAlert(UsageAlert),
     /// Something the client asked for went wrong.
     Error {
         /// What went wrong, for the user.
         message: String,
     },
+}
+
+/// Claude usage passed a level of one of the plan's windows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageAlert {
+    /// Claude's name for the window: `five_hour` or `seven_day`.
+    pub limit: String,
+    /// The level passed: 50 or 80.
+    pub level: u8,
+    /// How much was used when it passed it, from 0 to 1.
+    pub used: f64,
+    /// When the window resets (ms since the Unix epoch; 0 if unknown).
+    pub resets_at_ms: i64,
+    /// The models the bots use, as shown, e.g. `Sonnet 4.5`.
+    pub models: Vec<String>,
+    /// Ready to show, e.g. `Claude's 5-hour limit is at 52%. Resets in 2 h
+    /// 10 min. Your bots use Sonnet 4.5.`
+    pub message: String,
 }
 
 /// The app-wide settings shown in the Settings panel.
@@ -510,6 +545,18 @@ pub struct AppSettings {
     /// delete every bot, private ones included.
     #[serde(default)]
     pub farm: bool,
+    /// Whether oxbot tells the user when Claude usage passes 50% and 80%.
+    #[serde(default = "yes")]
+    pub usage_alerts: bool,
+    /// Whether oxbot posts a Mac notification when a bot waits for an OK
+    /// or a sign-in while its window is hidden; `None` when this server
+    /// can't tell (it isn't the desktop app).
+    #[serde(default)]
+    pub notify_when_hidden: Option<bool>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// A bot asking the user to sign in to a site in the shared browser.
@@ -1395,9 +1442,50 @@ mod tests {
             launch_at_login: None,
             you: "Jay".into(),
             farm: true,
+            usage_alerts: true,
+            notify_when_hidden: None,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
+        assert!(json.contains(r#""notify_when_hidden":null"#));
+        let back: ServerMsg = serde_json::from_str(&json).unwrap();
+        let ServerMsg::Settings(back) = back else {
+            panic!("settings")
+        };
+        assert_eq!(back.notify_when_hidden, None);
+    }
+
+    #[test]
+    fn settings_from_an_older_server_have_usage_alerts_on() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"version":"0.1.0","data_dir":"/d","launch_at_login":null,"you":"Jay","farm":true}"#,
+        )
+        .unwrap();
+        assert!(settings.usage_alerts);
+        assert_eq!(settings.notify_when_hidden, None);
+    }
+
+    #[test]
+    fn a_usage_alert_is_tagged_and_flat() {
+        let json = serde_json::to_string(&ServerMsg::UsageAlert(UsageAlert {
+            limit: "five_hour".into(),
+            level: 50,
+            used: 0.52,
+            resets_at_ms: 1000,
+            models: vec!["Sonnet 4.5".into()],
+            message: "Claude's 5-hour limit is at 52%.".into(),
+        }))
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"usage_alert","limit":"five_hour","level":50,"used":0.52,"resets_at_ms":1000,"models":["Sonnet 4.5"],"message":"Claude's 5-hour limit is at 52%."}"#
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_usage_alerts","on":false}"#).unwrap();
+        assert_eq!(msg, ClientMsg::SetUsageAlerts { on: false });
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_notify_when_hidden","on":true}"#).unwrap();
+        assert_eq!(msg, ClientMsg::SetNotifyWhenHidden { on: true });
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub struct AppState {
     /// The Farm secret (see [`crate::secret`]): a connection from this Mac
     /// is the Farm only if it shows this.
     pub farm_key: String,
+    /// Posts Mac notifications (see [`crate::notify`]); `None` posts none.
+    pub notifier: Option<Arc<dyn crate::notify::Notifier>>,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -79,6 +81,10 @@ pub trait AppControls: Send + Sync + std::fmt::Debug {
     /// # Errors
     /// Says why it couldn't.
     fn set_launch_at_login(&self, on: bool) -> Result<(), String>;
+    /// Whether oxbot's window is on screen; `None` if this can't tell.
+    fn window_visible(&self) -> Option<bool> {
+        None
+    }
 }
 
 impl AppState {
@@ -97,6 +103,12 @@ impl AppState {
             launch_at_login: self.app.as_ref().and_then(|a| a.launch_at_login()),
             you: viewer.name.clone(),
             farm: viewer.farm,
+            usage_alerts: self.hub.usage_alerts_on(),
+            notify_when_hidden: self
+                .app
+                .as_ref()
+                .and_then(|a| a.window_visible())
+                .map(|_| self.hub.notify_when_hidden()),
         }
     }
 
@@ -154,6 +166,7 @@ impl AppState {
             e2e: false,
             door: None,
             farm_key: crate::secret::random_hex::<32>(),
+            notifier: None,
         }
     }
 }
@@ -567,9 +580,7 @@ async fn serve_client(
         ServerMsg::Settings(state.settings_for(&client.viewer)),
     ];
     first.push(ServerMsg::Setup(state.setup_report()));
-    if let Ok(usage) = state.hub.usage() {
-        first.extend(forward(ServerMsg::Usage(usage), &mut client));
-    }
+    first.extend(usage_now(&state, &mut client));
     if let Ok(people) = state.hub.people() {
         first.push(ServerMsg::People { people });
     }
@@ -654,6 +665,23 @@ async fn serve_client(
             }
         }
     }
+}
+
+/// Usage as `client` may see it, then the usage alerts still live (so the
+/// banner survives a reload).
+fn usage_now(state: &AppState, client: &mut Client) -> Vec<ServerMsg> {
+    let usage = state.hub.usage().ok().map(ServerMsg::Usage);
+    usage
+        .and_then(|u| forward(u, client))
+        .into_iter()
+        .chain(
+            state
+                .hub
+                .live_usage_alerts()
+                .into_iter()
+                .map(ServerMsg::UsageAlert),
+        )
+        .collect()
 }
 
 /// The next relayed log line; never resolves without a relay. A client that
@@ -936,6 +964,14 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
                 Err(e) => error(&e),
             }
         }
+        ClientMsg::SetUsageAlerts { on } => match state.hub.set_usage_alerts(on) {
+            Ok(()) => vec![ServerMsg::Settings(state.settings())],
+            Err(e) => error(&e),
+        },
+        ClientMsg::SetNotifyWhenHidden { on } => match state.hub.set_notify_when_hidden(on) {
+            Ok(()) => vec![ServerMsg::Settings(state.settings())],
+            Err(e) => error(&e),
+        },
         ClientMsg::CheckSetup => vec![ServerMsg::Setup(state.refresh_setup().await)],
         ClientMsg::RunSetup { action } => {
             if state
@@ -980,7 +1016,7 @@ async fn handle_door(msg: ClientMsg, door: &crate::door::Door) -> anyhow::Result
 }
 
 /// What only the Farm itself may do: pair and remove Gates, pick the
-/// networks phones use, change the Mac's setup.
+/// networks phones use, change the Mac's setup and its notifications.
 fn farm_only(msg: &ClientMsg) -> bool {
     matches!(
         msg,
@@ -992,6 +1028,8 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetDoorName { .. }
             | ClientMsg::RunSetup { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
+            | ClientMsg::SetUsageAlerts { .. }
+            | ClientMsg::SetNotifyWhenHidden { .. }
     )
 }
 
@@ -1208,6 +1246,9 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::Setup(_)
         | ServerMsg::SetupProgress { .. }
         | ServerMsg::People { .. }
+        // Plan limits already go to everyone in `Usage`; an alert names no
+        // bot, site or person.
+        | ServerMsg::UsageAlert(_)
         | ServerMsg::Error { .. } => Some(msg),
     }
 }

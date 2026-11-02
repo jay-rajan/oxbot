@@ -6,6 +6,7 @@
 //! - [`client`]: one-shot requests from CLI commands to a running server
 //! - [`door`]: the Gate door phones and laptops pair and connect through
 //! - [`logs`]: relays the server's log to the apps
+//! - [`notify`]: Mac notifications for usage alerts and waiting bots
 //! - [`runtime`]: starts and stops a whole server (CLI and desktop app)
 //! - [`setup`]: what oxbot needs on the Mac, and where to find it
 
@@ -13,6 +14,7 @@ pub mod chat;
 pub mod client;
 pub mod door;
 pub mod logs;
+pub mod notify;
 pub mod runtime;
 pub mod secret;
 pub mod server;

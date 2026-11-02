@@ -1507,3 +1507,141 @@ async fn deleting_a_bot_keeps_its_reports_in_the_trash() {
     assert_eq!(hub.reports_for("scout", &farm).unwrap(), []);
     hub.shutdown().await;
 }
+
+/// Sends one message per entry of `FAKE_LIMITS` and returns every usage
+/// alert broadcast meanwhile.
+async fn alerts_over(hub: &Arc<Hub>, turns: usize) -> Vec<oxbot_protocol::UsageAlert> {
+    let mut updates = hub.subscribe();
+    let mut alerts = Vec::new();
+    for i in 0..turns {
+        hub.send("poster", &format!("turn {i}"), Some("Jay"))
+            .await
+            .unwrap();
+        loop {
+            let msg = tokio::time::timeout(Duration::from_secs(10), updates.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match msg {
+                ServerMsg::UsageAlert(a) => alerts.push(a),
+                ServerMsg::Event(e) if matches!(e.kind, EventKind::TurnDone { .. }) => break,
+                _ => {}
+            }
+        }
+    }
+    alerts
+}
+
+fn limits_env(limits: &str) -> [(&str, &str); 3] {
+    [
+        ("FAKE_LIMITS", limits),
+        ("FAKE_NO_PAGE", "1"),
+        ("FAKE_MODEL", "claude-haiku-4-5-20251001"),
+    ]
+}
+
+#[tokio::test]
+async fn usage_alerts_come_once_per_level_per_window_even_after_a_restart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("oxbot.db");
+    let env = limits_env("0.4,0.55,0.6,0.85,0.9");
+    let hub = asking_hub_store(
+        tmp.path(),
+        "none",
+        &["poster"],
+        &env,
+        Store::open(&db).unwrap(),
+    );
+    let alerts = alerts_over(&hub, 5).await;
+    let got: Vec<_> = alerts.iter().map(|a| (a.limit.as_str(), a.level)).collect();
+    assert_eq!(
+        got,
+        [
+            ("five_hour", 50),
+            ("seven_day", 50),
+            ("five_hour", 80),
+            ("seven_day", 80)
+        ]
+    );
+    assert!(
+        alerts[0]
+            .message
+            .starts_with("Claude's 5-hour limit is at 55%. Resets in "),
+        "{}",
+        alerts[0].message
+    );
+    assert!(
+        alerts[0].message.ends_with("Your bots use Haiku 4.5."),
+        "names the model Claude reported: {}",
+        alerts[0].message
+    );
+    assert_eq!(alerts[0].models, ["Haiku 4.5"]);
+    // Live for a client that connects now: the latest of each window.
+    let live: Vec<_> = hub
+        .live_usage_alerts()
+        .into_iter()
+        .map(|a| (a.limit, a.level))
+        .collect();
+    assert_eq!(
+        live,
+        [("five_hour".to_owned(), 80), ("seven_day".to_owned(), 80)]
+    );
+    hub.shutdown().await;
+    drop(hub);
+
+    // Started again on the same database, still at 90%: nothing new.
+    let env = limits_env("0.9");
+    let hub = asking_hub_store(
+        tmp.path(),
+        "none",
+        &["poster"],
+        &env,
+        Store::open(&db).unwrap(),
+    );
+    assert_eq!(alerts_over(&hub, 1).await, []);
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn usage_alerts_switched_off_send_nothing_and_stay_quiet_when_back_on() {
+    let tmp = tempfile::tempdir().unwrap();
+    let env = limits_env("0.4,0.55,0.6,0.85,0.9,0.95");
+    let hub = asking_hub_env(tmp.path(), "none", &["poster"], &env);
+    assert!(hub.usage_alerts_on(), "on by default");
+    hub.set_usage_alerts(false).unwrap();
+    assert!(!hub.usage_alerts_on());
+    assert_eq!(alerts_over(&hub, 5).await, []);
+    assert_eq!(hub.live_usage_alerts(), []);
+    // Back on in the same window: the levels passed while off were kept,
+    // so no late alert.
+    hub.set_usage_alerts(true).unwrap();
+    assert_eq!(alerts_over(&hub, 1).await, []);
+    assert_eq!(hub.live_usage_alerts().len(), 2, "the banner shows again");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_notification_names_shared_bots_but_not_someone_elses_private_one() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = asking_hub_with(tmp.path(), "none", &["poster"]);
+    assert_eq!(hub.notice_name("poster").as_deref(), Some("poster"));
+    assert_eq!(hub.notice_name("nobody"), None);
+    hub.farm_person_from("Jay", true).unwrap();
+    let sams = hub
+        .create_bot_with("Sam's bank", "", Some("Sam"), true)
+        .await
+        .unwrap();
+    assert_eq!(hub.notice_name(&sams.id), None);
+    let jays = hub
+        .create_bot_with("Jay's notes", "", Some("Jay"), true)
+        .await
+        .unwrap();
+    assert_eq!(
+        hub.notice_name(&jays.id).as_deref(),
+        Some("Jay's notes"),
+        "the Farm's own private bot is the Mac owner's"
+    );
+    let herder = hub.herder_for("Sam").unwrap();
+    assert_eq!(hub.notice_name(herder.as_str()), None);
+    hub.shutdown().await;
+}

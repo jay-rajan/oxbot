@@ -30,6 +30,9 @@ pub struct ServerOptions {
     pub ui_dir: Option<PathBuf>,
     /// What the desktop app lets the page control.
     pub app: Option<Arc<dyn AppControls>>,
+    /// How to post Mac notifications; `None` picks the default (see
+    /// [`crate::notify::pick`]).
+    pub notifier: Option<Arc<dyn crate::notify::Notifier>>,
     /// The Gate door's port (0 picks a free one; default `OXBOT_GATE_PORT`
     /// or 7879). `None` leaves the door out: `OXBOT_GATE_PORT=off`.
     pub gate_port: Option<u16>,
@@ -47,6 +50,7 @@ impl ServerOptions {
             logs: None,
             ui_dir: std::env::var_os("OXBOT_UI_DIR").map(PathBuf::from),
             app: None,
+            notifier: None,
             gate_port: gate_port(std::env::var("OXBOT_GATE_PORT").ok().as_deref()),
         }
     }
@@ -128,11 +132,6 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // person can be set, and test connections may say who they are.
     let e2e = std::env::var_os("OXBOT_E2E").is_some_and(|v| v == "1");
     let built_in = built_in_tool();
-    if let Some(tool) = &built_in {
-        tracing::info!(node = %tool.node.display(), "using the browser tool built into the app");
-    } else {
-        tracing::info!("no built-in browser tool; it is installed with npm on first use");
-    }
     let browser = options.browser.then(|| {
         Tools::new(ToolsConfig {
             env: path_env.clone(),
@@ -200,8 +199,10 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         setup_running: Arc::default(),
         door: door.clone(),
         farm_key: farm_key.clone(),
+        notifier: crate::notify::pick(options.notifier, e2e),
     };
     state.refresh_setup().await;
+    crate::notify::start(&state);
     // The door opens when the Mac is on an allowed network and a Gate is
     // paired, and keeps checking.
     if let Some(door) = &door {
@@ -223,10 +224,21 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     })
 }
 
+/// The browser tool shipped inside oxbot.app, logged.
+fn built_in_tool() -> Option<BuiltInTool> {
+    let built_in = find_built_in_tool();
+    if let Some(tool) = &built_in {
+        tracing::info!(node = %tool.node.display(), "using the browser tool built into the app");
+    } else {
+        tracing::info!("no built-in browser tool; it is installed with npm on first use");
+    }
+    built_in
+}
+
 /// The browser tool shipped inside oxbot.app (`Contents/Resources/tools`,
 /// next to the program), or in `OXBOT_BUILT_IN_TOOLS` for testing.
 /// `oxbot serve` from a source checkout has none and uses npm instead.
-fn built_in_tool() -> Option<BuiltInTool> {
+fn find_built_in_tool() -> Option<BuiltInTool> {
     if let Some(dir) = std::env::var_os("OXBOT_BUILT_IN_TOOLS") {
         return BuiltInTool::find_in(std::path::Path::new(&dir));
     }
