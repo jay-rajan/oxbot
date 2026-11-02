@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.oxbot.mac-helper</string>
+	<key>CFBundleName</key>
+	<string>oxbot</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>oxbot listens only while its microphone button is on, to type what you say into the message box. The audio stays on this Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>oxbot turns your speech into text with this Mac's on-device dictation. The audio never leaves this Mac.</string>
+</dict>
+</plist>
