@@ -13,6 +13,8 @@ dirs.workspace = true
 oxbot-browser.workspace = true
 oxbot-claude.workspace = true
 oxbot-protocol.workspace = true
+# Migration 9's frozen copy of `site_of` names sites with it.
+psl.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,10 +29,13 @@ uuid.workspace = true
 # the hub sees them (see `HubConfig::enrol_named_viewers`). Never on in a
 # normal build: there, people are made only on purpose.
 test-people = []
+# Tests and the end-to-end seed only: `Store::open_at_version` makes a
+# database as an older oxbot left it.
+test-support = []
 
 [dev-dependencies]
 # This crate's own tests use the test-only feature.
-oxbot-core = { path = ".", features = ["test-people"] }
+oxbot-core = { path = ".", features = ["test-people", "test-support"] }
 tempfile.workspace = true
 
 [lints]

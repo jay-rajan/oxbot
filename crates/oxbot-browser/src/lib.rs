@@ -9,6 +9,7 @@
 //! The control port listens on `127.0.0.1` only.
 
 mod browser;
+mod cookies;
 mod guard;
 mod http;
 mod web;
@@ -20,6 +21,7 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 
 pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
+pub use cookies::CookieMarks;
 pub use web::{is_home_network, web_host};
 
 /// npm package for the browser tool.

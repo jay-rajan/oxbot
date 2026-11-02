@@ -4,13 +4,45 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use oxbot_browser::{site_of, web_host};
+use oxbot_browser::{CookieMarks, is_home_network, site_of, web_host};
 use oxbot_protocol::{EventKind, ServerMsg, SignInOutcome, SignInRequest, SiteInfo};
 use tokio::sync::oneshot;
 
 use super::{Hub, HubError, Shared, lock};
 use crate::bot::Viewer;
 use crate::id::{BotId, BrowserOwner};
+
+/// A site being signed in to from Settings, and the browser's cookies
+/// from just before its window opened.
+#[derive(Debug)]
+pub(super) struct AddingSite {
+    /// The host the window opened on.
+    host: String,
+    /// The cookies before (`None` if they couldn't be read).
+    before: Option<CookieMarks>,
+}
+
+/// Whether `site` (a main domain), just signed in to through a window,
+/// goes on (or stays on) its browser's list. Only if the window left a
+/// cookie that wasn't there before it opened: an old cookie from visiting
+/// the site says nothing about this sign-in. A site already on the list
+/// stays (the regular check drops it once it has no cookies at all), and
+/// so does one on the home network (a router's password box leaves none).
+/// If the cookies from before couldn't be read, any cookie will do.
+pub(super) fn keep_signed_in_site(
+    site: &str,
+    listed_before: bool,
+    before: Option<&CookieMarks>,
+    after: &CookieMarks,
+) -> bool {
+    if listed_before || is_home_network(&format!("https://{site}/")) {
+        return true;
+    }
+    match before {
+        Some(before) => after.gained_since(before, site),
+        None => after.has(site),
+    }
+}
 
 impl Hub {
     /// The sites `owner`'s browser signed in to through oxbot, newest first.
@@ -78,7 +110,8 @@ impl Hub {
         };
         let host = web_host(&url).ok_or_else(|| HubError::BadSite(url.clone()))?;
         let shared = self.idle_browser(&owner.into())?;
-        *lock(&shared.adding_site) = Some(host);
+        let before = self.cookies_before_sign_in(&shared).await;
+        *lock(&shared.adding_site) = Some(AddingSite { host, before });
         if let Err(err) = shared.browser.open_window(&url).await {
             // No window, so nothing to add when one closes.
             lock(&shared.adding_site).take();
@@ -93,29 +126,8 @@ impl Hub {
     /// tells every client. Returns whether the cookies could be read.
     pub(super) async fn refresh_sites(&self, shared: &Shared) -> bool {
         let checked = match shared.browser.cookie_sites().await {
-            Ok(mut held) => {
-                // Devices on the home network often sign in without cookies
-                // (a router's password box): cookies say nothing about them.
-                held.extend(
-                    self.store
-                        .sites(&shared.owner)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|s| s.site)
-                        .filter(|s| oxbot_browser::is_home_network(&format!("https://{s}/"))),
-                );
-                match self.store.keep_only_sites(&shared.owner, &held) {
-                    Ok(gone) if !gone.is_empty() => tracing::info!(
-                        browser = %shared.owner,
-                        dropped = gone.len(),
-                        "no sign-in cookies left for some sites; dropped them"
-                    ),
-                    Ok(_) => {}
-                    Err(err) => tracing::warn!(%err, "couldn't drop signed-out sites"),
-                }
-                if let Err(err) = self.store.site_check_done(&shared.owner) {
-                    tracing::warn!(%err, "couldn't note the sites were checked");
-                }
+            Ok(held) => {
+                self.keep_sites_with_cookies(shared, held);
                 true
             }
             Err(err) => {
@@ -125,6 +137,87 @@ impl Hub {
         };
         self.announce_sites(shared);
         checked
+    }
+
+    /// Drops `shared`'s sites with no cookie in `held` (sites with
+    /// cookies), except ones on the home network.
+    fn keep_sites_with_cookies(&self, shared: &Shared, mut held: Vec<String>) {
+        // Devices on the home network often sign in without cookies
+        // (a router's password box): cookies say nothing about them.
+        held.extend(
+            self.store
+                .sites(&shared.owner)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| s.site)
+                .filter(|s| is_home_network(&format!("https://{s}/"))),
+        );
+        match self.store.keep_only_sites(&shared.owner, &held) {
+            Ok(gone) if !gone.is_empty() => tracing::info!(
+                browser = %shared.owner,
+                dropped = gone.len(),
+                "no sign-in cookies left for some sites; dropped them"
+            ),
+            Ok(_) => {}
+            Err(err) => tracing::warn!(%err, "couldn't drop signed-out sites"),
+        }
+        if let Err(err) = self.store.site_check_done(&shared.owner) {
+            tracing::warn!(%err, "couldn't note the sites were checked");
+        }
+    }
+
+    /// The browser's cookies just before a sign-in window opens, to compare
+    /// with after. `None` if they can't be read (then any cookie counts).
+    async fn cookies_before_sign_in(&self, shared: &Shared) -> Option<CookieMarks> {
+        match shared.browser.cookie_marks().await {
+            Ok(marks) => Some(marks),
+            Err(err) => {
+                tracing::debug!(%err, "couldn't read the cookies before signing in");
+                None
+            }
+        }
+    }
+
+    /// After a sign-in window for `host` closes: the site goes on the list
+    /// if [`keep_signed_in_site`] says so, the rest of the list is checked
+    /// against the cookies, and every client is told. Returns whether the
+    /// site was kept.
+    async fn settle_sign_in(
+        &self,
+        shared: &Shared,
+        host: &str,
+        before: Option<&CookieMarks>,
+    ) -> bool {
+        let site = site_of(host);
+        let listed = self
+            .store
+            .sites(&shared.owner)
+            .unwrap_or_default()
+            .iter()
+            .any(|s| s.site == site);
+        let (keep, held) = match shared.browser.cookie_marks().await {
+            Ok(after) => (
+                keep_signed_in_site(&site, listed, before, &after),
+                Some(after.sites()),
+            ),
+            Err(err) => {
+                // Can't tell: keep it, as the user says they signed in.
+                tracing::debug!(%err, "couldn't read the cookies after signing in");
+                (true, None)
+            }
+        };
+        if keep {
+            if let Err(err) = self.store.add_site(&shared.owner, &site) {
+                tracing::warn!(%err, "couldn't remember the site");
+            }
+        } else {
+            tracing::info!(browser = %shared.owner, "the sign-in window left no new cookies; not adding the site");
+        }
+        if let Some(held) = held {
+            self.keep_sites_with_cookies(shared, held);
+        }
+        self.announce_sites(shared);
+        keep
     }
 
     /// Shows `site` in `owner`'s visible Chrome window, e.g. to check an
@@ -218,6 +311,7 @@ impl Hub {
             text: format!("Waiting for you to sign in to {site}…"),
         });
         tracing::info!(%bot, browser = %shared.owner, "asking the user to sign in");
+        let before = self.cookies_before_sign_in(&shared).await;
         // Open the sign-in window right away; the card's button is the fallback.
         if let Err(err) = self.open_sign_in(id).await {
             tracing::warn!(%bot, %err, "couldn't open the sign-in window");
@@ -263,10 +357,7 @@ impl Hub {
         };
         shared.browser.close_window().await;
         if outcome == SignInOutcome::Done {
-            if let Err(err) = self.store.add_site(&shared.owner, &site_of(&site)) {
-                tracing::warn!(%err, "couldn't remember the site");
-            }
-            self.refresh_sites(&shared).await;
+            self.settle_sign_in(&shared, &site, before.as_ref()).await;
         }
         if let Err(err) = self.record(bot, EventKind::SignIn { site, outcome }) {
             tracing::warn!(%err, "couldn't record the sign-in");
@@ -325,20 +416,17 @@ impl Hub {
 
     /// A browser's sign-in window closed: requests on it whose window was
     /// open count as done (the user closes it when they've signed in).
-    /// A site added from Settings is kept only if the browser now has
+    /// A site added from Settings is kept only if the window left new
     /// cookies for it (a cancelled or mistyped sign-in leaves none).
     pub(super) fn sign_in_window_closed(&self, shared: &Arc<Shared>) {
-        if let Some(host) = lock(&shared.adding_site).take() {
-            if let Err(err) = self.store.add_site(&shared.owner, &site_of(&host)) {
-                tracing::warn!(%err, "couldn't remember the site");
-            }
-            self.announce_sites(shared);
-            if let Some(hub) = self.me.upgrade() {
-                let shared = Arc::clone(shared);
-                tokio::spawn(async move {
-                    hub.refresh_sites(&shared).await;
-                });
-            }
+        if let Some(adding) = lock(&shared.adding_site).take()
+            && let Some(hub) = self.me.upgrade()
+        {
+            let shared = Arc::clone(shared);
+            tokio::spawn(async move {
+                hub.settle_sign_in(&shared, &adding.host, adding.before.as_ref())
+                    .await;
+            });
         }
         let ids: Vec<u64> = lock(&self.sign_ins)
             .iter()
@@ -364,5 +452,71 @@ impl Hub {
         for id in ids {
             self.resolve_sign_in(id, false);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn marks(cookies: &[(&str, &str)]) -> CookieMarks {
+        let cookies: Vec<serde_json::Value> = cookies
+            .iter()
+            .map(|(name, domain)| json!({ "name": name, "domain": domain, "path": "/" }))
+            .collect();
+        CookieMarks::from_cookies(&cookies)
+    }
+
+    #[test]
+    fn a_new_site_is_kept_only_if_the_window_left_new_cookies() {
+        // Visited before: an old cookie, so having one proves nothing.
+        let before = marks(&[("prefs", ".bank.example")]);
+        let cancelled = before.clone();
+        assert!(!keep_signed_in_site(
+            "bank.example",
+            false,
+            Some(&before),
+            &cancelled
+        ));
+        let signed_in = marks(&[("prefs", ".bank.example"), ("session", "bank.example")]);
+        assert!(keep_signed_in_site(
+            "bank.example",
+            false,
+            Some(&before),
+            &signed_in
+        ));
+        // A mistyped address leaves no cookie at all.
+        assert!(!keep_signed_in_site(
+            "bnak.example",
+            false,
+            Some(&before),
+            &signed_in
+        ));
+    }
+
+    #[test]
+    fn listed_and_home_network_sites_stay_and_unknown_before_takes_any_cookie() {
+        let none = CookieMarks::default();
+        let before = marks(&[("sid", ".mail.example")]);
+        assert!(
+            keep_signed_in_site("mail.example", true, Some(&before), &before),
+            "already signed in before"
+        );
+        assert!(keep_signed_in_site(
+            "192.168.1.1",
+            false,
+            Some(&none),
+            &none
+        ));
+        assert!(keep_signed_in_site(
+            "router.local",
+            false,
+            Some(&none),
+            &none
+        ));
+        // Cookies from before unknown: any cookie for it will do.
+        assert!(keep_signed_in_site("mail.example", false, None, &before));
+        assert!(!keep_signed_in_site("other.example", false, None, &before));
     }
 }

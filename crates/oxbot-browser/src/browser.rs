@@ -12,7 +12,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, watch};
 
 use crate::guard::Guard;
-use crate::{BrowserError, Tools, http};
+use crate::{BrowserError, CookieMarks, Tools, http};
 
 /// What the shared browser should be.
 #[derive(Debug, Clone)]
@@ -295,15 +295,17 @@ impl Browser {
     /// # Errors
     /// Fails if Chrome can't start or doesn't answer.
     pub async fn cookie_sites(self: &Arc<Self>) -> Result<Vec<String>, BrowserError> {
-        let cookies = self.cookies().await?;
-        let mut sites: Vec<String> = cookies
-            .iter()
-            .map(|c| site_of(c.get("domain").and_then(Value::as_str).unwrap_or("")))
-            .filter(|s| !s.is_empty())
-            .collect();
-        sites.sort();
-        sites.dedup();
-        Ok(sites)
+        Ok(self.cookie_marks().await?.sites())
+    }
+
+    /// Which cookies the browser holds, by site (names, not values), to
+    /// compare before and after a sign-in window. Starts hidden Chrome if
+    /// it's off.
+    ///
+    /// # Errors
+    /// Fails if Chrome can't start or doesn't answer.
+    pub async fn cookie_marks(self: &Arc<Self>) -> Result<CookieMarks, BrowserError> {
+        Ok(CookieMarks::from_cookies(&self.cookies().await?))
     }
 
     /// Signs the shared browser out of one site: deletes the cookies of

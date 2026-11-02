@@ -117,7 +117,9 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     };
     bot::ensure_default(&home.bots_dir())?;
     let bots = bot::load_all(&home.bots_dir())?;
-    let store = Store::open(&home.db_path())?;
+    // A database a newer oxbot upgraded is refused here, with what to do.
+    let store = Store::open(&home.db_path())
+        .with_context(|| format!("couldn't open {}", home.db_path().display()))?;
     // Programs started from here (claude, npm, the browser tool) look for
     // their tools on this PATH, which works when oxbot was opened from Finder.
     let path = setup::search_path();
@@ -256,6 +258,28 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_oxbot_stops_the_start_with_a_clear_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = Home::new(tmp.path());
+        drop(Store::open(&home.db_path()).unwrap());
+        // As a newer oxbot would leave it.
+        rusqlite::Connection::open(home.db_path())
+            .unwrap()
+            .execute_batch("PRAGMA user_version = 1000")
+            .unwrap();
+        let options = ServerOptions {
+            home: Some(home),
+            browser: false,
+            gate_port: None,
+            ..ServerOptions::new(0)
+        };
+        let err = start(options).await.unwrap_err();
+        let text = format!("{err:#}");
+        assert!(text.contains("oxbot.db"), "{text}");
+        assert!(text.contains("newer oxbot"), "{text}");
+    }
 
     #[tokio::test]
     async fn starts_serves_the_page_and_stops() {

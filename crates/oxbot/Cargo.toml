@@ -37,6 +37,8 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 # Tests name people (`Viewer::gate("Sam")`) without pairing them first.
 oxbot-core = { workspace = true, features = ["test-people"] }
+# A test makes a database as a newer oxbot would leave it.
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [lints]

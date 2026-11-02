@@ -448,3 +448,85 @@ async fn the_app_switches_launch_at_login() {
     };
     assert_eq!(settings.launch_at_login, Some(true));
 }
+
+#[tokio::test]
+async fn catching_up_after_a_long_time_away_gets_the_latest_page() {
+    const SEEDED: u64 = 1_234;
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let id = BotId::new("assistant").unwrap();
+    for i in 1..=SEEDED {
+        store
+            .append(
+                &id,
+                EventKind::ToolUse {
+                    name: "Read".into(),
+                    summary: format!("step {i}"),
+                },
+            )
+            .unwrap();
+    }
+    let url = start_with_store(tmp.path(), None, store).await;
+    let (mut ws, _, _) = connect(&url).await;
+
+    // A client that had seen up to #10: far more than a page behind.
+    send(
+        &mut ws,
+        &ClientMsg::Subscribe {
+            bot: "assistant".into(),
+            since: 10,
+        },
+    )
+    .await;
+    let ServerMsg::History {
+        events,
+        first_seq,
+        has_older,
+        ..
+    } = next(&mut ws).await
+    else {
+        panic!("expected one page, not a replay of every event")
+    };
+    let max = u64::from(oxbot_protocol::MAX_PAGE);
+    assert_eq!(events.len() as u64, max);
+    assert_eq!(first_seq, SEEDED - max + 1);
+    assert_eq!(events.last().unwrap().seq, SEEDED);
+    assert!(has_older);
+    send(&mut ws, &ClientMsg::ListBots).await;
+    assert!(matches!(next(&mut ws).await, ServerMsg::Bots { .. }));
+
+    // A client a little behind still gets each event it missed.
+    let (mut near, _, _) = connect(&url).await;
+    send(
+        &mut near,
+        &ClientMsg::Subscribe {
+            bot: "assistant".into(),
+            since: SEEDED - 2,
+        },
+    )
+    .await;
+    for seq in [SEEDED - 1, SEEDED] {
+        let ServerMsg::Event(e) = next(&mut near).await else {
+            panic!("expected a replayed event")
+        };
+        assert_eq!(e.seq, seq);
+    }
+
+    // Both stream on from the end: a new turn arrives as events.
+    send(
+        &mut ws,
+        &ClientMsg::Send {
+            bot: "assistant".into(),
+            text: "one more".into(),
+        },
+    )
+    .await;
+    for client in [&mut ws, &mut near] {
+        let first = loop {
+            if let ServerMsg::Event(e) = next(client).await {
+                break e;
+            }
+        };
+        assert_eq!(first.seq, SEEDED + 1);
+    }
+}

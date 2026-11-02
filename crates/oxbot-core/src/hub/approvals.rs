@@ -243,6 +243,11 @@ impl Hub {
                 Outcome::TimedOut
             }
         };
+        // Deleting a bot says no to its cards; by the time this one wakes,
+        // the bot and its history may be gone. Nothing to add it to then.
+        if self.bot(bot_id.as_str()).is_err() {
+            return Ok(outcome);
+        }
         self.record(
             bot_id,
             EventKind::Approval {

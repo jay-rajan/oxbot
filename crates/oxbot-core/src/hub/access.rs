@@ -9,7 +9,7 @@ use oxbot_protocol::{BotEvent, BotInfo, BrowserState, ServerMsg};
 use super::{Hub, HubError, MAX_NAME, lock};
 use crate::bot::{Bot, Viewer};
 use crate::id::{BotId, PersonId};
-use crate::store::{HistoryPage, now_ms};
+use crate::store::{HistoryPage, Replay, now_ms};
 
 /// Who made `bot`, by name as it is now: its owner's name, else the name
 /// it was made with.
@@ -61,7 +61,7 @@ impl Hub {
             .filter(|(_, r)| r.busy)
             .map(|(id, _)| id.clone())
             .collect();
-        let seqs = lock(&self.seqs).clone();
+        let seqs = self.seqs.for_bots(&self.store, list.iter().map(|b| &b.id));
         let names = self.person_names();
         list.into_iter()
             .map(|b| {
@@ -276,11 +276,29 @@ impl Hub {
             path: path.clone(),
             source,
         })?;
+        // Out of the list before its history goes, so a card answered late
+        // (deleting said no to it) finds no bot and records nothing.
+        let listed = self
+            .bots
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&bot.id);
+        let put_back = || {
+            if let Some(listed) = listed.clone() {
+                self.bots
+                    .write()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(bot.id.clone(), listed);
+            }
+        };
         // Forget it in the database first: if that fails, nothing has moved
         // and its id can't be reused with old history behind it.
-        self.store.delete_bot(&bot.id)?;
+        if let Err(err) = self.store.delete_bot(&bot.id) {
+            put_back();
+            return Err(err.into());
+        }
         // A new bot can get the same id: it starts from 0.
-        lock(&self.seqs).remove(&bot.id);
+        self.seqs.remove(&bot.id);
         let trash = self
             .config
             .bots_dir
@@ -290,11 +308,10 @@ impl Hub {
                 std::path::Path::to_path_buf,
             )
             .join("trash");
-        bot.move_to(&trash, now_ms())?;
-        self.bots
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&bot.id);
+        if let Err(err) = bot.move_to(&trash, now_ms()) {
+            put_back();
+            return Err(err.into());
+        }
         let by = viewer
             .id
             .as_ref()
@@ -346,6 +363,23 @@ impl Hub {
     ) -> Result<HistoryPage, HubError> {
         let bot = self.bot_for(bot, viewer)?;
         Ok(self.store.history_page(&bot.id, before, limit)?)
+    }
+
+    /// What a client that has a bot's events up to `since` needs to catch
+    /// up, for a bot `viewer` may see: the rest, if there are at most
+    /// `limit`, or else the latest page (see [`crate::Store::replay`]).
+    ///
+    /// # Errors
+    /// Fails if the bot doesn't exist, is hidden, or the database fails.
+    pub fn replay_for(
+        &self,
+        bot: &str,
+        since: u64,
+        limit: usize,
+        viewer: &Viewer,
+    ) -> Result<Replay, HubError> {
+        let bot = self.bot_for(bot, viewer)?;
+        Ok(self.store.replay(&bot.id, since, limit)?)
     }
 
     /// Creates a bot, picking its id from `name`, and tells every client.

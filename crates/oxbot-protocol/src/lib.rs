@@ -58,7 +58,10 @@ pub enum ClientMsg {
     /// Ask for the list of bots.
     ListBots,
     /// Start receiving a bot's events. The server first replays stored events
-    /// with `seq > since`, then streams new ones. Use `since: 0` for all.
+    /// with `seq > since`, then streams new ones. If more than [`MAX_PAGE`]
+    /// were missed, it sends one [`ServerMsg::History`] of the latest page
+    /// instead (a fresh window: drop what you have, and page back with
+    /// [`ClientMsg::Older`]), and streams on from its end.
     Subscribe {
         /// Bot id.
         bot: String,

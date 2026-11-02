@@ -24,6 +24,7 @@ mod approvals;
 mod browsers;
 mod claude;
 mod people;
+mod seqs;
 mod sign_ins;
 mod taint;
 mod team;
@@ -186,8 +187,8 @@ struct Shared {
     last: std::sync::Mutex<Option<BotId>>,
     /// When a bot last used it.
     last_used: std::sync::Mutex<Instant>,
-    /// A site its owner is signing in to from Settings (its host).
-    adding_site: std::sync::Mutex<Option<String>>,
+    /// A site its owner is signing in to from Settings.
+    adding_site: std::sync::Mutex<Option<sign_ins::AddingSite>>,
     /// Whether its signed-in sites were checked against its cookies yet.
     sites_checked: std::sync::atomic::AtomicBool,
 }
@@ -212,7 +213,7 @@ pub struct Hub {
     updates: broadcast::Sender<ServerMsg>,
     /// Each bot's latest event and reply numbers, kept as events are
     /// recorded, so listing bots and reading replies don't search history.
-    seqs: std::sync::Mutex<HashMap<BotId, Seqs>>,
+    seqs: seqs::LatestSeqs,
     /// The Farm's own person, once looked up this run (see
     /// [`Hub::farm_person`]).
     farm: std::sync::Mutex<Option<PersonId>>,
@@ -233,20 +234,6 @@ pub const MAX_PERSON: usize = 40;
 /// Names oxbot uses itself, which no person may take.
 const RESERVED_PEOPLE: &[&str] = &[crate::bot::CENTRAL_NAME, "Farm", "oxbot", "home", "Gate"];
 
-/// Every bot's latest event and reply numbers, read once at start.
-fn load_seqs(store: &Store) -> HashMap<BotId, Seqs> {
-    match store.all_seqs() {
-        Ok(all) => all
-            .into_iter()
-            .filter_map(|(id, seqs)| Some((BotId::new(&id).ok()?, seqs)))
-            .collect(),
-        Err(err) => {
-            tracing::warn!(%err, "couldn't read the bots' latest event numbers");
-            HashMap::new()
-        }
-    }
-}
-
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -266,7 +253,7 @@ impl Hub {
         };
         // Nobody is listening yet: no need to tell anyone who's new.
         let (bots, _) = people::adopt_bots(bots, &store, farm.as_ref());
-        let seqs = load_seqs(&store);
+        let seqs = seqs::LatestSeqs::load(&store);
         let hub = Arc::new_cyclic(|me| Self {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
             store,
@@ -280,7 +267,7 @@ impl Hub {
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
             updates,
-            seqs: std::sync::Mutex::new(seqs),
+            seqs,
             // Looked up (and its name brought up to date) on first use.
             farm: std::sync::Mutex::new(None),
         });
@@ -347,21 +334,12 @@ impl Hub {
 
     /// Keeps the bot's latest event and reply numbers up to date.
     fn note_seq(&self, event: &BotEvent) {
-        let Ok(bot) = BotId::new(&event.bot) else {
-            return;
-        };
-        let mut seqs = lock(&self.seqs);
-        let seq = seqs.entry(bot).or_default();
-        // Two turns can record at once; numbers only go up.
-        seq.last = seq.last.max(event.seq);
-        if matches!(event.kind, EventKind::AssistantMessage { .. }) {
-            seq.last_reply = seq.last_reply.max(event.seq);
-        }
+        self.seqs.note(&self.store, event);
     }
 
     /// `bot`'s latest event and reply numbers (0 if it has none).
     fn seqs_of(&self, bot: &BotId) -> Seqs {
-        lock(&self.seqs).get(bot).copied().unwrap_or_default()
+        self.seqs.of(&self.store, bot)
     }
 
     /// Tells every connected client something, without storing it.
@@ -1083,5 +1061,39 @@ mod tests {
         );
         assert_eq!(selected_page("1: https://x.com (https://x.com)"), None);
         assert_eq!(selected_page("Note: x [selected]"), None);
+    }
+
+    #[tokio::test]
+    async fn a_card_answered_by_deleting_its_bot_leaves_no_history_behind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let id = BotId::new("shop").unwrap();
+        let bot = Bot::create(&bots, id.clone(), "Shop", "").unwrap();
+        let hub = Hub::new(
+            vec![bot.clone()],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(&bots),
+        );
+        let ask = crate::policy::Ask {
+            kind: ApprovalKind::CreateBot,
+            action: "create a shared bot".into(),
+            target: "Helper".into(),
+            site: String::new(),
+            detail: None,
+            private: false,
+        };
+        let waiting = {
+            let hub = Arc::clone(&hub);
+            tokio::spawn(async move { hub.confirm(&bot, &ask, None).await })
+        };
+        while hub.pending_approvals().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        hub.delete_bot("shop", &Viewer::farm("Jay")).await.unwrap();
+        let outcome = waiting.await.unwrap().unwrap();
+        assert_eq!(outcome, oxbot_protocol::Outcome::Denied);
+        assert_eq!(hub.store.last_seq(&id).unwrap(), 0, "nothing recorded");
+        assert_eq!(hub.seqs_of(&id), Seqs::default());
     }
 }

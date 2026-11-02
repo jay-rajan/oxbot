@@ -17,6 +17,7 @@ use futures_util::{SinkExt, StreamExt};
 use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
 use oxbot_core::hub::answers;
 use oxbot_core::id::BrowserOwner;
+use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
     AppSettings, ClientMsg, DEFAULT_PAGE, LogLine, MAX_PAGE, ServerHello, ServerMsg, SetupAction,
@@ -713,18 +714,31 @@ async fn handle(
 
 /// Sends a bot's history: replayed events ([`ClientMsg::Subscribe`]) or a
 /// page ([`ClientMsg::OpenBot`], [`ClientMsg::Older`]). Subscribing and
-/// opening also stream the bot's new events from then on.
+/// opening also stream the bot's new events from then on. A subscriber that
+/// missed more than a page gets the latest page instead of every event (it
+/// pages back as it needs to), so catching up costs the same however long
+/// it was away.
 fn handle_history(msg: ClientMsg, state: &AppState, client: &mut Client) -> Vec<ServerMsg> {
     let viewer = &client.viewer;
     let result = match msg {
-        ClientMsg::Subscribe { bot, since } => {
-            state.hub.history_for(&bot, since, viewer).map(|events| {
-                let last = events.last().map_or(since, |e| e.seq);
+        ClientMsg::Subscribe { bot, since } => state
+            .hub
+            .replay_for(&bot, since, page_size(Some(MAX_PAGE)), viewer)
+            .map(|replay| {
                 client.visible.insert(bot.clone());
-                client.subs.insert(bot, last);
-                events.into_iter().map(ServerMsg::Event).collect()
-            })
-        }
+                match replay {
+                    Replay::Events(events) => {
+                        let last = events.last().map_or(since, |e| e.seq);
+                        client.subs.insert(bot, last);
+                        events.into_iter().map(ServerMsg::Event).collect()
+                    }
+                    Replay::Page(page) => {
+                        // Live events follow on from the end of the page.
+                        client.subs.insert(bot.clone(), page.last_seq);
+                        vec![history(bot, page)]
+                    }
+                }
+            }),
         ClientMsg::OpenBot { bot, limit } => state
             .hub
             .history_page_for(&bot, None, page_size(limit), viewer)

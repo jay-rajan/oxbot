@@ -27,9 +27,11 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
 
     let send =
         |msg: &ClientMsg| Message::Text(serde_json::to_string(msg).unwrap_or_default().into());
-    sink.send(send(&ClientMsg::Subscribe {
+    // The latest page, then new events as they come: a long chat isn't
+    // replayed from the start.
+    sink.send(send(&ClientMsg::OpenBot {
         bot: bot.to_owned(),
-        since: 0,
+        limit: None,
     }))
     .await?;
 

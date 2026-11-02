@@ -411,6 +411,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 const $ = (id) => document.getElementById(id);
 const bots = new Map();      // id -> { info, events: [], lastSeq, firstSeq, hasOlder, loadingOlder, busy, subscribed, stream, activity }
 const PAGE = 200;            // events per history page
+const KEEP_PAGES = 3;        // pages kept for a chat that isn't open
 let current = null, ws = null, retry = 0, pendingSelect = null, toastTimer = null;
 let connected = false, everConnected = false, retryTimer = null;
 // The Farm secret: oxbot opens its own window with #k=…, and only a page
@@ -596,13 +597,24 @@ function onMessage(m) {
     }
     case "history": {
       const b = bot(m.bot);
+      const askedOlder = b.loadingOlder;
       b.loadingOlder = false;
       const ev = m.events;
+      // A page that starts after what we have, with a gap between (catching
+      // up after a long time away): a fresh window, so drop what we had.
+      if (b.events.length && ev.length && ev[0].seq > b.lastSeq + 1) {
+        b.events = []; b.lastSeq = 0;
+      }
       // An earlier page goes in front; the latest page (opening a bot) after
       // whatever we already have.
       if (b.events.length && ev.length && ev[ev.length - 1].seq < b.events[0].seq) {
         b.events = ev.concat(b.events); b.firstSeq = m.first_seq; b.hasOlder = m.has_older;
         if (m.bot === current) prependOlder(ev);
+      } else if (askedOlder && !ev.length) {
+        // An earlier page with nothing readable in it still moves us back,
+        // so the next ask is for the page before it, not this one again.
+        if (m.first_seq) b.firstSeq = m.first_seq;
+        b.hasOlder = !!m.first_seq && m.has_older;
       } else {
         if (!b.events.length) { b.firstSeq = m.first_seq; b.hasOlder = m.has_older; }
         else if (!ev.length) b.hasOlder = b.hasOlder && m.has_older;
@@ -864,7 +876,17 @@ function renderBots() {
   }
 }
 
+/** Keeps a chat we've left to its last few pages: a long one paged far
+ *  back shouldn't stay in memory. It pages back again when opened. */
+function trimEvents(b) {
+  const keep = KEEP_PAGES * PAGE;
+  if (!b || b.events.length <= keep) return;
+  b.events = b.events.slice(-keep);
+  b.firstSeq = b.events[0].seq; b.hasOlder = true; b.loadingOlder = false;
+}
+
 function select(id) {
+  if (current && current !== id) trimEvents(bots.get(current));
   current = id; store.set("oxbot.bot", id); markSeen(id);
   const b = bot(id);
   if (!b.subscribed && !isLocked(b)) { b.subscribed = true; follow(id, b); }
