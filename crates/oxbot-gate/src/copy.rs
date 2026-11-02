@@ -5,7 +5,10 @@
 //! requests. Limits: the latest [`KEEP_MESSAGES`] messages per bot (with
 //! the steps between them), nothing older than [`KEEP_DAYS`] days, only
 //! bots this phone's person may open, and no file contents (events carry
-//! only short summaries of what bots did). Forgetting the Farm deletes it.
+//! only short summaries of what bots did). Research reports the person
+//! opened are kept too (at most [`KEEP_REPORTS`], made in the last
+//! [`KEEP_DAYS`] days, gone with their bot or when deleted on the Farm), so
+//! they can be read away from home. Forgetting the Farm deletes it.
 
 use std::path::{Path, PathBuf};
 
@@ -16,6 +19,8 @@ use rusqlite::{Connection, OptionalExtension as _, params};
 pub const KEEP_MESSAGES: i64 = 300;
 /// Days kept.
 pub const KEEP_DAYS: i64 = 30;
+/// Reports kept (the most recently opened).
+pub const KEEP_REPORTS: i64 = 50;
 /// How many new events between tidy-ups.
 const TIDY_EVERY: u32 = 50;
 
@@ -31,6 +36,14 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS latest (
     kind TEXT PRIMARY KEY,
     json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reports (
+    bot        TEXT    NOT NULL,
+    id         TEXT    NOT NULL,
+    created_ms INTEGER NOT NULL,
+    opened_ms  INTEGER NOT NULL,
+    json       TEXT    NOT NULL,
+    PRIMARY KEY (bot, id)
 );
 ";
 
@@ -64,8 +77,9 @@ impl ChatCopy {
     }
 
     /// Keeps what's worth keeping from one message from the Farm (JSON
-    /// text): bot events, and the latest hello, settings, people, sections
-    /// and bot list. Anything else, or anything unreadable, is skipped.
+    /// text): bot events, reports the person opened, and the latest hello,
+    /// settings, people, sections and bot list. Anything else, or anything
+    /// unreadable, is skipped.
     ///
     /// # Errors
     /// The file can't be written.
@@ -85,6 +99,12 @@ impl ChatCopy {
             ServerMsg::People { .. } => self.keep_latest("people", text)?,
             // Only this phone's person's own sections ever reach it.
             ServerMsg::Sections { .. } => self.keep_latest("sections", text)?,
+            ServerMsg::Report(r) => self.keep_report(&r.bot, &r.id, r.created_ms, text, now_ms)?,
+            // The Farm's list: a report deleted there goes here too.
+            ServerMsg::Reports { bot, reports } => {
+                let ids: Vec<&str> = reports.iter().map(|r| r.id.as_str()).collect();
+                self.drop_reports_except(&bot, &ids)?;
+            }
             _ => {}
         }
         Ok(())
@@ -114,6 +134,49 @@ impl ChatCopy {
         }
         tx.commit()?;
         self.tidy(now_ms)
+    }
+
+    /// Keeps a report the person opened; `json` is it as a
+    /// [`ServerMsg::Report`]. Only the latest [`KEEP_REPORTS`] opened stay.
+    fn keep_report(
+        &self,
+        bot: &str,
+        id: &str,
+        created_ms: i64,
+        json: &str,
+        now_ms: i64,
+    ) -> Result<(), CopyError> {
+        if created_ms < oldest_kept(now_ms) {
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT OR REPLACE INTO reports (bot, id, created_ms, opened_ms, json)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![bot, id, created_ms, now_ms, json],
+        )?;
+        self.conn.execute(
+            "DELETE FROM reports WHERE rowid NOT IN (
+                SELECT rowid FROM reports ORDER BY opened_ms DESC, rowid DESC LIMIT ?1)",
+            params![KEEP_REPORTS],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets `bot`'s kept reports that aren't in `ids` (deleted on the
+    /// Farm).
+    fn drop_reports_except(&self, bot: &str, ids: &[&str]) -> Result<(), CopyError> {
+        let mut stmt = self.conn.prepare("SELECT id FROM reports WHERE bot = ?1")?;
+        let kept: Vec<String> = stmt
+            .query_map([bot], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        drop(stmt);
+        for id in kept.iter().filter(|id| !ids.contains(&id.as_str())) {
+            self.conn.execute(
+                "DELETE FROM reports WHERE bot = ?1 AND id = ?2",
+                params![bot, id],
+            )?;
+        }
+        Ok(())
     }
 
     fn keep_latest(&self, kind: &str, text: &str) -> Result<(), CopyError> {
@@ -148,6 +211,15 @@ impl ChatCopy {
             self.conn
                 .execute("DELETE FROM events WHERE bot = ?1", params![bot])?;
         }
+        let mut stmt = self.conn.prepare("SELECT DISTINCT bot FROM reports")?;
+        let with_reports: Vec<String> = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        drop(stmt);
+        for bot in with_reports.iter().filter(|b| !open.contains(&b.as_str())) {
+            self.conn
+                .execute("DELETE FROM reports WHERE bot = ?1", params![bot])?;
+        }
         Ok(())
     }
 
@@ -161,6 +233,8 @@ impl ChatCopy {
         let oldest = oldest_kept(now_ms);
         self.conn
             .execute("DELETE FROM events WHERE ts_ms < ?1", params![oldest])?;
+        self.conn
+            .execute("DELETE FROM reports WHERE created_ms < ?1", params![oldest])?;
         let mut stmt = self.conn.prepare("SELECT DISTINCT bot FROM events")?;
         let bots: Vec<String> = stmt
             .query_map([], |r| r.get(0))?
@@ -188,7 +262,8 @@ impl ChatCopy {
     }
 
     /// What to show while away from the Farm, in the order the page expects:
-    /// hello, settings, people, sections, bots, then each bot's events.
+    /// hello, settings, people, sections, bots, each bot's events, then the
+    /// reports kept (the page holds them until one is opened).
     ///
     /// # Errors
     /// The file can't be read.
@@ -208,6 +283,14 @@ impl ChatCopy {
             .prepare("SELECT json FROM events ORDER BY bot, seq")?;
         let events = stmt.query_map([], |r| r.get::<_, String>(0))?;
         for json in events {
+            out.push(json?);
+        }
+        drop(stmt);
+        let mut stmt = self
+            .conn
+            .prepare("SELECT json FROM reports ORDER BY opened_ms, rowid")?;
+        let reports = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        for json in reports {
             out.push(json?);
         }
         Ok(out)
@@ -230,9 +313,12 @@ fn oldest_kept(now_ms: i64) -> i64 {
 
 /// Writes one event; `json` is it as a [`ServerMsg::Event`].
 fn insert_event(conn: &Connection, e: &BotEvent, json: &str) -> Result<(), CopyError> {
+    // A report's card counts as a message: it's the answer.
     let message = matches!(
         e.kind,
-        EventKind::UserMessage { .. } | EventKind::AssistantMessage { .. }
+        EventKind::UserMessage { .. }
+            | EventKind::AssistantMessage { .. }
+            | EventKind::Report { .. }
     );
     conn.execute(
         "INSERT OR REPLACE INTO events (bot, seq, ts_ms, message, json) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -475,5 +561,98 @@ mod tests {
         assert!(replay.iter().any(|j| j.contains("\"bot\":\"mine\"")));
         copy.wipe();
         assert!(!path.exists());
+    }
+
+    fn opened(bot: &str, id: &str, created_ms: i64) -> String {
+        serde_json::to_string(&ServerMsg::Report(oxbot_protocol::ReportView {
+            bot: bot.into(),
+            id: id.into(),
+            title: "Coffee".into(),
+            created_ms,
+            html: "<p>report</p>".into(),
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_report_card_is_kept_as_a_message() {
+        let (_dir, mut copy) = copy();
+        let card = serde_json::to_string(&ServerMsg::Event(BotEvent {
+            bot: "recipes".into(),
+            seq: 1,
+            ts_ms: NOW,
+            kind: EventKind::Report {
+                id: "r_1".into(),
+                title: "Coffee".into(),
+                summary: "A wins.".into(),
+                sources: 2,
+            },
+        }))
+        .unwrap();
+        copy.record(&card, NOW).unwrap();
+        let total = u64::try_from(KEEP_MESSAGES).unwrap();
+        for seq in 2..=total {
+            copy.record(&event("recipes", seq, NOW, true), NOW).unwrap();
+        }
+        copy.tidy(NOW).unwrap();
+        assert!(
+            copy.replay()
+                .unwrap()
+                .iter()
+                .any(|j| j.contains("\"kind\":\"report\""))
+        );
+        copy.record(&event("recipes", total + 1, NOW, true), NOW)
+            .unwrap();
+        copy.tidy(NOW).unwrap();
+        assert!(
+            !copy
+                .replay()
+                .unwrap()
+                .iter()
+                .any(|j| j.contains("\"kind\":\"report\"")),
+            "it counts toward the limit like any message"
+        );
+    }
+
+    #[test]
+    fn opened_reports_are_kept_within_the_limits() {
+        let (_dir, mut copy) = copy();
+        copy.record(&opened("recipes", "r_1", NOW), NOW).unwrap();
+        copy.record(&opened("bank", "r_2", NOW), NOW).unwrap();
+        copy.record(&opened("recipes", "r_old", NOW - 31 * DAY), NOW)
+            .unwrap();
+        let replay = copy.replay().unwrap();
+        assert_eq!(replay.len(), 2, "{replay:?}");
+        assert!(replay.iter().all(|j| j.contains("\"type\":\"report\"")));
+
+        // Deleted on the Farm: gone here too.
+        let list = serde_json::to_string(&ServerMsg::Reports {
+            bot: "recipes".into(),
+            reports: vec![],
+        })
+        .unwrap();
+        copy.record(&list, NOW).unwrap();
+        assert!(copy.replay().unwrap().iter().all(|j| !j.contains("r_1")));
+
+        // A bot this person can no longer open takes its reports along.
+        copy.record(&bots(&[("bank", true, Some("Sam"))]), NOW)
+            .unwrap();
+        assert!(copy.replay().unwrap().iter().all(|j| !j.contains("r_2")));
+
+        // Only the latest opened stay; old ones go when tidied.
+        for i in 0..KEEP_REPORTS + 3 {
+            copy.record(&opened("recipes", &format!("r_{i}"), NOW), NOW + i)
+                .unwrap();
+        }
+        let reports = |copy: &ChatCopy| {
+            copy.replay()
+                .unwrap()
+                .iter()
+                .filter(|j| j.contains("\"type\":\"report\""))
+                .count()
+        };
+        assert_eq!(reports(&copy), usize::try_from(KEEP_REPORTS).unwrap());
+        copy.tidy(NOW + 31 * DAY).unwrap();
+        assert_eq!(reports(&copy), 0);
     }
 }
