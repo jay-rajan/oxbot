@@ -304,6 +304,15 @@ impl Browser {
         }
     }
 
+    /// The address Chrome reports for the tab at `page_url` (or the one
+    /// used last), as oxbot's own connection sees it: unlike the browser
+    /// tool's page list, a page's title can't change it. `None` if the guard
+    /// isn't running.
+    pub async fn page_url(&self, page_url: Option<&str>) -> Option<String> {
+        let guard = self.guard.lock().await;
+        guard.as_ref()?.page_url(page_url).await
+    }
+
     /// The sites the shared browser holds cookies for, as main domains
     /// (`accounts.google.com` → `google.com`), sorted. Starts hidden Chrome
     /// if it's off.

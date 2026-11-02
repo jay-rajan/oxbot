@@ -72,6 +72,11 @@ enum Command {
         page_url: Option<String>,
         reply: oneshot::Sender<Option<String>>,
     },
+    /// The address Chrome says that same tab shows.
+    PageUrl {
+        page_url: Option<String>,
+        reply: oneshot::Sender<Option<String>>,
+    },
     SetDownloads(PathBuf),
     Close,
     /// Any `DevTools` call: on the browser, or on a tab for calls Chrome
@@ -334,6 +339,20 @@ impl Guard {
         rx.await.ok().flatten()
     }
 
+    /// The address Chrome itself reports for the tab oxbot would pick for
+    /// `page_url` (see `pick_page`); never taken from page text.
+    pub(crate) async fn page_url(&self, page_url: Option<&str>) -> Option<String> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::PageUrl {
+                page_url: page_url.map(str::to_owned),
+                reply,
+            })
+            .await
+            .ok()?;
+        rx.await.ok().flatten()
+    }
+
     /// Calls `method` on the browser, or on a tab (`on_page`), and returns
     /// Chrome's result, or its error message.
     pub(crate) async fn call(
@@ -497,6 +516,14 @@ impl Session {
             }
             Command::PickPage { page_url, reply } => {
                 let _ = reply.send(self.pick_page(page_url.as_deref()));
+            }
+            Command::PageUrl { page_url, reply } => {
+                let url = self
+                    .pick_page(page_url.as_deref())
+                    .and_then(|session| self.attached.get(&session))
+                    .and_then(|target| self.tabs.get(target))
+                    .cloned();
+                let _ = reply.send(url);
             }
             Command::Call {
                 method,
