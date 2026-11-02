@@ -3,6 +3,6 @@
   "identifier": "dev.oxbot.gate",
   "app": {
     "withGlobalTauri": true,
-    "windows": [{ "label": "main", "title": "oxbot", "url": "gate.html" }]
+    "windows": []
   }
 }

@@ -8,6 +8,7 @@
 //!   stops every bot and its Chrome cleanly.
 //! - The page's Settings panel can switch Launch at login too
 //!   ([`DesktopControls`]).
+//! - Web links in the window open in the default browser ([`links`]).
 
 use std::sync::Arc;
 
@@ -21,6 +22,8 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager as _, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
+
+use crate::links::{self, Link};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
@@ -122,7 +125,26 @@ pub fn run() -> anyhow::Result<()> {
                     handle.exit(0);
                 }
             });
-            WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::External(url.parse()?))
+            let page: tauri::Url = url.parse()?;
+            let own = page.clone();
+            let own_too = page.clone();
+            WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::External(page))
+                // Web links (a report's sources, links in a chat) open in
+                // the browser; the window stays on oxbot's page.
+                .on_navigation(move |to| match links::decide(to, &own) {
+                    Link::Stay => true,
+                    Link::Outside(url) => {
+                        links::open_outside(&url);
+                        false
+                    }
+                    Link::Block => false,
+                })
+                .on_new_window(move |to, _| {
+                    if let Link::Outside(url) = links::decide(&to, &own_too) {
+                        links::open_outside(&url);
+                    }
+                    tauri::webview::NewWindowResponse::Deny
+                })
                 .title("oxbot")
                 .inner_size(1100.0, 760.0)
                 .min_inner_size(420.0, 480.0)

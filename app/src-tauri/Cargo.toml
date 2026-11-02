@@ -42,6 +42,9 @@ tauri = { version = "2.12.5", features = [] }
 # Reads the pairing QR code on the phone itself (pure Rust): no Google
 # Play services or ML Kit, which would talk to Google.
 rqrr = { version = "0.11.0", default-features = false }
+# Opens web links in the phone's browser (an Android intent). Already in the
+# build through Tauri's webview; no new crate.
+jni = "0.21.1"
 tokio.workspace = true
 
 [lints]

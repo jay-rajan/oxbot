@@ -9,6 +9,7 @@
 mod desktop;
 #[cfg(mobile)]
 mod gate;
+mod links;
 
 /// Runs the app until it quits.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

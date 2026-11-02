@@ -2800,6 +2800,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-util",
+ "jni",
  "oxbot",
  "oxbot-gate",
  "oxbot-protocol",

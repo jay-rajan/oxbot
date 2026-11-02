@@ -10,6 +10,8 @@
 //! Away from home, the app shows the last copy of the Farm's page and the
 //! phone's own copy of its chats ([`oxbot_gate::copy`]), read-only, until
 //! the Farm can be reached again.
+//!
+//! Web links open in the phone's browser, never in the app's window.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,6 +23,8 @@ use oxbot_gate::{GateError, Message, PairLink, Paired};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager as _, State};
+
+use crate::links::{self, Link};
 use tokio::sync::{Mutex, mpsc};
 
 /// How often the link checks the Farm is still there.
@@ -434,10 +438,94 @@ async fn gate_close(gate: State<'_, Arc<Gate>>) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens `url` (an http(s) address) in the phone's browser, with an
+/// Android "view" intent, so the app's window stays on oxbot's page.
+fn open_outside(app: &AppHandle, url: String) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.with_webview(move |webview| {
+        webview.jni_handle().exec(move |env, activity, _| {
+            if let Err(err) = view_intent(env, activity, &url) {
+                tracing::warn!(%err, "couldn't open a link in the browser");
+            }
+        });
+    });
+}
+
+/// `activity.startActivity(new Intent(ACTION_VIEW, Uri.parse(url)))`, in a
+/// new task.
+fn view_intent(
+    env: &mut jni::JNIEnv<'_>,
+    activity: &jni::objects::JObject<'_>,
+    url: &str,
+) -> jni::errors::Result<()> {
+    use jni::objects::JValue;
+    /// `Intent.FLAG_ACTIVITY_NEW_TASK`.
+    const NEW_TASK: i32 = 0x1000_0000;
+    let text = env.new_string(url)?;
+    let uri = env
+        .call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[JValue::Object(&text)],
+        )?
+        .l()?;
+    let action = env.new_string("android.intent.action.VIEW")?;
+    let intent = env.new_object(
+        "android/content/Intent",
+        "(Ljava/lang/String;Landroid/net/Uri;)V",
+        &[JValue::Object(&action), JValue::Object(&uri)],
+    )?;
+    env.call_method(
+        &intent,
+        "addFlags",
+        "(I)Landroid/content/Intent;",
+        &[JValue::Int(NEW_TASK)],
+    )?;
+    env.call_method(
+        activity,
+        "startActivity",
+        "(Landroid/content/Intent;)V",
+        &[JValue::Object(&intent)],
+    )?;
+    Ok(())
+}
+
 /// Opens the Gate window.
 pub fn run() -> anyhow::Result<()> {
     tauri::Builder::default()
         .manage(Arc::new(Gate::default()))
+        // The window is made here, not in the config, to keep it on
+        // oxbot's page: web links (a report's sources, links in a chat)
+        // open in the phone's browser instead.
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let own = tauri::Url::parse("http://tauri.localhost/")?;
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("gate.html".into()),
+            )
+            .title("oxbot")
+            .on_navigation(move |to| {
+                // The app's own pages come from tauri.localhost (http or https).
+                if to.host_str() == Some("tauri.localhost") {
+                    return true;
+                }
+                match links::decide(to, &own) {
+                    Link::Stay => true,
+                    Link::Outside(url) => {
+                        open_outside(&handle, url);
+                        false
+                    }
+                    Link::Block => false,
+                }
+            })
+            .build()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             gate_status,
             gate_pair,
