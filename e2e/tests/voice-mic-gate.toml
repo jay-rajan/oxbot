@@ -1,0 +1,12 @@
+name = "A Gate never gets the Mac's microphone"
+about = "Even where the Mac can dictate, a Gate person's page has no microphone (it's the Mac's own mic)."
+dictation = true
+as = "Ann"
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect_js = "document.getElementById('mic').hidden"
+note = "No mic for a Gate"
+shot = "gate-no-mic"

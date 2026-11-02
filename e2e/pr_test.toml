@@ -1,5 +1,5 @@
 # How /pr_test builds and starts oxbot for end-to-end tests.
-build = ["cargo build -p oxbot -p oxbot-e2e"]
+build = ["cargo build -p oxbot -p oxbot-e2e", "sh scripts/build-mac-helper.sh"]
 server = "target/debug/oxbot"
 fake_claude = "target/debug/oxbot-fake-claude"
 tools = "target/tools-bundle"
@@ -11,3 +11,7 @@ safari_when = ["crates/oxbot/ui/**"]
 app_when = ["app/**", "scripts/make-dmg.sh", "docs/brand/**"]
 app = "target/universal-apple-darwin/release/bundle/macos/oxbot.app"
 app_build = ["./scripts/make-dmg.sh"]
+# The stand-in for oxbot's Mac helper (dictation), and the real one (still
+# frames from video; built by scripts/build-mac-helper.sh).
+fake_mac = "target/debug/oxbot-fake-mac"
+mac_helper = "target/mac-helper/oxbot-mac"

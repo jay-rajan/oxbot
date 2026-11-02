@@ -1,0 +1,28 @@
+name = "A CSV, a Word file and a pasted file"
+about = "A CSV goes to Claude as text, a Word file is turned into text on the Mac first, and a file pasted into the box is attached too; Claude quotes a line from each."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+attach = ["e2e/fixtures/list.csv", "e2e/fixtures/memo.docx"]
+[[step]]
+expect_js = "document.querySelectorAll('#chips .chip[data-state=ready]').length === 2 && document.getElementById('chips').innerText.includes('as text')"
+note = "The Word file says it goes as text"
+[[step]]
+expect_js = "(() => { const dt = new DataTransfer(); dt.items.add(new File(['note,when\\nplumber,Tuesday\\n'], 'pasted.csv', { type: 'text/csv' })); document.getElementById('input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); return true; })()"
+note = "Paste a file into the box"
+[[step]]
+expect_js = "document.querySelectorAll('#chips .chip[data-state=ready]').length === 3"
+shot = "three-chips"
+[[step]]
+send = "summarize these"
+[[step]]
+wait_for = "list.csv: item,qty,price"
+note = "The CSV, as it is"
+[[step]]
+expect = "memo.docx: Quarterly plan: ship files and voice"
+note = "The Word file's first line: only there once oxbot turned it into text"
+[[step]]
+expect = "pasted.csv: note,when"
+shot = "reply"

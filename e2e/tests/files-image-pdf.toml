@@ -1,0 +1,29 @@
+name = "A picture and a PDF go with a message"
+about = "Two files attached with the button upload at once and show as chips; the message carries them, its bubble shows them, Claude opens both, and on the Farm a chip opens the file on the Mac."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+attach = ["e2e/fixtures/photo.png", "e2e/fixtures/bill.pdf"]
+[[step]]
+expect_js = "document.querySelectorAll('#chips .chip[data-state=ready]').length === 2"
+note = "Each file uploads at once and waits above the box as a chip"
+shot = "chips"
+[[step]]
+send = "what's in these?"
+[[step]]
+wait_for = "photo.png (picture)"
+note = "Claude opened the picture"
+[[step]]
+expect = "bill.pdf (PDF)"
+note = "…and the PDF"
+[[step]]
+expect_js = "document.querySelectorAll('.msg-files .chip').length === 2 && !document.querySelector('#chips .chip')"
+note = "The sent message shows its files; the box is empty again"
+shot = "sent"
+[[step]]
+click = "bill.pdf"
+[[step]]
+wait_for = "Opening bill.pdf on this Mac."
+note = "On the Farm a chip opens the file on the Mac (tests never open windows)"

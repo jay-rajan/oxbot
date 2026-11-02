@@ -110,5 +110,12 @@ when = "take your time"
 say = "Done, slowly."
 delay_ms = 3000
 
+# A message with files: oxbot's note says "attached"; open each and say
+# what's in it.
+[[reply]]
+when = "attached"
+say = "Here's what I found."
+read = true
+
 [[reply]]
 say = "Got it."

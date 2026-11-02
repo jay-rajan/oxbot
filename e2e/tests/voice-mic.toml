@@ -1,0 +1,29 @@
+name = "Dictation fills the box, on-device"
+about = "Where the Mac can dictate on-device, the Farm gets a microphone button: what it hears goes into the box at the cursor, stays editable, and is sent like typing. (A stand-in helper hears a fixed sentence; nothing uses the real microphone.)"
+dictation = true
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect_js = "!document.getElementById('mic').hidden"
+note = "The mic shows on the Farm"
+[[step]]
+click = "Dictate"
+[[step]]
+expect_js = "document.getElementById('input').value === 'Remind me to call the plumber' && document.getElementById('mic').classList.contains('on')"
+note = "What's heard fills the box while it listens"
+shot = "listening"
+[[step]]
+click = "Dictate"
+[[step]]
+expect_js = "!document.getElementById('mic').classList.contains('on') && document.getElementById('input').value === 'Remind me to call the plumber'"
+note = "A second click stops it; the text stays"
+[[step]]
+type = { into = "Message", text = " on Tuesday", clear = false }
+note = "It's editable"
+[[step]]
+key = "Enter"
+[[step]]
+wait_for = "Remind me to call the plumber on Tuesday"
+shot = "sent"

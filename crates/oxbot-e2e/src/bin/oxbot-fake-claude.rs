@@ -23,8 +23,18 @@
 //! model = "claude-sonnet-4-5-20250929"           # the model it says it is
 //!
 //! [[reply]]
+//! when = "what's in"
+//! read = true                               # open each attached file (see below)
+//!
+//! [[reply]]
 //! say = "Hello from the stand-in."
 //! ```
+//!
+//! With `read`, it opens every file oxbot's note lists, as Claude would with
+//! Read, and says what it found in each: the first line of a text file or of
+//! the text oxbot made of it, how many still frames a video became, or the
+//! kind of a picture or PDF. That shows what oxbot made of a file without a
+//! real Claude.
 
 use std::io::{BufRead, Write};
 
@@ -55,6 +65,9 @@ struct Reply {
     /// Wait this long before answering (to see "working" states).
     #[serde(default)]
     delay_ms: u64,
+    /// Open the attached files and say what's in them.
+    #[serde(default)]
+    read: bool,
     /// Plan usage to report before answering, as Claude's `rate_limit_event`.
     limits: Option<Limits>,
     /// The model it says it is (default `fake`).
@@ -152,7 +165,7 @@ fn main() {
                     out.line(&limits.event());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(reply.delay_ms));
-                waiting = start(&mut out, reply);
+                waiting = start(&mut out, reply, &text);
             }
             Some("control_request") => {
                 let id = msg["request_id"].clone();
@@ -246,7 +259,72 @@ fn pick(script: &Script, text: &str) -> Reply {
         })
 }
 
-fn start(out: &mut Out, reply: Reply) -> Waiting {
+/// Opens each file oxbot's note lists (a `- /path (…)` line), as Read
+/// would, and says what's in it, one line each.
+fn read_files(out: &mut Out, text: &str) -> String {
+    let mut said = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("- /") else {
+            continue;
+        };
+        let (path, about) = rest.split_once(" (").unwrap_or((rest, ""));
+        let path = format!("/{path}");
+        let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+        let about = about
+            .strip_suffix(')')
+            .unwrap_or(about)
+            .trim_end_matches(')');
+        let readable = about.rsplit_once(": ").map(|(_, p)| p.to_owned());
+        let (opened, found) = if let Some(frames) = about
+            .split_once("still frames: ")
+            .or_else(|| about.split_once("still frame: "))
+        {
+            let dir = frames.1.split("/01.jpg").next().unwrap_or("");
+            let n = std::fs::read_dir(dir).map_or(0, Iterator::count);
+            (format!("{dir}/01.jpg"), format!("{n} frames of {name}"))
+        } else if let Some(txt) = readable.filter(|p| {
+            std::path::Path::new(p)
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("txt"))
+        }) {
+            let first = first_line(&txt);
+            (txt, format!("{name}: {first}"))
+        } else if about == "text" {
+            (path.clone(), format!("{name}: {}", first_line(&path)))
+        } else {
+            let kind = about.split([',', ':']).next().unwrap_or("file");
+            (path.clone(), format!("{name} ({kind})"))
+        };
+        let n = out.next();
+        out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("r{n}"),"name":"Read","input":{"file_path":opened}}]},"parent_tool_use_id":null}));
+        out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("r{n}"),"content":found}]},"parent_tool_use_id":null}));
+        said.push(format!("Read {found}"));
+    }
+    if said.is_empty() {
+        "I don't see any files.".to_owned()
+    } else {
+        said.join("\n")
+    }
+}
+
+/// The first line of a file that has words.
+fn first_line(path: &str) -> String {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| t.lines().find(|l| !l.trim().is_empty()).map(str::to_owned))
+        .unwrap_or_else(|| "(can't read it)".to_owned())
+}
+
+fn start(out: &mut Out, reply: Reply, text: &str) -> Waiting {
+    if reply.read {
+        let found = read_files(out, text);
+        let said = match &reply.say {
+            Some(say) => format!("{say}\n{found}"),
+            None => found,
+        };
+        out.done(&said);
+        return Waiting::Nothing;
+    }
     let Some(tool) = reply.tool.clone() else {
         out.done(reply.say.as_deref().unwrap_or(""));
         return Waiting::Nothing;

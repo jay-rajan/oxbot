@@ -19,6 +19,8 @@ pub struct Server {
     pub home: PathBuf,
     /// Its log file.
     pub log: PathBuf,
+    /// The repo it runs from (test files name fixtures from there).
+    pub repo: PathBuf,
 }
 
 /// A free local port.
@@ -41,6 +43,7 @@ impl Server {
         config: &Config,
         home: &Path,
         script: &Path,
+        dictation: bool,
     ) -> anyhow::Result<Self> {
         let port = free_port()?;
         let log = home.join("oxbot.log");
@@ -60,6 +63,20 @@ impl Server {
             .stdout(file.try_clone()?)
             .stderr(file)
             .kill_on_drop(true);
+        // Never the Mac's own microphone in tests: a stand-in helper, which
+        // passes video to the real one (if built) for real still frames.
+        match &config.fake_mac {
+            Some(fake) => {
+                cmd.env("OXBOT_MAC_HELPER", repo.join(fake))
+                    .env("OXBOT_FAKE_DICTATION", if dictation { "1" } else { "0" });
+            }
+            None => {
+                cmd.env("OXBOT_MAC_HELPER", "off");
+            }
+        }
+        if let Some(real) = config.mac_helper.as_ref().map(|h| repo.join(h)) {
+            cmd.env("OXBOT_REAL_MAC_HELPER", real);
+        }
         if let Some(tools) = &config.tools {
             let tools = repo.join(tools);
             if tools.exists() {
@@ -74,6 +91,7 @@ impl Server {
             port,
             home: home.to_owned(),
             log,
+            repo: repo.to_owned(),
         };
         for _ in 0..100 {
             if let Ok((200, _)) = crate::http::request(port, "GET", "/", None).await {

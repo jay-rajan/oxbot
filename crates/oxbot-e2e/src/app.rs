@@ -76,7 +76,8 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
         .with_context(|| format!("no app at {}; build it first", app.display()))?
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .find(|p| p.is_file())
+        // The app itself, not its Mac helper next to it.
+        .find(|p| p.is_file() && p.file_name().is_some_and(|n| n != HELPER))
         .ok_or_else(|| anyhow!("no program in {}", macos.display()))?;
     let home = tempfile::tempdir()?;
     crate::seed::make_home(repo, home.path())?;
@@ -128,6 +129,7 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
 
     let (more, shot) = window_checks(pid, run_dir).await?;
     checks.extend(more);
+    checks.extend(helper_checks(&app, port, home.path()).await);
 
     let _ = std::process::Command::new("kill")
         .args(["-TERM", &pid.to_string()])
@@ -143,6 +145,118 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
         .args(["-f", &pattern])
         .status();
     Ok(AppResult { checks, shot })
+}
+
+/// oxbot's Mac helper, in `Contents/MacOS`.
+const HELPER: &str = "oxbot-mac";
+
+/// The Mac helper is inside and signed, the app says why it may use the
+/// mic and speech, and its page offers the mic exactly where the helper
+/// says this Mac can dictate on-device.
+async fn helper_checks(app: &Path, port: u16, home: &Path) -> Vec<Check> {
+    let mut checks = Vec::new();
+    let helper = app.join("Contents/MacOS").join(HELPER);
+    let what = "Its Mac helper (video frames, dictation) is inside";
+    let version = Command::new(&helper).arg("version").output().await;
+    match version {
+        Ok(out) if String::from_utf8_lossy(&out.stdout).contains("\"version\"") => {
+            checks.push(pass(
+                what,
+                String::from_utf8_lossy(&out.stdout).trim().to_owned(),
+            ));
+        }
+        _ => {
+            checks.push(fail(
+                what,
+                "Contents/MacOS/oxbot-mac is missing or doesn't run",
+            ));
+            return checks;
+        }
+    }
+    let signed = Command::new("codesign")
+        .args(["--verify", "--strict"])
+        .arg(&helper)
+        .status()
+        .await
+        .is_ok_and(|s| s.success());
+    checks.push(if signed {
+        pass("The helper is signed", "codesign --verify --strict")
+    } else {
+        fail("The helper is signed", "codesign says no")
+    });
+    let plist = app.join("Contents/Info.plist");
+    let mut missing = Vec::new();
+    for key in [
+        "NSMicrophoneUsageDescription",
+        "NSSpeechRecognitionUsageDescription",
+    ] {
+        let found = Command::new("plutil")
+            .args(["-extract", key, "raw"])
+            .arg(&plist)
+            .output()
+            .await
+            .is_ok_and(|o| o.status.success() && !o.stdout.trim_ascii().is_empty());
+        if !found {
+            missing.push(key);
+        }
+    }
+    let what = "It says why it may use the microphone and speech recognition";
+    checks.push(if missing.is_empty() {
+        pass(what, "both usage strings are in Info.plist")
+    } else {
+        fail(what, format!("missing: {}", missing.join(", ")))
+    });
+    let can = Command::new(&helper)
+        .arg("can-dictate")
+        .output()
+        .await
+        .ok()
+        .and_then(|o| serde_json::from_slice::<serde_json::Value>(o.stdout.trim_ascii()).ok())
+        .and_then(|v| v["ok"].as_bool())
+        .unwrap_or(false);
+    let what = "The mic shows only where on-device dictation exists";
+    checks.push(match farm_settings(port, home).await {
+        Some(settings) if settings["dictation"].as_bool() == Some(can) => pass(
+            what,
+            if can {
+                "this Mac can dictate on-device: the Farm's page has the mic"
+            } else {
+                "this Mac can't dictate on-device: no mic"
+            },
+        ),
+        Some(settings) => fail(
+            what,
+            format!(
+                "the helper says {can}, the page was told {}",
+                settings["dictation"]
+            ),
+        ),
+        None => fail(what, "couldn't read the app's settings"),
+    });
+    checks
+}
+
+/// The settings the app's own window gets (it carries the Farm secret).
+async fn farm_settings(port: u16, home: &Path) -> Option<serde_json::Value> {
+    use futures_util::StreamExt as _;
+    let key = std::fs::read_to_string(home.join("farm-key")).ok()?;
+    let url = format!("ws://127.0.0.1:{port}/ws?k={}", key.trim());
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.ok()?;
+    let read = async {
+        while let Some(Ok(msg)) = ws.next().await {
+            let tokio_tungstenite::tungstenite::Message::Text(text) = msg else {
+                continue;
+            };
+            let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+            if v["type"] == "settings" {
+                return Some(v);
+            }
+        }
+        None
+    };
+    tokio::time::timeout(Duration::from_secs(10), read)
+        .await
+        .ok()?
 }
 
 /// `1280` or `1280.0` → 1280.

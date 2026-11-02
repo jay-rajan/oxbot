@@ -264,7 +264,7 @@ async fn run_one(
     let home = tempfile::tempdir()?;
     seed::make_home(repo, home.path())?;
     let script = repo.join("e2e/claude").join(&test.claude);
-    let server = Server::start(repo, config, home.path(), &script).await?;
+    let server = Server::start(repo, config, home.path(), &script, test.dictation).await?;
     let rel = format!("shots/{}/{id}", engine.name());
     let shots_dir = out.join(&rel);
     std::fs::create_dir_all(&shots_dir)?;

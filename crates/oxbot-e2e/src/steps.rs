@@ -188,6 +188,9 @@ async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::
         driver.key("Enter").await?;
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
+    if let Some(files) = &step.attach {
+        attach(driver, server, files).await?;
+    }
     if let Some(key) = &step.key {
         driver.key(key).await?;
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -238,6 +241,17 @@ async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::
         close_sign_in_window(&server.home).await?;
         tokio::time::sleep(Duration::from_millis(1500)).await;
     }
+    Ok(())
+}
+
+/// Chooses `files` (from the repo) in the composer's file picker.
+async fn attach(driver: &mut Driver, server: &Server, files: &[String]) -> anyhow::Result<()> {
+    let paths: Vec<String> = files
+        .iter()
+        .map(|f| server.repo.join(f).display().to_string())
+        .collect();
+    driver.set_files("#fileInput", &paths).await?;
+    tokio::time::sleep(Duration::from_millis(250)).await;
     Ok(())
 }
 

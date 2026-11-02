@@ -32,6 +32,11 @@ pub struct Config {
     /// Commands that build the Mac app.
     #[serde(default)]
     pub app_build: Vec<String>,
+    /// The stand-in for oxbot's Mac helper (relative path): it "can
+    /// dictate" when a test asks, and passes video to the real helper.
+    pub fake_mac: Option<PathBuf>,
+    /// The real Mac helper, if built (relative path), for still frames.
+    pub mac_helper: Option<PathBuf>,
 }
 
 fn default_person() -> String {
@@ -75,6 +80,10 @@ pub struct Test {
     /// The stand-in Claude's script, in `e2e/claude/`.
     #[serde(default = "default_claude")]
     pub claude: String,
+    /// The stand-in Mac helper says this Mac can dictate on-device (and
+    /// "hears" a sentence when asked).
+    #[serde(default)]
+    pub dictation: bool,
     /// The steps, in order.
     #[serde(rename = "step")]
     pub steps: Vec<Step>,
@@ -127,6 +136,9 @@ pub struct Step {
     pub type_: Option<TypeInto>,
     /// Type a message in the chat box and press Enter.
     pub send: Option<String>,
+    /// Attach these files (paths from the repo root) with the composer's
+    /// file picker, as a person choosing them would.
+    pub attach: Option<Vec<String>>,
     /// Press a key, e.g. `Enter` or `Escape`.
     pub key: Option<String>,
     /// Wait until this text shows.
@@ -187,6 +199,13 @@ impl Step {
         if let Some(t) = &self.send {
             parts.push(format!("Send \u{201c}{t}\u{201d}"));
         }
+        if let Some(files) = &self.attach {
+            let names: Vec<&str> = files
+                .iter()
+                .map(|f| f.rsplit('/').next().unwrap_or(f))
+                .collect();
+            parts.push(format!("Attach {}", names.join(", ")));
+        }
         if let Some(k) = &self.key {
             parts.push(format!("Press {k}"));
         }
@@ -224,6 +243,7 @@ impl Step {
             self.right_click.is_some(),
             self.type_.is_some(),
             self.send.is_some(),
+            self.attach.is_some(),
             self.key.is_some(),
             self.wait_for.is_some(),
             self.expect.is_some(),

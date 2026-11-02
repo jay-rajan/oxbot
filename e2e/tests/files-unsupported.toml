@@ -1,0 +1,32 @@
+name = "Files oxbot can't take get a plain message"
+about = "An archive is refused at upload with what to do instead, a file over 25 MB dropped on the chat is refused before it uploads, and neither is sent."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+attach = ["e2e/fixtures/photos.zip"]
+[[step]]
+wait_for = "Unzip it and attach the files inside."
+note = "The chip turns red with the server's plain message"
+[[step]]
+expect_js = "document.querySelector('#chips .chip.bad') !== null"
+shot = "refused"
+[[step]]
+expect_js = "(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(26 * 1024 * 1024)], 'scan.pdf', { type: 'application/pdf' })); const main = document.getElementById('chatMain'); main.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true })); main.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); return true; })()"
+note = "Drop a 26 MB file on the chat"
+[[step]]
+wait_for = "scan.pdf is 26 MB; oxbot takes files up to 25 MB."
+shot = "too-big"
+[[step]]
+click = "Send"
+[[step]]
+wait_ms = 500
+[[step]]
+expect_js = "!document.getElementById('log').innerText.includes('photos.zip') && !document.getElementById('log').innerText.includes('scan.pdf')"
+note = "Nothing was sent"
+[[step]]
+click = "Remove photos.zip"
+[[step]]
+expect_js = "document.querySelectorAll('#chips .chip').length === 1"
+note = "A refused chip can be removed"

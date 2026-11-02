@@ -283,6 +283,56 @@ impl Driver {
         Ok(())
     }
 
+    /// Sets the files of the file field matching `selector` to `paths`
+    /// (absolute), as choosing them in the file picker would.
+    ///
+    /// # Errors
+    /// Fails if there's no such field, or the browser does.
+    pub async fn set_files(&mut self, selector: &str, paths: &[String]) -> anyhow::Result<()> {
+        let quoted = serde_json::to_string(selector)?;
+        match self {
+            Self::Chrome(c) => {
+                let found = c
+                    .call(
+                        "Runtime.evaluate",
+                        json!({ "expression": format!("document.querySelector({quoted})") }),
+                    )
+                    .await?;
+                let object = found["result"]["objectId"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("no {selector} on the page"))?
+                    .to_owned();
+                c.call(
+                    "DOM.setFileInputFiles",
+                    json!({ "files": paths, "objectId": object }),
+                )
+                .await?;
+            }
+            Self::Safari(s) => {
+                let found = s
+                    .call(
+                        "POST",
+                        "/element",
+                        json!({ "using": "css selector", "value": selector }),
+                    )
+                    .await?;
+                let id = found
+                    .as_object()
+                    .and_then(|o| o.values().next())
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("no {selector} on the page"))?
+                    .to_owned();
+                s.call(
+                    "POST",
+                    &format!("/element/{id}/value"),
+                    json!({ "text": paths.join("\n") }),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     /// A PNG of what's on screen.
     ///
     /// # Errors
