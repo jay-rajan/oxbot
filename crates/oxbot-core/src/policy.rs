@@ -8,7 +8,12 @@
 //! | Browser tools | Answer |
 //! |---|---|
 //! | reading, opening web pages, scrolling, hovering, typing | run |
-//! | clicking something that changes things (Send, Post, Delete, Buy…) | red card |
+//! | clicking links, tabs, search, filters, sorting, paging, "Show more" | run |
+//! | clicking a search form's or a GET form's button | run |
+//! | clicking an element oxbot can't name, even after looking it up | run, logged |
+//! | clicking something that changes things (Send, Post, Save, Apply…) | red card |
+//! | clicking a POST form's unclear button when the form has something filled in | red card |
+//! | clicking pay, buy, book, delete or another can't-undo button | red card |
 //! | pressing Enter in a text box (not a search box) | red card |
 //! | uploading a file from the Mac | card |
 //! | typing into a password or code field | refuse: the user signs in |
@@ -23,10 +28,14 @@
 //!
 //! Labels come from the page snapshot (`button "Post"`), so a change behind
 //! an oddly named button can slip past; the bot is also told to ask first.
+//! The page controls its labels: a "Delete" button can call itself "Apply
+//! filters". What oxbot reads about a button's form only ever relaxes an
+//! unclear label ("Submit", "Go"), never a clear change or a can't-undo word.
 
 use std::path::Path;
 
-use oxbot_browser::{MCP_SERVER_NAME, is_home_network, web_host};
+pub use oxbot_browser::ElementFacts;
+use oxbot_browser::{ELEMENT_FACTS_FN, MCP_SERVER_NAME, is_home_network, web_host};
 use oxbot_protocol::ApprovalKind;
 use serde_json::Value;
 
@@ -43,6 +52,40 @@ pub enum Verdict {
     Deny(String),
     /// Ask the user.
     Ask(Ask),
+    /// Run it, though oxbot couldn't tell what it clicks (a missing label
+    /// never blocks browsing); the hub logs what.
+    AllowUnnamed(String),
+}
+
+/// What a click would do, as far as oxbot can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    /// Search, filter, sort, paging, opening a result: runs.
+    Query,
+    /// Links, tabs, toggles, buttons outside a changing form: runs.
+    Plain,
+    /// A change on the site (send, post, save, a filled POST form): a card.
+    Change,
+    /// Money or something that can't be undone (pay, book, delete): a card,
+    /// and never one to remember.
+    Final,
+    /// oxbot couldn't name it: runs, logged.
+    Unknown,
+}
+
+impl Click {
+    /// How strict it is, for picking between two readings of one element:
+    /// final over change over query over plain.
+    #[must_use]
+    pub fn strictness(self) -> u8 {
+        match self {
+            Self::Final => 4,
+            Self::Change => 3,
+            Self::Query => 2,
+            Self::Plain => 1,
+            Self::Unknown => 0,
+        }
+    }
 }
 
 /// What to show the user on the card.
@@ -61,6 +104,30 @@ pub struct Ask {
     /// Whether it's about a private bot: one being made, or one getting a
     /// task.
     pub private: bool,
+    /// For a click card: what kind of click ([`Click::Change`] or
+    /// [`Click::Final`]).
+    pub click: Option<Click>,
+}
+
+impl Ask {
+    /// A card of `kind`: the bot wants to `action` `target` on `site`.
+    #[must_use]
+    pub fn new(
+        kind: ApprovalKind,
+        action: impl Into<String>,
+        target: impl Into<String>,
+        site: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            action: action.into(),
+            target: target.into(),
+            site: site.into(),
+            detail: None,
+            private: false,
+            click: None,
+        }
+    }
 }
 
 /// What [`decide`] needs to know about the bot right now.
@@ -73,6 +140,9 @@ pub struct Context<'a> {
     /// What oxbot read from the page itself, if it looked (see
     /// [`needs_facts`]).
     pub facts: Option<&'a PageFacts>,
+    /// What oxbot read about the element a `click` aims at, if it looked
+    /// (see [`wants_element_facts`]).
+    pub element: Option<&'a ElementFacts>,
 }
 
 /// What oxbot reads from the page before some actions.
@@ -82,8 +152,11 @@ pub struct PageFacts {
     pub active: Option<Field>,
     /// The labels of the page's password fields.
     pub password_fields: Vec<String>,
-    /// The label of what's at the point a `click_at` aims at.
+    /// What's at the point a `click_at` aims at, as a snapshot label
+    /// (`button "Send"`).
     pub at_point: Option<String>,
+    /// What oxbot read about it (its form).
+    pub at_element: Option<ElementFacts>,
 }
 
 /// A form field.
@@ -117,8 +190,8 @@ pub fn needs_facts(tool: &str) -> bool {
     )
 }
 
-/// The script oxbot runs in the page to get [`PageFacts`]; `point` is a
-/// `click_at` target. It only reads.
+/// The script oxbot runs in the page (in its own isolated world) to get
+/// [`PageFacts`]; `x`, `y` are a `click_at` target. It only reads.
 #[must_use]
 pub fn facts_script(input: &Value) -> String {
     let x = input.get("x").and_then(Value::as_f64).unwrap_or(-1.0);
@@ -126,7 +199,20 @@ pub fn facts_script(input: &Value) -> String {
     format!(
         r"(() => {{
   const name = e => ((e.getAttribute && (e.getAttribute('aria-label') || e.getAttribute('placeholder') || e.getAttribute('title')))
-    || (e.labels && e.labels[0] && e.labels[0].innerText) || e.name || e.id || e.innerText || '').trim().slice(0, 80);
+    || (e.labels && e.labels[0] && e.labels[0].innerText) || e.name || e.id || e.innerText || e.value || '').trim().slice(0, 80);
+  const roleOf = e => {{
+    const role = (e.getAttribute('role') || '').toLowerCase();
+    if (role) return role;
+    const tag = e.tagName.toLowerCase(), type = (e.type || '').toLowerCase();
+    if (tag === 'a') return 'link';
+    if (tag === 'button' || (tag === 'input' && ['submit', 'button', 'reset', 'image'].includes(type))) return 'button';
+    if (tag === 'input' && (type === 'checkbox' || type === 'radio')) return type;
+    if (tag === 'input' && type === 'search') return 'searchbox';
+    if (tag === 'input' || tag === 'textarea') return 'textbox';
+    if (tag === 'select') return 'combobox';
+    return '';
+  }};
+  const elementFacts = {ELEMENT_FACTS_FN};
   const a = document.activeElement;
   let active = null;
   if (a && a !== document.body && a !== document.documentElement) {{
@@ -142,8 +228,8 @@ pub fn facts_script(input: &Value) -> String {
   let at = null;
   if ({x} >= 0 && {y} >= 0) {{
     const e = document.elementFromPoint({x}, {y});
-    const c = e && (e.closest('button,a,[role=button],[role=link],[role=menuitem],input') || e);
-    if (c) at = name(c);
+    const c = e && (e.closest('button,a,[role=button],[role=link],[role=tab],[role=menuitem],[role=option],[role=checkbox],[role=radio],[role=switch],input,select,textarea') || e);
+    if (c) at = {{ name: name(c), role: roleOf(c), facts: elementFacts.call(c) }};
   }}
   return {{ active, passwords, at }};
 }})()"
@@ -174,11 +260,25 @@ impl PageFacts {
                     .collect()
             })
             .unwrap_or_default();
-        let at_point = v.get("at").and_then(Value::as_str).map(str::to_owned);
+        let at = v.get("at").unwrap_or(&Value::Null);
+        let at_point = match at {
+            Value::String(name) => Some(name.clone()),
+            Value::Object(_) => {
+                let (role, name) = (str_of(at, "role"), str_of(at, "name"));
+                Some(if role.is_empty() {
+                    format!("\"{name}\"")
+                } else {
+                    format!("{role} \"{name}\"")
+                })
+            }
+            _ => None,
+        };
+        let at_element = at.get("facts").and_then(ElementFacts::from_value);
         Self {
             active,
             password_fields,
             at_point,
+            at_element,
         }
     }
 }
@@ -208,18 +308,20 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     }
     (tool == tools::full_name(CREATE_BOT_TOOL)).then(|| {
         let private = input.get("private").and_then(Value::as_bool) == Some(true);
+        let action = if private {
+            "create a private bot"
+        } else {
+            "create a bot"
+        };
         Verdict::Ask(Ask {
-            kind: ApprovalKind::CreateBot,
-            action: if private {
-                "create a private bot"
-            } else {
-                "create a bot"
-            }
-            .to_owned(),
-            target: tools::text_arg(input, "name").trim().to_owned(),
-            site: "oxbot".to_owned(),
             detail: Some(tools::text_arg(input, "instructions").trim().to_owned()),
             private,
+            ..Ask::new(
+                ApprovalKind::CreateBot,
+                action,
+                tools::text_arg(input, "name").trim(),
+                "oxbot",
+            )
         })
     })
 }
@@ -258,14 +360,7 @@ pub fn decide(
             .unwrap_or_else(|| "this site".to_owned())
     };
     let change = |action: &str, target: String| {
-        Verdict::Ask(Ask {
-            kind: ApprovalKind::Change,
-            action: action.to_owned(),
-            target,
-            site: site(),
-            detail: None,
-            private: false,
-        })
+        Verdict::Ask(Ask::new(ApprovalKind::Change, action, target, site()))
     };
     match action {
         "list_pages"
@@ -285,7 +380,7 @@ pub fn decide(
         | "drag"
         | "handle_dialog" => Verdict::Allow,
         "click" | "click_at" | "fill" | "fill_form" | "type_text" | "press_key" => {
-            decide_input(action, input, ctx.facts, &describe, &change)
+            decide_input(action, input, ctx, &describe, &change)
         }
         "evaluate_script" => Verdict::Deny(
             "oxbot doesn't let bots run scripts in pages, because the browser is signed in to the user's \
@@ -314,12 +409,13 @@ pub fn decide(
         "upload_file" => {
             let uid = str_of(input, "uid");
             Verdict::Ask(Ask {
-                kind: ApprovalKind::Upload,
-                action: "upload a file to".to_owned(),
-                target: describe(uid).unwrap_or_else(|| format!("element {uid}")),
-                site: site(),
                 detail: Some(file_paths(input).join("\n")),
-                private: false,
+                ..Ask::new(
+                    ApprovalKind::Upload,
+                    "upload a file to",
+                    describe(uid).unwrap_or_else(|| format!("element {uid}")),
+                    site(),
+                )
             })
         }
         other => Verdict::Deny(format!(
@@ -333,27 +429,27 @@ pub fn decide(
 fn decide_input(
     action: &str,
     input: &Value,
-    facts: Option<&PageFacts>,
+    ctx: Context<'_>,
     describe: &dyn Fn(&str) -> Option<String>,
     change: &dyn Fn(&str, String) -> Verdict,
 ) -> Verdict {
+    let facts = ctx.facts;
     match action {
         "click" => {
             let uid = str_of(input, "uid");
-            match describe(uid) {
-                Some(label) if !is_change(&label) => Verdict::Allow,
-                Some(label) => change("click", label),
-                None => change(
-                    "click",
-                    format!("element {uid} (oxbot couldn't see what it is)"),
-                ),
-            }
+            let label = describe(uid);
+            click_verdict(label.as_deref(), ctx.element, change, || {
+                format!("element {uid}")
+            })
         }
-        "click_at" => match facts.and_then(|f| f.at_point.clone()) {
-            Some(label) if !is_change(&label) => Verdict::Allow,
-            Some(label) => change("click", format!("\"{label}\"")),
-            None => change("click", "a spot on the page oxbot couldn't read".to_owned()),
-        },
+        "click_at" => {
+            let label = facts.and_then(|f| f.at_point.as_deref());
+            let element = facts.and_then(|f| f.at_element.as_ref());
+            click_verdict(label, element, change, || {
+                let at = |key| input.get(key).and_then(Value::as_f64).unwrap_or(-1.0);
+                format!("the spot at ({}, {})", at("x"), at("y"))
+            })
+        }
         "fill" | "fill_form" => {
             let uids: Vec<&str> = if action == "fill" {
                 vec![str_of(input, "uid")]
@@ -395,6 +491,249 @@ fn decide_input(
     }
 }
 
+/// A click on `label` (with what oxbot read about it): free, a card, or
+/// free and logged when oxbot couldn't name it (`unnamed` says what).
+fn click_verdict(
+    label: Option<&str>,
+    element: Option<&ElementFacts>,
+    change: &dyn Fn(&str, String) -> Verdict,
+    unnamed: impl FnOnce() -> String,
+) -> Verdict {
+    let click = classify(label, element);
+    let target = || {
+        let (role, name) = split_label(label.unwrap_or_default());
+        let name = shown_name(name);
+        let unclear = matches!(click_words(&name), Words::Soft | Words::Nothing);
+        if click == Click::Change && unclear && element.is_some_and(|e| e.submits) {
+            format!("the form's \"{name}\" button")
+        } else if role.is_empty() {
+            format!("\"{name}\"")
+        } else {
+            format!("{role} \"{name}\"")
+        }
+    };
+    match click {
+        Click::Query | Click::Plain => Verdict::Allow,
+        Click::Unknown => Verdict::AllowUnnamed(unnamed()),
+        Click::Change | Click::Final => match change("click", target()) {
+            Verdict::Ask(ask) => Verdict::Ask(Ask {
+                click: Some(click),
+                ..ask
+            }),
+            other => other,
+        },
+    }
+}
+
+/// Roles that only show or move around: clicking them changes nothing on
+/// the site unless their words say so.
+const PLAIN_ROLES: &[&str] = &[
+    "link", "tab", "menuitem", "option", "checkbox", "radio", "switch", "treeitem", "row", "cell",
+    "img", "image",
+];
+
+/// What a click on `label` (a snapshot label, `button "Post"`) would do,
+/// given what oxbot read about the element (`facts`), if anything.
+///
+/// Words win over facts: a can't-undo word is [`Click::Final`] and a clear
+/// change word is [`Click::Change`] whatever the form says. Facts only
+/// settle unclear buttons ("Submit", "Go", or no telling word at all): a
+/// search or GET form's button is a query, and a POST form's is a change
+/// once the form has something filled in.
+#[must_use]
+pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
+    let Some(label) = label else {
+        return Click::Unknown;
+    };
+    let (role, name) = split_label(label);
+    if matches!(role, "textbox" | "searchbox" | "combobox") {
+        return Click::Plain;
+    }
+    let words = click_words(name);
+    match words {
+        Words::Final => return Click::Final,
+        Words::Hard => return Click::Change,
+        Words::Query => return Click::Query,
+        Words::Soft | Words::Nothing => {}
+    }
+    if PLAIN_ROLES.contains(&role) {
+        return Click::Plain;
+    }
+    let submit = facts.filter(|f| f.submits);
+    let method = submit.and_then(|f| f.form_method.as_deref());
+    match (words, submit) {
+        (_, Some(f)) if f.in_search || method == Some("get") => Click::Query,
+        (_, Some(_)) if method == Some("dialog") => Click::Plain,
+        (Words::Soft, _) => Click::Change,
+        (_, Some(f)) if method == Some("post") && f.filled_fields > 0 => Click::Change,
+        _ => Click::Plain,
+    }
+}
+
+/// Whether reading the element itself could change what a click on `label`
+/// is: an unclear button (see [`classify`]). Links, tabs and clear words
+/// never need the look.
+#[must_use]
+pub fn wants_element_facts(label: &str) -> bool {
+    let (role, name) = split_label(label);
+    role == "button"
+        && !name.trim().is_empty()
+        && matches!(click_words(name), Words::Soft | Words::Nothing)
+}
+
+/// The accessibility role and name in a snapshot label, for looking the
+/// element up on the page.
+#[must_use]
+pub fn role_and_name(label: &str) -> (&str, &str) {
+    split_label(label)
+}
+
+/// Of the facts read about several elements with the same label, the one
+/// that makes the strictest click (a change over a query over a plain
+/// click).
+#[must_use]
+pub fn strictest<'a>(label: &str, found: &'a [ElementFacts]) -> Option<&'a ElementFacts> {
+    found
+        .iter()
+        .max_by_key(|f| classify(Some(label), Some(f)).strictness())
+}
+
+/// What the words on a button say, strongest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Words {
+    /// Money or can't-undo.
+    Final,
+    /// A clear change.
+    Hard,
+    /// Looking things up.
+    Query,
+    /// A change unless the words around say it's a query ("Apply filters").
+    Soft,
+    /// Nothing telling.
+    Nothing,
+}
+
+/// Words on a button that spend money or can't be undone.
+const FINAL_WORDS: &[&str] = &[
+    "pay", "buy", "purchase", "order", "checkout", "transfer", "donate", "book", "reserve",
+    "delete", "remove", "trash", "withdraw", "tip",
+];
+
+/// Phrases that spend money or can't be undone.
+const FINAL_PHRASES: &[&str] = &[
+    "check out",
+    "place order",
+    "cancel order",
+    "cancel subscription",
+    "cancel booking",
+    "cancel membership",
+    "cancel plan",
+    "delete forever",
+    "close account",
+    "send money",
+];
+
+/// Words on a button that clearly change something.
+const CHANGE_WORDS: &[&str] = &[
+    "send",
+    "post",
+    "publish",
+    "reply",
+    "comment",
+    "archive",
+    "confirm",
+    "save",
+    "share",
+    "repost",
+    "retweet",
+    "like",
+    "follow",
+    "unfollow",
+    "subscribe",
+    "unsubscribe",
+    "connect",
+    "invite",
+    "accept",
+    "decline",
+    "approve",
+    "upload",
+    "schedule",
+    "logout",
+    "signout",
+    "signup",
+    "register",
+    "join",
+    "forward",
+    "tweet",
+    "react",
+];
+
+/// Phrases that clearly change something.
+const CHANGE_PHRASES: &[&str] = &["sign out", "log out", "sign up", "mark as", "move to"];
+
+/// Words that are a change only when no query word is next to them:
+/// "Apply" asks, "Apply filters" doesn't.
+const SOFT_CHANGE_WORDS: &[&str] = &["apply", "submit", "update", "done", "ok", "continue"];
+
+/// Words on a button that look things up.
+const QUERY_WORDS: &[&str] = &[
+    "search", "find", "filter", "filters", "sort", "go", "refine", "results", "more", "next",
+    "previous", "prev", "page", "show", "view", "load", "browse", "expand", "collapse", "clear",
+];
+
+/// Phrases that look things up even though a word in them alone wouldn't
+/// ("Sort order" isn't an order). They're taken out before the other lists
+/// are checked.
+const QUERY_PHRASES: &[&str] = &[
+    "sort order",
+    "order by",
+    "sort by",
+    "remove filter",
+    "remove filters",
+    "remove all filters",
+];
+
+/// What the words of `name` say (see [`Words`]).
+fn click_words(name: &str) -> Words {
+    let name = name.to_lowercase();
+    let words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let mut text = format!(" {} ", words.join(" "));
+    let mut query = false;
+    for phrase in QUERY_PHRASES {
+        let phrase = format!(" {phrase} ");
+        if text.contains(&phrase) {
+            text = text.replace(&phrase, " ");
+            query = true;
+        }
+    }
+    let has = |list: &[&str]| text.split_whitespace().any(|w| list.contains(&w));
+    let has_phrase = |list: &[&str]| list.iter().any(|p| text.contains(&format!(" {p} ")));
+    if has(FINAL_WORDS) || has_phrase(FINAL_PHRASES) {
+        Words::Final
+    } else if has(CHANGE_WORDS) || has_phrase(CHANGE_PHRASES) {
+        Words::Hard
+    } else if query || has(QUERY_WORDS) {
+        Words::Query
+    } else if has(SOFT_CHANGE_WORDS) {
+        Words::Soft
+    } else {
+        Words::Nothing
+    }
+}
+
+/// A name as a card shows it: trimmed, spaces collapsed, at most 80
+/// characters.
+fn shown_name(name: &str) -> String {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    match name.char_indices().nth(80) {
+        Some((cut, _)) => format!("{}…", &name[..cut]),
+        None => name,
+    }
+}
+
 /// Pressing Enter: free in a search box or outside text boxes, a card in a
 /// text box (it may send), refused in a password field.
 fn enter_rule(facts: Option<&PageFacts>, change: &dyn Fn(&str, String) -> Verdict) -> Verdict {
@@ -432,82 +771,12 @@ fn is_enter(key: &str) -> bool {
         && !parts.iter().any(|p| p.eq_ignore_ascii_case("shift"))
 }
 
-/// Words on a button that mean it changes something.
-const CHANGE_WORDS: &[&str] = &[
-    "send",
-    "post",
-    "publish",
-    "reply",
-    "comment",
-    "delete",
-    "remove",
-    "trash",
-    "archive",
-    "buy",
-    "purchase",
-    "pay",
-    "order",
-    "checkout",
-    "submit",
-    "confirm",
-    "save",
-    "share",
-    "repost",
-    "retweet",
-    "like",
-    "follow",
-    "unfollow",
-    "subscribe",
-    "unsubscribe",
-    "connect",
-    "invite",
-    "accept",
-    "decline",
-    "approve",
-    "transfer",
-    "donate",
-    "book",
-    "reserve",
-    "apply",
-    "upload",
-    "schedule",
-    "update",
-    "logout",
-    "signout",
-    "forward",
-    "tweet",
-    "react",
-];
-
-/// Phrases that mean a change, for two-word buttons.
-const CHANGE_PHRASES: &[&str] = &[
-    "check out",
-    "sign out",
-    "log out",
-    "place order",
-    "cancel order",
-    "cancel subscription",
-    "cancel booking",
-    "cancel membership",
-    "cancel plan",
-    "mark as",
-    "move to",
-];
-
 /// Whether a snapshot label (`button "Post"`) or a plain label names a
-/// change. Typing fields never do.
+/// change (or a can't-undo action). Typing fields never do.
 fn is_change(label: &str) -> bool {
     let (role, name) = split_label(label);
-    if matches!(role, "textbox" | "searchbox" | "combobox") {
-        return false;
-    }
-    let name = name.to_lowercase();
-    let words: Vec<&str> = name
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .collect();
-    words.iter().any(|w| CHANGE_WORDS.contains(w))
-        || CHANGE_PHRASES.iter().any(|p| words.join(" ").contains(p))
+    !matches!(role, "textbox" | "searchbox" | "combobox")
+        && matches!(click_words(name), Words::Final | Words::Hard | Words::Soft)
 }
 
 /// Whether a field is for a password, a code or a card number.
@@ -580,7 +849,7 @@ fn file_paths(input: &Value) -> Vec<String> {
 /// Whether `path` is an absolute path inside `dir`, after resolving `..`
 /// and links (on a Mac `/var` is a link to `/private/var`, so one folder can
 /// have two names).
-fn is_inside(path: &Path, dir: &Path) -> bool {
+pub(crate) fn is_inside(path: &Path, dir: &Path) -> bool {
     if !path.is_absolute() {
         return false;
     }
@@ -639,6 +908,7 @@ mod tests {
             work_dir: Path::new(WORK),
             page_url: Some("https://example.com/jobs"),
             facts: None,
+            element: None,
         }
     }
 
@@ -736,13 +1006,6 @@ mod tests {
             assert_eq!(ask.action, "click");
             assert_eq!(ask.site, "example.com");
         }
-        assert!(
-            matches!(
-                decide(&tool("click"), &json!({"uid":"99"}), ctx(), names),
-                Verdict::Ask(_)
-            ),
-            "an unknown element asks"
-        );
         let facts = PageFacts {
             at_point: Some("Send".into()),
             ..PageFacts::default()
@@ -874,6 +1137,7 @@ mod tests {
             Verdict::Allow
         );
         assert!(needs_facts(&tool("press_key")) && !needs_facts(&tool("click")));
+        assert!(needs_facts(&tool("click_at")));
     }
 
     #[test]
@@ -909,7 +1173,218 @@ mod tests {
         assert_eq!(facts.active.unwrap().kind, FieldKind::Password);
         assert_eq!(facts.password_fields, ["Password"]);
         assert!(facts.at_point.is_none());
-        assert!(facts_script(&json!({"x":10,"y":20})).contains("elementFromPoint(10, 20)"));
+        let script = facts_script(&json!({"x":10,"y":20}));
+        assert!(script.contains("elementFromPoint(10, 20)"));
+        assert!(script.contains(ELEMENT_FACTS_FN));
+        let v = json!({"active":null,"passwords":[],"at":{"name":"Go","role":"button",
+            "facts":{"tag":"button","type":"submit","submits":true,"method":"get","inSearch":false,"filled":0}}});
+        let facts = PageFacts::from_value(&v);
+        assert_eq!(facts.at_point.as_deref(), Some("button \"Go\""));
+        assert!(facts.at_element.unwrap().submits);
+        let old = PageFacts::from_value(&json!({"at":"Send"}));
+        assert_eq!(old.at_point.as_deref(), Some("Send"));
+    }
+
+    fn click(label: &str, element: Option<&ElementFacts>) -> Verdict {
+        let ctx = Context { element, ..ctx() };
+        decide(&tool("click"), &json!({"uid":"7_1"}), ctx, |_| {
+            Some(label.to_owned())
+        })
+    }
+
+    fn submit(method: &str, in_search: bool, filled: u32) -> ElementFacts {
+        ElementFacts {
+            tag: "button".into(),
+            input_type: "submit".into(),
+            submits: true,
+            form_method: Some(method.into()),
+            in_search,
+            filled_fields: filled,
+        }
+    }
+
+    fn asks(verdict: &Verdict) -> Option<Click> {
+        match verdict {
+            Verdict::Ask(ask) => {
+                assert_eq!(ask.kind, ApprovalKind::Change);
+                ask.click
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn unknown_uid_is_allowed() {
+        assert_eq!(
+            decide(&tool("click"), &json!({"uid":"8_242"}), ctx(), names),
+            Verdict::AllowUnnamed("element 8_242".into())
+        );
+        assert_eq!(classify(None, None), Click::Unknown);
+    }
+
+    #[test]
+    fn unknown_uid_that_resolves_to_pay_asks() {
+        // The element book found the label oxbot's last snapshot didn't have.
+        for label in [
+            "button \"Book now\"",
+            "button \"Pay\"",
+            "link \"Delete forever\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+        let Verdict::Ask(ask) = click("button \"Book now\" focusable", None) else {
+            panic!("asks")
+        };
+        assert_eq!(ask.target, "button \"Book now\"");
+    }
+
+    #[test]
+    fn search_and_filter_clicks_run() {
+        for label in [
+            "button \"Search\"",
+            "button \"Apply filters\"",
+            "button \"Sort by date\"",
+            "button \"Sort order\"",
+            "button \"Show more\"",
+            "button \"Update results\"",
+            "button \"Remove filter: Remote\"",
+            "link \"Next\"",
+            "link \"Senior engineer, Toronto\"",
+            "tab \"Posts\"",
+            "checkbox \"Full time\"",
+            "option \"Newest first\"",
+            "button \"Menu\"",
+        ] {
+            assert_eq!(click(label, None), Verdict::Allow, "{label}");
+        }
+    }
+
+    #[test]
+    fn changes_ask_and_money_or_cant_undo_is_final() {
+        for label in [
+            "button \"Post\"",
+            "button \"Send\"",
+            "button \"Save\"",
+            "button \"Apply\"",
+            "button \"Apply now\"",
+            "button \"Submit\"",
+            "button \"Sign up\"",
+            "button \"Confirm\"",
+            "link \"Unsubscribe\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Change), "{label}");
+        }
+        for label in [
+            "button \"Pay now\"",
+            "button \"Buy\"",
+            "button \"Place order\"",
+            "button \"Book\"",
+            "button \"Delete\"",
+            "button \"Transfer\"",
+            "button \"Check out\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+    }
+
+    #[test]
+    fn get_form_submit_runs_post_form_submit_asks() {
+        let get = submit("get", false, 2);
+        let search = submit("post", true, 1);
+        let post = submit("post", false, 2);
+        let empty_post = submit("post", false, 0);
+        assert_eq!(click("button \"Submit\"", Some(&get)), Verdict::Allow);
+        assert_eq!(click("button \"Submit\"", Some(&search)), Verdict::Allow);
+        assert_eq!(click("button \"Go\"", Some(&search)), Verdict::Allow);
+        assert_eq!(
+            asks(&click("button \"Submit\"", Some(&post))),
+            Some(Click::Change)
+        );
+        assert_eq!(
+            asks(&click("button \"Send\"", Some(&get))),
+            Some(Click::Change),
+            "a clear change word wins over the form"
+        );
+        assert_eq!(
+            asks(&click("button \"Pay\"", Some(&search))),
+            Some(Click::Final),
+            "and so does a can't-undo word"
+        );
+        let Verdict::Ask(ask) = click("button \"Jobs →\"", Some(&post)) else {
+            panic!("a filled POST form's unclear button asks")
+        };
+        assert_eq!(ask.target, "the form's \"Jobs →\" button");
+        assert_eq!(
+            click("button \"Jobs →\"", Some(&empty_post)),
+            Verdict::Allow
+        );
+        assert_eq!(click("button \"Jobs →\"", Some(&get)), Verdict::Allow);
+        let not_submit = ElementFacts {
+            submits: false,
+            ..post.clone()
+        };
+        assert_eq!(
+            click("button \"Jobs →\"", Some(&not_submit)),
+            Verdict::Allow
+        );
+        assert_eq!(
+            asks(&click("button \"Submit\"", Some(&not_submit))),
+            Some(Click::Change),
+            "an unclear change word stays a change unless its form is a query"
+        );
+    }
+
+    #[test]
+    fn only_unclear_buttons_are_looked_up() {
+        assert!(wants_element_facts("button \"Submit\""));
+        assert!(wants_element_facts("button \"Jobs →\" focusable"));
+        for label in [
+            "button \"Search\"",
+            "button \"Post\"",
+            "button \"Pay\"",
+            "link \"Submit\"",
+            "button \"\"",
+            "textbox \"Name\"",
+        ] {
+            assert!(!wants_element_facts(label), "{label}");
+        }
+        let found = [submit("get", false, 0), submit("post", false, 3)];
+        let strict = strictest("button \"Submit\"", &found).unwrap();
+        assert_eq!(strict.form_method.as_deref(), Some("post"));
+        assert_eq!(role_and_name("button \"Go\" focusable"), ("button", "Go"));
+    }
+
+    #[test]
+    fn click_at_uses_element_facts() {
+        let at = |label: &str, element: Option<ElementFacts>| PageFacts {
+            at_point: Some(label.into()),
+            at_element: element,
+            ..PageFacts::default()
+        };
+        let input = json!({"x":5,"y":6});
+        let go = at("button \"Submit\"", Some(submit("get", false, 1)));
+        assert_eq!(
+            decide(&tool("click_at"), &input, with_facts(&go), names),
+            Verdict::Allow
+        );
+        let post = at("button \"Submit\"", Some(submit("post", false, 1)));
+        assert!(matches!(
+            decide(&tool("click_at"), &input, with_facts(&post), names),
+            Verdict::Ask(_)
+        ));
+        assert_eq!(
+            decide(
+                &tool("click_at"),
+                &input,
+                with_facts(&PageFacts::default()),
+                names
+            ),
+            Verdict::AllowUnnamed("the spot at (5, 6)".into())
+        );
+        assert!(matches!(
+            decide(&tool("click_at"), &input, ctx(), names),
+            Verdict::AllowUnnamed(_)
+        ));
     }
 
     #[test]

@@ -23,6 +23,7 @@ mod access;
 mod approvals;
 mod browsers;
 mod claude;
+mod elements;
 mod people;
 mod seqs;
 mod sign_ins;
@@ -154,8 +155,8 @@ struct Runtime {
     tool_names: HashMap<String, String>,
     /// The page the browser tool says is selected: (title, address).
     page: Option<(String, String)>,
-    /// Element uid → words, from the latest page snapshot.
-    elements: HashMap<String, String>,
+    /// Element uid → words, from every page snapshot this session read.
+    elements: elements::ElementBook,
     /// The person this turn acts for: who sent the message, or the person
     /// Herder passed a task on for. Herder's tools act for them, and only
     /// they (and the Farm) answer the turn's cards.
@@ -1112,14 +1113,8 @@ mod tests {
             Store::open_in_memory().unwrap(),
             HubConfig::new(&bots),
         );
-        let ask = crate::policy::Ask {
-            kind: ApprovalKind::CreateBot,
-            action: "create a shared bot".into(),
-            target: "Helper".into(),
-            site: String::new(),
-            detail: None,
-            private: false,
-        };
+        let ask =
+            crate::policy::Ask::new(ApprovalKind::CreateBot, "create a shared bot", "Helper", "");
         let waiting = {
             let hub = Arc::clone(&hub);
             tokio::spawn(async move { hub.confirm(&bot, &ask, None).await })

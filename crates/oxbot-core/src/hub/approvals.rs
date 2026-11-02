@@ -1,12 +1,14 @@
 //! Approval cards ("red cards"): deciding Claude's permission requests by
 //! policy, asking the person the turn acts for, and who may answer.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use oxbot_browser::MCP_SERVER_NAME;
 use oxbot_claude::{Decision, PermissionRequest};
 use oxbot_protocol::{Answer, Approval, ApprovalKind, EventKind, Outcome, ServerMsg};
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 use super::{Hub, HubError, lock};
@@ -96,16 +98,25 @@ impl Hub {
             ));
         }
 
-        let (page, elements) = {
+        // The labels of the elements this request names (the uid it clicks,
+        // the fields it fills).
+        let (page, labels) = {
             let runtimes = self.runtimes.lock().await;
             let r = runtimes.get(bot_id);
-            (
-                r.and_then(|r| r.page.clone()),
-                r.map(|r| r.elements.clone()).unwrap_or_default(),
-            )
+            let labels: HashMap<String, String> = r
+                .map(|r| {
+                    request_uids(&request.input)
+                        .filter_map(|uid| {
+                            Some((uid.to_owned(), r.elements.describe(uid)?.to_owned()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (r.and_then(|r| r.page.clone()), labels)
         };
         let page_url = page.as_ref().map(|(_, url)| url.as_str());
-        let facts = match self.browser_of(&bot) {
+        let browser = self.browser_of(&bot);
+        let facts = match &browser {
             Some(shared) if policy::needs_facts(&request.tool) => shared
                 .browser
                 .inspect(page_url, &policy::facts_script(&request.input))
@@ -113,16 +124,40 @@ impl Hub {
                 .map(|v| PageFacts::from_value(&v)),
             _ => None,
         };
+        let element = match (
+            &browser,
+            click_label(&request.tool, &request.input, &labels),
+        ) {
+            (Some(shared), Some(label)) if policy::wants_element_facts(label) => {
+                let (role, name) = policy::role_and_name(label);
+                let found = shared.browser.describe(page_url, role, name).await;
+                policy::strictest(label, &found).cloned()
+            }
+            _ => None,
+        };
         let ctx = policy::Context {
             work_dir: &bot.work_dir(),
             page_url,
             facts: facts.as_ref(),
+            element: element.as_ref(),
         };
         let verdict = policy::decide(&request.tool, &request.input, ctx, |uid| {
-            elements.get(uid).cloned()
+            labels.get(uid).cloned()
         });
         match verdict {
             Verdict::Allow => Ok(Decision::Allow),
+            Verdict::AllowUnnamed(what) => {
+                // A missing label never blocks browsing; the log shows how
+                // often it happens.
+                let site = page_url.and_then(oxbot_browser::web_host);
+                tracing::info!(
+                    bot = %bot_id,
+                    target = %what,
+                    site = site.as_deref().unwrap_or("unknown"),
+                    "click on an element oxbot couldn't name: allowed"
+                );
+                Ok(Decision::Allow)
+            }
             Verdict::Deny(message) => {
                 self.record(
                     bot_id,
@@ -259,6 +294,32 @@ impl Hub {
         )?;
         Ok(outcome)
     }
+}
+
+/// The element uids a browser request names: `uid`, and each of
+/// `fill_form`'s `elements`.
+fn request_uids(input: &Value) -> impl Iterator<Item = &str> {
+    let one = input.get("uid").and_then(Value::as_str);
+    let many = input
+        .get("elements")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.get("uid").and_then(Value::as_str));
+    one.into_iter().chain(many)
+}
+
+/// The label of the element a `click` aims at, if oxbot knows it.
+fn click_label<'a>(
+    tool: &str,
+    input: &Value,
+    labels: &'a HashMap<String, String>,
+) -> Option<&'a str> {
+    if tool != format!("mcp__{MCP_SERVER_NAME}__click") {
+        return None;
+    }
+    let uid = input.get("uid").and_then(Value::as_str)?;
+    labels.get(uid).map(String::as_str)
 }
 
 /// Whether `viewer` should be shown `card`: the Farm, or the person the

@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 
 use super::taint::{UNKNOWN_RESULT, untrusted_tool};
 use super::team::team_label;
-use super::{Hub, HubError, Runtime, Shared};
+use super::{Hub, HubError, Runtime, Shared, elements};
 use crate::bot::Bot;
 use crate::id::BotId;
 use crate::prompt::{Capabilities, system_prompt};
@@ -255,6 +255,7 @@ impl Hub {
     /// session may no longer trust what it has read.
     async fn tool_result(&self, bot: &BotId, tool_use_id: &str, text: &str) {
         let mut untrusted = None;
+        let mut files = Vec::new();
         if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
             let name = r.tool_names.remove(tool_use_id);
             if name
@@ -262,6 +263,7 @@ impl Hub {
                 .is_some_and(|n| n.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")))
             {
                 learn_from_result(r, text);
+                files = elements::files_in(text);
             }
             untrusted = match &name {
                 Some(name) => untrusted_tool(name, r.page.as_ref()),
@@ -271,6 +273,40 @@ impl Hub {
         }
         if let Some(why) = untrusted {
             self.mark_untrusted(bot, why).await;
+        }
+        if !files.is_empty() {
+            self.learn_files(bot, files).await;
+        }
+    }
+
+    /// Reads the snapshot files a browser result points to (off the async
+    /// threads) into `bot`'s element book.
+    async fn learn_files(&self, bot: &BotId, files: Vec<elements::SnapshotFile>) {
+        let Ok(work_dir) = self.bot(bot.as_str()).map(|b| b.work_dir()) else {
+            return;
+        };
+        let Some(claude_home) = elements::claude_home() else {
+            return;
+        };
+        let read = tokio::task::spawn_blocking(move || {
+            files
+                .into_iter()
+                .filter_map(|file| {
+                    let path = elements::allowed_path(&file, &claude_home, &work_dir);
+                    if path.is_none() {
+                        tracing::debug!(path = %file.path.display(), "not reading a snapshot file outside the allowed folders");
+                    }
+                    Some((elements::read_file(&path?)?, file.saved_snapshot))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
+            for (contents, saved_snapshot) in read {
+                let learned = r.elements.learn_file(&contents, saved_snapshot);
+                tracing::debug!(%bot, learned, "read elements from a snapshot file");
+            }
         }
     }
 }
@@ -292,7 +328,7 @@ fn new_runtime(
         last_active: Instant::now(),
         tool_names: HashMap::new(),
         page: None,
-        elements: HashMap::new(),
+        elements: elements::ElementBook::default(),
         asker: None,
         taint: None,
     };
@@ -306,22 +342,15 @@ fn new_runtime(
     runtime
 }
 
-/// Reads what the browser tool reported: the selected page and the element
-/// names from a page snapshot.
+/// Reads what the browser tool reported: the selected page, and the
+/// element names from a page snapshot (added to what it knew).
 fn learn_from_result(runtime: &mut Runtime, text: &str) {
-    let mut elements = HashMap::new();
     for line in text.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("uid=") {
-            let (uid, words) = rest.split_once(' ').unwrap_or((rest, ""));
-            elements.insert(uid.to_owned(), shorten(words, 80));
-        } else if let Some(page) = selected_page(line) {
+        if let Some(page) = selected_page(line.trim()) {
             runtime.page = Some(page);
         }
     }
-    if !elements.is_empty() {
-        runtime.elements = elements;
-    }
+    runtime.elements.learn(text);
 }
 
 /// `3: Inbox (https://mail.google.com/…) [selected]` → (`Inbox`, address).
@@ -337,13 +366,6 @@ pub(super) fn selected_page(line: &str) -> Option<(String, String)> {
         return Some((title.to_owned(), url.to_owned()));
     }
     Some((String::new(), label.to_owned()))
-}
-
-fn shorten(text: &str, max: usize) -> String {
-    match text.char_indices().nth(max) {
-        Some((cut, _)) => format!("{}…", &text[..cut]),
-        None => text.to_owned(),
-    }
 }
 
 /// How a tool call shows in the chat: `browser navigate_page`,

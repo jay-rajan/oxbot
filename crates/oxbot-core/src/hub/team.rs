@@ -326,12 +326,14 @@ impl Hub {
         };
         let owner = maker_name(to, &self.person_names()).unwrap_or_else(|| "its owner".to_owned());
         let ask = policy::Ask {
-            kind: ApprovalKind::GiveTask,
-            action: "give a task to".to_owned(),
-            target: format!("{} (private, {owner}'s sign-ins)", to.name),
-            site: "oxbot".to_owned(),
             detail: Some(message.to_owned()),
             private: true,
+            ..policy::Ask::new(
+                ApprovalKind::GiveTask,
+                "give a task to",
+                format!("{} (private, {owner}'s sign-ins)", to.name),
+                "oxbot",
+            )
         };
         // The card says what Herder read, where it shows the page.
         match self
