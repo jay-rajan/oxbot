@@ -24,7 +24,7 @@ use tokio::sync::Mutex;
 pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
 pub use cookies::CookieMarks;
 pub use element::{ELEMENT_FACTS_FN, ElementFacts};
-pub use web::{is_home_network, web_host};
+pub use web::{is_home_network, normalize_web_url, web_host};
 
 /// npm package for the browser tool.
 pub const MCP_PACKAGE: &str = "chrome-devtools-mcp";

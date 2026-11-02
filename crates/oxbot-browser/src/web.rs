@@ -13,6 +13,31 @@ pub fn web_host(url: &str) -> Option<String> {
     parsed.host_str().map(str::to_ascii_lowercase)
 }
 
+/// `url` as one form oxbot compares web pages by, or `None` if it isn't a
+/// page on the web: `http(s)` only, no user name or password in it, not
+/// this Mac or the home network ([`is_home_network`]), at most 2000
+/// characters. The `#fragment` is dropped (it's the same page); the rest is
+/// as the `url` crate writes it (lowercase host, `/` path).
+#[must_use]
+pub fn normalize_web_url(url: &str) -> Option<String> {
+    const MAX_LEN: usize = 2000;
+    let url = url.trim();
+    if url.len() > MAX_LEN {
+        return None;
+    }
+    let mut parsed = Url::parse(url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+    parsed.set_fragment(None);
+    let out = String::from(parsed);
+    (!is_home_network(&out) && out.len() <= MAX_LEN).then_some(out)
+}
+
 /// Name endings used only inside a home network (compared lowercased).
 const LOCAL_NAME_ENDINGS: [&str; 5] = [".localhost", ".local", ".home.arpa", ".internal", ".lan"];
 
@@ -99,6 +124,41 @@ mod tests {
         ] {
             assert!(!is_home_network(web), "{web}");
         }
+    }
+
+    #[test]
+    fn web_pages_are_compared_in_one_form() {
+        assert_eq!(
+            normalize_web_url(" HTTPS://Cafe-A.Example.com/menu?x=1#top ").as_deref(),
+            Some("https://cafe-a.example.com/menu?x=1")
+        );
+        assert_eq!(
+            normalize_web_url("https://cafe-a.example.com").as_deref(),
+            Some("https://cafe-a.example.com/")
+        );
+        for bad in [
+            "javascript:alert(1)",
+            "JaVaScRiPt:alert(1)",
+            "data:text/html,hi",
+            "vbscript:x",
+            "file:///etc/passwd",
+            "about:blank",
+            "chrome://settings",
+            "http://192.168.1.1/",
+            "http://localhost:7878/",
+            "http://router/",
+            "https://user:pw@example.com/",
+            "https://user@example.com/",
+            "//example.com/",
+            "example.com",
+            "",
+        ] {
+            assert_eq!(normalize_web_url(bad), None, "{bad}");
+        }
+        assert_eq!(
+            normalize_web_url(&format!("https://example.com/{}", "a".repeat(2000))),
+            None
+        );
     }
 
     #[test]
