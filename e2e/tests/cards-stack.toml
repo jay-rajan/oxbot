@@ -40,12 +40,12 @@ wait_ms = 200
 expect_js = "(() => { renderCards(); return document.getElementById('cards').scrollTop === 0; })()"
 note = "A redraw keeps where the cards were scrolled to"
 [[step]]
-expect_js = "(() => { const img = document.querySelector('#cards .card:last-child img'); if (!img) return false; img.click(); return img.classList.contains('big'); })()"
-note = "Click the newest card's screenshot to enlarge it"
+expect_js = "(() => { const img = [...document.querySelectorAll('#cards .card img')].pop(); if (!img) return false; if (!img.classList.contains('big')) img.click(); return img.classList.contains('big'); })()"
+note = "Click the newest screenshot to enlarge it (a card whose page wasn't drawn yet has none)"
 [[step]]
 wait_ms = 200
 [[step]]
-expect_js = "(() => { renderCards(); const img = document.querySelector('#cards .card:last-child img'); const c = document.getElementById('cards'); return img.classList.contains('big') && c.scrollTop > 0; })()"
+expect_js = "(() => { const c = document.getElementById('cards'), before = c.scrollTop; renderCards(); const img = [...document.querySelectorAll('#cards .card img')].pop(); return img.classList.contains('big') && Math.abs(c.scrollTop - before) < 2; })()"
 note = "A redraw keeps it enlarged, and the area where it was"
 shot = "screenshot-enlarged"
 [[step]]

@@ -1,0 +1,52 @@
+name = "Right-click a bot: rename, private, shared, delete"
+about = "On the Farm, a bot's right-click menu renames it, makes it private and shared again (sharing asks twice), and deletes it after a second press. Herder has no menu."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect = "Red lentil dal"
+[[step]]
+right_click = "Recipes by Jay"
+[[step]]
+expect = "Move to section"
+shot = "menu"
+[[step]]
+click = "Rename…"
+[[step]]
+type = { into = "Name", text = "Family Recipes" }
+[[step]]
+key = "Enter"
+[[step]]
+wait_for = "Family Recipes by Jay"
+[[step]]
+right_click = "Family Recipes by Jay"
+[[step]]
+click = "Make private"
+[[step]]
+wait_for = "private · @recipes"
+[[step]]
+right_click = "Family Recipes by Jay"
+[[step]]
+click = "Make shared"
+[[step]]
+expect_js = "document.getElementById('botMenu').innerText.includes('Yes, share with everyone') && !document.getElementById('botMenu').hidden"
+note = "Sharing shows a private chat to everyone: it asks again"
+[[step]]
+click = "Yes, share with everyone"
+[[step]]
+expect_js = "document.getElementById('botStatus').textContent === '@recipes'"
+[[step]]
+right_click = "Family Recipes by Jay"
+[[step]]
+click = "Delete…"
+[[step]]
+click = "Yes, delete Family Recipes"
+[[step]]
+expect_js = "![...document.querySelectorAll('.bot-item')].some((r) => r.innerText.includes('Family Recipes'))"
+note = "Gone from the list"
+[[step]]
+right_click = "Herder leads your bots"
+[[step]]
+expect_js = "document.getElementById('botMenu').hidden"
+note = "Herder has no menu"

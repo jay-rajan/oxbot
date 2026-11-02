@@ -120,6 +120,8 @@ pub struct Step {
     pub open: Option<String>,
     /// Click the element showing this text (or with this label).
     pub click: Option<String>,
+    /// Right-click it (opens its menu).
+    pub right_click: Option<String>,
     /// Type into a field.
     #[serde(rename = "type")]
     pub type_: Option<TypeInto>,
@@ -176,6 +178,9 @@ impl Step {
         if let Some(t) = &self.click {
             parts.push(format!("Click \u{201c}{t}\u{201d}"));
         }
+        if let Some(t) = &self.right_click {
+            parts.push(format!("Right-click \u{201c}{t}\u{201d}"));
+        }
         if let Some(t) = &self.type_ {
             parts.push(format!("Type \u{201c}{}\u{201d} into {}", t.text, t.into));
         }
@@ -216,6 +221,7 @@ impl Step {
         [
             self.open.is_some(),
             self.click.is_some(),
+            self.right_click.is_some(),
             self.type_.is_some(),
             self.send.is_some(),
             self.key.is_some(),
@@ -346,6 +352,8 @@ mod tests {
     fn steps_describe_themselves() {
         let step: Step = toml::from_str("click = \"Bank\"\nshot = \"x\"").unwrap();
         assert_eq!(step.describe(), "Click \u{201c}Bank\u{201d}");
+        let step: Step = toml::from_str("right_click = \"Bank\"").unwrap();
+        assert_eq!(step.describe(), "Right-click \u{201c}Bank\u{201d}");
         assert!(
             toml::from_str::<Step>("klick = \"x\"").is_err(),
             "typos are errors"

@@ -1,0 +1,26 @@
+name = "The sidebar on a phone"
+about = "In the phone's drawer the search, the group-by switch and the bottom row fit, and the right-click menu (a long press) shows above the drawer."
+covers = ["crates/oxbot/ui/**"]
+as = "Sam"
+viewport = { width = 390, height = 844 }
+
+[[step]]
+click = "Show bots"
+[[step]]
+expect_js = "__e2e.shown(document.getElementById('botSearch')) && __e2e.shown(document.getElementById('groupBy'))"
+note = "Search and group by are in the drawer"
+[[step]]
+expect_js = "(() => { const side = document.getElementById('side').getBoundingClientRect(); const items = [...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden); return items.length === 2 && items.every((b) => b.getBoundingClientRect().right <= side.right + 0.5); })()"
+note = "A Gate's bottom row: Settings and Signed in, inside the drawer"
+[[step]]
+right_click = "Bank by Sam"
+[[step]]
+expect_js = "(() => { const m = document.getElementById('botMenu'); const r = m.getBoundingClientRect(); return !m.hidden && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && document.elementFromPoint(r.left + 20, r.top + 15).closest('#botMenu'); })()"
+note = "The menu is on screen, above the drawer"
+shot = "menu"
+[[step]]
+key = "Escape"
+[[step]]
+click = "Signed in"
+[[step]]
+expect = "Sign in to a site"

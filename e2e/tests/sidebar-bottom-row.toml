@@ -1,0 +1,30 @@
+name = "Sidebar bottom row: Settings, Add a Gate, Signed in"
+about = "The bottom of the sidebar shows the gear, Add a Gate and a Signed in link to Settings → Sign-ins; the old Signed in list is gone."
+covers = ["crates/oxbot/ui/**"]
+
+[[step]]
+expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn,gateBtn,signedInBtn'"
+note = "Three items, in order"
+shot = "bottom-row"
+[[step]]
+expect_js = "!document.getElementById('sites') && !document.querySelector('.side .sites')"
+note = "No Signed in list in the sidebar"
+[[step]]
+expect_js = "document.getElementById('signedInCount').textContent === '1' && !document.getElementById('signedInCount').hidden"
+note = "It counts your sites: home's one"
+[[step]]
+click = "Signed in"
+[[step]]
+expect_js = "document.querySelector('[data-tab=\"setSignins\"]').getAttribute('aria-selected') === 'true' && !document.getElementById('setSignins').hidden"
+note = "Settings opens on Sign-ins"
+[[step]]
+expect = "wikipedia.org"
+shot = "sign-ins"
+[[step]]
+key = "Escape"
+[[step]]
+click = "Add a Gate"
+[[step]]
+expect = "A Gate is a phone or laptop"
+[[step]]
+key = "Escape"

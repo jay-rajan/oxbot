@@ -1,0 +1,95 @@
+name = "Sidebar sections, search and group by"
+about = "Make a section, move a bot into it (from its right-click menu, and by dragging), find a bot by search, switch to grouping by person, and rename and delete a section. Sections are kept by the server for each person: they survive a reload, and someone else doesn't see them."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "+ New section"
+[[step]]
+type = { into = "Name", text = "Kitchen" }
+[[step]]
+key = "Enter"
+[[step]]
+wait_for = "Kitchen"
+note = "The new section's header shows"
+[[step]]
+right_click = "Recipes by Jay"
+[[step]]
+click = "Move to section"
+shot = "move-to-section"
+[[step]]
+click = "Kitchen"
+[[step]]
+expect_js = "document.querySelector('.group[data-key^=\"s:\"]').innerText.includes('Recipes')"
+note = "Recipes is in the Kitchen section"
+[[step]]
+expect_js = "!document.querySelector('.group[data-key=\"none\"]').innerText.includes('Recipes')"
+note = "and no longer outside it"
+[[step]]
+expect_js = "(window.__dragged || (window.__dragged = (() => { const dt = new DataTransfer(); const row = [...document.querySelectorAll('.bot-item')].find((r) => r.dataset.bot === 'journal'); row.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt })); const head = document.querySelector('.group[data-key^=\"s:\"] .group-head'); head.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt })); head.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })); row.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt })); return true; })())) && document.querySelector('.group[data-key^=\"s:\"]').innerText.includes('Journal')"
+note = "Dragging Journal onto the Kitchen header files it there too"
+shot = "kitchen"
+[[step]]
+type = { into = "Search bots", text = "reci" }
+[[step]]
+expect = "Recipes"
+[[step]]
+expect_js = "![...document.querySelectorAll('.bot-item')].some((r) => r.innerText.includes('Journal') || r.innerText.includes('Herder'))"
+note = "Only the match shows"
+shot = "search"
+[[step]]
+type = { into = "Search bots", text = "nothing like this" }
+[[step]]
+expect = "No bot called “nothing like this”."
+[[step]]
+key = "Escape"
+note = "Escape clears the search"
+[[step]]
+expect_js = "document.getElementById('botSearch').value === '' && document.querySelectorAll('.bot-item').length === 4"
+[[step]]
+click = "People"
+[[step]]
+expect_js = "(() => { const g = (k) => document.querySelector('.group[data-key=\"' + k + '\"]').innerText; return g('p:Jay').includes('Recipes') && g('p:Jay').includes('Journal') && g('p:Sam').includes('Bank') && !g('p:Jay').includes('Bank'); })()"
+note = "By person: Jay's bots under Jay, Sam's under Sam"
+[[step]]
+expect_js = "document.querySelector('.group').dataset.key === 'herder' && document.querySelector('.group').innerText.includes('Herder')"
+note = "Herder stays pinned first"
+shot = "by-person"
+[[step]]
+click = "Sections"
+[[step]]
+open = "/?again=1"
+note = "Reload: the server kept the section"
+[[step]]
+expect_js = "(() => { const g = document.querySelector('.group[data-key^=\"s:\"]'); return !!g && g.innerText.includes('Kitchen') && g.innerText.includes('Recipes') && g.innerText.includes('Journal'); })()"
+[[step]]
+right_click = "Kitchen"
+[[step]]
+click = "Rename…"
+[[step]]
+type = { into = "Name", text = "Pantry" }
+[[step]]
+key = "Enter"
+[[step]]
+wait_for = "Pantry"
+[[step]]
+right_click = "Pantry"
+[[step]]
+click = "Delete"
+[[step]]
+click = "Yes, delete Pantry (its bots stay)"
+[[step]]
+expect_js = "!document.querySelector('.group[data-key^=\"s:\"]') && document.querySelectorAll('.bot-item').length === 4"
+note = "The section is gone; its bots aren't"
+[[step]]
+click = "+ New section"
+[[step]]
+type = { into = "Name", text = "Kitchen" }
+[[step]]
+key = "Enter"
+[[step]]
+wait_for = "Kitchen"
+[[step]]
+open = "/?as=Sam"
+[[step]]
+expect_not = "Kitchen"
+note = "Sections are each person's own"

@@ -128,6 +128,19 @@ fn quoted(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_default()
 }
 
+/// Where on the page the element showing `text` is, once it's in view and
+/// nothing covers it.
+async fn point(driver: &mut Driver, text: &str) -> anyhow::Result<(f64, f64)> {
+    let p = js(driver, &format!("__e2e.point({})", quoted(text))).await?;
+    if let Some(e) = p["error"].as_str() {
+        bail!("{e}");
+    }
+    Ok((
+        p["x"].as_f64().unwrap_or(0.0),
+        p["y"].as_f64().unwrap_or(0.0),
+    ))
+}
+
 /// Runs one step. Returns `Ok` if it passed.
 async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::Result<()> {
     // `{server}` in a step means this oxbot's own address (a local page to
@@ -146,15 +159,13 @@ async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::
         .context("the page didn't show any bots")?;
     }
     if let Some(text) = &step.click {
-        let p = js(driver, &format!("__e2e.point({})", quoted(text))).await?;
-        if let Some(e) = p["error"].as_str() {
-            bail!("{e}");
-        }
-        let (x, y) = (
-            p["x"].as_f64().unwrap_or(0.0),
-            p["y"].as_f64().unwrap_or(0.0),
-        );
+        let (x, y) = point(driver, text).await?;
         driver.click_at(x, y).await?;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    if let Some(text) = &step.right_click {
+        let (x, y) = point(driver, text).await?;
+        driver.right_click_at(x, y).await?;
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     if let Some(t) = &step.type_ {

@@ -1,0 +1,53 @@
+name = "Right-click as a Gate person: the same rules as ···"
+about = "Sam (on a Gate) can only file Jay's shared bot (into a section of Sam's own); renaming, privacy and deleting show only on Sam's own bot, exactly where ··· shows."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
+as = "Sam"
+
+[[step]]
+right_click = "Recipes by Jay"
+[[step]]
+expect = "Move to section"
+[[step]]
+expect_not = "Rename…"
+[[step]]
+expect_not = "Delete…"
+[[step]]
+expect_not = "Make private"
+shot = "not-mine"
+[[step]]
+key = "Escape"
+[[step]]
+expect_js = "document.getElementById('botMenu').hidden"
+[[step]]
+right_click = "Bank by Sam"
+[[step]]
+expect = "Rename…"
+[[step]]
+expect = "Make shared"
+[[step]]
+expect = "Delete…"
+shot = "mine"
+[[step]]
+key = "Escape"
+[[step]]
+click = "Recipes by Jay"
+[[step]]
+expect_js = "document.getElementById('botMore').hidden"
+note = "··· is hidden on Jay's bot too: the same rule"
+[[step]]
+click = "Bank by Sam"
+[[step]]
+expect_js = "!document.getElementById('botMore').hidden"
+[[step]]
+right_click = "Recipes by Jay"
+[[step]]
+click = "Move to section"
+[[step]]
+click = "New section…"
+[[step]]
+type = { into = "Name", text = "Mine" }
+[[step]]
+key = "Enter"
+[[step]]
+expect_js = "(() => { const g = document.querySelector('.group[data-key^=\"s:\"]'); return !!g && g.innerText.includes('Mine') && g.innerText.includes('Recipes'); })()"
+note = "Sam files Jay's bot in a section of Sam's own; the bot itself doesn't change"

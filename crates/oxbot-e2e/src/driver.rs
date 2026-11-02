@@ -176,15 +176,7 @@ impl Driver {
     /// Fails if the browser does.
     pub async fn click_at(&mut self, x: f64, y: f64) -> anyhow::Result<()> {
         match self {
-            Self::Chrome(c) => {
-                for kind in ["mouseMoved", "mousePressed", "mouseReleased"] {
-                    c.call(
-                        "Input.dispatchMouseEvent",
-                        json!({ "type": kind, "x": x, "y": y, "button": "left", "clickCount": 1 }),
-                    )
-                    .await?;
-                }
-            }
+            Self::Chrome(c) => c.click(x, y, "left").await?,
             Self::Safari(s) => {
                 let (x, y) = (x.round(), y.round());
                 s.call(
@@ -194,6 +186,31 @@ impl Driver {
                         { "type": "pointerMove", "x": x, "y": y, "origin": "viewport" },
                         { "type": "pointerDown", "button": 0 },
                         { "type": "pointerUp", "button": 0 }
+                    ]}]}),
+                )
+                .await?;
+                let _ = s.call("DELETE", "/actions", json!({})).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Right-clicks at a point on the page (the page gets `contextmenu`).
+    ///
+    /// # Errors
+    /// Fails if the browser does.
+    pub async fn right_click_at(&mut self, x: f64, y: f64) -> anyhow::Result<()> {
+        match self {
+            Self::Chrome(c) => c.click(x, y, "right").await?,
+            Self::Safari(s) => {
+                let (x, y) = (x.round(), y.round());
+                s.call(
+                    "POST",
+                    "/actions",
+                    json!({ "actions": [{ "type": "pointer", "id": "mouse", "parameters": { "pointerType": "mouse" }, "actions": [
+                        { "type": "pointerMove", "x": x, "y": y, "origin": "viewport" },
+                        { "type": "pointerDown", "button": 2 },
+                        { "type": "pointerUp", "button": 2 }
                     ]}]}),
                 )
                 .await?;
@@ -366,6 +383,24 @@ impl Cdp {
         )
         .await?;
         Ok(cdp)
+    }
+
+    /// One click with `button` (`left` or `right`): press and release, with
+    /// the buttons held said each time so Chrome never thinks one is still
+    /// down. No move first: once a key has been pressed, headless Chrome
+    /// answers a mouse move only after 5 s.
+    async fn click(&mut self, x: f64, y: f64, button: &str) -> anyhow::Result<()> {
+        let held = if button == "right" { 2 } else { 1 };
+        for (kind, button, buttons) in
+            [("mousePressed", button, held), ("mouseReleased", button, 0)]
+        {
+            self.call(
+                "Input.dispatchMouseEvent",
+                json!({ "type": kind, "x": x, "y": y, "button": button, "buttons": buttons, "clickCount": 1 }),
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// Sends a command and waits for its answer (events are skipped).
