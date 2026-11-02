@@ -30,6 +30,19 @@ your view. Right-click a bot (long-press on a phone) to rename it, make it priva
 move it to a section or delete it, with the same rules as its ··· settings. Herder stays at the
 top. The bottom row: Settings, Add a Gate (the Farm only) and Signed in.
 
+Research reports: a bot with the browser hands back research (comparing options, looking things
+up across sites) as a report, with a 2–4 line reply and a card in the chat; quick answers stay
+in chat. The report has the question, a short answer first, sections and tables, and numbered
+citations [1] linked to a Sources list (title, site, link, when it was read). Every source must
+be a page the bot opened in the browser in that conversation, or oxbot refuses the save. oxbot
+keeps reports on the Farm (`oxbot.db`) and renders them itself, safely: raw HTML shows as text,
+no images, links only to the report's sources or pages the bot opened, a strict CSP, and the app
+shows it in a sandboxed frame with no scripts. Reports open over the app's own connection (no
+link that carries a key), for whoever may open the bot, by its rules at the time; source links
+open in the system browser. The bot's ··· lists its reports (anyone who may open the bot);
+managers delete them. Deleting a bot deletes them (`reports.jsonl` in the trash keeps a copy).
+A phone keeps the reports it opened for reading away from home.
+
 Herder (the central bot, once called the Assistant) leads your bots: it can list them, create
 one (after you press Create on a card), give a bot a task and bring back its reply. Other bots
 can't. Messages show who sent them, each person in their own color; a working bot's icon moves,
@@ -49,7 +62,8 @@ person; the phone scans it once. The phone talks only to the Farm's Gate door (p
 the Farm's own certificate, which the phone pins), and only while the Mac is on a listed network.
 A Gate is never the Farm: it sees shared bots and its person's own, answers only the red cards
 from its person's requests, and gets its person's own Herder. Away from home the phone shows its
-own copy of its chats (the latest 300 messages per bot, 30 days). Remove a phone in Settings →
+own copy of its chats (the latest 300 messages per bot, 30 days) and of the last 50 reports it
+opened. Remove a phone in Settings →
 Gates and it's cut off at once. `OXBOT_GATE_PORT=off` turns the door off.
 
 Who is the Farm: only oxbot's own windows. The app opens its window with the Farm secret (a key

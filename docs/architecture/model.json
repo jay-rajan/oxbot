@@ -1,6 +1,6 @@
 {
   "milestone": "Foundations",
-  "updated": "2026-11-01",
+  "updated": "2026-11-02",
   "components": [
     {
       "id": "desktop",
@@ -75,7 +75,7 @@
     {
       "id": "oxbot-core",
       "label": "oxbot-core",
-      "sub": "hub/ \u00b7 store/ \u00b7 people \u00b7 Herder\u2019s tools \u00b7 policy",
+      "sub": "hub/ \u00b7 store/ \u00b7 people \u00b7 Herder\u2019s tools \u00b7 policy \u00b7 reports",
       "kind": "crate",
       "status": "built",
       "m": 2,
@@ -105,7 +105,7 @@
     {
       "id": "sqlite",
       "label": "SQLite",
-      "sub": "history, people (ids), sites per owner, usage, gates, sections",
+      "sub": "history, people (ids), sites per owner, usage, gates, sections, reports",
       "kind": "store",
       "status": "built",
       "m": 2,
@@ -523,6 +523,21 @@
         "Protocol: CreateSection, RenameSection, DeleteSection, MoveBot; ServerMsg::Sections routed by a server-only owner id. The phone's offline copy keeps the latest Sections",
         "Page: search (case and accent blind), group by Sections or People (per device), collapsible section headers, drag onto a section, a right-click (long-press) menu with the same rules as the ··· dialog, and a bottom row of Settings, Add a Gate (Farm only) and a Signed in link; the sidebar's Signed in list is gone",
         "e2e: a right_click step kind"
+      ]
+    },
+    {
+      "m": "Step 2",
+      "date": "2026-11-02",
+      "title": "Research answers as a report with sources (#14)",
+      "items": [
+        "save_report (bots with the browser): sources must be pages the Claude session opened in Chrome (kept with the session, cleared by a new one), every [n] cited and in range; otherwise nothing is saved and the bot is told how to fix it",
+        "Fix: the selected page is read only from the browser result's real page list, so page text can't fake a visit or the current page",
+        "report.rs: Markdown rendered by oxbot with a filter and a strict CSP; dates in the viewer's time zone",
+        "Store: migration 14 (reports, session_pages); a report and its chat card in one transaction; deleting a bot deletes them, reports.jsonl kept in the trash",
+        "Protocol: EventKind::Report, open/list/delete report, ServerMsg::Report and ::Reports; access by the bot's rules at open time",
+        "Page: report cards, a sandboxed srcdoc viewer, Reports in \u00b7\u00b7\u00b7 for anyone who may open the bot. Apps: web links open in the system browser (Mac: open; Android: a view intent)",
+        "Phone copy: report cards count as messages; the last 50 opened reports kept for 30 days",
+        "Herder hears the titles of reports a bot saved during a task"
       ]
     }
   ],
@@ -1332,7 +1347,7 @@
             "h": 170,
             "name": "Protocol",
             "tech": "oxbot-protocol",
-            "desc": "Wire types: ClientMsg (OpenBot, Older), ServerMsg (History pages: 200, max 500), BotInfo (can_manage, locked), Sites, Sections (create, rename, delete, move_bot), Approval (GiveTask)\u2026 Shared with every client."
+            "desc": "Wire types: ClientMsg (OpenBot, Older), ServerMsg (History pages: 200, max 500), BotInfo (can_manage, locked), Sites, Sections (create, rename, delete, move_bot), Approval (GiveTask), reports (open, list, delete; the Report card)\u2026 Shared with every client."
           },
           {
             "id": "web",
@@ -1342,7 +1357,7 @@
             "h": 162,
             "name": "Web server",
             "tech": "oxbot::server",
-            "desc": "axum, 127.0.0.1:7878; the Farm only with the Farm key. One Client {viewer, visible, subs} per connection; forward() drops others' bots. Bounded catch-up. Your Herder = assistant."
+            "desc": "axum, 127.0.0.1:7878; the Farm only with the Farm key. One Client {viewer, visible, subs} per connection; forward() drops others' bots. Bounded catch-up. Your Herder = assistant. Reports only to clients that see their bot, over the WebSocket (no URL with a key)."
           },
           {
             "id": "phonelink",
@@ -1373,7 +1388,7 @@
             "h": 150,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, sections (each person\u2019s own; never in prompts), team, approvals, rules, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped. Always-allow rules: set by the bot\u2019s owner or the Farm from the stored card; one applies only if Chrome says the tab is on its host."
+            "desc": "hub/: access, people, browsers, sign_ins, sections (each person\u2019s own; never in prompts), reports (save_report checks sources against the pages the session opened, read only from the browser\u2019s real page list), team, approvals, rules, turns, claude, elements, taint, seqs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Element book: uid \u2192 label from every snapshot (and saved snapshot files), capped. Always-allow rules: set by the bot\u2019s owner or the Farm from the stored card; one applies only if Chrome says the tab is on its host."
           },
           {
             "id": "policy",
@@ -1393,7 +1408,7 @@
             "h": 175,
             "name": "Store",
             "tech": "oxbot-core::store",
-            "desc": "store/: migrations (1\u201313; refuses a newer DB; VACUUM INTO backup before a rebuild), events (pages), sessions (tainted_by), people, sites per owner, gates, usage, allow_rules, sections (scoped by person)."
+            "desc": "store/: migrations (1\u201314; refuses a newer DB; VACUUM INTO backup before a rebuild), events (pages), sessions (tainted_by), people, sites per owner, gates, usage, allow_rules, sections (scoped by person), reports and session_pages (14)."
           },
           {
             "id": "bots",
@@ -1434,7 +1449,7 @@
             "h": 90,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people, sites, usage, gates, sections"
+            "desc": "events, sessions, people, sites, usage, gates, sections, reports, session_pages"
           },
           {
             "id": "folders",
@@ -1474,7 +1489,7 @@
             "h": 150,
             "name": "Tools",
             "tech": "oxbot-core::tools",
-            "desc": "In-process (sdk) MCP server. Every bot: request_sign_in. Herder: list_bots, create_bot, give_task, read_reply. Replies come as escaped data."
+            "desc": "In-process (sdk) MCP server. Every bot: request_sign_in. With the browser: save_report. Herder: list_bots, create_bot, give_task, read_reply. Replies come as escaped data."
           },
           {
             "id": "setup",
@@ -1527,6 +1542,16 @@
             "name": "Farm key",
             "tech": "<data>/farm-key, 0600",
             "desc": "Random key. Local = Farm only with it."
+          },
+          {
+            "id": "report",
+            "type": "component",
+            "col": 4,
+            "row": 2,
+            "h": 150,
+            "name": "Report renderer",
+            "tech": "oxbot-core::report",
+            "desc": "pulldown-cmark (HTML writer only) with oxbot's filter: raw HTML as text, no images, links only to sources or opened pages, [n] \u2192 Sources, strict CSP. Shown in a sandboxed frame, no scripts."
           }
         ],
         "edges": [
@@ -1843,6 +1868,34 @@
               222,
               135,
               "end"
+            ]
+          },
+          {
+            "from": "hub",
+            "to": "report",
+            "label": "render\non open",
+            "from_pt": [
+              660,
+              500
+            ],
+            "via": [
+              [
+                660,
+                590
+              ],
+              [
+                1000,
+                590
+              ]
+            ],
+            "to_pt": [
+              1000,
+              570
+            ],
+            "label_at": [
+              1008,
+              584,
+              "start"
             ]
           }
         ]
