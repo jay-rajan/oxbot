@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into oxbot.app's own Info.plist by Tauri. macOS asks for the
+     microphone and speech recognition with these words; without them it
+     stops oxbot's Mac helper the moment it dictates. -->
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>oxbot listens only while its microphone button is on, to type what you say into the message box. The audio stays on this Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>oxbot turns your speech into text with this Mac's on-device dictation. The audio never leaves this Mac.</string>
+</dict>
+</plist>

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds oxbot for friends: one universal app (Apple chip + Intel) in a .dmg,
-# with the browser tool and Node.js inside.
+# with the browser tool, Node.js and oxbot's Mac helper (video frames and
+# dictation) inside.
 # No Apple account: the app gets a local (ad-hoc) signature, and friends allow
 # it once in System Settings → Privacy & Security → Open Anyway.
 # The .dmg is made with hdiutil, not Tauri's packer, which needs to control
@@ -9,12 +10,22 @@ set -e
 cd "$(dirname "$0")/.."
 # The browser tool and Node.js go inside the app (see fetch-tools.sh).
 sh scripts/fetch-tools.sh
+# So does the Mac helper, where Swift is here (see build-mac-helper.sh).
+sh scripts/build-mac-helper.sh
 cd app
 cargo tauri build --target universal-apple-darwin --bundles app
 bundle=../target/universal-apple-darwin/release/bundle
 app=$bundle/macos/oxbot.app
 rm -rf "$app/Contents/Resources/tools"
 cp -R ../target/tools-bundle "$app/Contents/Resources/tools"
+rm -f "$app/Contents/MacOS/oxbot-mac"
+if [ -f ../target/mac-helper/oxbot-mac ]; then
+  cp ../target/mac-helper/oxbot-mac "$app/Contents/MacOS/oxbot-mac"
+  # Signed on its own first (its own identifier), then with the app.
+  codesign --force --sign - --identifier dev.oxbot.mac-helper "$app/Contents/MacOS/oxbot-mac"
+else
+  echo "make-dmg: no Mac helper; this app takes no video frames and has no microphone" >&2
+fi
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' ../Cargo.toml | head -1)

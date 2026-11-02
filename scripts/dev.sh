@@ -15,6 +15,8 @@ if ! command -v watchexec >/dev/null 2>&1; then
   exit 1
 fi
 export OXBOT_UI_DIR="$PWD/crates/oxbot/ui"
+# Video frames and dictation need the Mac helper (built once).
+[ -f target/mac-helper/oxbot-mac ] || sh scripts/build-mac-helper.sh
 exec watchexec --restart --stop-signal SIGTERM --stop-timeout 10s \
   --watch crates --exts rs,toml \
   -- cargo run -q -p oxbot -- serve "$@"
