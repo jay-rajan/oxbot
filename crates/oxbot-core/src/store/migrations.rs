@@ -142,6 +142,22 @@ pub(super) const MIGRATIONS: &[Step] = &[
         CREATE UNIQUE INDEX IF NOT EXISTS people_herder ON people (herder);
         CREATE UNIQUE INDEX IF NOT EXISTS people_one_farm ON people (farm) WHERE farm = 1;",
     ),
+    // 12: "Always allow" rules: a bot may do one action on one element
+    // label on one exact host without asking. `by_person` is who set it
+    // (NULL: the Farm with no person).
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS allow_rules (
+            id         INTEGER PRIMARY KEY,
+            bot        TEXT    NOT NULL,
+            site       TEXT    NOT NULL,
+            action     TEXT    NOT NULL,
+            label      TEXT    NOT NULL,
+            by_person  TEXT,
+            created_ms INTEGER NOT NULL,
+            UNIQUE (bot, site, action, label)
+        );
+        CREATE INDEX IF NOT EXISTS allow_rules_bot ON allow_rules (bot);",
+    ),
 ];
 
 /// Migration 10. Skipped if the column is already there (a database

@@ -4,13 +4,15 @@
 //! `seq` N can ask for everything after N and miss nothing.
 //!
 //! One file per table group: [`migrations`] (the schema and its changes),
-//! people, sites, gates, events, sessions and usage.
+//! people, sites, gates, events, sessions, usage and "Always allow" rules.
 
 mod events;
 pub use events::Replay;
 mod gates;
 mod migrations;
 mod people;
+mod rules;
+pub use rules::{RuleKey, StoredRule};
 mod sessions;
 mod sites;
 mod usage;

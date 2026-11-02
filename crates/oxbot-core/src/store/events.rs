@@ -73,14 +73,15 @@ pub(super) fn from_sql(n: i64) -> u64 {
 }
 
 impl Store {
-    /// Forgets everything about a deleted bot: its history, session and usage.
+    /// Forgets everything about a deleted bot: its history, session, usage
+    /// and "Always allow" rules.
     ///
     /// # Errors
     /// Fails if SQLite fails.
     pub fn delete_bot(&self, bot: &BotId) -> Result<(), StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        for table in ["events", "sessions", "usage"] {
+        for table in ["events", "sessions", "usage", "allow_rules"] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),
                 [bot.as_str()],

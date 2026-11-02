@@ -915,3 +915,59 @@ fn catching_up_sends_the_events_missed_or_only_the_latest_page() {
     // Nothing missed.
     assert_eq!(store.replay(&a, 25, 10).unwrap(), Replay::Events(vec![]));
 }
+
+fn rule(site: &str, label: &str) -> RuleKey {
+    RuleKey {
+        site: site.into(),
+        action: "click".into(),
+        label: label.into(),
+    }
+}
+
+#[test]
+fn always_allow_rules_come_with_migration_12() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 11).unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert!(version >= 12);
+    assert!(
+        !tmp.path().join("oxbot.db.v11.bak").exists(),
+        "a new table needs no copy"
+    );
+    let shop = bot("shop");
+    let sam = store.find_or_create_person("Sam").unwrap().0.id;
+    let save = rule("www.example.com", "button \"Save\"");
+    store.add_allow_rule(&shop, &save, Some(&sam)).unwrap();
+    // The same rule twice is kept once, as first set.
+    store.add_allow_rule(&shop, &save, None).unwrap();
+    let rules = store.allow_rules(&shop).unwrap();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].by_person.as_ref(), Some(&sam));
+    assert_eq!(rules[0].rule.label, "button \"Save\"");
+    assert!(store.allow_rule_matches(&shop, &save).unwrap());
+    for other in [
+        rule("example.com", "button \"Save\""),
+        rule("www.example.com", "button \"save\""),
+    ] {
+        assert!(!store.allow_rule_matches(&shop, &other).unwrap());
+    }
+    assert!(!store.allow_rule_matches(&bot("other"), &save).unwrap());
+
+    // Removing needs the right bot.
+    let id = rules[0].rule.id;
+    assert!(!store.remove_allow_rule(&bot("other"), id).unwrap());
+    assert!(store.remove_allow_rule(&shop, id).unwrap());
+    assert!(!store.allow_rule_matches(&shop, &save).unwrap());
+
+    // Deleting a bot deletes its rules, and only its.
+    store.add_allow_rule(&shop, &save, None).unwrap();
+    store.add_allow_rule(&bot("other"), &save, None).unwrap();
+    store.delete_bot(&shop).unwrap();
+    assert_eq!(store.allow_rules(&shop).unwrap(), []);
+    assert!(store.allow_rule_matches(&bot("other"), &save).unwrap());
+}
