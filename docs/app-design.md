@@ -10,20 +10,24 @@ Name: ox (oxide) + bot. Research behind every choice: `docs/research/` (4 files,
 5. **Data goes nowhere except Anthropic (Claude) and OpenAI (Codex).**
 
 ## The data rule, made precise
+Updated 2026-11-02 (Step 5, "Two engines", #17 and #18): model calls go only to Anthropic (Claude
+bots), OpenRouter (OpenRouter bots), or a local model; nothing else, telemetry off. Codex is
+dropped (#7). Claude bots run on the owner's own plan and take tasks only from the owner.
+
 | What | Where it goes |
 |---|---|
-| Prompts, answers, files the agent reads | Anthropic (Claude) or OpenAI (Codex). Unavoidable: that's where the models run. |
+| Prompts, answers, files the agent reads | Anthropic (Claude bots), OpenRouter (OpenRouter bots), or a local model. Unavoidable: that's where the models run. |
 | Transcripts, history, settings, pairing keys | Stay on the laptop (SQLite + Keychain) |
 | Phone ↔ laptop traffic | Home Wi-Fi only, TLS with a pinned certificate. No relay, no push service |
 | Local-model mode | Nothing leaves the laptop at all |
 
 Consequences:
-- **OpenRouter is dropped.** It's a third party that sees every prompt.
+- **OpenRouter is the second engine** (since 2026-11-02, in place of Codex). It sees OpenRouter bots' prompts, so private bots ask its providers not to keep data, and its key stays in the Keychain.
 - **Telemetry off is required, not optional.** Out of the box, Claude Code sends metrics and error reports partly to third-party services, and Codex contacts GitHub, Homebrew, npm and CDNs (update checks, plugins, connectors). oxbot sets these off on every child process (env vars for Claude; a dedicated `CODEX_HOME/config.toml` for Codex; full lists in research files).
 - **Web tools are off by default.** WebFetch/WebSearch (Claude) and web_search (Codex) reach other sites. Agents' shell commands run with sandbox network off.
 - **No push notifications.** Apple's push service would see timing and the device. The phone catches up when it opens.
 - **Prior-art apps that use a cloud relay are out** (Happy's hosted relay, Omnara Cloud).
-- **Check once with a network monitor** (LuLu, free) that only `*.anthropic.com`, `claude.ai`, `chatgpt.com`, `*.openai.com` are contacted.
+- **Check once with a network monitor** (LuLu, free) that only `*.anthropic.com`, `claude.ai` and `openrouter.ai` are contacted (and the sites bots visit).
 
 ## Shape
 ```

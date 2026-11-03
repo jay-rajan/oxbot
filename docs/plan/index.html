@@ -87,7 +87,7 @@ figure { margin: 0; } figcaption { font-size: .88rem; color: var(--muted); margi
     <li>See your bots like chats in a messenger. Talk to one, and watch Claude work live.</li>
     <li>Bots have their own instructions and schedules ("every day 8am"), and keep running when the phone is off.</li>
     <li>Bots can use the web through <b>your oxbot Chrome profile</b>, with your logins, invisibly in the background.</li>
-    <li>Data goes only to Anthropic. Nothing passes through any other company's server.</li>
+    <li>Model calls go only to Anthropic (Claude bots), OpenRouter (OpenRouter bots), or a local model; nothing else.</li>
   </ul>
 </section>
 
@@ -270,7 +270,7 @@ figure { margin: 0; } figcaption { font-size: .88rem; color: var(--muted); margi
     <li><b>Setup:</b> checks both, shows which are installed and signed in, and asks you to choose a default backend (Settings → Setup; changeable later). With only one installed, it's the default.</li>
     <li><b>Per bot:</b> each bot can use the default or a chosen backend; switching keeps the bot's chat history in oxbot.</li>
     <li><b>New crate <code>oxbot-codex</code>:</b> runs the Codex CLI the way <code>oxbot-claude</code> runs Claude Code, with the same browser tool, the same safety rules (every action asks oxbot), oxbot's sign-in tool, and usage in Settings.</li>
-    <li><b>Data rule:</b> a Codex bot's chats go to OpenAI only; telemetry off. The research from the v2 design (<code>docs/research/</code>) is the starting point; I'll re-check the current Codex CLI before designing.</li>
+    <li><b>Data rule:</b> a Codex bot's chats go to OpenAI only; telemetry off. (Codex was dropped on 2026-11-02 for Step 5, Two engines: model calls now go only to Anthropic, OpenRouter, or a local model.) The research from the v2 design (<code>docs/research/</code>) is the starting point; I'll re-check the current Codex CLI before designing.</li>
     <li><b>Design first:</b> I'll publish the detailed design with C4 diagrams for your OK before any code.</li>
   </ul>
 </section>

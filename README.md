@@ -1,8 +1,9 @@
 # oxbot
 
-Always-on Claude bots on your Mac, used through the oxbot desktop app and the oxbot Android app
-on your home Wi-Fi. Data goes only to Anthropic (and, later, OpenAI for Codex): no relay
-servers, no push services, telemetry off.
+Always-on bots on your Mac, used through the oxbot desktop app and the oxbot Android app on your
+home Wi-Fi. Each bot runs on Claude (your own Claude plan) or OpenRouter (free models first; see
+[Engines](#engines)). Model calls go only to Anthropic (Claude bots), OpenRouter (OpenRouter bots),
+or a local model; nothing else: no relay servers, no push services, telemetry off.
 
 Status: desktop app on the Mac plus the Android Gate app (milestone Foundations, issue #1). Shared
 bots share one hidden home Chrome that keeps your sign-ins: a bot that needs an account asks, a
@@ -132,8 +133,7 @@ give it tasks). Herder (yours) runs on Claude; everyone else's Herder runs on Op
 bot's ··· settings switch its engine; switching a bot others use to Claude says first that it
 becomes owner-only. Bots made before engines stay on Claude: on the first start the owner gets a
 banner, and Settings → Engines lists the Claude bots other people used in the last 30 days, each
-with **Switch to OpenRouter** (or **Switch all**). Model calls go only to Anthropic (Claude bots)
-or OpenRouter (OpenRouter bots).
+with **Switch to OpenRouter** (or **Switch all**).
 
 OpenRouter: the Farm signs in once in Settings → Engines (**Sign in with OpenRouter**: OpenRouter
 opens in your browser and comes back to oxbot on this Mac, PKCE with a one-time state). The key
@@ -145,12 +145,45 @@ limits per bot and per person, an off-by-default switch for paid models when eve
 busy (with a daily cap), and an off-by-default switch to ask providers not to keep data for
 every bot (private bots always ask).
 
+How OpenRouter bots work: oxbot runs the agent loop itself, one step at a time. It asks a model,
+checks the tool the model picked with the same rules as for Claude bots before it runs (red cards,
+Always allow, refusing passwords, page scripts, pages on this Mac or the home network and files
+outside the bot's folder; a Herder that has read web pages still asks before tasking a private
+bot), runs it and saves the step. A task that was running when oxbot stopped goes on from its last
+saved step when oxbot starts again, without repeating a click. The tools are the same as Claude's:
+the browser (chrome-devtools-mcp, in the same Chrome), files in the bot's folder, Herder's team
+tools and save_report, plus ask_user. Under each reply: the model, the requests it took and the
+cost.
+
+Models and limits: oxbot reads OpenRouter's model list and uses free models that can call tools
+and hold at least 64k tokens, the best first; when one is busy or rate-limited (429), the next
+free model answers. Free models allow 20 requests a minute (oxbot keeps the household under that)
+and a number a day that OpenRouter sets (50, or 1,000 once the account has bought $10 of credit),
+shown in Settings → Engines. Each bot may make 200 model requests a day (change it for all in
+Settings → Engines, or for one bot in its ··· settings), and each person optionally a number too;
+a bot that reaches a limit stops and says so, and the usage banner shows it. When OpenRouter's
+free requests for the day run out, bots say so until midnight UTC, or use paid models if the owner
+switched them on (up to the daily dollar cap).
+
+What leaves the Mac: a Claude bot's conversation (your messages, and the pages and files it reads)
+goes to Anthropic through Claude Code, with telemetry and error reports off. An OpenRouter bot's
+conversation goes to OpenRouter and the provider it routes to, and free providers may keep or
+learn from it. Private bots ask for providers that don't collect data and keep nothing
+(`data_collection: deny` and zero retention); if no free model qualifies, the bot says so instead
+of switching quietly (it may first drop zero retention, never the deny, and says that too).
+Signing in, the model list and the key's limits also go to openrouter.ai. Chats, saved steps and
+the meter (requests, tokens and cost, never prompt text) stay on the Farm in `oxbot.db`. Nothing
+else leaves the Mac.
+
 ## Layout
 | Crate | What it is |
 |---|---|
 | `crates/oxbot-protocol` | Wire types shared by the server and the apps |
-| `crates/oxbot-core` | Bots, people (ids), store (`store/`), hub (`hub/`, split by job), tool rules (policy), prompts (no networking) |
-| `crates/oxbot-claude` | Runs `claude -p` with privacy settings |
+| `crates/oxbot-core` | Bots, people (ids), store (`store/`), hub (`hub/`, split by job; engines and the owner-only rule), tool rules (policy), prompts, the Claude engine (no networking) |
+| `crates/oxbot-engine` | The engine interface both engines plug into: `Engine`, `Session`, one event stream |
+| `crates/oxbot-claude` | Runs `claude -p` with privacy settings (Claude bots) |
+| `crates/oxbot-loop` | oxbot's own agent loop (OpenRouter bots): runner, tools, gate check, model router, pacer, meter |
+| `crates/oxbot-llm` | Model client for OpenAI-style chat APIs (OpenRouter now, local models later), the key, sign-in (PKCE) |
 | `crates/oxbot-browser` | A hidden Chrome per owner (home, or a person's own) with a kept profile, and its sign-in window |
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the Gate door (`src/door/`) |
 | `crates/oxbot-gate` | The Gate side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
@@ -214,6 +247,10 @@ Mac helper that "hears" a sentence (no test uses the real microphone), and video
 helper for real still frames. The runner, `crates/oxbot-e2e`, starts a
 throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in hidden Chrome (and Safari, the app's
 engine, when "Allow Remote Automation" is on), screenshots every step, and checks the built Mac app.
+Bots on OpenRouter run against a stand-in OpenRouter and a stand-in browser tool that read the
+same reply scripts as the stand-in Claude; every test ends by checking that the stand-in's key (a
+canary) is in none of oxbot's files, its log or the page. Steps can check what was sent
+(`expect_openrouter`, `expect_openrouter_body`) and restart oxbot mid-test (`restart = true`).
 
 ```sh
 cargo build -p oxbot -p oxbot-e2e
