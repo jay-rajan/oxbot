@@ -241,6 +241,84 @@ async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::
         close_sign_in_window(&server.home).await?;
         tokio::time::sleep(Duration::from_millis(1500)).await;
     }
+    loop_steps(driver, server, step).await?;
+    Ok(())
+}
+
+/// The steps for bots on oxbot's own loop: following a link (the sign-in
+/// page) and checking what the stand-in `OpenRouter` was asked.
+async fn loop_steps(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::Result<()> {
+    if let Some(text) = &step.follow {
+        follow(driver, text).await?;
+    }
+    if let Some(text) = &step.expect_openrouter {
+        let requests = openrouter_requests(server)?;
+        let start = Instant::now();
+        while !requests().lines().any(|l| l.contains(text.as_str())) {
+            if start.elapsed() > Duration::from_secs(3) {
+                bail!("the stand-in OpenRouter got no request with {text}");
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    }
+    if let Some(text) = &step.expect_openrouter_not {
+        let requests = openrouter_requests(server)?();
+        if let Some(line) = requests.lines().find(|l| l.contains(text.as_str())) {
+            bail!("the stand-in OpenRouter got a request with {text}: {line}");
+        }
+    }
+    Ok(())
+}
+
+/// Reads the stand-in `OpenRouter`'s request log.
+fn openrouter_requests(server: &Server) -> anyhow::Result<impl Fn() -> String + '_> {
+    let fake = server
+        .openrouter
+        .as_ref()
+        .ok_or_else(|| anyhow!("no stand-in OpenRouter runs (see e2e/pr_test.toml)"))?;
+    Ok(|| fake.requests())
+}
+
+/// Whether `url` is plain http to this Mac (127.0.0.1 or localhost, with a
+/// port), with no user part that could hide another host.
+#[must_use]
+pub fn is_local_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let Some((host, port)) = authority.rsplit_once(':') else {
+        return false;
+    };
+    !authority.contains('@')
+        && matches!(host, "127.0.0.1" | "localhost")
+        && !port.is_empty()
+        && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Goes where the link showing `text` points. Only local addresses: tests
+/// never leave this Mac.
+async fn follow(driver: &mut Driver, text: &str) -> anyhow::Result<()> {
+    let href = js(
+        driver,
+        &format!(
+            "(() => {{ const el = __e2e.find({}, false); \
+             const a = el && (el.closest('a[href]') || el.querySelector('a[href]')); \
+             return a ? a.href : null; }})()",
+            quoted(text)
+        ),
+    )
+    .await?;
+    let href = href
+        .as_str()
+        .ok_or_else(|| anyhow!("no link says \u{201c}{text}\u{201d}"))?;
+    if !is_local_url(href) {
+        bail!(
+            "the link \u{201c}{text}\u{201d} leaves this Mac ({href}); tests only follow local links"
+        );
+    }
+    driver.open(href).await?;
+    tokio::time::sleep(Duration::from_millis(250)).await;
     Ok(())
 }
 
@@ -354,4 +432,20 @@ pub async fn run(
         });
     }
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_local_url;
+
+    #[test]
+    fn only_local_links_are_followed() {
+        assert!(is_local_url("http://127.0.0.1:5000/auth?callback_url=x"));
+        assert!(is_local_url("http://localhost:7878/openrouter/callback"));
+        assert!(!is_local_url("https://openrouter.ai/auth"));
+        assert!(!is_local_url("http://127.0.0.1:80@evil.example/"));
+        assert!(!is_local_url("http://127.0.0.1.evil.example:80/"));
+        assert!(!is_local_url("http://127.0.0.1/"));
+        assert!(!is_local_url("file:///etc/passwd"));
+    }
 }

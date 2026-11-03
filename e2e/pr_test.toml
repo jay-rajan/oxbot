@@ -15,3 +15,8 @@ app_build = ["./scripts/make-dmg.sh"]
 # frames from video; built by scripts/build-mac-helper.sh).
 fake_mac = "target/debug/oxbot-fake-mac"
 mac_helper = "target/mac-helper/oxbot-mac"
+# Stand-ins for bots on oxbot's own loop: OpenRouter (started for every
+# test, with a canary key) and the browser tool (oxbot starts it, test mode
+# only).
+fake_openrouter = "target/debug/oxbot-fake-openrouter"
+fake_devtools = "target/debug/oxbot-fake-devtools"

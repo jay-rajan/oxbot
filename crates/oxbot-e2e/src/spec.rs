@@ -37,6 +37,11 @@ pub struct Config {
     pub fake_mac: Option<PathBuf>,
     /// The real Mac helper, if built (relative path), for still frames.
     pub mac_helper: Option<PathBuf>,
+    /// The stand-in `OpenRouter` (relative path): started for every test,
+    /// so oxbot's own loop never reaches the real one.
+    pub fake_openrouter: Option<PathBuf>,
+    /// The stand-in browser tool for oxbot's own loop (relative path).
+    pub fake_devtools: Option<PathBuf>,
 }
 
 fn default_person() -> String {
@@ -80,6 +85,17 @@ pub struct Test {
     /// The stand-in Claude's script, in `e2e/claude/`.
     #[serde(default = "default_claude")]
     pub claude: String,
+    /// The stand-in `OpenRouter`'s script, in `e2e/claude/` (default: the
+    /// stand-in Claude's).
+    #[serde(default)]
+    pub openrouter: Option<String>,
+    /// oxbot starts signed in to the stand-in `OpenRouter` (default yes);
+    /// no means the test signs in itself.
+    #[serde(default = "yes")]
+    pub openrouter_signed_in: bool,
+    /// The stand-in `OpenRouter`'s free requests per day (default 1000).
+    #[serde(default)]
+    pub openrouter_daily: Option<u32>,
     /// The stand-in Mac helper says this Mac can dictate on-device (and
     /// "hears" a sentence when asked).
     #[serde(default)]
@@ -94,6 +110,14 @@ pub struct Test {
 
 fn default_claude() -> String {
     "default.toml".to_owned()
+}
+
+impl Test {
+    /// The stand-in `OpenRouter`'s script file name.
+    #[must_use]
+    pub fn openrouter_script(&self) -> &str {
+        self.openrouter.as_deref().unwrap_or(&self.claude)
+    }
 }
 
 /// A page size in CSS pixels. Narrower than 720 is the phone layout, and
@@ -155,6 +179,14 @@ pub struct Step {
     pub wait_ms: Option<u64>,
     /// Close the hidden sign-in window, as a person would after signing in.
     pub close_sign_in_window: Option<bool>,
+    /// Go to where the link showing this text points (a local address
+    /// only), e.g. the stand-in `OpenRouter`'s sign-in page.
+    pub follow: Option<String>,
+    /// The stand-in `OpenRouter` got a request whose log line has this
+    /// text, e.g. `"data_collection":"deny"`.
+    pub expect_openrouter: Option<String>,
+    /// No request to the stand-in `OpenRouter` has this text.
+    pub expect_openrouter_not: Option<String>,
     /// A name for the screenshot after this step.
     pub shot: Option<String>,
     /// Why this step is here.
@@ -230,6 +262,15 @@ impl Step {
         if self.close_sign_in_window == Some(true) {
             parts.push("Close the sign-in window".to_owned());
         }
+        if let Some(t) = &self.follow {
+            parts.push(format!("Follow the link \u{201c}{t}\u{201d}"));
+        }
+        if let Some(t) = &self.expect_openrouter {
+            parts.push(format!("Expect a request to OpenRouter with {t}"));
+        }
+        if let Some(t) = &self.expect_openrouter_not {
+            parts.push(format!("Expect no request to OpenRouter with {t}"));
+        }
         if parts.is_empty() {
             parts.push("Look".to_owned());
         }
@@ -252,6 +293,9 @@ impl Step {
             self.expect_js.is_some(),
             self.wait_ms.is_some(),
             self.close_sign_in_window.is_some(),
+            self.follow.is_some(),
+            self.expect_openrouter.is_some(),
+            self.expect_openrouter_not.is_some(),
         ]
         .iter()
         .filter(|a| **a)
@@ -378,5 +422,28 @@ mod tests {
             toml::from_str::<Step>("klick = \"x\"").is_err(),
             "typos are errors"
         );
+        let step: Step = toml::from_str("follow = \"this link\"").unwrap();
+        assert_eq!(step.describe(), "Follow the link \u{201c}this link\u{201d}");
+        let step: Step =
+            toml::from_str("expect_openrouter = '\"data_collection\":\"deny\"'").unwrap();
+        assert_eq!(step.actions(), 1);
+    }
+
+    #[test]
+    fn the_openrouter_stand_in_defaults_to_claudes_script_signed_in() {
+        let test: Test = toml::from_str(
+            "name = \"x\"\nclaude = \"usage-alerts.toml\"\n[[step]]\nexpect = \"y\"",
+        )
+        .unwrap();
+        assert_eq!(test.openrouter_script(), "usage-alerts.toml");
+        assert!(test.openrouter_signed_in);
+        assert_eq!(test.openrouter_daily, None);
+        let test: Test = toml::from_str(
+            "name = \"x\"\nopenrouter = \"o.toml\"\nopenrouter_signed_in = false\nopenrouter_daily = 2\n[[step]]\nexpect = \"y\"",
+        )
+        .unwrap();
+        assert_eq!(test.openrouter_script(), "o.toml");
+        assert!(!test.openrouter_signed_in);
+        assert_eq!(test.openrouter_daily, Some(2));
     }
 }

@@ -15,9 +15,9 @@ use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use oxbot_e2e::driver::{Driver, Engine};
 use oxbot_e2e::report::TestRun;
-use oxbot_e2e::serve::Server;
+use oxbot_e2e::serve::{Launch, Server};
 use oxbot_e2e::spec::{self, Config, Test};
-use oxbot_e2e::{app, compare, pick, report, seed, steps};
+use oxbot_e2e::{app, canary, compare, pick, report, seed, steps};
 use serde_json::{Value, json};
 
 #[derive(Debug, Parser)]
@@ -263,8 +263,15 @@ async fn run_one(
     let started = Instant::now();
     let home = tempfile::tempdir()?;
     seed::make_home(repo, home.path())?;
-    let script = repo.join("e2e/claude").join(&test.claude);
-    let server = Server::start(repo, config, home.path(), &script, test.dictation).await?;
+    let scripts = repo.join("e2e/claude");
+    let launch = Launch {
+        script: scripts.join(&test.claude),
+        openrouter_script: scripts.join(test.openrouter_script()),
+        signed_in: test.openrouter_signed_in,
+        openrouter_daily: test.openrouter_daily,
+        dictation: test.dictation,
+    };
+    let server = Server::start(repo, config, home.path(), &launch).await?;
     let rel = format!("shots/{}/{id}", engine.name());
     let shots_dir = out.join(&rel);
     std::fs::create_dir_all(&shots_dir)?;
@@ -294,6 +301,19 @@ async fn run_one(
             s.compare = compare::compare(out, shot, &baseline).ok();
         }
     }
+    let canary = server.openrouter.as_ref().map(|o| o.canary.clone());
+    let page = match &canary {
+        Some(_) => page_text(driver).await,
+        None => String::new(),
+    };
+    let log = results
+        .iter()
+        .any(|s| s.status == "fail")
+        .then(|| server.log_tail(40));
+    server.stop().await;
+    if let Some(canary) = &canary {
+        results.push(key_check(canary, home.path(), &page, results.len() + 1));
+    }
     let failed = results.iter().any(|s| s.status == "fail");
     let changed = results
         .iter()
@@ -305,8 +325,6 @@ async fn run_one(
     } else {
         "pass"
     };
-    let log = failed.then(|| server.log_tail(40));
-    server.stop().await;
     Ok(TestRun {
         id,
         file: test
@@ -329,6 +347,42 @@ async fn run_one(
         steps: results,
         log,
     })
+}
+
+/// Everything the page holds: its HTML and its stored values.
+async fn page_text(driver: &mut Driver) -> String {
+    let expr = "(() => { let s = document.documentElement.outerHTML; \
+                try { s += JSON.stringify(Object.entries(localStorage)); \
+                s += JSON.stringify(Object.entries(sessionStorage)); } catch (e) {} \
+                return s; })()";
+    match driver.eval(expr).await {
+        Ok(Value::String(s)) => s,
+        _ => String::new(),
+    }
+}
+
+/// The key canary's step: the stand-in `OpenRouter`'s key must be in none
+/// of oxbot's files (its database, log, bot folders, Chrome profiles) and
+/// not on the page.
+fn key_check(canary: &str, home: &Path, page: &str, n: usize) -> steps::StepResult {
+    let started = Instant::now();
+    let mut found: Vec<String> = canary::files_with(canary, home)
+        .iter()
+        .map(|p| p.strip_prefix(home).unwrap_or(p).display().to_string())
+        .collect();
+    if canary::in_text(canary, page) {
+        found.push("the page".to_owned());
+    }
+    steps::StepResult {
+        n,
+        text: "The OpenRouter key is in none of oxbot's files, its log or the page".to_owned(),
+        note: Some("The stand-in OpenRouter's key is a canary; oxbot may keep it only in memory and the Keychain.".to_owned()),
+        status: if found.is_empty() { "pass" } else { "fail" },
+        error: (!found.is_empty()).then(|| format!("found in: {}", found.join(", "))),
+        ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        shot: None,
+        compare: None,
+    }
 }
 
 /// The test's steps, starting on the page as its person.

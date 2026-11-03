@@ -16,12 +16,56 @@ pub async fn request(
     path: &str,
     body: Option<&str>,
 ) -> anyhow::Result<(u16, String)> {
+    let reply = send(port, method, path, &[], body).await?;
+    Ok((reply.status, reply.body))
+}
+
+/// A reply: its status, its head (lowercased) and its body.
+#[derive(Debug, Clone)]
+pub struct Reply {
+    /// The status code.
+    pub status: u16,
+    /// The status line and headers, lowercased.
+    pub head: String,
+    /// The body (chunks joined).
+    pub body: String,
+}
+
+impl Reply {
+    /// A header's value (`name` lowercase), e.g. `location`.
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.head.lines().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            (k.trim() == name).then(|| v.trim())
+        })
+    }
+}
+
+/// Sends one request with extra headers to `127.0.0.1:port`.
+///
+/// # Errors
+/// Fails if the connection or the reply fails.
+pub async fn send(
+    port: u16,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: Option<&str>,
+) -> anyhow::Result<Reply> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .await
         .with_context(|| format!("connecting to port {port}"))?;
     let body = body.unwrap_or("");
+    let extra = headers.iter().fold(String::new(), |mut s, (k, v)| {
+        s.push_str(k);
+        s.push_str(": ");
+        s.push_str(v);
+        s.push_str("\r\n");
+        s
+    });
     let head = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes()).await?;
@@ -33,7 +77,7 @@ pub async fn request(
         .with_context(|| format!("port {port} didn't answer {path}"))?
 }
 
-async fn read_reply(stream: &mut TcpStream) -> anyhow::Result<(u16, String)> {
+async fn read_reply(stream: &mut TcpStream) -> anyhow::Result<Reply> {
     let mut raw = Vec::new();
     let mut buf = vec![0u8; 16 * 1024];
     let head_end = loop {
@@ -61,7 +105,7 @@ async fn read_reply(stream: &mut TcpStream) -> anyhow::Result<(u16, String)> {
     loop {
         let done = match length {
             Some(len) => body.len() >= len,
-            None if chunked => body.windows(5).any(|w| w == b"0\r\n\r\n"),
+            None if chunked => body.ends_with(b"0\r\n\r\n"),
             None => false,
         };
         if done {
@@ -74,7 +118,11 @@ async fn read_reply(stream: &mut TcpStream) -> anyhow::Result<(u16, String)> {
         body.extend_from_slice(&buf[..n]);
     }
     let text = String::from_utf8_lossy(&body).into_owned();
-    Ok((status, if chunked { unchunk(&text) } else { text }))
+    Ok(Reply {
+        status,
+        head,
+        body: if chunked { unchunk(&text) } else { text },
+    })
 }
 
 fn unchunk(mut body: &str) -> String {
