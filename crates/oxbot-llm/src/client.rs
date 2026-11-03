@@ -356,6 +356,10 @@ impl OpenAiClient {
             )
         };
         match &self.config.auth {
+            Auth::Key(cell) if cell.is_loading() => Err(LlmError::new(
+                ErrorKind::NotSignedIn,
+                crate::secret::KEYCHAIN_WAITING,
+            )),
             Auth::Key(cell) => cell
                 .get()
                 .and_then(|k| k.bearer())

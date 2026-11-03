@@ -159,7 +159,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     let device = server_name();
     // The household's OpenRouter account: its key from the Keychain (test
     // mode: the stand-in's, never the Keychain), shared with the model
-    // clients through `openrouter.key_cell()`.
+    // clients through `openrouter.key_cell()`. It is read in the background
+    // once the server runs (below).
     let openrouter = Arc::new(
         crate::openrouter_auth::OpenRouter::new(
             crate::openrouter_auth::endpoint(e2e).context("OXBOT_OPENROUTER_URL isn't usable")?,
@@ -215,12 +216,6 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     if let Err(err) = hub.farm_person_from(&local_person, from_account) {
         tracing::warn!(%err, "couldn't choose the Farm's person yet");
     }
-    // Loop turns that were running when oxbot stopped go on (the owner-only
-    // rule needs the Farm's person, so after it is known).
-    tokio::spawn({
-        let hub = Arc::clone(&hub);
-        async move { hub.resume_loop_turns().await }
-    });
     let state = AppState {
         hub: Arc::clone(&hub),
         server_name: device.clone(),
@@ -246,6 +241,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     };
     state.refresh_setup().await;
     state.review_engines();
+    load_key_then_resume(&state);
     refresh_models_now_and_then(&state);
     crate::notify::start(&state);
     // The door opens when the Mac is on an allowed network and a Gate is
@@ -269,24 +265,39 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     })
 }
 
+/// Reads the kept `OpenRouter` key without holding anything up: a newly
+/// built oxbot makes the Keychain ask the person first, and until they
+/// answer, `OpenRouter` bots and Settings → Engines say so. Then the key's
+/// limits, and the loop turns that were running when oxbot stopped go on
+/// (the owner-only rule needs the Farm's person, known by now).
+fn load_key_then_resume(state: &AppState) {
+    let state = state.clone();
+    tokio::spawn(async move {
+        if let Some(account) = state.openrouter.clone() {
+            account.load_kept_key().await;
+            state.openrouter_changed();
+            if account.signed_in() {
+                account.refresh_key_info().await;
+                state.openrouter_changed();
+            }
+        }
+        state.hub.resume_loop_turns().await;
+    });
+}
+
 /// How often `OpenRouter`'s model list is read again.
 const MODELS_EVERY: std::time::Duration = std::time::Duration::from_hours(6);
 
-/// Reads the key's limits at start, and `OpenRouter`'s model list (no key
-/// needed) at start if the kept one is older than [`MODELS_EVERY`] or lacks
-/// the models' parameters, then every [`MODELS_EVERY`]. Not in this crate's tests, which never reach
-/// the network.
+/// Reads `OpenRouter`'s model list (no key needed) at start if the kept
+/// one is older than [`MODELS_EVERY`] or lacks the models' parameters,
+/// then every [`MODELS_EVERY`]. Not in this crate's tests, which never
+/// reach the network.
 fn refresh_models_now_and_then(state: &AppState) {
     if cfg!(test) {
         return;
     }
     let state = state.clone();
     tokio::spawn(async move {
-        // The key's limits for Settings → Engines, once at start.
-        if let Some(account) = state.openrouter.as_ref().filter(|a| a.signed_in()) {
-            account.refresh_key_info().await;
-            state.openrouter_changed();
-        }
         let every_ms = i64::try_from(MODELS_EVERY.as_millis()).unwrap_or(i64::MAX);
         // A list kept by an older oxbot lacks each model's parameters:
         // read it again now.

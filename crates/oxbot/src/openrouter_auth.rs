@@ -95,9 +95,11 @@ pub fn endpoint(e2e: bool) -> Result<Endpoint, oxbot_llm::LlmError> {
 }
 
 impl OpenRouter {
-    /// The account with the key kept in `secrets` (if any), talking to
-    /// `endpoint`. `label` names the key; `open_browser` opens sign-in
-    /// pages in the Mac's browser.
+    /// The account for the key kept in `secrets`, talking to `endpoint`.
+    /// `label` names the key; `open_browser` opens sign-in pages in the
+    /// Mac's browser. The kept key isn't read yet: call
+    /// [`OpenRouter::load_kept_key`] (the Keychain may ask the person
+    /// first, so nothing waits for it).
     ///
     /// # Errors
     /// The model client couldn't be set up.
@@ -107,12 +109,7 @@ impl OpenRouter {
         label: String,
         open_browser: bool,
     ) -> Result<Self, oxbot_llm::LlmError> {
-        let key = KeyCell::new();
-        match secrets.load() {
-            Ok(Some(found)) => key.set(found),
-            Ok(None) => {}
-            Err(err) => tracing::warn!(%err, "couldn't read the OpenRouter key"),
-        }
+        let key = KeyCell::loading();
         let client = OpenAiClient::new(ClientConfig {
             endpoint,
             auth: Auth::Key(key.clone()),
@@ -127,6 +124,31 @@ impl OpenRouter {
             label,
             open_browser,
         })
+    }
+
+    /// Reads the kept key on a blocking thread (the Keychain may show the
+    /// person a dialog first) and settles the shared cell. A sign-in or
+    /// sign-out in the meantime wins.
+    pub async fn load_kept_key(&self) {
+        let secrets = Arc::clone(&self.secrets);
+        let found = match tokio::task::spawn_blocking(move || secrets.load()).await {
+            Ok(Ok(found)) => found,
+            Ok(Err(err)) => {
+                tracing::warn!(%err, "couldn't read the OpenRouter key");
+                None
+            }
+            Err(err) => {
+                tracing::warn!(%err, "reading the OpenRouter key stopped");
+                None
+            }
+        };
+        self.key.finish_loading(found);
+    }
+
+    /// Whether the kept key is still being read.
+    #[must_use]
+    pub fn waiting_for_keychain(&self) -> bool {
+        self.key.is_loading()
     }
 
     /// The key the model clients read (shared; set and cleared here).
@@ -225,10 +247,21 @@ impl OpenRouter {
                 return Err(CallbackError::Exchange);
             }
         };
-        if let Err(err) = self.secrets.save(&key) {
-            tracing::warn!(%err, "couldn't keep the OpenRouter key");
-            return Err(CallbackError::Keep);
-        }
+        // The Keychain may ask the person first: never on the server's
+        // own threads.
+        let secrets = Arc::clone(&self.secrets);
+        let saved = tokio::task::spawn_blocking(move || secrets.save(&key).map(|()| key)).await;
+        let key = match saved {
+            Ok(Ok(key)) => key,
+            Ok(Err(err)) => {
+                tracing::warn!(%err, "couldn't keep the OpenRouter key");
+                return Err(CallbackError::Keep);
+            }
+            Err(err) => {
+                tracing::warn!(%err, "keeping the OpenRouter key stopped");
+                return Err(CallbackError::Keep);
+            }
+        };
         self.key.set(key);
         self.refresh_key_info().await;
         Ok(())
@@ -238,7 +271,7 @@ impl OpenRouter {
     ///
     /// # Errors
     /// The Keychain item couldn't be deleted (the cell is cleared anyway).
-    pub fn sign_out(&self) -> Result<(), oxbot_llm::SecretError> {
+    pub async fn sign_out(&self) -> Result<(), oxbot_llm::SecretError> {
         self.key.clear();
         *self
             .key_info
@@ -246,7 +279,10 @@ impl OpenRouter {
             .unwrap_or_else(PoisonError::into_inner) = None;
         *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = None;
         tracing::info!("signed out of OpenRouter");
-        self.secrets.delete()
+        let secrets = Arc::clone(&self.secrets);
+        tokio::task::spawn_blocking(move || secrets.delete())
+            .await
+            .unwrap_or_else(|err| Err(oxbot_llm::SecretError(err.to_string())))
     }
 
     /// Reads the key's limits and today's use again (nothing if signed out).
@@ -378,7 +414,7 @@ pub async fn callback(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use oxbot_llm::MemorySecrets;
 
@@ -448,8 +484,8 @@ mod tests {
         assert!(!or.signed_in());
     }
 
-    #[test]
-    fn signing_out_clears_the_key_everywhere() {
+    #[tokio::test]
+    async fn signing_out_clears_the_key_everywhere() {
         let secrets = Arc::new(MemorySecrets::new());
         secrets
             .save(&oxbot_llm::ApiKey::new("sk-or-v1-test-0011223344".into()).unwrap())
@@ -457,11 +493,69 @@ mod tests {
         let stand_in =
             Endpoint::loopback("http://127.0.0.1:9/api/v1", Provider::OpenRouter).unwrap();
         let or = OpenRouter::new(stand_in, secrets.clone(), "l".into(), false).unwrap();
+        or.load_kept_key().await;
         assert!(or.signed_in(), "the kept key is read at start");
         let shared = or.key_cell();
         assert!(!format!("{or:?}").contains("0011223344"));
-        or.sign_out().unwrap();
+        or.sign_out().await.unwrap();
         assert!(!shared.is_set() && !or.signed_in());
         assert!(secrets.load().unwrap().is_none());
+    }
+
+    /// A Keychain that waits for the person to answer its dialog.
+    #[derive(Debug)]
+    pub(crate) struct SlowSecrets {
+        pub inner: MemorySecrets,
+        pub answer: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl SlowSecrets {
+        /// The store and the person's answer (send to let it read).
+        pub(crate) fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let inner = MemorySecrets::new();
+            inner
+                .save(&oxbot_llm::ApiKey::new("sk-or-v1-test-slow".into()).unwrap())
+                .unwrap();
+            (
+                Arc::new(Self {
+                    inner,
+                    answer: std::sync::Mutex::new(rx),
+                }),
+                tx,
+            )
+        }
+    }
+
+    impl SecretStore for SlowSecrets {
+        fn load(&self) -> Result<Option<oxbot_llm::ApiKey>, oxbot_llm::SecretError> {
+            let _ = self.answer.lock().unwrap().recv();
+            self.inner.load()
+        }
+        fn save(&self, key: &oxbot_llm::ApiKey) -> Result<(), oxbot_llm::SecretError> {
+            self.inner.save(key)
+        }
+        fn delete(&self) -> Result<(), oxbot_llm::SecretError> {
+            self.inner.delete()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_slow_keychain_never_holds_anything_up() {
+        let (secrets, answer) = SlowSecrets::new();
+        let stand_in =
+            Endpoint::loopback("http://127.0.0.1:9/api/v1", Provider::OpenRouter).unwrap();
+        let or = Arc::new(OpenRouter::new(stand_in, secrets, "l".into(), false).unwrap());
+        assert!(or.waiting_for_keychain() && !or.signed_in());
+        let loading = tokio::spawn({
+            let or = Arc::clone(&or);
+            async move { or.load_kept_key().await }
+        });
+        // Other work goes on while the dialog waits.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(or.waiting_for_keychain() && !loading.is_finished());
+        answer.send(()).unwrap();
+        loading.await.unwrap();
+        assert!(!or.waiting_for_keychain() && or.signed_in());
     }
 }

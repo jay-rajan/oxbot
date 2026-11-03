@@ -14,8 +14,8 @@ use oxbot_engine::{
     Activity, CallKind, CallRecord, EngineEvent, GateMode, ModelChoice, Privacy, ToolUse, TurnInput,
 };
 use oxbot_llm::{
-    ChatDelta, ChatModel, ChatRequest, ChatResponse, ErrorKind, LlmError, Message, Provider,
-    ProviderPrefs, RetryClass, Role, ToolCall, ToolSpec, complete,
+    ChatDelta, ChatModel, ChatRequest, ChatResponse, ErrorKind, KEYCHAIN_WAITING, LlmError,
+    Message, Provider, ProviderPrefs, RetryClass, Role, ToolCall, ToolSpec, complete,
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -473,6 +473,10 @@ impl Caller<'_> {
             }
             RetryClass::SignInAgain => {
                 if let Some(key) = &self.shared.setup.key {
+                    if key.is_loading() {
+                        // Not refused: the kept key isn't read yet.
+                        return Next::Stop(Stop::Fail(KEYCHAIN_WAITING.to_owned()));
+                    }
                     key.clear();
                 }
                 Next::Stop(Stop::Fail(

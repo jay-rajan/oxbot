@@ -773,6 +773,25 @@ async fn not_signed_in_is_not_ready() {
 }
 
 #[tokio::test]
+async fn waiting_for_the_keychain_says_so_then_runs() {
+    let key = oxbot_llm::KeyCell::loading();
+    let h = Harness::with(ScriptedModel::new().then(Step::text("Hi.")), |s| {
+        s.key = Some(key.clone());
+    });
+    let not_ready = h.engine.ready().unwrap_err();
+    assert_eq!(not_ready.0, oxbot_llm::KEYCHAIN_WAITING);
+    assert!(h.engine.start(h.spec(new_session())).await.is_err());
+    key.finish_loading(Some(
+        oxbot_llm::ApiKey::new("sk-or-v1-test".into()).unwrap(),
+    ));
+    assert!(h.engine.ready().is_ok());
+    let seen = h
+        .turn(h.spec(new_session()), "hi", HubScript::default())
+        .await;
+    assert_eq!(seen.last().unwrap(), &Seen::Done(true, "Hi.".into()));
+}
+
+#[tokio::test]
 async fn one_shot_uses_the_same_privacy() {
     let h = Harness::new(ScriptedModel::new().then(Step::text("A lesson.")));
     let text = h

@@ -1110,6 +1110,10 @@ pub struct AppSettings {
     /// Whether `OpenRouter` bots can run on this Mac now.
     #[serde(default)]
     pub openrouter_ready: bool,
+    /// The `OpenRouter` key is still being read: the Mac's Keychain may be
+    /// asking the person to allow oxbot.
+    #[serde(default)]
+    pub keychain_waiting: bool,
 }
 
 fn yes() -> bool {
@@ -2221,6 +2225,7 @@ mod tests {
             owner: true,
             owner_name: "Jay".into(),
             openrouter_ready: false,
+            keychain_waiting: false,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));

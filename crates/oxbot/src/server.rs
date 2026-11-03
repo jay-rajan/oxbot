@@ -127,6 +127,10 @@ impl AppState {
             owner: self.hub.is_owner_viewer(viewer),
             owner_name: self.hub.owner_display_name(),
             openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
+            keychain_waiting: self
+                .openrouter
+                .as_ref()
+                .is_some_and(|a| a.waiting_for_keychain()),
         }
     }
 
@@ -1537,7 +1541,7 @@ async fn handle_openrouter(msg: ClientMsg, state: &AppState) -> Vec<ServerMsg> {
             let Some(account) = account else {
                 return Vec::new();
             };
-            let done = account.sign_out();
+            let done = account.sign_out().await;
             state.hub.stop_engine_sessions(EngineKind::OpenRouter).await;
             state.openrouter_changed();
             match done {
@@ -2803,6 +2807,14 @@ mod tests {
     /// A server with every engine rule on: Recipes (shared, Claude) and
     /// Sam's own Notes (`OpenRouter`); Jay is the Farm's person.
     fn engines_state(dir: &std::path::Path) -> (AppState, Viewer) {
+        engines_state_with(dir, None)
+    }
+
+    /// [`engines_state`] with the loop engine on `openrouter`.
+    fn engines_state_with(
+        dir: &std::path::Path,
+        openrouter: Option<oxbot_core::LoopParts>,
+    ) -> (AppState, Viewer) {
         use oxbot_core::{Bot, BotId};
         let store = oxbot_core::Store::open(&dir.join("oxbot.db")).unwrap();
         let (sam, _) = store.find_or_create_person("Sam").unwrap();
@@ -2824,6 +2836,7 @@ mod tests {
         ];
         let config = oxbot_core::HubConfig {
             pre_engine_tests: false,
+            openrouter,
             ..oxbot_core::HubConfig::for_app(dir)
         };
         let hub = Hub::new(bots, store, config);
@@ -2991,10 +3004,63 @@ mod tests {
             )
             .unwrap(),
         ));
+        if let Some(account) = &state.openrouter {
+            account.load_kept_key().await;
+        }
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         state.port = listener.local_addr().unwrap().port();
         tokio::spawn(serve(listener, state.clone(), std::future::pending()));
         (state, sam, secrets)
+    }
+
+    #[tokio::test]
+    async fn a_slow_keychain_holds_up_neither_the_page_nor_the_rest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (secrets, answer) = crate::openrouter_auth::tests::SlowSecrets::new();
+        let stand_in = oxbot_llm::Endpoint::loopback(
+            "http://127.0.0.1:9/api/v1",
+            oxbot_llm::Provider::OpenRouter,
+        )
+        .unwrap();
+        let account = Arc::new(
+            crate::openrouter_auth::OpenRouter::new(
+                stand_in,
+                secrets,
+                "oxbot on test-mac".into(),
+                false,
+            )
+            .unwrap(),
+        );
+        let parts = oxbot_core::LoopParts::openrouter(account.client(), account.key_cell());
+        let (mut state, _) = engines_state_with(tmp.path(), Some(parts));
+        state.openrouter = Some(Arc::clone(&account));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.port = listener.local_addr().unwrap().port();
+        tokio::spawn(serve(listener, state.clone(), std::future::pending()));
+        let loading = tokio::spawn({
+            let account = Arc::clone(&account);
+            async move { account.load_kept_key().await }
+        });
+
+        // The Keychain's dialog is up: the page is served all the same,
+        // and OpenRouter bots say what they wait for.
+        let own = format!("localhost:{}", state.port);
+        let (status, _) = get_page(state.port, "/", &own).await;
+        assert_eq!(status, 200);
+        let settings = state.settings_for(&state.farm_viewer());
+        assert!(settings.keychain_waiting && !settings.openrouter_ready);
+        assert_eq!(
+            state.hub.engine_ready(EngineKind::OpenRouter),
+            Err(oxbot_llm::KEYCHAIN_WAITING.to_owned())
+        );
+        assert!(!loading.is_finished());
+
+        // Allowed: everything goes on.
+        answer.send(()).unwrap();
+        loading.await.unwrap();
+        let settings = state.settings_for(&state.farm_viewer());
+        assert!(!settings.keychain_waiting && settings.openrouter_ready);
+        assert!(state.hub.engine_ready(EngineKind::OpenRouter).is_ok());
     }
 
     /// A raw GET to the server: (status, body).

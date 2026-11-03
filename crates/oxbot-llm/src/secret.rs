@@ -96,16 +96,58 @@ impl fmt::Debug for ApiKey {
     }
 }
 
+/// What a bot and Settings → Engines say while the kept key is still
+/// being read: the macOS Keychain may be asking the person first.
+pub const KEYCHAIN_WAITING: &str = "Waiting for Keychain access: allow oxbot in the dialog.";
+
+/// What a [`KeyCell`] holds.
+#[derive(Default)]
+enum KeyState {
+    /// Not signed in.
+    #[default]
+    Empty,
+    /// The kept key is still being read (see [`KeyCell::loading`]).
+    Loading,
+    /// A key.
+    Set(Arc<ApiKey>),
+}
+
 /// The current key, shared by the server (which sets and clears it) and
 /// every model client (which reads it per request). Cloning shares it.
 #[derive(Clone, Default)]
-pub struct KeyCell(Arc<RwLock<Option<Arc<ApiKey>>>>);
+pub struct KeyCell(Arc<RwLock<KeyState>>);
 
 impl KeyCell {
     /// An empty cell (not signed in).
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A cell whose kept key is still being read, in the background: it
+    /// holds no key until [`KeyCell::finish_loading`] (or a sign-in or
+    /// sign-out) settles it.
+    #[must_use]
+    pub fn loading() -> Self {
+        Self(Arc::new(RwLock::new(KeyState::Loading)))
+    }
+
+    /// The kept key was read (`None`: there was none, or it couldn't be
+    /// read). Ignored if a sign-in or sign-out already settled the cell.
+    pub fn finish_loading(&self, key: Option<ApiKey>) {
+        let mut state = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        if matches!(*state, KeyState::Loading) {
+            *state = key.map_or(KeyState::Empty, |k| KeyState::Set(Arc::new(k)));
+        }
+    }
+
+    /// Whether the kept key is still being read.
+    #[must_use]
+    pub fn is_loading(&self) -> bool {
+        matches!(
+            *self.0.read().unwrap_or_else(PoisonError::into_inner),
+            KeyState::Loading
+        )
     }
 
     /// A cell holding this key.
@@ -118,40 +160,42 @@ impl KeyCell {
 
     /// Puts in a new key (after sign-in), replacing any old one.
     pub fn set(&self, key: ApiKey) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(key));
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = KeyState::Set(Arc::new(key));
     }
 
     /// Removes the key (sign-out). Requests in flight keep the copy they
     /// already took; new ones fail with "not signed in".
     pub fn clear(&self) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = None;
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = KeyState::Empty;
     }
 
     /// Whether there is a key.
     #[must_use]
     pub fn is_set(&self) -> bool {
-        self.0
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_some()
+        matches!(
+            *self.0.read().unwrap_or_else(PoisonError::into_inner),
+            KeyState::Set(_)
+        )
     }
 
     /// The key now, for one request.
     pub(crate) fn get(&self) -> Option<Arc<ApiKey>> {
-        self.0
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        match &*self.0.read().unwrap_or_else(PoisonError::into_inner) {
+            KeyState::Set(key) => Some(Arc::clone(key)),
+            KeyState::Empty | KeyState::Loading => None,
+        }
     }
 }
 
 impl fmt::Debug for KeyCell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(if self.is_set() {
-            "KeyCell(set)"
-        } else {
-            "KeyCell(empty)"
-        })
+        f.write_str(
+            match *self.0.read().unwrap_or_else(PoisonError::into_inner) {
+                KeyState::Set(_) => "KeyCell(set)",
+                KeyState::Loading => "KeyCell(loading)",
+                KeyState::Empty => "KeyCell(empty)",
+            },
+        )
     }
 }
 
@@ -304,5 +348,31 @@ mod tests {
         // A request that already took the key keeps it until it ends.
         assert_eq!(held.expose(), FAKE);
         assert_eq!(held.expose_for_storage(), FAKE.as_bytes());
+    }
+
+    #[test]
+    fn a_loading_cell_has_no_key_until_it_is_settled() {
+        let cell = KeyCell::loading();
+        assert!(cell.is_loading() && !cell.is_set() && cell.get().is_none());
+        assert_eq!(format!("{cell:?}"), "KeyCell(loading)");
+        cell.finish_loading(Some(ApiKey::new(FAKE.to_owned()).unwrap()));
+        assert!(!cell.is_loading() && cell.is_set());
+
+        let none = KeyCell::loading();
+        none.finish_loading(None);
+        assert!(!none.is_loading() && !none.is_set());
+    }
+
+    #[test]
+    fn a_sign_in_or_out_while_loading_wins() {
+        let cell = KeyCell::loading();
+        cell.set(ApiKey::new("sk-or-v1-new".to_owned()).unwrap());
+        cell.finish_loading(Some(ApiKey::new(FAKE.to_owned()).unwrap()));
+        assert_eq!(cell.get().unwrap().expose(), "sk-or-v1-new");
+
+        let cell = KeyCell::loading();
+        cell.clear();
+        cell.finish_loading(Some(ApiKey::new(FAKE.to_owned()).unwrap()));
+        assert!(!cell.is_set(), "signed out stays out");
     }
 }

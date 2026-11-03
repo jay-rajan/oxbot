@@ -283,6 +283,16 @@ impl LoopEngine {
         self.shared.data_policy.get()
     }
 
+    /// Whether the OpenRouter key is still being read from the Keychain.
+    #[must_use]
+    pub fn waiting_for_keychain(&self) -> bool {
+        self.shared
+            .setup
+            .key
+            .as_ref()
+            .is_some_and(KeyCell::is_loading)
+    }
+
     /// The pacer (for key info).
     #[must_use]
     pub fn pacer(&self) -> Arc<Pacer> {
@@ -330,6 +340,7 @@ impl Engine for LoopEngine {
 
     fn ready(&self) -> Result<(), NotReady> {
         match &self.shared.setup.key {
+            Some(key) if key.is_loading() => Err(NotReady(oxbot_llm::KEYCHAIN_WAITING.to_owned())),
             Some(key) if !key.is_set() => Err(NotReady(
                 "OpenRouter isn't signed in on this Mac yet. The owner can sign in under \
                  Settings → Engines."
