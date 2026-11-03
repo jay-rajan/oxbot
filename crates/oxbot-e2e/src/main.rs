@@ -270,6 +270,7 @@ async fn run_one(
         signed_in: test.openrouter_signed_in,
         openrouter_daily: test.openrouter_daily,
         openrouter_context: test.openrouter_context.clone(),
+        keychain_delay_ms: test.keychain_delay_ms,
         dictation: test.dictation,
     };
     let mut server = Server::start(repo, config, home.path(), &launch).await?;

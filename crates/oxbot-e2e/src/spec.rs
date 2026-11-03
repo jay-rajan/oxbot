@@ -96,6 +96,10 @@ pub struct Test {
     /// The stand-in `OpenRouter`'s free requests per day (default 1000).
     #[serde(default)]
     pub openrouter_daily: Option<u32>,
+    /// The test key's first read takes this long (ms), as the Keychain does
+    /// while it waits for the person's OK.
+    #[serde(default)]
+    pub keychain_delay_ms: Option<u64>,
     /// Context lengths the stand-in `OpenRouter` gives its models instead
     /// of their own, e.g. `"e2e/tool-model:free=64000"`.
     #[serde(default)]

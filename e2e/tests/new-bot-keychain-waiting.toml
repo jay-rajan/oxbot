@@ -1,0 +1,16 @@
+name = "The New bot form while the Keychain is still being read"
+about = "Right after oxbot starts, macOS may still be asking for Keychain access: the New bot form says it's waiting for that (not that OpenRouter isn't set up) and keeps OpenRouter as the engine, since a key is kept."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/keychain.rs"]
+keychain_delay_ms = 20000
+
+[[step]]
+click = "New bot"
+[[step]]
+wait_for = "Waiting for Keychain access"
+note = "Not \"OpenRouter isn't set up\""
+shot = "waiting"
+[[step]]
+expect_not = "isn't set up on this Mac yet"
+[[step]]
+expect_js = "document.getElementById('nbEngine').value === 'openrouter'"
+note = "OpenRouter stays the default"

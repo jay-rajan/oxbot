@@ -17,6 +17,9 @@ use oxbot_llm::{ApiKey, MemorySecrets, SecretError, SecretStore};
 pub const SERVICE: &str = "oxbot OpenRouter key";
 /// The file holding the e2e stand-in's key (test mode only).
 pub const E2E_KEY_FILE: &str = "OXBOT_E2E_OPENROUTER_KEY_FILE";
+/// Test mode only: how long the first read of the test key takes, in ms,
+/// as a Keychain waiting for the person's OK would.
+pub const E2E_KEYCHAIN_DELAY: &str = "OXBOT_E2E_KEYCHAIN_DELAY_MS";
 
 /// The store for the data folder `data_dir`. `e2e`: test mode, which
 /// never uses the Keychain.
@@ -28,7 +31,13 @@ pub fn secret_store(data_dir: &Path, e2e: bool) -> Arc<dyn SecretStore> {
     }
     if e2e {
         return match std::env::var_os(E2E_KEY_FILE) {
-            Some(path) => Arc::new(TestKeyFile::new(PathBuf::from(path))),
+            Some(path) => {
+                let delay = std::env::var(E2E_KEYCHAIN_DELAY)
+                    .ok()
+                    .and_then(|ms| ms.parse().ok())
+                    .map_or(std::time::Duration::ZERO, std::time::Duration::from_millis);
+                Arc::new(TestKeyFile::new(PathBuf::from(path)).with_delay(delay))
+            }
             None => Arc::new(MemorySecrets::new()),
         };
     }
@@ -138,6 +147,8 @@ pub struct TestKeyFile {
     path: PathBuf,
     /// `None`: still the file's key. `Some`: what sign-in or sign-out left.
     changed: Mutex<Option<MemorySecrets>>,
+    /// How long the first read waits.
+    delay: Mutex<std::time::Duration>,
 }
 
 impl TestKeyFile {
@@ -147,7 +158,15 @@ impl TestKeyFile {
         Self {
             path,
             changed: Mutex::new(None),
+            delay: Mutex::new(std::time::Duration::ZERO),
         }
+    }
+
+    /// The same, whose first read takes `delay`.
+    #[must_use]
+    pub fn with_delay(self, delay: std::time::Duration) -> Self {
+        *self.delay.lock().unwrap_or_else(PoisonError::into_inner) = delay;
+        self
     }
 }
 
@@ -161,6 +180,10 @@ impl SecretStore for TestKeyFile {
     fn load(&self) -> Result<Option<ApiKey>, SecretError> {
         if let Some(memory) = &*self.changed.lock().unwrap_or_else(PoisonError::into_inner) {
             return memory.load();
+        }
+        let delay = std::mem::take(&mut *self.delay.lock().unwrap_or_else(PoisonError::into_inner));
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
         }
         match std::fs::read(&self.path) {
             Ok(mut bytes) => {

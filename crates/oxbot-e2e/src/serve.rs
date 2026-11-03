@@ -240,6 +240,8 @@ pub struct Launch {
     /// Context lengths for the stand-in `OpenRouter`'s models
     /// (`model=tokens,…`).
     pub openrouter_context: Option<String>,
+    /// How long the test key's first read takes, in ms.
+    pub keychain_delay_ms: Option<u64>,
     /// The stand-in Mac helper can dictate.
     pub dictation: bool,
 }
@@ -461,6 +463,10 @@ fn spawn_oxbot(
         // The stand-in browser tool serves bots on oxbot's own loop: it
         // reads the stand-in OpenRouter's script.
         .env("OXBOT_FAKE_DT_SCRIPT", &launch.openrouter_script)
+        .env(
+            "OXBOT_E2E_KEYCHAIN_DELAY_MS",
+            launch.keychain_delay_ms.unwrap_or(0).to_string(),
+        )
         .env("RUST_LOG", "info")
         .env("OXBOT_E2E_HOST_RULES", site_rules)
         .stdin(Stdio::null())
