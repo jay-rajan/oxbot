@@ -9,6 +9,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+mod compare;
+pub use compare::{
+    BatchEstimate, CaseDraft, CaseResult, IntentMatch, JudgeCheck, JudgeView, RunInfo, RunVerdict,
+    ScoreRow, Target, TestCaseInfo, TrialIntent, TrialNetwork, TrialReport,
+};
+
 /// Version of the wire protocol. Bumped on any breaking change, so an old app
 /// can tell the user to update instead of failing in odd ways.
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -402,6 +408,158 @@ pub enum ClientMsg {
         #[serde(default)]
         section: Option<String>,
     },
+    // Comparing engines and models (#21): the Farm owner's only.
+    /// Thumbs up or down (or neither) on a reply that ended at `seq` (its
+    /// `turn_done` event).
+    RateTurn {
+        /// Bot id.
+        bot: String,
+        /// The reply's `turn_done` event.
+        seq: u64,
+        /// Up, down, or `None` to clear it.
+        #[serde(default)]
+        up: Option<bool>,
+    },
+    /// The bot's thumbs and the turns already kept as test cases. Answered
+    /// with [`ServerMsg::Ratings`].
+    ListRatings {
+        /// Bot id.
+        bot: String,
+    },
+    /// What the "Test case…" sheet starts with for the turn that ended at
+    /// `seq`. Answered with [`ServerMsg::CaseDraft`].
+    DraftTestCase {
+        /// Bot id.
+        bot: String,
+        /// The turn's `turn_done` event.
+        seq: u64,
+    },
+    /// Keeps the turn that ended at `seq` as a test case.
+    MarkTestCase {
+        /// Bot id.
+        bot: String,
+        /// The turn's `turn_done` event.
+        seq: u64,
+        /// Its title.
+        title: String,
+        /// What a good result looks like, one check per line.
+        #[serde(default)]
+        rubric: String,
+        /// How much its runs' pages may send.
+        #[serde(default)]
+        network: TrialNetwork,
+        /// Whether it needs the browser's sign-ins (`None`: oxbot decides).
+        #[serde(default)]
+        uses_sign_ins: Option<bool>,
+    },
+    /// Changes a test case.
+    UpdateTestCase {
+        /// [`TestCaseInfo::id`].
+        id: String,
+        /// A new title.
+        #[serde(default)]
+        title: Option<String>,
+        /// New checks.
+        #[serde(default)]
+        rubric: Option<String>,
+        /// A new network mode.
+        #[serde(default)]
+        network: Option<TrialNetwork>,
+        /// Hide it, or show it again.
+        #[serde(default)]
+        archived: Option<bool>,
+    },
+    /// Deletes a test case and its runs.
+    DeleteTestCase {
+        /// [`TestCaseInfo::id`].
+        id: String,
+    },
+    /// The bot's test cases. Answered with [`ServerMsg::TestCases`].
+    ListTestCases {
+        /// Bot id.
+        bot: String,
+    },
+    /// What running `cases` on `targets` would take. Answered with
+    /// [`ServerMsg::BatchEstimate`].
+    EstimateBatch {
+        /// Bot id.
+        bot: String,
+        /// Test case ids.
+        cases: Vec<String>,
+        /// Engines and models.
+        targets: Vec<Target>,
+        /// Runs of each case on each target (1 to 3).
+        #[serde(default = "one")]
+        repeats: u32,
+    },
+    /// Runs `cases` on `targets`, one run at a time.
+    StartBatch {
+        /// Bot id.
+        bot: String,
+        /// Test case ids.
+        cases: Vec<String>,
+        /// Engines and models.
+        targets: Vec<Target>,
+        /// Runs of each case on each target (1 to 3).
+        #[serde(default = "one")]
+        repeats: u32,
+    },
+    /// Stops a batch (the run going on stops too).
+    StopBatch {
+        /// The batch's id.
+        id: String,
+    },
+    /// The bot's runs (of one case, if given). Answered with
+    /// [`ServerMsg::Runs`].
+    ListRuns {
+        /// Bot id.
+        bot: String,
+        /// Only this case's.
+        #[serde(default)]
+        case: Option<String>,
+    },
+    /// One run with what it did, next to the original. Answered with
+    /// [`ServerMsg::RunDetail`].
+    OpenRun {
+        /// The run's id.
+        run: String,
+    },
+    /// Asks Claude (or, `local`, a local model) to judge runs.
+    JudgeRuns {
+        /// Run ids.
+        runs: Vec<String>,
+        /// Judge on this Mac instead of Claude.
+        #[serde(default)]
+        local: bool,
+    },
+    /// The owner's own verdict on a run (`None` clears it).
+    SetRunVerdict {
+        /// The run's id.
+        run: String,
+        /// The verdict.
+        #[serde(default)]
+        verdict: Option<RunVerdict>,
+    },
+    /// The bot's scoreboard. Answered with [`ServerMsg::Scoreboard`].
+    Scoreboard {
+        /// Bot id.
+        bot: String,
+    },
+    /// Runs the owner's own messages to the bot on `target` too, side by
+    /// side, every step recorded (`None`: off).
+    SetShadow {
+        /// Bot id.
+        bot: String,
+        /// The engine and model, or `None`.
+        #[serde(default)]
+        target: Option<Target>,
+    },
+    /// Deletes every practice run (test cases stay).
+    DeleteAllRuns,
+}
+
+fn one() -> u32 {
+    1
 }
 
 /// Which engine runs a bot.
@@ -788,6 +946,91 @@ pub enum ServerMsg {
         requests: u32,
         /// US dollars (free models: 0).
         cost_usd: f64,
+    },
+    /// The bot's thumbs and the turns kept as test cases (the owner's).
+    Ratings {
+        /// Bot id.
+        bot: String,
+        /// `turn_done` event → thumbs up (true) or down.
+        ratings: BTreeMap<u64, bool>,
+        /// `turn_done` events already kept as test cases.
+        cases: Vec<u64>,
+        /// The engine and model the owner's messages are shadowed on.
+        #[serde(default)]
+        shadow: Option<Target>,
+    },
+    /// Reply to [`ClientMsg::DraftTestCase`].
+    CaseDraft(CaseDraft),
+    /// The bot's test cases (the owner's).
+    TestCases {
+        /// Bot id.
+        bot: String,
+        /// Newest first.
+        cases: Vec<TestCaseInfo>,
+    },
+    /// Reply to [`ClientMsg::EstimateBatch`].
+    BatchEstimate(BatchEstimate),
+    /// How a batch is getting on (the owner's).
+    BatchProgress {
+        /// The batch's id.
+        batch: String,
+        /// Bot id.
+        bot: String,
+        /// Runs finished.
+        done: u32,
+        /// Runs in all.
+        total: u32,
+        /// `queued`, `running`, `paused`, `done` or `stopped`.
+        status: String,
+        /// Why it's paused.
+        #[serde(default)]
+        paused_reason: Option<String>,
+    },
+    /// A run changed (the owner's).
+    TrialRun(Box<RunInfo>),
+    /// Something a run did, for its own transcript (the owner's; never a
+    /// bot's chat).
+    TrialEvent {
+        /// The run's id.
+        run: String,
+        /// What happened (`bot` is the run's id).
+        event: BotEvent,
+    },
+    /// The bot's runs (the owner's).
+    Runs {
+        /// Bot id.
+        bot: String,
+        /// Newest first.
+        runs: Vec<RunInfo>,
+    },
+    /// One run, next to the original (the owner's).
+    RunDetail {
+        /// The run.
+        run: Box<RunInfo>,
+        /// Its transcript.
+        events: Vec<BotEvent>,
+        /// The original turn, as a run.
+        #[serde(default)]
+        original: Option<Box<RunInfo>>,
+        /// The original turn's events from the chat.
+        #[serde(default)]
+        original_events: Vec<BotEvent>,
+    },
+    /// The bot's scoreboard (the owner's).
+    Scoreboard {
+        /// Bot id.
+        bot: String,
+        /// One row per engine and model; Claude's first.
+        rows: Vec<ScoreRow>,
+    },
+    /// A shadow run started next to a live turn (the owner's).
+    ShadowPair {
+        /// Bot id.
+        bot: String,
+        /// The live turn's `user_message` event.
+        live_seq: u64,
+        /// The shadow run.
+        run: Box<RunInfo>,
     },
     /// Something the client asked for went wrong.
     Error {
@@ -1493,6 +1736,27 @@ pub enum EventKind {
     Error {
         /// What went wrong, for the user.
         message: String,
+    },
+    /// A practice run recorded a step instead of doing it (only in a
+    /// run's own transcript, never a chat).
+    DryRun {
+        /// The action, e.g. `click`.
+        action: String,
+        /// What it acts on.
+        target: String,
+        /// The site.
+        site: String,
+        /// For a click: what kind.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        click: Option<String>,
+    },
+    /// A practice run's browser stopped a request that would have changed
+    /// something (only in a run's own transcript).
+    NetBlocked {
+        /// Its method, e.g. `POST`.
+        method: String,
+        /// Its host.
+        host: String,
     },
 }
 

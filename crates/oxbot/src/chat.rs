@@ -161,9 +161,18 @@ impl View {
                 "   · Report: {title}. {summary} ({sources} sources; open it in the oxbot app)"
             ),
             EventKind::Error { message } => println!("   ! {message}"),
+            // Only practice runs have these, never a chat.
+            EventKind::DryRun {
+                action,
+                target,
+                site,
+                ..
+            } => println!("   would {action} {target} on {site}"),
+            EventKind::NetBlocked { method, host } => println!("   blocked {method} to {host}"),
         }
     }
 
+    #[allow(clippy::too_many_lines, reason = "one arm per kind of message")]
     fn show(&mut self, msg: &ServerMsg) {
         match msg {
             ServerMsg::Hello(h) => println!(
@@ -256,6 +265,17 @@ impl View {
             | ServerMsg::Engines(_)
             | ServerMsg::OpenRouterAuth { .. }
             | ServerMsg::Meter { .. }
+            | ServerMsg::Ratings { .. }
+            | ServerMsg::CaseDraft(_)
+            | ServerMsg::TestCases { .. }
+            | ServerMsg::BatchEstimate(_)
+            | ServerMsg::BatchProgress { .. }
+            | ServerMsg::TrialRun(_)
+            | ServerMsg::TrialEvent { .. }
+            | ServerMsg::Runs { .. }
+            | ServerMsg::RunDetail { .. }
+            | ServerMsg::Scoreboard { .. }
+            | ServerMsg::ShadowPair { .. }
             | ServerMsg::Usage(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }

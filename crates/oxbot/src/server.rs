@@ -662,6 +662,9 @@ struct Client {
     subs: HashMap<String, u64>,
     /// This connection's number (for dictation).
     conn: u64,
+    /// The Farm owner (the Farm, or the Farm's person on their Gate): gets
+    /// comparisons of engines and models.
+    owner: bool,
 }
 
 impl Client {
@@ -689,6 +692,7 @@ impl Client {
             visible,
             subs: HashMap::new(),
             conn: 0,
+            owner: false,
         }
     }
 
@@ -1005,6 +1009,7 @@ async fn serve_client(
     let visible = state.hub.visible_ids(&viewer);
     let mut client = Client::with_visible(viewer, visible, herder);
     client.conn = conn;
+    client.owner = state.hub.is_owner_viewer(&client.viewer);
 
     let mut logs = state.logs.as_ref().map(|l| l.subscribe());
     let mut first = vec![
@@ -1943,6 +1948,19 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::PairingClosed
         | ServerMsg::Gates { .. }
         | ServerMsg::Door(_) => client.viewer.farm.then_some(msg),
+        // Comparisons of engines and models: the owner's alone. Practice
+        // runs are never a chat's events.
+        ServerMsg::Ratings { .. }
+        | ServerMsg::CaseDraft(_)
+        | ServerMsg::TestCases { .. }
+        | ServerMsg::BatchEstimate(_)
+        | ServerMsg::BatchProgress { .. }
+        | ServerMsg::TrialRun(_)
+        | ServerMsg::TrialEvent { .. }
+        | ServerMsg::Runs { .. }
+        | ServerMsg::RunDetail { .. }
+        | ServerMsg::Scoreboard { .. }
+        | ServerMsg::ShadowPair { .. } => client.owner.then_some(msg),
         ServerMsg::Notice {
             ref owner,
             ref owner_id,
@@ -2022,6 +2040,34 @@ mod tests {
             private,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn practice_runs_reach_the_owner_alone_and_never_a_chat() {
+        let trial = || ServerMsg::TrialEvent {
+            run: "r_1".into(),
+            event: BotEvent {
+                bot: "r_1".into(),
+                seq: 1,
+                ts_ms: 0,
+                kind: EventKind::DryRun {
+                    action: "click".into(),
+                    target: "button \"Post\"".into(),
+                    site: "jobs.example.test".into(),
+                    click: None,
+                },
+            },
+        };
+        let mut sam = Client::new(Viewer::gate("Sam"), &[]);
+        assert!(forward(trial(), &mut sam).is_none());
+        // Even the Farm connection gets them only as the owner.
+        let mut farm = Client::new(Viewer::farm("Jay"), &[]);
+        assert!(forward(trial(), &mut farm).is_none());
+        farm.owner = true;
+        assert!(forward(trial(), &mut farm).is_some());
+        // A practice run's key is never a bot anyone is subscribed to.
+        farm.subs.insert("jobs".to_owned(), 0);
+        assert!(forward(event("t--0123456789abcdef", 1), &mut farm).is_none());
     }
 
     #[test]
