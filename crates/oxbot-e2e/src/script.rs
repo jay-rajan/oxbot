@@ -8,7 +8,7 @@
 //! ```toml
 //! [[reply]]
 //! when = "make a bot"
-//! tool = "create_bot"                      # oxbot's own tool, or a full mcp__… name
+//! tool = "create_bot"                      # oxbot's own tool, a full mcp__… name, or a file tool (Read)
 //! args = { name = "Recipes", instructions = "Find recipes." }
 //! say = "Making it…"                        # said before the tool (optional)
 //! snapshots = ["## Pages\n1: A (https://a.example.com/) [selected]"]  # pages "read" first
@@ -26,6 +26,7 @@
 //! say = "Answered by the backup."
 //! busy = ["e2e/tool-model:free"]            # these models answer 429 (OpenRouter)
 //! usage = { prompt = 1200, completion = 80, cost = 0.0 } # reported usage (OpenRouter)
+//! stall_at = 2                              # the first request after 2 tool results waits a minute (OpenRouter)
 //!
 //! [[reply]]
 //! when = "what's in"
@@ -42,7 +43,7 @@
 //! real model.
 //!
 //! Knobs one stand-in doesn't use are ignored by it: the stand-in Claude
-//! ignores `busy` and `usage`, the stand-in `OpenRouter` ignores `limits`
+//! ignores `busy`, `usage` and `stall_at`, the stand-in `OpenRouter` ignores `limits`
 //! and `model` (it says which model it routed to).
 
 use std::path::Path;
@@ -95,6 +96,10 @@ pub struct Reply {
     pub busy: Vec<String>,
     /// The usage the stand-in `OpenRouter` reports for each request.
     pub usage: Option<Usage>,
+    /// The stand-in `OpenRouter`'s first request for this reply after this
+    /// many tool results gets no answer for a minute (once per stand-in),
+    /// so a test can restart oxbot in the middle of a turn.
+    pub stall_at: Option<usize>,
     /// Reserved for knowledge tests: text the bot is expected to know
     /// (from its notes or the request). No stand-in acts on it yet.
     pub knows: Option<String>,
@@ -186,11 +191,12 @@ impl Script {
 }
 
 impl Reply {
-    /// The tool's full name: oxbot's own tools get `mcp__oxbot__`.
+    /// The tool's full name: oxbot's own tools get `mcp__oxbot__`; full
+    /// `mcp__…` names and file tools (`Read`, with a capital) stay as they are.
     #[must_use]
     pub fn tool_name(&self) -> Option<String> {
         self.tool.as_ref().map(|t| {
-            if t.starts_with("mcp__") {
+            if t.starts_with("mcp__") || t.starts_with(|c: char| c.is_ascii_uppercase()) {
                 t.clone()
             } else {
                 format!("mcp__oxbot__{t}")
@@ -568,6 +574,11 @@ say = "Got it."
         assert_eq!(calls[0].name, "mcp__oxbot__create_bot");
         assert_eq!(calls[0].args, json!({"name":"Recipes"}));
         assert_eq!(plan(&s.pick("hello"), "hello", |_| true).len(), 0);
+        let read = Reply {
+            tool: Some("Read".into()),
+            ..Reply::default()
+        };
+        assert_eq!(read.tool_name().as_deref(), Some("Read"));
     }
 
     #[test]

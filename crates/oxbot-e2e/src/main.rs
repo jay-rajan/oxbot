@@ -271,13 +271,13 @@ async fn run_one(
         openrouter_daily: test.openrouter_daily,
         dictation: test.dictation,
     };
-    let server = Server::start(repo, config, home.path(), &launch).await?;
+    let mut server = Server::start(repo, config, home.path(), &launch).await?;
     let rel = format!("shots/{}/{id}", engine.name());
     let shots_dir = out.join(&rel);
     std::fs::create_dir_all(&shots_dir)?;
     let size = test.viewport.unwrap_or(spec::Viewport::DESKTOP);
     let mut results = match driver.set_viewport(size).await {
-        Ok(()) => steps::run(driver, &server, &starting_steps(test), &shots_dir, &rel).await,
+        Ok(()) => steps::run(driver, &mut server, &starting_steps(test), &shots_dir, &rel).await,
         // The test can't run at its size: it's broken, and says why.
         Err(err) => vec![steps::StepResult {
             n: 1,

@@ -135,6 +135,9 @@ pub struct Server {
     pub repo: PathBuf,
     /// The stand-in `OpenRouter`, if the repo has one.
     pub openrouter: Option<FakeOpenRouter>,
+    /// How it was started (for a restart).
+    config: Config,
+    launch: Launch,
 }
 
 /// A free local port.
@@ -193,50 +196,7 @@ impl Server {
         };
         let port = free_port()?;
         let log = home.join("oxbot.log");
-        let file = std::fs::File::create(&log)?;
-        let mut cmd = Command::new(repo.join(&config.server));
-        cmd.args(["serve", "--port", &port.to_string()])
-            .env("OXBOT_HOME", home)
-            .env("OXBOT_E2E", "1")
-            // Any free port for the Gate door, so tests never clash with a
-            // real oxbot (or each other) on 7879.
-            .env("OXBOT_GATE_PORT", "0")
-            .env("OXBOT_PERSON", &config.person)
-            .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
-            .env("OXBOT_FAKE_SCRIPT", &launch.script)
-            .env("RUST_LOG", "info")
-            .stdin(Stdio::null())
-            .stdout(file.try_clone()?)
-            .stderr(file)
-            .kill_on_drop(true);
-        // Never the Mac's own microphone in tests: a stand-in helper, which
-        // passes video to the real one (if built) for real still frames.
-        match &config.fake_mac {
-            Some(fake) => {
-                cmd.env("OXBOT_MAC_HELPER", repo.join(fake)).env(
-                    "OXBOT_FAKE_DICTATION",
-                    if launch.dictation { "1" } else { "0" },
-                );
-            }
-            None => {
-                cmd.env("OXBOT_MAC_HELPER", "off");
-            }
-        }
-        if let Some(real) = config.mac_helper.as_ref().map(|h| repo.join(h)) {
-            cmd.env("OXBOT_REAL_MAC_HELPER", real);
-        }
-        if let Some(tools) = &config.tools {
-            let tools = repo.join(tools);
-            if tools.exists() {
-                cmd.env("OXBOT_BUILT_IN_TOOLS", tools);
-            }
-        }
-        if let Some(fake) = &openrouter {
-            openrouter_env(&mut cmd, repo, config, fake, launch.signed_in);
-        }
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("starting {}", config.server.display()))?;
+        let child = spawn_oxbot(repo, config, home, launch, port, openrouter.as_ref(), &log)?;
         let server = Self {
             child,
             port,
@@ -244,14 +204,42 @@ impl Server {
             log,
             repo: repo.to_owned(),
             openrouter,
+            config: config.clone(),
+            launch: launch.clone(),
         };
+        server.wait_until_up().await?;
+        Ok(server)
+    }
+
+    /// Waits until oxbot answers on its port (20 seconds at most).
+    async fn wait_until_up(&self) -> anyhow::Result<()> {
         for _ in 0..100 {
-            if let Ok((200, _)) = crate::http::request(port, "GET", "/", None).await {
-                return Ok(server);
+            if let Ok((200, _)) = crate::http::request(self.port, "GET", "/", None).await {
+                return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
-        bail!("oxbot didn't start; see {}", server.log.display())
+        bail!("oxbot didn't start; see {}", self.log.display())
+    }
+
+    /// Stops oxbot and starts it again on the same home and port, as after
+    /// the Mac restarts; the stand-ins keep running (same key, same
+    /// counts). Its log goes on in the same file.
+    ///
+    /// # Errors
+    /// Fails if it doesn't start again within 20 seconds.
+    pub async fn restart(&mut self) -> anyhow::Result<()> {
+        self.stop_oxbot().await;
+        self.child = spawn_oxbot(
+            &self.repo,
+            &self.config,
+            &self.home,
+            &self.launch,
+            self.port,
+            self.openrouter.as_ref(),
+            &self.log,
+        )?;
+        self.wait_until_up().await
     }
 
     /// The page's address, e.g. `http://127.0.0.1:5123/?as=Ann`. The
@@ -277,6 +265,10 @@ impl Server {
 
     /// Stops oxbot and the Chromes it started.
     pub async fn stop(mut self) {
+        self.stop_oxbot().await;
+    }
+
+    async fn stop_oxbot(&mut self) {
         // A polite stop lets oxbot quit its Chromes.
         if let Some(pid) = self.child.id() {
             let _ = std::process::Command::new("kill")
@@ -295,4 +287,63 @@ impl Server {
             .args(["-f", &pattern])
             .status();
     }
+}
+
+/// Starts `oxbot serve` on `home` and `port` with the stand-ins, logging
+/// to `log` (appended to, so a restart keeps the earlier lines).
+fn spawn_oxbot(
+    repo: &Path,
+    config: &Config,
+    home: &Path,
+    launch: &Launch,
+    port: u16,
+    openrouter: Option<&FakeOpenRouter>,
+    log: &Path,
+) -> anyhow::Result<Child> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)?;
+    let mut cmd = Command::new(repo.join(&config.server));
+    cmd.args(["serve", "--port", &port.to_string()])
+        .env("OXBOT_HOME", home)
+        .env("OXBOT_E2E", "1")
+        // Any free port for the Gate door, so tests never clash with a
+        // real oxbot (or each other) on 7879.
+        .env("OXBOT_GATE_PORT", "0")
+        .env("OXBOT_PERSON", &config.person)
+        .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
+        .env("OXBOT_FAKE_SCRIPT", &launch.script)
+        .env("RUST_LOG", "info")
+        .stdin(Stdio::null())
+        .stdout(file.try_clone()?)
+        .stderr(file)
+        .kill_on_drop(true);
+    // Never the Mac's own microphone in tests: a stand-in helper, which
+    // passes video to the real one (if built) for real still frames.
+    match &config.fake_mac {
+        Some(fake) => {
+            cmd.env("OXBOT_MAC_HELPER", repo.join(fake)).env(
+                "OXBOT_FAKE_DICTATION",
+                if launch.dictation { "1" } else { "0" },
+            );
+        }
+        None => {
+            cmd.env("OXBOT_MAC_HELPER", "off");
+        }
+    }
+    if let Some(real) = config.mac_helper.as_ref().map(|h| repo.join(h)) {
+        cmd.env("OXBOT_REAL_MAC_HELPER", real);
+    }
+    if let Some(tools) = &config.tools {
+        let tools = repo.join(tools);
+        if tools.exists() {
+            cmd.env("OXBOT_BUILT_IN_TOOLS", tools);
+        }
+    }
+    if let Some(fake) = openrouter {
+        openrouter_env(&mut cmd, repo, config, fake, launch.signed_in);
+    }
+    cmd.spawn()
+        .with_context(|| format!("starting {}", config.server.display()))
 }

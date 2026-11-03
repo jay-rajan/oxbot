@@ -16,6 +16,8 @@
 //!   work: …" after `[tool error]`, else `after` with `{result}`. Models in
 //!   the reply's `busy` answer 429 (`Retry-After: 1`); the first model not
 //!   busy from `model` then `models` answers (`OpenRouter`'s own fallback).
+//!   A reply's `stall_at` makes its first request after that many tool
+//!   results wait a minute (for restart tests).
 //!   Free requests count against a daily limit (`OXBOT_FAKE_OR_DAILY`,
 //!   default 1000); past it, 429 "free-models-per-day".
 //! - `GET /key`: the key's limits, with the free daily count.
@@ -176,7 +178,11 @@ pub struct Fake {
     pending: Mutex<HashMap<String, Pending>>,
     log: Mutex<()>,
     counts: Mutex<Counts>,
+    stalled: Mutex<std::collections::HashSet<String>>,
 }
+
+/// How long a stalled request waits.
+const STALL: Duration = Duration::from_secs(60);
 
 /// How many chat requests it got: all, answered, and answered per model
 /// (`GET /count`).
@@ -187,16 +193,23 @@ struct Counts {
     by_model: std::collections::BTreeMap<String, u64>,
 }
 
+impl Fake {
+    fn new(config: Config) -> Self {
+        Self {
+            config,
+            used_today: AtomicU32::new(0),
+            generations: AtomicU64::new(0),
+            pending: Mutex::new(HashMap::new()),
+            log: Mutex::new(()),
+            counts: Mutex::new(Counts::default()),
+            stalled: Mutex::new(std::collections::HashSet::new()),
+        }
+    }
+}
+
 /// The stand-in's routes, on a fresh state.
 pub fn router(config: Config) -> Router {
-    let fake = Arc::new(Fake {
-        config,
-        used_today: AtomicU32::new(0),
-        generations: AtomicU64::new(0),
-        pending: Mutex::new(HashMap::new()),
-        log: Mutex::new(()),
-        counts: Mutex::new(Counts::default()),
-    });
+    let fake = Arc::new(Fake::new(config));
     Router::new()
         .route("/api/v1/models", get(models))
         .route("/api/v1/key", get(key))
@@ -447,6 +460,7 @@ struct Answer {
     delay_ms: u64,
     when: Option<String>,
     step: usize,
+    stall: bool,
 }
 
 async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Response {
@@ -493,6 +507,7 @@ async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) ->
     entry["when"] = json!(answer.when);
     entry["step"] = json!(answer.step);
     entry["called"] = json!(answer.call.as_ref().map(|c| &c.1));
+    entry["stalled"] = json!(answer.stall);
     fake.log(entry);
     if let Ok(mut c) = fake.counts.lock() {
         c.ok += 1;
@@ -500,6 +515,9 @@ async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) ->
     }
     if answer.delay_ms > 0 {
         tokio::time::sleep(Duration::from_millis(answer.delay_ms)).await;
+    }
+    if answer.stall {
+        tokio::time::sleep(STALL).await;
     }
     let id = format!(
         "gen-e2e-{}",
@@ -603,6 +621,13 @@ impl Fake {
         Ok((model, prompt, completion))
     }
 
+    /// Whether this is the first request for `text` at `step` to stall.
+    fn first_stall(&self, text: &str, step: usize) -> bool {
+        self.stalled
+            .lock()
+            .is_ok_and(|mut seen| seen.insert(format!("{step}\u{0}{text}")))
+    }
+
     fn answer(&self, req: &Value, body_len: usize) -> Result<Answer, ApiError> {
         let bad = |m: String| ApiError::new(StatusCode::BAD_REQUEST, m);
         let messages = req["messages"]
@@ -655,6 +680,7 @@ impl Fake {
             delay_ms: if step == 0 { reply.delay_ms } else { 0 },
             when: reply.when.clone(),
             step,
+            stall: reply.stall_at == Some(step) && self.first_stall(&text, step),
         };
         let last = results.last().map_or("", String::as_str);
         let refused = last.strip_prefix("[oxbot said no]");
@@ -1107,6 +1133,35 @@ mod tests {
     }
 
     #[test]
+    fn a_stalled_step_stalls_once() {
+        let script: Script = toml::from_str(
+            "[[reply]]\nwhen = \"slow\"\ntool = \"mcp__chrome-devtools__click\"\nargs = { uid = \"1_2\" }\nstall_at = 0\n",
+        )
+        .unwrap();
+        let fake = Fake::new(Config {
+            script,
+            daily: 1000,
+            log: None,
+            canary: new_canary().unwrap(),
+            contexts: HashMap::new(),
+            bodies: None,
+        });
+        let req = json!({"model": "e2e/tool-model:free",
+                         "messages": [{"role": "user", "content": "[Jay] slow please"}]});
+        assert!(
+            fake.answer(&req, 100).unwrap().stall,
+            "the first request waits"
+        );
+        assert!(
+            !fake.answer(&req, 100).unwrap().stall,
+            "the same step again answers"
+        );
+        let other = json!({"model": "e2e/tool-model:free",
+                           "messages": [{"role": "user", "content": "hello"}]});
+        assert!(!fake.answer(&other, 100).unwrap().stall);
+    }
+
+    #[test]
     fn canaries_are_fresh() {
         let a = new_canary().unwrap();
         assert!(a.starts_with("sk-or-v1-e2e-"));
@@ -1150,6 +1205,7 @@ mod tests {
             delay_ms: 0,
             when: None,
             step: 0,
+            stall: false,
         };
         let events = stream_events("gen-1", &answer);
         assert_eq!(events[0], ": OPENROUTER PROCESSING\n\n");

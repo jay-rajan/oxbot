@@ -173,7 +173,8 @@ pub struct Step {
     pub expect_not: Option<String>,
     /// The field or button with this text or label must be disabled.
     pub expect_disabled: Option<String>,
-    /// This JavaScript must be true on the page.
+    /// This JavaScript must be true on the page (within `timeout_ms`,
+    /// default 2 000).
     pub expect_js: Option<String>,
     /// Pause, in milliseconds.
     pub wait_ms: Option<u64>,
@@ -185,13 +186,21 @@ pub struct Step {
     /// The stand-in `OpenRouter` got a request whose log line has this
     /// text, e.g. `"data_collection":"deny"`.
     pub expect_openrouter: Option<String>,
-    /// No request to the stand-in `OpenRouter` has this text.
+    /// No request to the stand-in `OpenRouter` has this text, in its log
+    /// line or its whole body (so a message's words can be checked too).
     pub expect_openrouter_not: Option<String>,
+    /// A whole request body the stand-in `OpenRouter` got has this text,
+    /// e.g. what a private bot asked of providers.
+    pub expect_openrouter_body: Option<String>,
+    /// Stop oxbot and start it again on the same data, as after the Mac
+    /// restarts (the stand-ins keep running; the page reconnects).
+    pub restart: Option<bool>,
     /// A name for the screenshot after this step.
     pub shot: Option<String>,
     /// Why this step is here.
     pub note: Option<String>,
-    /// How long `wait_for` waits (ms; default 10 000).
+    /// How long `wait_for` waits (ms; default 10 000), or `expect_js`
+    /// (default 2 000).
     pub timeout_ms: Option<u64>,
 }
 
@@ -271,6 +280,12 @@ impl Step {
         if let Some(t) = &self.expect_openrouter_not {
             parts.push(format!("Expect no request to OpenRouter with {t}"));
         }
+        if let Some(t) = &self.expect_openrouter_body {
+            parts.push(format!("Expect a request body sent to OpenRouter with {t}"));
+        }
+        if self.restart == Some(true) {
+            parts.push("Restart oxbot".to_owned());
+        }
         if parts.is_empty() {
             parts.push("Look".to_owned());
         }
@@ -296,6 +311,8 @@ impl Step {
             self.follow.is_some(),
             self.expect_openrouter.is_some(),
             self.expect_openrouter_not.is_some(),
+            self.expect_openrouter_body.is_some(),
+            self.restart.is_some(),
         ]
         .iter()
         .filter(|a| **a)
@@ -426,6 +443,10 @@ mod tests {
         assert_eq!(step.describe(), "Follow the link \u{201c}this link\u{201d}");
         let step: Step =
             toml::from_str("expect_openrouter = '\"data_collection\":\"deny\"'").unwrap();
+        assert_eq!(step.actions(), 1);
+        let step: Step = toml::from_str("restart = true").unwrap();
+        assert_eq!(step.describe(), "Restart oxbot");
+        let step: Step = toml::from_str("expect_openrouter_body = '\"zdr\":true'").unwrap();
         assert_eq!(step.actions(), 1);
     }
 

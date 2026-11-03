@@ -142,7 +142,22 @@ async fn point(driver: &mut Driver, text: &str) -> anyhow::Result<(f64, f64)> {
 }
 
 /// Runs one step. Returns `Ok` if it passed.
-async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::Result<()> {
+async fn run_step(driver: &mut Driver, server: &mut Server, step: &Step) -> anyhow::Result<()> {
+    if step.restart == Some(true) {
+        server.restart().await.context("restarting oxbot")?;
+    }
+    page_step(driver, server, step).await?;
+    if let Some(ms) = step.wait_ms {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
+    if step.close_sign_in_window == Some(true) {
+        close_sign_in_window(&server.home, step.timeout_ms.unwrap_or(10_000)).await?;
+    }
+    loop_steps(driver, server, step).await
+}
+
+/// A step's actions on the page: open, click, type, send, wait and check.
+async fn page_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::Result<()> {
     // `{server}` in a step means this oxbot's own address (a local page to
     // sign in to, never a real site).
     let base = server.url("");
@@ -228,20 +243,16 @@ async fn run_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::
         }
     }
     if let Some(expr) = &step.expect_js
-        && wait_until(driver, &format!("!!({expr})"), 2_000)
-            .await
-            .is_err()
+        && wait_until(
+            driver,
+            &format!("!!({expr})"),
+            step.timeout_ms.unwrap_or(2_000),
+        )
+        .await
+        .is_err()
     {
         bail!("this isn't true on the page: {expr}");
     }
-    if let Some(ms) = step.wait_ms {
-        tokio::time::sleep(Duration::from_millis(ms)).await;
-    }
-    if step.close_sign_in_window == Some(true) {
-        close_sign_in_window(&server.home).await?;
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-    }
-    loop_steps(driver, server, step).await?;
     Ok(())
 }
 
@@ -262,20 +273,39 @@ async fn loop_steps(driver: &mut Driver, server: &Server, step: &Step) -> anyhow
         }
     }
     if let Some(text) = &step.expect_openrouter_not {
-        let requests = openrouter_requests(server)?();
-        if let Some(line) = requests.lines().find(|l| l.contains(text.as_str())) {
+        let fake = stand_in(server)?;
+        let (log, bodies) = (fake.requests(), fake.bodies());
+        if let Some(line) = log.lines().find(|l| l.contains(text.as_str())) {
             bail!("the stand-in OpenRouter got a request with {text}: {line}");
+        }
+        if bodies.lines().any(|l| l.contains(text.as_str())) {
+            bail!("a request body sent to the stand-in OpenRouter has {text}");
+        }
+    }
+    if let Some(text) = &step.expect_openrouter_body {
+        let fake = stand_in(server)?;
+        let start = Instant::now();
+        while !fake.bodies().lines().any(|l| l.contains(text.as_str())) {
+            if start.elapsed() > Duration::from_secs(3) {
+                bail!("no request body sent to the stand-in OpenRouter has {text}");
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
         }
     }
     Ok(())
 }
 
-/// Reads the stand-in `OpenRouter`'s request log.
-fn openrouter_requests(server: &Server) -> anyhow::Result<impl Fn() -> String + '_> {
-    let fake = server
+/// The test's stand-in `OpenRouter`.
+fn stand_in(server: &Server) -> anyhow::Result<&crate::serve::FakeOpenRouter> {
+    server
         .openrouter
         .as_ref()
-        .ok_or_else(|| anyhow!("no stand-in OpenRouter runs (see e2e/pr_test.toml)"))?;
+        .ok_or_else(|| anyhow!("no stand-in OpenRouter runs (see e2e/pr_test.toml)"))
+}
+
+/// Reads the stand-in `OpenRouter`'s request log.
+fn openrouter_requests(server: &Server) -> anyhow::Result<impl Fn() -> String + '_> {
+    let fake = stand_in(server)?;
     Ok(|| fake.requests())
 }
 
@@ -347,25 +377,24 @@ async fn wait_until(driver: &mut Driver, expression: &str, timeout_ms: u64) -> a
 }
 
 /// Closes oxbot's sign-in window in this home, as a person would after
-/// signing in. The window is the Chrome for this home that was started on a
-/// web page (hidden Chrome starts on a blank one); its `DevTools` port is
-/// read from its command line.
-async fn close_sign_in_window(home: &Path) -> anyhow::Result<()> {
-    let out = tokio::process::Command::new("ps")
-        .args(["-axo", "args"])
-        .output()
-        .await?;
-    let marker = format!("--user-data-dir={}", home.display());
-    let port = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter(|l| l.contains(&marker) && !l.contains("Helper") && !l.contains("about:blank"))
-        .find_map(|l| {
-            l.split_whitespace()
-                .find_map(|a| a.strip_prefix("--remote-debugging-port="))
-                .and_then(|p| p.parse::<u16>().ok())
-        })
-        .ok_or_else(|| anyhow!("no sign-in window is open"))?;
-    let (_, version) = crate::http::request(port, "GET", "/json/version", None).await?;
+/// signing in, once it's open (waiting up to `timeout_ms` for it: Chrome
+/// can take a while to start on a busy Mac). The window is the Chrome for
+/// this home that was started on a web page (hidden Chrome starts on a
+/// blank one); its `DevTools` port is read from its command line.
+async fn close_sign_in_window(home: &Path, timeout_ms: u64) -> anyhow::Result<()> {
+    let start = Instant::now();
+    let version = loop {
+        if let Some(port) = sign_in_window_port(home).await?
+            && let Ok((200, version)) =
+                crate::http::request(port, "GET", "/json/version", None).await
+        {
+            break version;
+        }
+        if start.elapsed() > Duration::from_millis(timeout_ms) {
+            bail!("no sign-in window opened within {} s", timeout_ms / 1000);
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    };
     let v: Value = serde_json::from_str(&version)?;
     let ws = v["webSocketDebuggerUrl"]
         .as_str()
@@ -381,11 +410,28 @@ async fn close_sign_in_window(home: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The `DevTools` port of this home's sign-in window, if one runs.
+async fn sign_in_window_port(home: &Path) -> anyhow::Result<Option<u16>> {
+    let out = tokio::process::Command::new("ps")
+        .args(["-axo", "args"])
+        .output()
+        .await?;
+    let marker = format!("--user-data-dir={}", home.display());
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| l.contains(&marker) && !l.contains("Helper") && !l.contains("about:blank"))
+        .find_map(|l| {
+            l.split_whitespace()
+                .find_map(|a| a.strip_prefix("--remote-debugging-port="))
+                .and_then(|p| p.parse::<u16>().ok())
+        }))
+}
+
 /// Runs `steps`, saving a screenshot after each into `shots_dir`. Stops at
 /// the first failure (the rest are marked not run).
 pub async fn run(
     driver: &mut Driver,
-    server: &Server,
+    server: &mut Server,
     steps: &[Step],
     shots_dir: &Path,
     shots_rel: &str,
