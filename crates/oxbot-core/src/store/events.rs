@@ -100,7 +100,8 @@ pub(super) fn from_sql(n: i64) -> u64 {
 
 impl Store {
     /// Forgets everything about a deleted bot: its history, session, usage,
-    /// "Always allow" rules, reports, the pages its session opened, and
+    /// "Always allow" rules, reports, the pages its session opened, who
+    /// started its turns, and
     /// where anyone filed it in their sections (a new bot can get its id).
     /// Returns the people whose sections it was in.
     ///
@@ -123,6 +124,7 @@ impl Store {
             "bot_sections",
             "reports",
             "session_pages",
+            "turn_origins",
         ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),

@@ -2,6 +2,7 @@
 //! its events into stored events, cards and tool results.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -15,8 +16,8 @@ use super::team::team_label;
 use super::{Hub, HubError, Runtime, Shared, elements};
 use crate::bot::Bot;
 use crate::engine::{
-    Activity, BrowserSpec, EngineEvent, GateMode, HostTools, McpCommand, ModelChoice, Privacy,
-    Resume, Session, SessionSpec, Started, ToolUse,
+    Activity, BrowserSpec, EngineEvent, EngineKind, GateMode, HostTools, McpCommand, ModelChoice,
+    Privacy, Resume, Session, SessionSpec, Started, ToolUse,
 };
 use crate::id::BotId;
 use crate::prompt::{Capabilities, system_prompt};
@@ -24,26 +25,57 @@ use crate::report::Visit;
 use crate::store::{MAX_SESSION_PAGES, SavedSession};
 use crate::tools::{self, SAVE_REPORT_TOOL, SIGN_IN_TOOL, TOOL_SERVER_NAME};
 
+/// What a session may be started with instead of the bot's own settings
+/// (practice runs, #21). The default is the bot as it is.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionOverrides {
+    /// Another engine than the bot's.
+    pub engine: Option<EngineKind>,
+    /// Another model than the bot's.
+    pub model: Option<ModelChoice>,
+    /// Another working folder than the bot's `work/`.
+    pub work_dir: Option<PathBuf>,
+    /// Another folder for what the engine saves about the session.
+    pub context_dir: Option<PathBuf>,
+    /// The knowledge folder to give the engine.
+    pub knowledge_dir: Option<PathBuf>,
+    /// No browser at all.
+    pub no_browser: bool,
+    /// Live, or a practice run.
+    pub gate_mode: GateMode,
+    /// A throwaway session: always new, never saved as the bot's.
+    pub ephemeral: bool,
+}
+
 impl Hub {
-    /// Starts `bot`'s engine session (its Claude) and a task that turns its
-    /// events into stored events. Resumes the saved session unless the
-    /// system prompt has changed.
+    /// Starts `bot`'s engine session and a task that turns its events into
+    /// stored events. Resumes the saved session unless the system prompt
+    /// or the engine has changed.
     pub(super) async fn start_session(self: &Arc<Self>, bot: &Bot) -> Result<Runtime, HubError> {
+        self.start_session_with(bot, SessionOverrides::default())
+            .await
+    }
+
+    /// Like [`Hub::start_session`], with `overrides` in place of the
+    /// bot's own settings.
+    pub(super) async fn start_session_with(
+        self: &Arc<Self>,
+        bot: &Bot,
+        overrides: SessionOverrides,
+    ) -> Result<Runtime, HubError> {
         let bot = &self.as_herder(bot);
-        let shared = self.browser_of(bot);
+        let kind = overrides.engine.unwrap_or_else(|| self.engine_of(bot));
+        let engine = self.engine(kind)?;
+        let shared = if overrides.no_browser {
+            None
+        } else {
+            self.browser_of(bot)
+        };
         let caps = Capabilities {
             browser: shared.is_some(),
         };
         let prompt = system_prompt(bot, caps);
-        let resume = match self.store.session(&bot.id)? {
-            Some(saved) if saved.prompt == prompt => Resume::Resume(saved.id),
-            saved => {
-                if saved.is_some() {
-                    tracing::info!(bot = %bot.id, "system prompt changed; starting a new Claude session");
-                }
-                Resume::New(uuid::Uuid::new_v4().to_string())
-            }
-        };
+        let resume = self.resume_for(bot, kind, &prompt, overrides.ephemeral)?;
         // A resumed session still remembers what it read and opened.
         let (taint, visited) = match &resume {
             Resume::Resume(_) => (
@@ -52,64 +84,31 @@ impl Hub {
             ),
             Resume::New(_) => (None, BTreeMap::new()),
         };
+        let work_dir = overrides.work_dir.clone().unwrap_or_else(|| bot.work_dir());
 
         // The bot takes turns on this browser even if Chrome didn't start now.
         let browser = shared.clone();
-        let mut browser_spec = None;
-        if let (Some(tools), Some(shared)) = (self.config.browser.clone(), &shared) {
-            if !tools.is_installed() {
-                self.notice("Setting up the browser for bots (first time only)…");
-            }
-            let started = async {
-                tools.ensure_installed().await?;
-                shared.browser.ensure_running().await
-            };
-            match started.await {
-                Ok(()) => {
-                    let mcp_json = tools.mcp_server(shared.browser.port(), &bot.work_dir());
-                    browser_spec = Some(BrowserSpec {
-                        mcp: McpCommand::from_server_entry(&mcp_json).unwrap_or_default(),
-                        mcp_json,
-                    });
-                    // Once per run, and after an upgrade renamed its sites (until
-                    // a check works), drop remembered sites the browser has no
-                    // cookies for.
-                    let due = self.store.site_check_due(&shared.owner).unwrap_or(false);
-                    if !shared.sites_checked.swap(true, Ordering::Relaxed) || due {
-                        let hub = Arc::clone(self);
-                        let shared = Arc::clone(shared);
-                        tokio::spawn(async move {
-                            // Not checked after all: try again on the next start.
-                            if !hub.refresh_sites(&shared).await {
-                                shared.sites_checked.store(false, Ordering::Relaxed);
-                            }
-                        });
-                    }
-                }
-                Err(err) => {
-                    tracing::warn!(%err, "starting without the browser");
-                    self.notice(&format!(
-                        "{} can't use the browser right now: {err}",
-                        bot.name
-                    ));
-                }
-            }
-        }
+        let browser_spec = match &shared {
+            Some(shared) => self.start_browser(bot, shared, &work_dir).await,
+            None => None,
+        };
         // As the prompt says: Herder gets its team tools, a bot given a
         // browser can save reports.
         let host_tools = HostTools {
             central: bot.is_central(),
             browser: shared.is_some(),
         };
+        let gate_mode = overrides.gate_mode;
         let spec = SessionSpec {
             bot: bot.id.to_string(),
-            work_dir: bot.work_dir(),
+            work_dir,
+            context_dir: overrides
+                .context_dir
+                .unwrap_or_else(|| bot.dir.join("context")),
+            knowledge_dir: overrides.knowledge_dir,
             system_prompt: prompt.clone(),
             resume: resume.clone(),
-            model: bot
-                .model
-                .clone()
-                .map_or(ModelChoice::Auto, ModelChoice::Named),
+            model: overrides.model.unwrap_or_else(|| model_of(bot, kind)),
             browser: browser_spec,
             host_tools,
             host_tool_specs: tools::specs(host_tools.into()),
@@ -118,7 +117,7 @@ impl Hub {
             } else {
                 Privacy::Standard
             },
-            gate_mode: GateMode::Live,
+            gate_mode,
             env: self.config.extra_env.clone(),
             // A sign-in or a task can take minutes, and a task for a private
             // bot may wait for a card first: let a tool call wait that long.
@@ -129,16 +128,105 @@ impl Hub {
 
         let Started {
             session, events, ..
-        } = self.claude.start(spec).await?;
-        self.store.set_session(
-            &bot.id,
-            Some(&SavedSession {
-                id: resume.id().to_owned(),
-                prompt,
-            }),
-        )?;
+        } = engine.start(spec).await?;
+        if !overrides.ephemeral {
+            self.store.save_session(
+                &bot.id,
+                Some(&SavedSession {
+                    id: resume.id().to_owned(),
+                    prompt,
+                }),
+                kind,
+            )?;
+        }
         tokio::spawn(Arc::clone(self).pump(bot.id.clone(), events));
-        Ok(new_runtime(session, browser, &resume, taint, visited))
+        let mut runtime = new_runtime(session, browser, &resume, taint, visited);
+        runtime.engine = kind;
+        runtime.gate_mode = gate_mode;
+        Ok(runtime)
+    }
+
+    /// Starts `shared`'s Chrome (installing the browser tool the first
+    /// time) for `bot`, saving files in `work_dir`. `None` if this oxbot
+    /// has no browser or it couldn't start: the bot goes on without one.
+    async fn start_browser(
+        self: &Arc<Self>,
+        bot: &Bot,
+        shared: &Arc<Shared>,
+        work_dir: &std::path::Path,
+    ) -> Option<BrowserSpec> {
+        let tools = self.config.browser.clone()?;
+        if !tools.is_installed() {
+            self.notice("Setting up the browser for bots (first time only)…");
+        }
+        let started = async {
+            tools.ensure_installed().await?;
+            shared.browser.ensure_running().await
+        };
+        if let Err(err) = started.await {
+            tracing::warn!(%err, "starting without the browser");
+            self.notice(&format!(
+                "{} can't use the browser right now: {err}",
+                bot.name
+            ));
+            return None;
+        }
+        // Once per run, and after an upgrade renamed its sites (until a
+        // check works), drop remembered sites the browser has no cookies for.
+        let due = self.store.site_check_due(&shared.owner).unwrap_or(false);
+        if !shared.sites_checked.swap(true, Ordering::Relaxed) || due {
+            let hub = Arc::clone(self);
+            let shared = Arc::clone(shared);
+            tokio::spawn(async move {
+                // Not checked after all: try again on the next start.
+                if !hub.refresh_sites(&shared).await {
+                    shared.sites_checked.store(false, Ordering::Relaxed);
+                }
+            });
+        }
+        let mcp_json = tools.mcp_server(shared.browser.port(), work_dir);
+        Some(BrowserSpec {
+            mcp: McpCommand::from_server_entry(&mcp_json).unwrap_or_default(),
+            mcp_json,
+        })
+    }
+
+    /// Which session `bot` starts on `kind` with `prompt`: its saved one,
+    /// unless the prompt or the engine changed (or it's `ephemeral`).
+    fn resume_for(
+        &self,
+        bot: &Bot,
+        kind: EngineKind,
+        prompt: &str,
+        ephemeral: bool,
+    ) -> Result<Resume, HubError> {
+        let saved = if ephemeral {
+            None
+        } else {
+            self.store.session(&bot.id)?
+        };
+        let saved_engine = match &saved {
+            Some(_) => self.store.session_engine(&bot.id)?,
+            None => None,
+        };
+        Ok(match saved {
+            Some(saved)
+                if saved.prompt == prompt && saved_engine.as_deref() == Some(kind.as_str()) =>
+            {
+                Resume::Resume(saved.id)
+            }
+            Some(_) if saved_engine.as_deref() != Some(kind.as_str()) => {
+                // The other engine's model has read none of it.
+                tracing::info!(bot = %bot.id, engine = %kind, "engine changed; starting a new session");
+                Resume::New(uuid::Uuid::new_v4().to_string())
+            }
+            saved => {
+                if saved.is_some() {
+                    tracing::info!(bot = %bot.id, "system prompt changed; starting a new Claude session");
+                }
+                Resume::New(uuid::Uuid::new_v4().to_string())
+            }
+        })
     }
 
     /// Turns one bot's engine events into stored events until its session
@@ -155,6 +243,7 @@ impl Hub {
         self.deny_open_approvals(&bot);
         self.cancel_sign_ins(&bot);
         let removed = self.runtimes.lock().await.remove(&bot);
+        let engine = removed.as_ref().map_or(EngineKind::Claude, |r| r.engine);
         let was_busy = removed.is_some_and(|mut r| {
             Self::release_browser(&bot, &mut r);
             r.busy
@@ -165,7 +254,11 @@ impl Hub {
             let _ = self.store.set_session(&bot, None);
         }
         if was_busy {
-            let _ = self.turn_failed(&bot, "Claude stopped unexpectedly.");
+            let message = match engine {
+                EngineKind::Claude => "Claude stopped unexpectedly.",
+                EngineKind::OpenRouter => "The bot's session stopped unexpectedly.",
+            };
+            let _ = self.turn_failed(&bot, message);
         }
     }
 
@@ -335,6 +428,20 @@ impl Hub {
     }
 }
 
+/// The model a bot's settings name for `engine`.
+fn model_of(bot: &Bot, engine: EngineKind) -> ModelChoice {
+    match engine {
+        EngineKind::Claude => bot
+            .model
+            .clone()
+            .map_or(ModelChoice::Auto, ModelChoice::Claude),
+        EngineKind::OpenRouter => match bot.loop_settings.model.as_deref() {
+            None | Some("" | "auto") => ModelChoice::Auto,
+            Some(id) => ModelChoice::Pin(id.to_owned()),
+        },
+    }
+}
+
 /// A just-started session's runtime. A resumed session keeps what it had
 /// read (`taint`) and the pages it opened (`visited`); a new one starts
 /// trusted, with none.
@@ -347,6 +454,8 @@ fn new_runtime(
 ) -> Runtime {
     let mut runtime = Runtime {
         session,
+        engine: EngineKind::Claude,
+        gate_mode: GateMode::Live,
         busy: false,
         permit: None,
         browser,

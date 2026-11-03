@@ -14,6 +14,13 @@ pub struct SessionSpec {
     pub bot: String,
     /// The bot's own `work/` folder: the only folder its file tools reach.
     pub work_dir: PathBuf,
+    /// Where the engine keeps what it saves for itself about the session
+    /// (big tool results, context state): `bots/<id>/context`, outside
+    /// `work/`. A practice run gets its own.
+    pub context_dir: PathBuf,
+    /// The bot's knowledge folder for engines that read it from files
+    /// (Claude: `--add-dir`), once there is one.
+    pub knowledge_dir: Option<PathBuf>,
     /// The bot's system prompt.
     pub system_prompt: String,
     /// A new session, or the saved one to go on with.
@@ -70,18 +77,23 @@ pub enum ModelChoice {
     /// The engine picks (Claude Code's default; the loop's router).
     #[default]
     Auto,
-    /// This one: a Claude alias such as `sonnet`, or a model id the owner
-    /// pinned for the loop.
-    Named(String),
+    /// A Claude alias such as `sonnet` (Claude engine).
+    Claude(String),
+    /// A model id the owner pinned: tried first, with the router's
+    /// fallbacks after it (loop engine).
+    Pin(String),
+    /// This model and no other: no fallbacks (practice runs that compare
+    /// models).
+    Only(String),
 }
 
 impl ModelChoice {
-    /// The named model, if any.
+    /// The model named, if any.
     #[must_use]
     pub fn named(&self) -> Option<&str> {
         match self {
             Self::Auto => None,
-            Self::Named(name) => Some(name),
+            Self::Claude(name) | Self::Pin(name) | Self::Only(name) => Some(name),
         }
     }
 }
@@ -181,6 +193,9 @@ pub struct TurnInput {
     pub text: String,
     /// The number of the chat event that holds it.
     pub user_seq: u64,
+    /// The person the task chain acts for, by id (for the meter and what
+    /// the bot knows about them), if known.
+    pub person: Option<String>,
     /// Who started the task chain, as the hub writes it. Engines keep it
     /// and hand it back on resume, never read it.
     pub origin: Value,
@@ -222,7 +237,11 @@ mod tests {
     fn resume_and_model_choice() {
         assert_eq!(Resume::New("a".into()).id(), "a");
         assert!(Resume::Resume("b".into()).is_resume());
-        assert_eq!(ModelChoice::Named("sonnet".into()).named(), Some("sonnet"));
+        assert_eq!(ModelChoice::Claude("sonnet".into()).named(), Some("sonnet"));
+        assert_eq!(
+            ModelChoice::Only("e2e/x:free".into()).named(),
+            Some("e2e/x:free")
+        );
         assert_eq!(ModelChoice::Auto.named(), None);
     }
 }

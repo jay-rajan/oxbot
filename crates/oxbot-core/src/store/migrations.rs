@@ -208,7 +208,40 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // 15: the usage alerts already sent for each plan window, app-wide
     // preferences, and the model each bot's Claude last said it uses.
     Step::Rust(usage_alerts_and_prefs),
+    // 16: who started each task chain (Claude bots take tasks only from the
+    // owner; provenance for knowledge and comparisons), and which engine a
+    // saved session belongs to.
+    Step::Rust(engines_and_origins),
 ];
+
+/// Migration 16. Skips what is already there, as 15 does.
+pub(super) fn engines_and_origins(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS turn_origins (
+            bot        TEXT    NOT NULL,
+            seq        INTEGER NOT NULL,              -- the UserMessage event that started the turn
+            person     TEXT,                          -- person id the chain started with (NULL: nobody known)
+            on_farm    INTEGER NOT NULL,              -- 1: started on the Farm connection
+            entry      TEXT    NOT NULL,              -- 'farm' | 'gate' | 'test' | 'name'
+            root_bot   TEXT    NOT NULL,              -- first message of the chain
+            root_seq   INTEGER NOT NULL,
+            via        TEXT    NOT NULL DEFAULT '[]', -- JSON [bot id]: bots that passed it on, in order
+            engine     TEXT    NOT NULL,              -- engine that ran the turn
+            tainted_by TEXT,                          -- what a relaying bot had read that oxbot doesn't trust
+            PRIMARY KEY (bot, seq)
+        );
+        CREATE INDEX IF NOT EXISTS turn_origins_root ON turn_origins (root_bot, root_seq);",
+    )?;
+    let has_engine: bool = tx.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('sessions') WHERE name = 'engine'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_engine {
+        tx.execute_batch("ALTER TABLE sessions ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude'")?;
+    }
+    Ok(())
+}
 
 /// Migration 15. Skips what is already there (a database rewound to an
 /// older version for a test keeps its tables and columns).

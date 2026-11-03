@@ -12,10 +12,10 @@
 //! - `list_bots` output with bot names or instructions written by someone
 //!   other than the person Herder acts for.
 //!
-//! Trusted ([`TRUSTED_TOOLS`]): oxbot's own tools, whose text oxbot writes
+//! Trusted (`crate::engine::trust`, shared by every engine): oxbot's own tools, whose text oxbot writes
 //! (statuses, refusals, sign-in results, whether a report was saved); the team tools mark the session
 //! themselves when they hand back someone else's text. Also Claude Code's
-//! planning tools ([`TRUSTED_BUILTINS`]), which only echo Claude's own plan
+//! planning tools (`TRUSTED_BUILTINS`), which only echo Claude's own plan
 //! or load tool definitions, never outside text.
 //!
 //! Claude remembers what it read for the whole session, across turns and
@@ -26,13 +26,17 @@ use oxbot_browser::MCP_SERVER_NAME;
 
 use super::claude::tool_label;
 use super::{Hub, Runtime};
+use crate::engine::trust::is_trusted_tool;
 use crate::id::BotId;
+#[cfg(test)]
 use crate::tools::{
     self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
     SIGN_IN_TOOL,
 };
 
-/// oxbot's own tools: their results never taint a session.
+/// oxbot's own tools: their results never taint a session (the same list
+/// every engine uses, [`crate::engine::trust::TRUSTED_HOST_TOOLS`]).
+#[cfg(test)]
 const TRUSTED_TOOLS: [&str; 6] = [
     LIST_BOTS_TOOL,
     CREATE_BOT_TOOL,
@@ -42,25 +46,11 @@ const TRUSTED_TOOLS: [&str; 6] = [
     SAVE_REPORT_TOOL,
 ];
 
-/// Claude Code's own tools that bring in no outside text: its to-do list
-/// and task notes (echoing what Claude wrote), plan mode, and loading
-/// tool definitions. Not `TaskList`/`TaskGet`/`TaskOutput` (another agent
-/// or a background command may have written what they return).
-const TRUSTED_BUILTINS: [&str; 6] = [
-    "TodoWrite",
-    "ToolSearch",
-    "EnterPlanMode",
-    "ExitPlanMode",
-    "TaskCreate",
-    "TaskUpdate",
-];
-
 /// Why a call to tool `name` taints the session (`page`: the page the
 /// browser is on, if known), or `None` for a trusted tool. Shown on the
 /// card after "Herder has read".
 pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Option<String> {
-    if TRUSTED_TOOLS.iter().any(|t| name == tools::full_name(t)) || TRUSTED_BUILTINS.contains(&name)
-    {
+    if is_trusted_tool(name) {
         return None;
     }
     if name.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")) {
@@ -123,6 +113,17 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::trust::{TRUSTED_BUILTINS, TRUSTED_HOST_TOOLS};
+
+    #[test]
+    fn the_shared_list_names_oxbots_own_tools() {
+        let mut ours = TRUSTED_TOOLS;
+        let mut shared = TRUSTED_HOST_TOOLS;
+        ours.sort_unstable();
+        shared.sort_unstable();
+        assert_eq!(ours, shared);
+        assert_eq!(crate::engine::trust::HOST_TOOL_PREFIX, tools::full_name(""));
+    }
 
     #[test]
     fn only_oxbots_own_tools_are_trusted() {

@@ -190,6 +190,7 @@ impl Hub {
         let turn = TurnInput {
             text: message,
             user_seq: user_message.seq,
+            person: person.map(ToString::to_string),
             origin: serde_json::Value::Null,
         };
         let mut runtimes = self.runtimes.lock().await;

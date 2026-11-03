@@ -147,6 +147,8 @@ mod tests {
             owner: None,
             created_by: None,
             private: false,
+            engine: crate::engine::EngineKind::Claude,
+            loop_settings: crate::bot::LoopSettings::default(),
             instructions: instructions.into(),
             dir: PathBuf::from("/x"),
         }

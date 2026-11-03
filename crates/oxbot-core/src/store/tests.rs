@@ -1400,3 +1400,98 @@ fn migration_15_skips_what_is_already_there() {
     migrations::usage_alerts_and_prefs(&tx).unwrap();
     tx.commit().unwrap();
 }
+
+#[test]
+fn a_version_15_database_gets_turn_origins_and_session_engines() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 15).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO sessions (bot, claude_session, prompt, updated_ms, tainted_by)
+             VALUES ('news', 's1', 'p', 1, 'a web page');",
+        )
+        .unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    // A session saved before engines is Claude's, and keeps what it read.
+    assert_eq!(
+        store.session_engine(&bot("news")).unwrap().as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        store.session_taint(&bot("news")).unwrap().as_deref(),
+        Some("a web page")
+    );
+    assert_eq!(store.session_engine(&bot("other")).unwrap(), None);
+    assert!(
+        !tmp.path().join("oxbot.db.v15.bak").exists(),
+        "new tables need no copy"
+    );
+}
+
+#[test]
+fn migration_16_skips_what_is_already_there() {
+    let conn = &mut Connection::open_in_memory().unwrap();
+    conn.execute_batch(SCHEMA).unwrap();
+    migrate(conn, MIGRATIONS.len(), false).unwrap();
+    let tx = conn.transaction().unwrap();
+    migrations::engines_and_origins(&tx).unwrap();
+    tx.commit().unwrap();
+}
+
+#[test]
+fn a_session_remembers_its_engine() {
+    let store = Store::open_in_memory().unwrap();
+    let saved = SavedSession {
+        id: "s1".into(),
+        prompt: "p".into(),
+    };
+    store
+        .save_session(
+            &bot("scout"),
+            Some(&saved),
+            crate::engine::EngineKind::OpenRouter,
+        )
+        .unwrap();
+    assert_eq!(
+        store.session_engine(&bot("scout")).unwrap().as_deref(),
+        Some("openrouter")
+    );
+    store.set_session(&bot("scout"), Some(&saved)).unwrap();
+    assert_eq!(
+        store.session_engine(&bot("scout")).unwrap().as_deref(),
+        Some("claude")
+    );
+}
+
+#[test]
+fn who_started_a_turn_is_kept_until_the_bot_is_deleted() {
+    let store = Store::open_in_memory().unwrap();
+    let origin = TurnOriginRecord {
+        person: Some("p_0123456789abcdef".into()),
+        on_farm: false,
+        entry: "gate".into(),
+        root_bot: "assistant".into(),
+        root_seq: 4,
+        via: vec!["assistant".into()],
+        engine: "claude".into(),
+        tainted_by: Some("a web page".into()),
+    };
+    store.add_turn_origin(&bot("helper"), 7, &origin).unwrap();
+    // Kept as first recorded.
+    let other = TurnOriginRecord {
+        on_farm: true,
+        ..origin.clone()
+    };
+    store.add_turn_origin(&bot("helper"), 7, &other).unwrap();
+    assert_eq!(store.turn_origin(&bot("helper"), 7).unwrap(), Some(origin));
+    assert_eq!(store.turn_origin(&bot("helper"), 8).unwrap(), None);
+    store.delete_bot(&bot("helper")).unwrap();
+    assert_eq!(store.turn_origin(&bot("helper"), 7).unwrap(), None);
+}

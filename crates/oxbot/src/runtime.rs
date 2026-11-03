@@ -157,7 +157,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         extra_env: path_env,
         mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
-        ..HubConfig::new(home.bots_dir())
+        ..HubConfig::for_app(home.bots_dir())
     };
     let hub = Hub::new(bots, store, config);
 

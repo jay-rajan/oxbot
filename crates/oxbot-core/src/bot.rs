@@ -4,7 +4,8 @@
 //!
 //! ```text
 //! bots/assistant/
-//!   bot.toml          name = "Herder", optional model, owner, created_by, private
+//!   bot.toml          name = "Herder", optional engine, model, owner,
+//!                     created_by, private, [openrouter] settings
 //!   instructions.md   appended to Claude's system prompt
 //!   work/             Claude's working folder: the only place it may touch
 //! ```
@@ -15,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::engine::EngineKind;
 use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
 
 /// The central bot's id. It's Herder: created on first run, kept if
@@ -236,13 +238,39 @@ pub struct Bot {
     /// Only its owner (and the Farm) can see and use it, and it uses
     /// only its owner's own browser.
     pub private: bool,
+    /// The engine that runs it, as its file says (Herders' engines are
+    /// fixed by the hub). Bots made before engines run on Claude.
+    pub engine: EngineKind,
+    /// Its settings for oxbot's own loop (the `[openrouter]` table).
+    pub loop_settings: LoopSettings,
     /// The bot's folder.
     pub dir: PathBuf,
+}
+
+/// A bot's settings for oxbot's own loop. Every one is optional.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoopSettings {
+    /// `auto`, or a model id the owner pinned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Its own cap on model requests a day; none: the household's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_requests: Option<u32>,
+}
+
+impl LoopSettings {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BotFile {
     name: String,
+    /// Absent: `claude` (every bot made before engines), so old files keep
+    /// their exact bytes when saved again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    engine: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     model: Option<String>,
     /// The owner's person id (`p_…`).
@@ -252,6 +280,27 @@ struct BotFile {
     created_by: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     private: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    openrouter: Option<LoopSettings>,
+}
+
+impl BotFile {
+    /// The engine it names. One this oxbot doesn't know runs on Claude: the
+    /// strictest (only the owner may give it tasks), never open to anyone.
+    fn engine(&self, id: &BotId) -> EngineKind {
+        match self.engine.as_deref() {
+            None => EngineKind::Claude,
+            Some(name) => EngineKind::parse(name).unwrap_or_else(|| {
+                tracing::warn!(bot = %id, engine = name, "unknown engine in bot.toml; using claude");
+                EngineKind::Claude
+            }),
+        }
+    }
+}
+
+/// How `engine` is written to `bot.toml`: not at all for Claude.
+fn engine_entry(engine: EngineKind) -> Option<String> {
+    (engine != EngineKind::Claude).then(|| engine.as_str().to_owned())
 }
 
 /// Errors reading or writing bots.
@@ -328,6 +377,7 @@ impl Bot {
         })?;
         // A missing instructions file just means no extra instructions.
         let instructions = fs::read_to_string(dir.join("instructions.md")).unwrap_or_default();
+        let engine = file.engine(&id);
         let owner = file.owner.and_then(|o| match PersonId::new(o) {
             Ok(id) => Some(id),
             Err(err) => {
@@ -343,6 +393,8 @@ impl Bot {
             owner,
             created_by: file.created_by,
             private: file.private,
+            engine,
+            loop_settings: file.openrouter.unwrap_or_default(),
             instructions,
             dir: dir.to_owned(),
         })
@@ -396,10 +448,12 @@ impl Bot {
         fs::create_dir_all(&work).map_err(io_err(&work))?;
         let file = BotFile {
             name: name.to_owned(),
+            engine: None,
             model: None,
             owner: owner.map(ToString::to_string),
             created_by: created_by.map(str::to_owned),
             private: false,
+            openrouter: None,
         };
         write_file(&dir, &file)?;
         let md = dir.join("instructions.md");
@@ -449,7 +503,8 @@ impl Bot {
         }
     }
 
-    /// Writes its name, model, owner, creator and privacy back to `bot.toml`.
+    /// Writes its name, engine, model, owner, creator, privacy and loop
+    /// settings back to `bot.toml`.
     ///
     /// # Errors
     /// Fails if the file can't be written.
@@ -458,10 +513,12 @@ impl Bot {
             &self.dir,
             &BotFile {
                 name: self.name.clone(),
+                engine: engine_entry(self.engine),
                 model: self.model.clone(),
                 owner: self.owner.as_ref().map(ToString::to_string),
                 created_by: self.created_by.clone(),
                 private: self.private,
+                openrouter: (!self.loop_settings.is_empty()).then(|| self.loop_settings.clone()),
             },
         )
     }
@@ -702,6 +759,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Bot::load(&bot.dir).unwrap().owner, None);
+    }
+
+    #[test]
+    fn a_bots_engine_is_saved_and_absent_means_claude() {
+        let tmp = tempfile::tempdir().unwrap();
+        let id = BotId::new("scout").unwrap();
+        let mut bot = Bot::create(tmp.path(), id, "Scout", "").unwrap();
+        assert_eq!(bot.engine, EngineKind::Claude);
+        assert_eq!(bot.loop_settings, LoopSettings::default());
+
+        bot.engine = EngineKind::OpenRouter;
+        bot.loop_settings.model = Some("auto".into());
+        bot.loop_settings.daily_requests = Some(200);
+        bot.save().unwrap();
+        let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(text.contains("engine = \"openrouter\""), "{text}");
+        assert!(text.contains("[openrouter]") && text.contains("daily_requests = 200"));
+        let again = Bot::load(&bot.dir).unwrap();
+        assert_eq!(again.engine, EngineKind::OpenRouter);
+        assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
+        assert_eq!(again.loop_settings.daily_requests, Some(200));
+
+        // Back to Claude: the file says nothing about engines again.
+        let mut again = again;
+        again.engine = EngineKind::Claude;
+        again.loop_settings = LoopSettings::default();
+        again.save().unwrap();
+        let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(
+            !text.contains("engine") && !text.contains("openrouter"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_old_file_keeps_its_bytes_and_an_unknown_engine_is_claude() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("news");
+        fs::create_dir_all(&dir).unwrap();
+        let old = "name = \"News\"\nmodel = \"haiku\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\n";
+        fs::write(dir.join("bot.toml"), old).unwrap();
+        let bot = Bot::load(&dir).unwrap();
+        assert_eq!(bot.engine, EngineKind::Claude);
+        bot.save().unwrap();
+        assert_eq!(fs::read_to_string(dir.join("bot.toml")).unwrap(), old);
+
+        fs::write(
+            dir.join("bot.toml"),
+            "name = \"News\"\nengine = \"codex\"\n",
+        )
+        .unwrap();
+        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Claude);
+        fs::write(
+            dir.join("bot.toml"),
+            "name = \"News\"\nengine = \"claude\"\n",
+        )
+        .unwrap();
+        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Claude);
     }
 
     #[test]

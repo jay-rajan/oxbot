@@ -1,8 +1,10 @@
-//! Sessions: each bot's saved Claude session and what it has read.
+//! Sessions: each bot's saved engine session (its Claude session), the
+//! engine it belongs to, and what it has read.
 
 use rusqlite::{OptionalExtension, params};
 
 use super::{SavedSession, Store, StoreError, now_ms};
+use crate::engine::EngineKind;
 use crate::id::BotId;
 
 impl Store {
@@ -26,6 +28,22 @@ impl Store {
             .optional()?)
     }
 
+    /// The engine `bot`'s saved session belongs to (`claude` for sessions
+    /// saved before engines), if one is saved.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn session_engine(&self, bot: &BotId) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT engine FROM sessions WHERE bot = ?1",
+                params![bot.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     /// Saves `bot`'s Claude session, or forgets it with `None`. A
     /// different session (or none) starts clean: nothing read, no pages
     /// opened.
@@ -37,6 +55,19 @@ impl Store {
         bot: &BotId,
         session: Option<&SavedSession>,
     ) -> Result<(), StoreError> {
+        self.save_session(bot, session, EngineKind::Claude)
+    }
+
+    /// Like [`Store::set_session`], for a session of `engine`.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn save_session(
+        &self,
+        bot: &BotId,
+        session: Option<&SavedSession>,
+        engine: EngineKind,
+    ) -> Result<(), StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         if let Some(s) = session {
@@ -47,11 +78,12 @@ impl Store {
             )?;
             tx.execute(
                 // SET reads the old row.
-                "INSERT INTO sessions (bot, claude_session, prompt, updated_ms) VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO sessions (bot, claude_session, prompt, updated_ms, engine)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(bot) DO UPDATE SET
                    tainted_by = CASE WHEN claude_session = ?2 THEN tainted_by ELSE NULL END,
-                   claude_session = ?2, prompt = ?3, updated_ms = ?4",
-                params![bot.as_str(), s.id, s.prompt, now_ms()],
+                   claude_session = ?2, prompt = ?3, updated_ms = ?4, engine = ?5",
+                params![bot.as_str(), s.id, s.prompt, now_ms(), engine.as_str()],
             )?;
         } else {
             tx.execute("DELETE FROM sessions WHERE bot = ?1", params![bot.as_str()])?;

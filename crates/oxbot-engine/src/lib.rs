@@ -11,12 +11,14 @@
 //!   through [`EngineEvent::HostTool`]. Both carry a [`Reply`]: dropping it
 //!   unanswered means "no", so a lost answer can never let a tool run.
 //!
-//! No I/O here: only types, traits and [`text`] helpers.
+//! No I/O here: only types, traits, [`text`] helpers and the [`trust`]
+//! lists.
 
 mod event;
 mod reply;
 mod spec;
 pub mod text;
+pub mod trust;
 
 use std::fmt;
 

@@ -12,7 +12,8 @@ use tokio::sync::oneshot;
 
 use super::{Hub, HubError, lock};
 use crate::bot::{Bot, Viewer};
-use crate::engine::{Decision, PermissionRequest};
+use crate::engine::trust::HOST_TOOL_PREFIX;
+use crate::engine::{Decision, GateMode, PermissionRequest};
 use crate::id::BotId;
 use crate::policy::{self, PageFacts, Verdict};
 use crate::tools::{SIGN_IN_TOOL, TOOL_SERVER_NAME};
@@ -90,17 +91,33 @@ impl Hub {
     /// `bot`'s engine asks whether it may run a tool: decide, maybe ask the
     /// user, then answer the engine.
     pub(super) async fn permission(self: Arc<Self>, bot: BotId, request: PermissionRequest) {
-        let decision = match self.decide_permission(&bot, &request).await {
-            Ok(decision) => decision,
-            Err(err) => Decision::Deny(format!("oxbot couldn't check this: {err}")),
+        let mode = self
+            .runtimes
+            .lock()
+            .await
+            .get(&bot)
+            .map_or(GateMode::Live, |r| r.gate_mode);
+        // In a practice run oxbot's own tools run (the hub answers them
+        // with what it records), so both engines get a normal result.
+        let decision = if mode == GateMode::DryRun && request.tool.starts_with(HOST_TOOL_PREFIX) {
+            Decision::Allow
+        } else {
+            match self.decide_permission(&bot, &request, mode).await {
+                Ok(decision) => decision,
+                Err(err) => Decision::Deny(format!("oxbot couldn't check this: {err}")),
+            }
         };
         request.reply.send(decision);
     }
 
+    /// The gate's decision for `request`. In a practice run (`mode`) a
+    /// tool that would need the person's OK is only recorded: no card, and
+    /// no "Always allow" rule is used.
     async fn decide_permission(
         self: &Arc<Self>,
         bot_id: &BotId,
         request: &PermissionRequest,
+        mode: GateMode,
     ) -> Result<Decision, HubError> {
         let bot = self.bot(bot_id.as_str())?;
         let uses_browser = request
@@ -182,6 +199,9 @@ impl Hub {
                     },
                 )?;
                 Ok(Decision::Deny(message))
+            }
+            Verdict::Ask(ask) if mode == GateMode::DryRun => {
+                Ok(Decision::Simulate(practice_text(&ask)))
             }
             Verdict::Ask(ask) => {
                 if self
@@ -326,6 +346,15 @@ impl Hub {
         )?;
         Ok(outcome)
     }
+}
+
+/// What a practice run tells the model about a step that would have
+/// needed the person's OK.
+fn practice_text(ask: &policy::Ask) -> String {
+    format!(
+        "(practice run) would {} \"{}\" on {}",
+        ask.action, ask.target, ask.site
+    )
 }
 
 /// The element uids a browser request names: `uid`, and each of

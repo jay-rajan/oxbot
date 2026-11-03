@@ -26,8 +26,8 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
-    BoxFuture, Decision, Engine, EngineError, EngineEvent, EngineKind, HostToolCall, NotReady,
-    PermissionRequest, Reply, Resume, SessionSpec, Started, TurnInput,
+    BoxFuture, Decision, Engine, EngineError, EngineEvent, EngineKind, HostToolCall, ModelChoice,
+    NotReady, PermissionRequest, Reply, Resume, SessionSpec, Started, TurnInput,
 };
 use crate::tools::{self, TOOL_SERVER_NAME, ToolSet};
 
@@ -59,7 +59,11 @@ impl ClaudeEngine {
         };
         let mut config = ClaudeConfig::new(&spec.work_dir, session);
         config.program.clone_from(&self.program);
-        config.model = spec.model.named().map(str::to_owned);
+        // A pinned loop model means nothing to Claude Code.
+        config.model = match &spec.model {
+            ModelChoice::Claude(alias) | ModelChoice::Only(alias) => Some(alias.clone()),
+            ModelChoice::Auto | ModelChoice::Pin(_) => None,
+        };
         config.extra_env.clone_from(&spec.env);
         config.instructions = Some(spec.system_prompt.clone());
         // Every tool that isn't pre-allowed is checked by oxbot.
@@ -384,15 +388,17 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::engine::{BrowserSpec, GateMode, HostTools, McpCommand, ModelChoice, Privacy};
+    use crate::engine::{BrowserSpec, GateMode, HostTools, McpCommand, Privacy};
 
     fn spec() -> SessionSpec {
         SessionSpec {
             bot: "helper".into(),
             work_dir: PathBuf::from("/bots/helper/work"),
+            context_dir: PathBuf::from("/bots/helper/context"),
+            knowledge_dir: None,
             system_prompt: "Be brief.".into(),
             resume: Resume::New("abc".into()),
-            model: ModelChoice::Named("sonnet".into()),
+            model: ModelChoice::Claude("sonnet".into()),
             browser: None,
             host_tools: HostTools::default(),
             host_tool_specs: Vec::new(),
@@ -446,6 +452,8 @@ mod tests {
             "Herder without a browser gets only its own tools"
         );
         assert_eq!(config.model, None);
+        herder.model = ModelChoice::Pin("some/model:free".into());
+        assert_eq!(engine.config(&herder).model, None);
     }
 
     #[test]

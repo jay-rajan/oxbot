@@ -27,6 +27,7 @@ mod approvals;
 mod browsers;
 mod claude;
 mod elements;
+mod engines;
 mod people;
 mod reports;
 mod rules;
@@ -55,7 +56,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, broad
 
 use crate::bot::{Bot, BotError};
 use crate::engine::claude::ClaudeEngine;
-use crate::engine::{Engine, EngineError, Session};
+use crate::engine::{Engine, EngineError, EngineKind, GateMode, Session};
 use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
 use crate::store::{Seqs, Store, StoreError};
 use turns::stop_idle_bots;
@@ -100,6 +101,11 @@ pub struct HubConfig {
     /// [`Hub::person_named`]) and a name alone gets nobody new.
     #[cfg(any(test, feature = "test-people"))]
     pub enrol_named_viewers: bool,
+    /// Tests only (`test-people`): tests written before engines run every
+    /// bot on Claude and anyone may give it tasks. Never in a normal build:
+    /// there the field doesn't exist and the owner-only rule always holds.
+    #[cfg(any(test, feature = "test-people"))]
+    pub pre_engine_tests: bool,
 }
 
 impl HubConfig {
@@ -122,6 +128,19 @@ impl HubConfig {
             e2e: false,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
+            #[cfg(any(test, feature = "test-people"))]
+            pre_engine_tests: true,
+        }
+    }
+
+    /// The app's settings: as [`HubConfig::new`], with every rule on even
+    /// in a build with test features.
+    #[must_use]
+    pub fn for_app(bots_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            #[cfg(any(test, feature = "test-people"))]
+            pre_engine_tests: false,
+            ..Self::new(bots_dir)
         }
     }
 }
@@ -165,12 +184,19 @@ pub enum HubError {
     /// A bot's engine couldn't start a session or stopped responding.
     #[error(transparent)]
     Engine(#[from] EngineError),
+    /// The bot's engine can't run right now (not set up on this Mac yet).
+    #[error("{0}")]
+    EngineNotReady(String),
 }
 
 /// A bot's running engine session (a `claude` child), and what oxbot
 /// knows about its turn.
 struct Runtime {
     session: Box<dyn Session>,
+    /// The engine running it.
+    engine: EngineKind,
+    /// Live, or a practice run (its gate records instead of asking).
+    gate_mode: GateMode,
     busy: bool,
     /// Held while a turn runs, so at most `max_concurrent_turns` run at once.
     permit: Option<OwnedSemaphorePermit>,
