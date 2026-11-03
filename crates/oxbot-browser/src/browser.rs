@@ -584,7 +584,8 @@ impl Browser {
                 "--disable-sync",
                 "--remote-debugging-address=127.0.0.1",
             ])
-            .arg(format!("--remote-debugging-port={}", self.port));
+            .arg(format!("--remote-debugging-port={}", self.port))
+            .args(&self.tools.config().chrome_args);
         if let Some(url) = window_url {
             if self.tools.config().hidden_windows {
                 cmd.arg("--headless=new");

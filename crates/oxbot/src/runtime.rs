@@ -142,6 +142,12 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             built_in: built_in.clone(),
             hidden_windows: e2e,
             mcp_override: fake_devtools(e2e),
+            // Test mode: `*.example.test` reaches the test site.
+            chrome_args: std::env::var("OXBOT_E2E_HOST_RULES")
+                .ok()
+                .filter(|_| e2e)
+                .map(|rules| vec![format!("--host-resolver-rules={rules}")])
+                .unwrap_or_default(),
             ..ToolsConfig::in_home(home.root())
         })
     });

@@ -1,0 +1,33 @@
+name = "Shadow: the owner's message also runs on another model"
+about = "With Shadow on, the owner's message to a Claude bot also runs on an OpenRouter model in a test browser; its answer shows under the live reply, and it records the post instead of doing it."
+covers = ["crates/oxbot-core/src/hub/compare.rs", "crates/oxbot-core/src/hub/trials.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+wait_for = "⇆ Shadow"
+[[step]]
+click = "⇆ Shadow"
+[[step]]
+wait_for = "Shadow your messages"
+[[step]]
+expect_js = "(() => { const s = document.getElementById('shadowTarget'); const o = [...s.options].find((o) => o.textContent === 'OpenRouter · e2e/tool-model:free'); if (!o) return false; s.value = o.value; return true; })()"
+[[step]]
+click = "Shadow"
+[[step]]
+wait_for = "⇆ Shadow on e2e/tool-model:free"
+[[step]]
+send = "post the nurse job"
+[[step]]
+wait_for = "Allow once"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "Shadow · e2e/tool-model:free"
+timeout_ms = 60000
+[[step]]
+expect = "acting task: shadow is a dry run"
+note = "The shadow recorded the post"
+shot = "shadow-card"
+[[step]]
+expect_site_writes = 0

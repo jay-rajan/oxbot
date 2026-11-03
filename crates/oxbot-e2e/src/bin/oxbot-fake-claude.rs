@@ -105,10 +105,13 @@ fn main() {
                             run_tool(&mut out, reply, &name, &input)
                         } else {
                             let why = response["message"].as_str().unwrap_or("");
+                            // A practice run's "no" says it was recorded as done.
+                            let dry = why
+                                .starts_with("[test run]")
+                                .then_some(reply.dry.as_deref())
+                                .flatten();
                             out.done(
-                                reply
-                                    .denied
-                                    .as_deref()
+                                dry.or(reply.denied.as_deref())
                                     .unwrap_or(&format!("I didn't: {why}")),
                             );
                             Waiting::Nothing

@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use anyhow::{Context, anyhow, bail};
 use tokio::io::AsyncBufReadExt as _;
 use tokio::process::{Child, Command};
@@ -106,6 +109,115 @@ impl FakeOpenRouter {
     }
 }
 
+/// The test site: `*.example.test` in oxbot's Chromes (test mode maps the
+/// names here). Its pages try to write the moment they load (a fetch POST
+/// and a form post), as some sites do; it counts every request that isn't
+/// a read, and the pages it served.
+#[derive(Debug)]
+pub struct TestSite {
+    /// Its port on 127.0.0.1.
+    pub port: u16,
+    writes: Arc<AtomicU32>,
+    pages: Arc<AtomicU32>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+/// The test site's page: a job to post, which tries to save at once.
+const SITE_PAGE: &str = r#"<!doctype html><html><head><title>Jobs</title></head><body>
+<h1>Post a job</h1>
+<form id="f" method="post" action="/apply"><input name="title" value="Nurse"><button>Post</button></form>
+<script>
+fetch("/save", { method: "POST", body: "draft" }).catch(() => {});
+setTimeout(() => document.getElementById("f").submit(), 300);
+</script></body></html>"#;
+
+impl TestSite {
+    /// Starts it on a free port.
+    ///
+    /// # Errors
+    /// Fails if no port can be had.
+    pub async fn start() -> anyhow::Result<Self> {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+        let port = listener.local_addr()?.port();
+        let (writes, pages) = (Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)));
+        let (w, p) = (Arc::clone(&writes), Arc::clone(&pages));
+        let task = tokio::spawn(async move {
+            while let Ok((mut tcp, _)) = listener.accept().await {
+                let (w, p) = (Arc::clone(&w), Arc::clone(&p));
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+                    let mut buf = vec![0u8; 16 * 1024];
+                    let Ok(n) = tcp.read(&mut buf).await else {
+                        return;
+                    };
+                    let head = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let method = head.split_whitespace().next().unwrap_or("");
+                    let path = head.split_whitespace().nth(1).unwrap_or("");
+                    // Chrome opens spare connections it never sends on.
+                    if method.is_empty() {
+                        return;
+                    }
+                    let body = if matches!(method, "GET" | "HEAD" | "OPTIONS") {
+                        if path == "/post" {
+                            p.fetch_add(1, Ordering::SeqCst);
+                            SITE_PAGE
+                        } else {
+                            "ok"
+                        }
+                    } else {
+                        w.fetch_add(1, Ordering::SeqCst);
+                        "saved"
+                    };
+                    let kind = if body == SITE_PAGE {
+                        "text/html"
+                    } else {
+                        "text/plain"
+                    };
+                    let _ = tcp
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            )
+                            .as_bytes(),
+                        )
+                        .await;
+                });
+            }
+        });
+        Ok(Self {
+            port,
+            writes,
+            pages,
+            task,
+        })
+    }
+
+    /// Requests that would have changed something (anything but a read).
+    #[must_use]
+    pub fn writes(&self) -> u32 {
+        self.writes.load(Ordering::SeqCst)
+    }
+
+    /// Times its job page was loaded.
+    #[must_use]
+    pub fn pages(&self) -> u32 {
+        self.pages.load(Ordering::SeqCst)
+    }
+
+    /// Chrome's host rules sending `*.example.test` here.
+    #[must_use]
+    pub fn host_rules(&self) -> String {
+        format!("MAP *.example.test 127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for TestSite {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 /// How to start oxbot for one test.
 #[derive(Debug, Clone)]
 pub struct Launch {
@@ -138,6 +250,8 @@ pub struct Server {
     /// How it was started (for a restart).
     config: Config,
     launch: Launch,
+    /// The test site its Chromes reach as `*.example.test`.
+    pub site: TestSite,
 }
 
 /// A free local port.
@@ -194,9 +308,19 @@ impl Server {
             ),
             None => None,
         };
+        let site = TestSite::start().await?;
         let port = free_port()?;
         let log = home.join("oxbot.log");
-        let child = spawn_oxbot(repo, config, home, launch, port, openrouter.as_ref(), &log)?;
+        let child = spawn_oxbot(
+            repo,
+            config,
+            home,
+            launch,
+            port,
+            openrouter.as_ref(),
+            &log,
+            &site.host_rules(),
+        )?;
         let server = Self {
             child,
             port,
@@ -206,6 +330,7 @@ impl Server {
             openrouter,
             config: config.clone(),
             launch: launch.clone(),
+            site,
         };
         server.wait_until_up().await?;
         Ok(server)
@@ -238,6 +363,7 @@ impl Server {
             self.port,
             self.openrouter.as_ref(),
             &self.log,
+            &self.site.host_rules(),
         )?;
         self.wait_until_up().await
     }
@@ -290,7 +416,12 @@ impl Server {
 }
 
 /// Starts `oxbot serve` on `home` and `port` with the stand-ins, logging
-/// to `log` (appended to, so a restart keeps the earlier lines).
+/// to `log` (appended to, so a restart keeps the earlier lines); its
+/// Chromes reach the test site by `site_rules`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one per thing a test oxbot is started with"
+)]
 fn spawn_oxbot(
     repo: &Path,
     config: &Config,
@@ -299,6 +430,7 @@ fn spawn_oxbot(
     port: u16,
     openrouter: Option<&FakeOpenRouter>,
     log: &Path,
+    site_rules: &str,
 ) -> anyhow::Result<Child> {
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -315,6 +447,7 @@ fn spawn_oxbot(
         .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
         .env("OXBOT_FAKE_SCRIPT", &launch.script)
         .env("RUST_LOG", "info")
+        .env("OXBOT_E2E_HOST_RULES", site_rules)
         .stdin(Stdio::null())
         .stdout(file.try_clone()?)
         .stderr(file)

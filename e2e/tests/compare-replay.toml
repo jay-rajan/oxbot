@@ -1,0 +1,110 @@
+name = "A replay on two engines changes nothing and shows scores"
+about = "The owner keeps a finished post as a test case and replays it on Claude and on an OpenRouter model: the post is recorded, never done (no card, nothing in the chat, no write reaches the site even though the test browser really loads its page), and the scoreboard shows both."
+covers = ["crates/oxbot-core/src/hub/trials.rs", "crates/oxbot-core/src/hub/compare.rs", "crates/oxbot-core/src/compare.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-browser/src/netguard.rs", "crates/oxbot-browser/src/trial.rs", "crates/oxbot/src/compare.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "post the nurse job"
+[[step]]
+wait_for = "Allow once"
+note = "Live, the post asks first"
+[[step]]
+click = "Allow once"
+[[step]]
+wait_for = "Posted the nurse job."
+[[step]]
+expect_site_writes = 0
+note = "The live turn's stand-in never opened the site"
+[[step]]
+expect_js = "(() => { const b = [...document.querySelectorAll('#log .rate-row button')].filter((b) => b.textContent === 'Test case…').pop(); b.click(); return true; })()"
+note = "Test case… under the reply that just ended"
+[[step]]
+wait_for = "Keep as a test case"
+[[step]]
+expect_js = "document.getElementById('caseRubric').value.includes('Would click button \"Post\" on jobs.example.test')"
+note = "The checks start from the step the original asked about"
+shot = "test-case-sheet"
+[[step]]
+click = "Keep"
+[[step]]
+wait_for = "✓ test case"
+[[step]]
+expect_js = "(() => { window.__chat = document.querySelectorAll('#log > *').length; return window.__chat > 0; })()"
+note = "Remember how long the chat is"
+[[step]]
+right_click = "Recipes"
+[[step]]
+click = "Compare…"
+[[step]]
+click = "Test cases"
+[[step]]
+wait_for = "post the nurse job"
+[[step]]
+expect_js = "(() => { const box = document.querySelector('#cmpCaseList input[type=checkbox]'); box.click(); return box.checked; })()"
+[[step]]
+wait_for = "OpenRouter · e2e/tool-model:free"
+[[step]]
+click = "Claude · sonnet"
+[[step]]
+click = "OpenRouter · e2e/tool-model:free"
+[[step]]
+click = "Estimate"
+[[step]]
+wait_for = "2 runs"
+shot = "estimate"
+[[step]]
+click = "Start"
+[[step]]
+wait_for = "running"
+note = "Starting shows the runs"
+[[step]]
+click = "Test cases"
+[[step]]
+wait_for = "2 of 2 · done"
+timeout_ms = 90000
+note = "One run at a time, each in its own test browser"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+note = "No card appeared"
+[[step]]
+expect_js = "document.querySelectorAll('#log > *').length === window.__chat"
+note = "The chat gained nothing"
+[[step]]
+expect_site_pages = 1
+note = "The OpenRouter run's test browser really loaded the site's page"
+[[step]]
+expect_site_writes = 0
+note = "…and every write the page tried was blocked"
+[[step]]
+click = "Runs"
+[[step]]
+wait_for = "OpenRouter · e2e/tool-model:free"
+[[step]]
+click = "post the nurse job · OpenRouter · e2e/tool-model:free"
+[[step]]
+wait_for = "✓ matched: click button \"Post\" on jobs.example.test"
+[[step]]
+expect = "blocked"
+note = "The run shows what its browser blocked"
+shot = "run-detail"
+[[step]]
+click = "✓"
+[[step]]
+click = "← Runs"
+[[step]]
+click = "post the nurse job · Claude · sonnet"
+[[step]]
+wait_for = "✓ matched: click button \"Post\" on jobs.example.test"
+[[step]]
+expect = "Posted the nurse job (test run)."
+[[step]]
+click = "← Runs"
+[[step]]
+click = "Scoreboard"
+[[step]]
+wait_for = "Claude · sonnet"
+[[step]]
+expect_js = "(() => { const rows = [...document.querySelectorAll('#cmpScoreRows tr')].map((r) => r.textContent); return rows.length >= 3 && rows[0].startsWith('Claude') && rows.some((r) => r.startsWith('OpenRouter · e2e/tool-model:free1100%')); })()"
+note = "Both engines (and the original) on the scoreboard; the marked run passes"
+shot = "scoreboard"

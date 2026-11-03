@@ -195,6 +195,11 @@ pub struct Step {
     /// Stop oxbot and start it again on the same data, as after the Mac
     /// restarts (the stand-ins keep running; the page reconnects).
     pub restart: Option<bool>,
+    /// The test site (`*.example.test`) got exactly this many requests
+    /// that would have changed something.
+    pub expect_site_writes: Option<u32>,
+    /// The test site's job page was loaded at least this many times.
+    pub expect_site_pages: Option<u32>,
     /// A name for the screenshot after this step.
     pub shot: Option<String>,
     /// Why this step is here.
@@ -286,6 +291,14 @@ impl Step {
         if self.restart == Some(true) {
             parts.push("Restart oxbot".to_owned());
         }
+        if let Some(n) = self.expect_site_writes {
+            parts.push(format!("Expect the test site to have had {n} writes"));
+        }
+        if let Some(n) = self.expect_site_pages {
+            parts.push(format!(
+                "Expect the test site's page loaded at least {n} times"
+            ));
+        }
         if parts.is_empty() {
             parts.push("Look".to_owned());
         }
@@ -313,6 +326,8 @@ impl Step {
             self.expect_openrouter_not.is_some(),
             self.expect_openrouter_body.is_some(),
             self.restart.is_some(),
+            self.expect_site_writes.is_some(),
+            self.expect_site_pages.is_some(),
         ]
         .iter()
         .filter(|a| **a)

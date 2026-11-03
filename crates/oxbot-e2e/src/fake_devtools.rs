@@ -10,7 +10,10 @@
 //! - every input tool (`click`, `fill`, …) says "done".
 //!
 //! Real Chrome still runs hidden for leases, screenshots and page facts, as
-//! with the stand-in Claude. Each call is logged (tool and arguments) to
+//! with the stand-in Claude. A page on the test site (a `.test` host) is
+//! also opened in that Chrome, in a new tab (the real tool's
+//! `--browserUrl` says which Chrome), so its network can be checked; no
+//! other page is ever loaded. Each call is logged (tool and arguments) to
 //! `OXBOT_FAKE_DT_LOG` if set, so tests can check what the loop did.
 
 use std::io::Write as _;
@@ -43,6 +46,8 @@ pub struct Devtools {
     tools: Vec<Value>,
     open: Option<String>,
     log: Option<PathBuf>,
+    /// The Chrome's control port, from `--browserUrl`.
+    chrome: Option<u16>,
 }
 
 impl Devtools {
@@ -54,6 +59,45 @@ impl Devtools {
             tools: tools(),
             open: None,
             log,
+            chrome: None,
+        }
+    }
+
+    /// Opens test-site pages in the Chrome at `browser_url` (the real
+    /// tool's `--browserUrl`, e.g. `http://127.0.0.1:9333`).
+    #[must_use]
+    pub fn with_browser_url(mut self, browser_url: &str) -> Self {
+        self.chrome = browser_url
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.trim_end_matches('/').parse().ok());
+        self
+    }
+
+    /// Opens `url` in a new tab of the Chrome, if it's on the test site.
+    fn load_in_chrome(&self, url: &str) {
+        let Some(port) = self.chrome else {
+            return;
+        };
+        let host = url
+            .strip_prefix("http://")
+            .and_then(|rest| rest.split(['/', ':', '?', '#']).next())
+            .unwrap_or("");
+        if !host.to_ascii_lowercase().ends_with(".test") || url.contains(char::is_whitespace) {
+            return;
+        }
+        let request = format!(
+            "PUT /json/new?{url} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        if let Ok(mut tcp) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+            use std::io::{Read as _, Write as _};
+            let _ = tcp.set_read_timeout(Some(std::time::Duration::from_secs(3)));
+            let _ = tcp.write_all(request.as_bytes());
+            let mut answer = [0u8; 512];
+            let _ = tcp.read(&mut answer);
+            // Like the real tool, answer once the page has loaded (and run
+            // its first scripts).
+            std::thread::sleep(std::time::Duration::from_millis(1500));
         }
     }
 
@@ -109,6 +153,7 @@ impl Devtools {
             "navigate_page" => match args["type"].as_str().unwrap_or("url") {
                 "url" => match args["url"].as_str() {
                     Some(url) => {
+                        self.load_in_chrome(url);
                         self.open = Some(url.to_owned());
                         text(&format!(
                             "Successfully navigated to {url}.\n{}",
@@ -125,6 +170,9 @@ impl Devtools {
             },
             "new_page" => {
                 self.open = args["url"].as_str().map(str::to_owned);
+                if let Some(url) = &self.open {
+                    self.load_in_chrome(url);
+                }
                 text(&self.pages())
             }
             "list_pages" | "select_page" => text(&self.pages()),

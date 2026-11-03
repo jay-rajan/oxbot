@@ -150,3 +150,14 @@ read = true
 
 [[reply]]
 say = "Got it."
+
+# Comparing engines (#21): a post on the test site (jobs.example.test, the
+# e2e runner's own site), replayed as a test.
+[[reply]]
+when = "post the nurse job"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "7_3" }
+snapshot = "## Pages\n1: Jobs (http://jobs.example.test/post) [selected]\n## Latest page snapshot\nuid=7_1 RootWebArea \"Jobs\"\n  uid=7_2 textbox \"Title\"\n  uid=7_3 button \"Post\""
+after = "Posted the nurse job."
+denied = "Okay, I didn't post the nurse job."
+dry = "Posted the nurse job (test run)."

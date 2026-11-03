@@ -103,8 +103,8 @@ pub struct Reply {
     /// Reserved for knowledge tests: text the bot is expected to know
     /// (from its notes or the request). No stand-in acts on it yet.
     pub knows: Option<String>,
-    /// Reserved for practice-run tests: said after a `[test run]` refusal.
-    /// No stand-in acts on it yet.
+    /// Said after a practice run's `[test run]` answer (the stand-in
+    /// Claude gets it as a refusal) instead of `denied`.
     pub dry: Option<String>,
 }
 

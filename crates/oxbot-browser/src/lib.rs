@@ -130,6 +130,9 @@ pub struct ToolsConfig {
     /// instead of `chrome-devtools-mcp` (a stand-in). Claude bots keep the
     /// real one.
     pub mcp_override: Option<McpCommand>,
+    /// End-to-end tests only: more Chrome flags (the test site's host
+    /// rules, so `*.example.test` names reach it).
+    pub chrome_args: Vec<String>,
 }
 
 /// The browser tool shipped inside oxbot.app: a Node.js runtime and the
@@ -173,6 +176,7 @@ impl ToolsConfig {
             built_in: None,
             hidden_windows: false,
             mcp_override: None,
+            chrome_args: Vec::new(),
         }
     }
 
@@ -286,7 +290,14 @@ impl Tools {
     #[must_use]
     pub fn mcp_command(&self, port: u16, workspace: &Path) -> McpCommand {
         match &self.config.mcp_override {
-            Some(stand_in) => stand_in.clone(),
+            Some(stand_in) => {
+                // Which Chrome, as the real tool is told.
+                let mut stand_in = stand_in.clone();
+                stand_in
+                    .args
+                    .push(format!("--browserUrl=http://127.0.0.1:{port}"));
+                stand_in
+            }
             None => self.real_mcp_command(port, workspace),
         }
     }

@@ -272,6 +272,24 @@ async fn loop_steps(driver: &mut Driver, server: &Server, step: &Step) -> anyhow
             tokio::time::sleep(Duration::from_millis(150)).await;
         }
     }
+    if let Some(want) = step.expect_site_writes {
+        let got = server.site.writes();
+        if got != want {
+            bail!("the test site got {got} writes, not {want}");
+        }
+    }
+    if let Some(want) = step.expect_site_pages {
+        let start = Instant::now();
+        while server.site.pages() < want {
+            if start.elapsed() > Duration::from_secs(5) {
+                bail!(
+                    "the test site's page was loaded {} times, not {want}",
+                    server.site.pages()
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    }
     if let Some(text) = &step.expect_openrouter_not {
         let fake = stand_in(server)?;
         let (log, bodies) = (fake.requests(), fake.bodies());
