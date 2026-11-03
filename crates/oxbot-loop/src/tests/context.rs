@@ -468,3 +468,44 @@ async fn sixty_steps_in_one_window_start_a_fresh_one() {
     );
     assert!(header.ends_with("The task, in the person's own words:\n[Jay] go on\nTheir other messages, oldest first:\n[Jay] glob a lot"), "{header}");
 }
+
+#[tokio::test]
+async fn helper_requests_reach_the_hubs_meter_too() {
+    let h = with_page(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::tool(
+                "mcp__oxbot__ask_page",
+                json!({"question": "Which lamp is cheapest?"}),
+            ))
+            .then(Step::text("Lamp 0."))
+            .then(Step::text("Lamp 0 it is.")),
+        big_page(400, false),
+    );
+    let started = h.engine.start(h.spec(new_session())).await.unwrap();
+    let (mut session, mut events) = (started.session, started.events);
+    session
+        .send(TurnInput {
+            text: "[Jay] cheapest".into(),
+            user_seq: 1,
+            person: None,
+            origin: json!({}),
+        })
+        .await
+        .unwrap();
+    let mut kinds = Vec::new();
+    loop {
+        match events.recv().await.unwrap() {
+            EngineEvent::ModelCall(r) => kinds.push(r.kind),
+            EngineEvent::Permission(r) => r.reply.send(Decision::Allow),
+            EngineEvent::TurnDone { .. } => break,
+            _ => {}
+        }
+    }
+    session.shutdown().await;
+    let (chat, page) = (
+        oxbot_engine::CallKind::Chat,
+        oxbot_engine::CallKind::PageQuestion,
+    );
+    assert_eq!(kinds, [chat, chat, page, chat]);
+}

@@ -408,6 +408,7 @@ impl Turn {
             lane,
             kind: CallKind::Chat,
             events: Some(&core.events),
+            meter: Some(&core.events),
             cancel,
             routing: TurnRouting {
                 choice: core.choice.clone(),
@@ -443,6 +444,7 @@ impl Turn {
             lane: caller.lane,
             choice: core.choice.clone(),
             cancel,
+            meter: Some(&core.events),
         }
     }
 

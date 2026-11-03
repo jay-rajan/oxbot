@@ -65,7 +65,11 @@ pub(crate) struct Caller<'a> {
     pub privacy: Privacy,
     pub lane: Lane,
     pub kind: CallKind,
+    /// Live text and status go here (a turn's own requests only).
     pub events: Option<&'a mpsc::Sender<EngineEvent>>,
+    /// Each request's meter record goes here too (a turn's requests and
+    /// its helpers'), so the chat's count and practice runs include them.
+    pub meter: Option<&'a mpsc::Sender<EngineEvent>>,
     pub cancel: &'a CancellationToken,
     pub routing: TurnRouting,
     pub zdr_dropped: bool,
@@ -330,8 +334,8 @@ impl Caller<'_> {
         if let Err(err) = self.shared.setup.store.record_call(&record) {
             tracing::warn!(%err, "couldn't save a model request");
         }
-        if let Some(events) = self.events {
-            let _ = events.send(EngineEvent::ModelCall(record)).await;
+        if let Some(meter) = self.meter {
+            let _ = meter.send(EngineEvent::ModelCall(record)).await;
         }
         result
     }
@@ -474,6 +478,8 @@ pub(crate) struct HelperCaller<'a> {
     pub lane: Lane,
     pub choice: ModelChoice,
     pub cancel: &'a CancellationToken,
+    /// The session's events, for the meter only.
+    pub meter: Option<&'a mpsc::Sender<EngineEvent>>,
 }
 
 impl ModelCaller for HelperCaller<'_> {
@@ -496,6 +502,7 @@ impl ModelCaller for HelperCaller<'_> {
                 lane: self.lane,
                 kind,
                 events: None,
+                meter: self.meter,
                 cancel: self.cancel,
                 routing: TurnRouting {
                     choice: self.choice.clone(),
@@ -568,6 +575,7 @@ pub(crate) async fn one_shot(shared: &Shared, req: OneShot) -> Result<String, St
         lane: Lane::Live,
         kind: req.kind,
         events: None,
+        meter: None,
         cancel: &cancel,
         routing: TurnRouting {
             choice: req.model.clone(),
