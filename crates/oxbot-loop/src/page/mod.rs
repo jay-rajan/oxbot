@@ -34,9 +34,9 @@ pub use diff::diff;
 pub use parse::{origin_path, page_news};
 pub use trim::Trimmed;
 
-/// Token estimate used everywhere: one token per 3 bytes, rounded up.
+/// Token estimate used everywhere (the loop's own).
 pub(crate) fn est(text: &str) -> u64 {
-    (text.len() as u64).div_ceil(3)
+    crate::budget::est(text)
 }
 
 /// One parsed tool result: the page list, the snapshot nodes and any other

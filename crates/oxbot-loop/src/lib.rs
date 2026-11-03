@@ -1,11 +1,15 @@
 //! oxbot's own agent loop: the engine behind `OpenRouter` bots.
 //!
-//! A turn runs one step at a time ([`runner`]): build the context, pick a
-//! model ([`router`]), wait for the household's request budget
-//! ([`pacer`]), stream the answer, then run each tool call it asked for,
-//! but only after oxbot's gate said yes ([`gate`]). Every step is saved
-//! ([`store`]) so a turn picks up where it left off after a restart, and
-//! every model request is metered ([`meter`]).
+//! A turn runs one step at a time: pick a model ([`router`]), build the
+//! context for its window ([`context`]: a stable prefix, a frozen header,
+//! old results cleared to stubs, summaries by the [`compact`]or when it's
+//! still too long), wait for the household's request budget ([`pacer`]),
+//! stream the answer, then run each tool call it asked for, but only after
+//! oxbot's gate said yes ([`gate`]). Big results and every page snapshot
+//! are stored ([`results`]) and shown small: a page as its trimmed tree, a
+//! map ([`page`]) or what changed. Every step is saved ([`store`]) so a
+//! turn picks up where it left off after a restart, and every model
+//! request is metered ([`meter`]).
 //!
 //! The loop never decides what a tool may do: the hub does, through
 //! [`oxbot_engine::EngineEvent::Permission`], with the same policy as for
@@ -22,11 +26,13 @@ pub mod gate;
 pub mod meter;
 pub mod pacer;
 pub mod page;
+pub mod results;
 pub mod router;
 mod runner;
 mod session;
 pub mod store;
 pub mod tools;
+mod turn;
 
 use std::fmt;
 use std::sync::{Arc, RwLock};
@@ -37,14 +43,17 @@ use oxbot_engine::{
 };
 use oxbot_llm::{ChatModel, KeyCell, Message};
 
-pub use compact::{Compaction, Compactor, DropOldTurns, ModelCaller};
-pub use context::{Built, ContextBuilder, LastCall, PlainContext, Pressure, TaskView, TokenBudget};
+pub use compact::{COMPACT_V1, Compaction, Compactor, ModelCaller, SummaryCompactor};
+pub use context::{
+    Built, ContextBuilder, LastCall, Pressure, TaskView, TokenBudget, WindowedContext,
+};
 pub use meter::{GuardQuery, LimitHit, NoLimits, UsageGuard};
 pub use pacer::{Account, Lane, Pacer};
 pub use router::{CatalogCache, Router};
 pub use store::{LoopStore, LoopStoreError, StoredMessage, TurnRow, TurnStatus};
 pub use tools::browser::{BrowserFactory, BrowserOutput, BrowserTools};
 pub use tools::mcp::McpBrowserFactory;
+pub use tools::page::ASK_PAGE_V1;
 pub use tools::{ToolOutcome, ToolRegistry};
 
 /// Household settings for the loop, changed by the owner.
@@ -142,11 +151,18 @@ pub struct LoopSetup {
     pub context: Arc<dyn ContextBuilder>,
     /// Makes room when it's too long.
     pub compactor: Arc<dyn Compactor>,
+    /// How strict an element label is (higher: more care before a click),
+    /// the gate's own measure. A page snapshot naming one uid twice keeps
+    /// the strictest label.
+    pub strictness: Arc<Strictness>,
 }
+
+/// How strict an element label (`button "Pay now"`) is.
+pub type Strictness = dyn Fn(&str) -> u8 + Send + Sync;
 
 impl LoopSetup {
     /// A setup with `model` and `store`, a fresh pacer, an empty model
-    /// list, no limits, no browser, and the plain context.
+    /// list, no limits, no browser, and the windowed context.
     #[must_use]
     pub fn new(model: Arc<dyn ChatModel>, store: Arc<dyn LoopStore>) -> Self {
         Self {
@@ -161,8 +177,9 @@ impl LoopSetup {
             browser: None,
             browser_allow: Vec::new(),
             key: None,
-            context: Arc::new(PlainContext),
-            compactor: Arc::new(DropOldTurns),
+            context: Arc::new(WindowedContext),
+            compactor: Arc::new(SummaryCompactor),
+            strictness: Arc::new(|_: &str| 0),
         }
     }
 }
@@ -255,11 +272,12 @@ impl LoopEngine {
             Arc::clone(&setup.store),
             Arc::clone(&setup.prefs),
         );
+        let calibration = budget::Calibration::load(setup.store.as_ref());
         Self {
             shared: Arc::new(Shared {
                 setup,
                 router,
-                calibration: budget::Calibration::default(),
+                calibration,
                 data_policy: DataPolicyFlag::default(),
             }),
         }

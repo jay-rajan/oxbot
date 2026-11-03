@@ -1573,3 +1573,91 @@ fn deleting_a_bot_deletes_its_loop_conversations() {
     assert_eq!(running.len(), 1);
     assert_eq!(running[0].bot, "news");
 }
+
+#[test]
+fn a_version_18_database_gets_the_loops_context_tables() {
+    use oxbot_loop::LoopStore as _;
+    use oxbot_loop::store::{CalibrationRow, ProgressNote, ResultKind, ResultRow};
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 18).unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    assert!(
+        !tmp.path().join("oxbot.db.v18.bak").exists(),
+        "new tables need no copy"
+    );
+    let row = ResultRow {
+        session: "s1".into(),
+        handle: "r7".into(),
+        bot: "scout".into(),
+        turn: 2,
+        step: 3,
+        tool: "mcp__chrome-devtools__take_snapshot".into(),
+        kind: ResultKind::Page,
+        page_url: Some("https://shop.example.com/".into()),
+        page_title: Some("Shop".into()),
+        bytes: 900,
+        est_tokens: 300,
+        tainted_by: Some("a web page".into()),
+        created_ms: 5,
+    };
+    store.save_result(&row).unwrap();
+    store
+        .save_result(&ResultRow {
+            handle: "r12".into(),
+            ..row.clone()
+        })
+        .unwrap();
+    assert_eq!(store.result("s1", "r7").unwrap(), Some(row));
+    assert_eq!(store.result("s2", "r7").unwrap(), None);
+    assert_eq!(store.last_result_number("s1").unwrap(), 12);
+    assert_eq!(store.last_result_number("s2").unwrap(), 0);
+    for (turn, note) in [(1, "a"), (1, "b"), (2, "c")] {
+        store
+            .add_progress(
+                "s1",
+                &ProgressNote {
+                    turn,
+                    ms: 1,
+                    note: note.into(),
+                    tainted_by: None,
+                },
+            )
+            .unwrap();
+    }
+    let notes: Vec<String> = store
+        .progress("s1", 2)
+        .unwrap()
+        .into_iter()
+        .map(|n| n.note)
+        .collect();
+    assert_eq!(notes, ["b", "c"]);
+    store
+        .save_calibration(&CalibrationRow {
+            model: "m:free".into(),
+            ratio: 0.8,
+            samples: 3,
+        })
+        .unwrap();
+    assert_eq!(store.calibrations().unwrap()[0].samples, 3);
+    // Running it again changes nothing.
+    drop(store);
+    let conn = Connection::open(&path).unwrap();
+    if let migrations::Step::Sql(sql) = &MIGRATIONS[18] {
+        conn.execute_batch(sql).unwrap();
+    } else {
+        panic!("migration 19 is SQL");
+    }
+    // Deleting the bot takes its stored results and notes.
+    drop(conn);
+    let store = Store::open(&path).unwrap();
+    store.open_session("scout", "s1", "h", false).unwrap();
+    store.delete_bot(&bot("scout")).unwrap();
+    assert_eq!(store.result("s1", "r7").unwrap(), None);
+    assert_eq!(store.progress("s1", 5).unwrap(), Vec::new());
+}

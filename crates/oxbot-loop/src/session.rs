@@ -19,11 +19,14 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::context::LastCall;
+use crate::context::state::WindowState;
 use crate::gate::GateCheck;
+use crate::results::ResultStore;
 use crate::store::{StoredMessage, TurnRow};
 use crate::tools::ToolRegistry;
 use crate::tools::browser::{BrowserTools, model_specs};
-use crate::{Shared, prefix_hash, runner};
+use crate::tools::pages::PageTracker;
+use crate::{Shared, prefix_hash, turn};
 
 /// Room for events the hub hasn't read yet.
 const EVENT_ROOM: usize = 256;
@@ -65,7 +68,10 @@ pub(crate) struct Core {
     pub events: mpsc::Sender<EngineEvent>,
     pub gate: GateCheck,
     pub browser: Option<Arc<dyn BrowserTools>>,
-    pub page: Mutex<Option<String>>,
+    /// The browser's tabs, as the session last saw them.
+    pub pages: Mutex<PageTracker>,
+    /// Stored tool results.
+    pub results: ResultStore,
     pub conv: tokio::sync::Mutex<Conv>,
     /// A turn that was running when oxbot stopped, to go on with.
     pub resume: Mutex<Option<TurnRow>>,
@@ -83,6 +89,16 @@ impl Core {
 
     pub fn is_stopping(&self) -> bool {
         self.stopping.load(Ordering::Relaxed)
+    }
+
+    /// The selected tab's address, if known.
+    pub fn current_url(&self) -> Option<String> {
+        self.pages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .current()
+            .map(|p| p.url)
+            .filter(|u| !u.is_empty())
     }
 }
 
@@ -129,9 +145,19 @@ pub(crate) async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Star
     if row.prefix_changed
         && let Some(last) = last_idx
     {
-        // The rules or tools changed: the model starts over after what it
-        // had (the history stays saved).
-        context = json!({ "from_idx": last + 1 });
+        // The rules or tools changed: a new window after what it had (the
+        // history stays saved; the task state, list and taint go on).
+        let mut state = WindowState::from_value(&context);
+        // A turn picked up after the restart starts the new window with its
+        // own message, so its calls and results keep their pairs.
+        let resumed_from = running
+            .iter()
+            .max_by_key(|t| t.turn)
+            .and_then(|t| messages.iter().find(|m| m.turn == t.turn))
+            .map(|m| m.idx);
+        state.start_idx = resumed_from.unwrap_or(last + 1);
+        state.pending_start = true;
+        context = state.to_value();
         context_dirty = true;
     }
     let next_turn = messages
@@ -162,7 +188,8 @@ pub(crate) async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Star
         gate: GateCheck::new(events.clone()),
         events,
         browser,
-        page: Mutex::new(None),
+        pages: Mutex::new(PageTracker::default()),
+        results: ResultStore::new(Arc::clone(store), &spec.bot, &id, &spec.context_dir),
         conv: tokio::sync::Mutex::new(Conv {
             messages,
             context,
@@ -228,11 +255,7 @@ impl Session for LoopSession {
                 ));
             }
             let cancel = CancellationToken::new();
-            let task = tokio::spawn(runner::run_turn(
-                Arc::clone(&self.core),
-                turn,
-                cancel.clone(),
-            ));
+            let task = tokio::spawn(turn::run_turn(Arc::clone(&self.core), turn, cancel.clone()));
             self.turn = Some((cancel, task));
             Ok(())
         })

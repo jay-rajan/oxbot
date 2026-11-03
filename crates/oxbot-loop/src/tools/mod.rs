@@ -1,14 +1,23 @@
 //! The tools a loop session offers, in a fixed order (oxbot's own tools,
-//! browser tools sorted by name, file tools, control tools), with the same
-//! names as on Claude. [`ToolRegistry::run`] needs a [`Permit`]: only the
-//! gate makes one.
+//! browser tools sorted by name, file tools, then the loop's own), with
+//! the same names as on Claude. [`ToolRegistry::run`] needs a [`Permit`]:
+//! only the gate makes one.
+//!
+//! Results the model gets are kept small: a page snapshot is stored whole
+//! (the hub still sees all of it) and the model is shown the trimmed page,
+//! a map of a big one, or what changed since its last look; any other big
+//! result is stored and shown in part. Stored results are read back by
+//! handle (`r12`) with `read_result` and the page tools.
 
 pub mod browser;
 pub mod control;
 pub mod files;
 pub mod mcp;
+pub mod page;
+pub mod pages;
 
-use std::path::{Path, PathBuf};
+use std::fmt::Write as _;
+use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use oxbot_engine::text::data_block;
@@ -19,15 +28,21 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::budget::{TokenBudget, est};
+use crate::context::state::{EntryKind, EntryMeta};
+use crate::context::window::{short_tool, short_url, tokens_in_words};
 use crate::gate::Permit;
+use crate::page::{self as snap, Baseline, Snapshot};
+use crate::results::{NewResult, ResultStore};
+use crate::store::ResultKind;
 use browser::{BROWSER_PREFIX, BrowserTools, SIDE_EFFECT_TOOLS};
+use pages::PageTracker;
 
-/// Results longer than this (characters) are saved to a file.
-pub const SPILL_OVER: usize = 20_000;
-/// How much of a saved result the model sees.
-pub const SPILL_SHOWN: usize = 12_000;
-/// Where saved results go, inside `work/`.
-pub const RESULTS_DIR: &str = ".oxbot/results";
+/// Results smaller than this (tokens) are never stored: a stub would be
+/// about as long.
+pub const STORE_OVER: u64 = 200;
+/// Longest tool error kept, in characters.
+pub const MAX_ERROR: usize = 600;
 
 /// oxbot's own tools that change something (written ahead, not re-run
 /// after a restart).
@@ -42,8 +57,11 @@ pub enum ToolKind {
     Browser,
     /// Files in `work/`.
     File,
-    /// The loop's own (`ask_user`).
+    /// The loop's own (`ask_user`, `update_todo`, `note_progress`,
+    /// `read_result`).
     Control,
+    /// The page tools (over stored snapshots).
+    Page,
 }
 
 /// One tool of a session.
@@ -66,10 +84,12 @@ pub struct ToolOutcome {
     pub for_model: Vec<Part>,
     /// Outside text (web pages, files, other bots).
     pub untrusted: bool,
-    /// Where a big result was saved, under `work/`.
+    /// Where the whole result is stored (`r12`), if it is.
     pub handle: Option<String>,
     /// The tool failed.
     pub error: bool,
+    /// The context builder's notes on it.
+    pub meta: EntryMeta,
 }
 
 impl ToolOutcome {
@@ -84,12 +104,26 @@ impl ToolOutcome {
             untrusted: false,
             handle: None,
             error,
+            meta: EntryMeta {
+                kind: if error {
+                    EntryKind::Error
+                } else {
+                    EntryKind::Normal
+                },
+                ..EntryMeta::default()
+            },
         }
+    }
+
+    /// The same, as `kind` (refusals and the to-do list are never cleared).
+    #[must_use]
+    pub fn kind(mut self, kind: EntryKind) -> Self {
+        self.meta.kind = kind;
+        self
     }
 }
 
 /// What running a tool needs from the session.
-#[derive(Debug)]
 pub struct ToolEnv<'a> {
     /// The bot's `work/` folder.
     pub work_dir: &'a Path,
@@ -99,10 +133,32 @@ pub struct ToolEnv<'a> {
     pub browser: Option<&'a Arc<dyn BrowserTools>>,
     /// Stops the call.
     pub cancel: &'a CancellationToken,
-    /// A name for a saved big result, e.g. `3-2-0`.
-    pub result_name: String,
-    /// The page the browser last said was selected.
-    pub page: &'a Mutex<Option<String>>,
+    /// Where big results are stored.
+    pub results: &'a ResultStore,
+    /// The browser's tabs.
+    pub pages: &'a Mutex<PageTracker>,
+    /// Strictness of an element label (the gate's).
+    pub strictness: Arc<crate::Strictness>,
+    /// The turn's budget (caps).
+    pub budget: TokenBudget,
+    /// The turn and step, for stored results.
+    pub turn: u32,
+    /// The step.
+    pub step: u32,
+    /// Whether the model can still see stored result `handle` in full
+    /// (in the window and not cleared): only then is a diff against it
+    /// shown.
+    pub visible: &'a (dyn Fn(&str) -> bool + Send + Sync),
+}
+
+impl std::fmt::Debug for ToolEnv<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolEnv")
+            .field("work_dir", &self.work_dir)
+            .field("turn", &self.turn)
+            .field("step", &self.step)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A session's tools.
@@ -113,7 +169,8 @@ pub struct ToolRegistry {
 
 impl ToolRegistry {
     /// The tools: `host` (oxbot's own, as given), `browser` (already
-    /// prefixed and sorted), the file tools, and `ask_user`.
+    /// prefixed and sorted), the file tools, then the loop's own (the page
+    /// tools only with a browser).
     #[must_use]
     pub fn new(host: Vec<ToolSpec>, browser: Vec<ToolSpec>) -> Self {
         let mut entries = Vec::new();
@@ -126,6 +183,7 @@ impl ToolRegistry {
                 side_effect,
             });
         }
+        let has_browser = !browser.is_empty();
         for spec in browser {
             let bare = spec.name.strip_prefix(BROWSER_PREFIX).unwrap_or_default();
             let side_effect = SIDE_EFFECT_TOOLS.contains(&bare);
@@ -143,11 +201,27 @@ impl ToolRegistry {
                 side_effect,
             });
         }
-        entries.push(ToolEntry {
-            spec: control::ask_user_spec(),
-            kind: ToolKind::Control,
-            side_effect: false,
-        });
+        for spec in [
+            control::ask_user_spec(),
+            control::update_todo_spec(),
+            control::note_progress_spec(),
+            control::read_result_spec(),
+        ] {
+            entries.push(ToolEntry {
+                spec,
+                kind: ToolKind::Control,
+                side_effect: false,
+            });
+        }
+        if has_browser {
+            for spec in page::specs() {
+                entries.push(ToolEntry {
+                    spec,
+                    kind: ToolKind::Page,
+                    side_effect: false,
+                });
+            }
+        }
         Self { entries }
     }
 
@@ -198,7 +272,8 @@ impl ToolRegistry {
         Ok(entry)
     }
 
-    /// Runs a call the gate allowed.
+    /// Runs a host, browser or file call the gate allowed (the loop's own
+    /// tools run in the turn, which holds their state).
     pub async fn run(&self, call: &ToolCall, permit: Permit, env: &ToolEnv<'_>) -> ToolOutcome {
         debug_assert_eq!(permit.tool_use_id(), call.id);
         let Some(entry) = self.get(&call.name) else {
@@ -209,13 +284,12 @@ impl ToolRegistry {
             ToolKind::Host => host(call, env).await,
             ToolKind::Browser => browser(call, env).await,
             ToolKind::File => file(call, env).await,
-            ToolKind::Control => Raw {
-                text: "Asked.".to_owned(),
-                wrap: None,
-                error: false,
-            },
+            ToolKind::Control | ToolKind::Page => {
+                Raw::error(format!("{} runs in the turn", call.name))
+            }
         };
-        finish(raw, untrusted, env).await
+        let untrusted = untrusted || raw.taints;
+        finish(raw, &call.name, untrusted, env)
     }
 }
 
@@ -225,16 +299,72 @@ struct Raw {
     /// Wrap as data: (tag, attributes).
     wrap: Option<(&'static str, String)>,
     error: bool,
+    /// Why it can't be trusted, in the hub's words.
+    why: Option<String>,
+    /// A browser result: the page it's about.
+    page: Option<pages::TabPage>,
+    /// Outside text even from a trusted tool (another bot's words).
+    taints: bool,
+    /// A browser result's page snapshot, parsed.
+    snapshot: Option<Snapshot>,
 }
 
 impl Raw {
     fn error(text: impl std::fmt::Display) -> Self {
         Self {
-            text: format!("[tool error] {text}"),
+            text: format!("[tool error] {}", short_error(&text.to_string())),
             wrap: None,
             error: true,
+            why: None,
+            page: None,
+            taints: false,
+            snapshot: None,
         }
     }
+
+    fn plain(text: String) -> Self {
+        Self {
+            text,
+            wrap: None,
+            error: false,
+            why: None,
+            page: None,
+            taints: false,
+            snapshot: None,
+        }
+    }
+}
+
+/// A tool error kept short: the first line, `…`, and the last 3 lines
+/// (a stack trace keeps its message and loses its frames).
+#[must_use]
+pub fn short_error(text: &str) -> String {
+    if text.chars().count() <= MAX_ERROR {
+        return text.to_owned();
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let first: String = lines
+        .first()
+        .copied()
+        .unwrap_or("")
+        .chars()
+        .take(300)
+        .collect();
+    let tail: Vec<String> = lines
+        .iter()
+        .skip(1)
+        .rev()
+        .take(3)
+        .rev()
+        .map(|l| l.chars().take(90).collect())
+        .collect();
+    let mut out = first;
+    out.push_str("\n…");
+    for t in tail {
+        out.push('\n');
+        out.push_str(&t);
+    }
+    out.chars().take(MAX_ERROR).collect()
 }
 
 async fn host(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
@@ -260,11 +390,18 @@ async fn host(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
         // Marked like every other failed tool, so models can tell.
         return Raw::error(reply.text);
     }
-    Raw {
-        text: reply.text,
-        wrap: None,
-        error: false,
-    }
+    // The hub writes these results, but it wraps other bots' words in
+    // data blocks (escaped, so only the hub can open one): those are
+    // outside text for this window.
+    let other_bot = reply.text.contains("<bot_reply ") || reply.text.contains("<bot_purpose>");
+    let mut raw = Raw::plain(reply.text);
+    raw.taints = other_bot;
+    raw.why = Some(if other_bot {
+        "another bot's reply".to_owned()
+    } else {
+        format!("a tool result ({})", short_tool(&call.name))
+    });
+    raw
 }
 
 async fn browser(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
@@ -285,16 +422,32 @@ async fn browser(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
                     "\n(The image isn't shown here. Use take_snapshot to read the page.)",
                 );
             }
-            let page = selected_url(&text);
-            let mut known = env.page.lock().unwrap_or_else(PoisonError::into_inner);
-            if page.is_some() {
-                known.clone_from(&page);
-            }
-            let url = page.or_else(|| known.clone()).unwrap_or_default();
+            let page = {
+                let mut tabs = env.pages.lock().unwrap_or_else(PoisonError::into_inner);
+                tabs.learn(&text);
+                tabs.current()
+            };
+            let url = page.as_ref().map(|p| p.url.clone()).unwrap_or_default();
+            // A page can be megabytes: parsed off the async threads.
+            let strict = Arc::clone(&env.strictness);
+            let (text, snapshot) = tokio::task::spawn_blocking(move || {
+                let snapshot = Snapshot::parse(&text, strict.as_ref());
+                (text, snapshot)
+            })
+            .await
+            .unwrap_or_else(|_| (String::new(), None));
             Raw {
                 text,
+                snapshot,
                 wrap: Some(("web_page", format!(" url=\"{}\"", attr(&url)))),
                 error: false,
+                why: Some(if url.is_empty() {
+                    "a web page".to_owned()
+                } else {
+                    format!("a web page ({url})")
+                }),
+                page,
+                taints: false,
             }
         }
         Err(err) => Raw::error(err),
@@ -312,15 +465,25 @@ async fn file(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
     };
     match done {
         Ok(Ok(result)) => {
-            let wrap = match (call.name.as_str(), result.read_path) {
-                ("Read", Some(path)) => Some(("file", format!(" path=\"{}\"", attr(&path)))),
-                ("Grep" | "Glob", _) => Some(("file", " search=\"results\"".to_owned())),
-                _ => None,
+            let (wrap, why) = match (call.name.as_str(), result.read_path) {
+                ("Read", Some(path)) => (
+                    Some(("file", format!(" path=\"{}\"", attr(&path)))),
+                    Some(format!("a file ({path})")),
+                ),
+                ("Grep" | "Glob", _) => (
+                    Some(("file", " search=\"results\"".to_owned())),
+                    Some("files in the work folder".to_owned()),
+                ),
+                _ => (None, Some(format!("a file tool's result ({})", call.name))),
             };
             Raw {
                 text: result.text,
                 wrap,
                 error: false,
+                why,
+                page: None,
+                taints: false,
+                snapshot: None,
             }
         }
         Ok(Err(err)) => Raw::error(err),
@@ -328,70 +491,257 @@ async fn file(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
     }
 }
 
-/// Wraps and, for big results, saves the whole text and cuts it.
-async fn finish(raw: Raw, untrusted: bool, env: &ToolEnv<'_>) -> ToolOutcome {
-    let mut shown = raw.text.clone();
-    let mut handle = None;
-    if raw.text.chars().count() > SPILL_OVER {
-        let rel = format!("{RESULTS_DIR}/{}.txt", env.result_name);
-        let path = env.work_dir.join(&rel);
-        let text = raw.text.clone();
-        let saved = tokio::task::spawn_blocking(move || save(&path, &text))
-            .await
-            .unwrap_or_else(|e| Err(e.to_string()));
-        let head: String = raw.text.chars().take(SPILL_SHOWN).collect();
-        shown = match saved {
-            Ok(()) => {
-                handle = Some(rel.clone());
-                format!(
-                    "{head}\n(… the full result is saved as {rel}; Read it with offset to see more)"
-                )
-            }
-            Err(err) => {
-                tracing::warn!(%err, "couldn't save a big tool result");
-                format!("{head}\n(… the rest was left out)")
-            }
+/// Wraps a result for the model: a page snapshot is stored and shown as
+/// the page, a map or a diff; any other big result is stored and shown in
+/// part; the rest as it is.
+fn finish(mut raw: Raw, tool: &str, untrusted: bool, env: &ToolEnv<'_>) -> ToolOutcome {
+    let trust_why = if untrusted { raw.why.clone() } else { None };
+    let mut meta = EntryMeta {
+        kind: if raw.error {
+            EntryKind::Error
+        } else {
+            EntryKind::Normal
+        },
+        tool: Some(tool.to_owned()),
+        trust_why: trust_why.clone(),
+        page_url: raw
+            .page
+            .as_ref()
+            .map(|p| p.url.clone())
+            .filter(|u| !u.is_empty()),
+        ..EntryMeta::default()
+    };
+    if raw.error {
+        return ToolOutcome {
+            text_for_hub: raw.text.clone(),
+            for_model: vec![Part::Text(raw.text)],
+            untrusted,
+            handle: None,
+            error: true,
+            meta,
         };
     }
+    let (shown, handle) = match raw.snapshot.take() {
+        Some(snapshot) => page_view(&raw, tool, &snapshot, trust_why.clone(), env, &mut meta),
+        None => big_text(&raw, tool, trust_why, env, &mut meta),
+    };
     let for_model = match &raw.wrap {
-        Some((tag, attrs)) => data_block(tag, attrs, &shown),
-        None => shown,
+        Some((tag, attrs)) => {
+            let attrs = match &handle {
+                Some(h) => format!("{attrs} saved=\"{h}\""),
+                None => attrs.clone(),
+            };
+            let (head, body) = shown;
+            format!("{head}{}", data_block(tag, &attrs, &body))
+        }
+        None => format!("{}{}", shown.0, shown.1),
     };
     ToolOutcome {
         text_for_hub: raw.text,
         for_model: vec![Part::Text(for_model)],
         untrusted,
         handle,
-        error: raw.error,
+        error: false,
+        meta,
     }
 }
 
-fn save(path: &PathBuf, text: &str) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+/// A snapshot: stored whole, shown as the trimmed page (small pages), what
+/// changed since the model's last look at this tab, or a map.
+fn page_view(
+    raw: &Raw,
+    tool: &str,
+    snapshot: &Snapshot,
+    tainted_by: Option<String>,
+    env: &ToolEnv<'_>,
+    meta: &mut EntryMeta,
+) -> ((String, String), Option<String>) {
+    let tab = raw.page.clone().unwrap_or_default();
+    let url = if snapshot.url().is_empty() {
+        tab.url.clone()
+    } else {
+        snapshot.url().to_owned()
+    };
+    let title = if snapshot.title().is_empty() {
+        tab.title.clone()
+    } else {
+        snapshot.title().to_owned()
+    };
+    let stored = env.results.put(&NewResult {
+        turn: env.turn,
+        step: env.step,
+        tool,
+        kind: ResultKind::Page,
+        page_url: Some(url.clone()).filter(|u| !u.is_empty()),
+        page_title: Some(title.clone()).filter(|t| !t.is_empty()),
+        tainted_by,
+        text: &raw.text,
+    });
+    let cap = env.budget.inline_cap();
+    let Ok(row) = stored else {
+        // Not stored: the trimmed page within the cap, and no handle.
+        tracing::warn!("couldn't store a page snapshot");
+        let (body, _) = snapshot.trim().render_within(cap, "the page");
+        return ((String::new(), with_pages(snapshot, &body)), None);
+    };
+    let handle = row.handle.clone();
+    let trimmed = snapshot.trim().with_handle(&handle);
+    let (key, baseline) = {
+        let tabs = env.pages.lock().unwrap_or_else(PoisonError::into_inner);
+        let key = tabs.tab_key(&url);
+        let baseline = tabs
+            .baseline(&key)
+            .filter(|b| (env.visible)(&b.handle))
+            .map(|b| Baseline {
+                handle: b.handle.clone(),
+                origin_path: b.origin_path.clone(),
+                lines: b.lines.clone(),
+            });
+        (key, baseline)
+    };
+    let place = short_url(&url);
+    let size = tokens_in_words(row.est_tokens);
+    let what = short_tool(tool);
+    let diff = baseline
+        .as_ref()
+        .and_then(|b| snap::diff(b, &trimmed, snapshot, &handle, cap));
+    let is_diff = diff.is_some();
+    let (head, body) = if let Some(diff) = diff {
+        (
+            format!(
+                "[stored as {handle}: {what} of {place}, {size}. Showing what changed since the \
+                 last look; find_in_page(page: \"{handle}\", …) or read_section for the rest.]\n"
+            ),
+            diff,
+        )
+    } else if trimmed.est_tokens() <= cap {
+        (
+            format!("[stored as {handle}: {what} of {place}, {size}. Showing the whole page.]\n"),
+            with_pages(snapshot, &trimmed.render()),
+        )
+    } else {
+        (
+            format!(
+                "[stored as {handle}: {what} of {place}, {size}. It's big, so here is a map: look \
+                 inside with find_in_page, read_section or ask_page.]\n"
+            ),
+            trimmed.map(snapshot, &handle),
+        )
+    };
+    {
+        let mut tabs = env.pages.lock().unwrap_or_else(PoisonError::into_inner);
+        tabs.latest_is(&handle);
+        // A diff isn't a page the model saw: the next one compares with
+        // the last page it was shown whole (or as a map).
+        if !is_diff {
+            tabs.shown(
+                &key,
+                Baseline {
+                    handle: handle.clone(),
+                    origin_path: snap::origin_path(&url),
+                    lines: trimmed.lines(),
+                },
+            );
+        }
     }
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    meta.diff = is_diff;
+    meta.page_key = Some(key);
+    meta.page_url = Some(url).filter(|u| !u.is_empty());
+    meta.page_title = Some(title).filter(|t| !t.is_empty());
+    meta.full_tokens = Some(row.est_tokens);
+    ((head, body), Some(handle))
 }
 
-/// The selected page's address from a browser result's page list
-/// (`N: Title (url) [selected]`).
-fn selected_url(text: &str) -> Option<String> {
-    let mut in_pages = false;
+/// The page list (tab ids are needed by the browser tools), then `body`.
+fn with_pages(snapshot: &Snapshot, body: &str) -> String {
+    if snapshot.pages().is_empty() {
+        return body.to_owned();
+    }
+    let mut out = String::from("## Pages\n");
+    for p in snapshot.pages() {
+        let label = if p.title.is_empty() {
+            p.url.clone()
+        } else {
+            format!("{} ({})", p.title, p.url)
+        };
+        let _ = writeln!(
+            out,
+            "{}: {label}{}",
+            p.id,
+            if p.selected { " [selected]" } else { "" }
+        );
+    }
+    out.push_str("## Page\n");
+    out.push_str(body);
+    out
+}
+
+/// Any other result: stored when it's big enough to be cleared later, and
+/// shown in part when over the inline cap.
+fn big_text(
+    raw: &Raw,
+    tool: &str,
+    tainted_by: Option<String>,
+    env: &ToolEnv<'_>,
+    meta: &mut EntryMeta,
+) -> ((String, String), Option<String>) {
+    let tokens = est(&raw.text);
+    if tokens <= STORE_OVER {
+        return ((String::new(), raw.text.clone()), None);
+    }
+    let stored = env.results.put(&NewResult {
+        turn: env.turn,
+        step: env.step,
+        tool,
+        kind: ResultKind::Text,
+        page_url: meta.page_url.clone(),
+        page_title: None,
+        tainted_by,
+        text: &raw.text,
+    });
+    let cap = env.budget.inline_cap();
+    let Ok(row) = stored else {
+        tracing::warn!("couldn't store a big tool result");
+        return ((String::new(), control::cut_lines(&raw.text, cap)), None);
+    };
+    meta.full_tokens = Some(row.est_tokens);
+    if tokens <= cap {
+        return ((String::new(), raw.text.clone()), Some(row.handle));
+    }
+    let head = head_of(&raw.text, cap / 2);
+    let note = format!(
+        "[stored as {}: {}, {}. Showing the start; read_result(\"{}\", find: \"…\") or from_line \
+         for the rest.]\n",
+        row.handle,
+        short_tool(tool),
+        tokens_in_words(row.est_tokens),
+        row.handle
+    );
+    ((note, head), Some(row.handle))
+}
+
+/// The start of `text` up to `tokens`, cut at a line break.
+fn head_of(text: &str, tokens: u64) -> String {
+    let mut out = String::new();
     for line in text.lines() {
-        if line.starts_with("## ") {
-            in_pages = line.trim_end() == "## Pages";
-            continue;
+        if est(&out) + est(line) + 1 > tokens {
+            if out.is_empty() {
+                out = line
+                    .chars()
+                    .take(usize::try_from(tokens * 3).unwrap_or(0))
+                    .collect();
+            }
+            break;
         }
-        if in_pages && let Some(label) = line.trim().strip_suffix(" [selected]") {
-            let inner = label.strip_suffix(')')?;
-            return inner.rsplit_once(" (").map(|(_, url)| url.to_owned());
-        }
+        out.push_str(line);
+        out.push('\n');
     }
-    None
+    out.push('…');
+    out
 }
 
 /// Text safe inside a double-quoted attribute.
-fn attr(text: &str) -> String {
+pub(crate) fn attr(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_control())
         .take(300)
@@ -409,108 +759,4 @@ fn shorten(text: &str, max: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn registry() -> ToolRegistry {
-        ToolRegistry::new(
-            vec![ToolSpec {
-                name: "mcp__oxbot__give_task".into(),
-                description: String::new(),
-                parameters: json!({"type": "object", "required": ["bot", "task"]}),
-            }],
-            browser::model_specs(
-                vec![
-                    ToolSpec {
-                        name: "take_snapshot".into(),
-                        description: String::new(),
-                        parameters: json!({"type": "object"}),
-                    },
-                    ToolSpec {
-                        name: "click".into(),
-                        description: String::new(),
-                        parameters: json!({"type": "object", "required": ["uid"]}),
-                    },
-                ],
-                &["click".to_owned(), "take_snapshot".to_owned()],
-            ),
-        )
-    }
-
-    #[test]
-    fn order_is_fixed_and_side_effects_known() {
-        let r = registry();
-        let names: Vec<String> = r.specs().into_iter().map(|s| s.name).collect();
-        assert_eq!(
-            names,
-            [
-                "mcp__oxbot__give_task",
-                "mcp__chrome-devtools__click",
-                "mcp__chrome-devtools__take_snapshot",
-                "Read",
-                "Write",
-                "Edit",
-                "Glob",
-                "Grep",
-                "mcp__oxbot__ask_user"
-            ]
-        );
-        assert!(r.get("mcp__oxbot__give_task").unwrap().side_effect);
-        assert!(r.get("mcp__chrome-devtools__click").unwrap().side_effect);
-        assert!(
-            !r.get("mcp__chrome-devtools__take_snapshot")
-                .unwrap()
-                .side_effect
-        );
-        assert!(r.get("Write").unwrap().side_effect);
-        assert!(!r.get("Read").unwrap().side_effect);
-    }
-
-    #[test]
-    fn bad_calls_are_explained() {
-        let r = registry();
-        let e = r
-            .validate(&ToolCall::new("1", "Bash", json!({})))
-            .unwrap_err();
-        assert!(e.contains("no tool called \"Bash\""), "{e}");
-        let e = r
-            .validate(&ToolCall::from_raw(
-                "1",
-                "mcp__chrome-devtools__click",
-                "{uid: 1",
-            ))
-            .unwrap_err();
-        assert!(
-            e.contains("couldn't be read") && e.contains("{uid: 1"),
-            "{e}"
-        );
-        let e = r
-            .validate(&ToolCall::new(
-                "1",
-                "mcp__chrome-devtools__click",
-                json!({}),
-            ))
-            .unwrap_err();
-        assert_eq!(e, "mcp__chrome-devtools__click needs uid.");
-        assert!(
-            r.validate(&ToolCall::new(
-                "1",
-                "mcp__chrome-devtools__click",
-                json!({"uid": "1_2"})
-            ))
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn the_selected_page_is_read_from_the_page_list() {
-        let text = "## Pages\n1: Home (https://a.example/) \n2: Jobs (https://b.example/jobs) [selected]\n## Snapshot\nx";
-        assert_eq!(
-            selected_url(text).as_deref(),
-            Some("https://b.example/jobs")
-        );
-        assert_eq!(selected_url("## Snapshot\n1: x (y) [selected]"), None);
-        assert_eq!(attr("a\"<b&\n"), "a&quot;&lt;b&amp;");
-    }
-}
+pub(crate) mod tests;

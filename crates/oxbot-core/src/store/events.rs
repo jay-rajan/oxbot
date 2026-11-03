@@ -111,10 +111,14 @@ impl Store {
     pub fn delete_bot(&self, bot: &BotId) -> Result<Vec<PersonId>, StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM loop_messages WHERE session IN (SELECT id FROM loop_sessions WHERE bot = ?1)",
-            [bot.as_str()],
-        )?;
+        for table in ["loop_messages", "loop_progress"] {
+            tx.execute(
+                &format!(
+                    "DELETE FROM {table} WHERE session IN (SELECT id FROM loop_sessions WHERE bot = ?1)"
+                ),
+                [bot.as_str()],
+            )?;
+        }
         tx.execute("DELETE FROM loop_sessions WHERE bot = ?1", [bot.as_str()])?;
         let filed: Vec<String> = {
             let mut stmt =
@@ -136,6 +140,7 @@ impl Store {
             "session_pages",
             "turn_origins",
             "loop_turns",
+            "loop_results",
             "turn_tools",
             "test_cases",
             "trial_batches",

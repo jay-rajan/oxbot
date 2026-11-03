@@ -1022,7 +1022,8 @@ mod tests {
     fn the_upgrade_adds_the_tables_and_keeps_what_was_there() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("oxbot.db");
-        let before = super::super::migrations::MIGRATIONS.len() - 1;
+        // The version before migration 18 (comparisons).
+        let before = 17;
         Store::open_at_version(&path, before).unwrap();
         {
             let conn = rusqlite::Connection::open(&path).unwrap();

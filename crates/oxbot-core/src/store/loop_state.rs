@@ -6,8 +6,8 @@
 use oxbot_engine::CallRecord;
 use oxbot_llm::Message;
 use oxbot_loop::store::{
-    LoopStore, LoopStoreError, ModelStat, PendingCall, SessionRow, StoredMessage, TurnRow,
-    TurnState, TurnStatus,
+    CalibrationRow, LoopStore, LoopStoreError, ModelStat, PendingCall, ProgressNote, ResultKind,
+    ResultRow, SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus,
 };
 use rusqlite::{OptionalExtension as _, Row, params};
 use serde_json::Value;
@@ -19,6 +19,10 @@ pub const KEEP_CALLS_DAYS: i64 = 400;
 /// How long the messages of a closed conversation are kept, in days (for
 /// replays).
 pub const KEEP_CLOSED_DAYS: i64 = 30;
+
+/// How long stored tool results and progress notes are kept after their
+/// session's last turn, in days (their files follow the same rule).
+pub const KEEP_RESULTS_DAYS: i64 = oxbot_loop::results::KEEP_DAYS;
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -373,6 +377,138 @@ impl LoopStore for Store {
     fn save_pref(&self, key: &str, value: &str) -> Result<(), LoopStoreError> {
         self.set_pref(key, value).map_err(err)
     }
+
+    fn save_result(&self, r: &ResultRow) -> Result<(), LoopStoreError> {
+        self.conn()
+            .execute(
+                "INSERT OR REPLACE INTO loop_results
+                   (session, handle, bot, turn, step, tool, kind, page_url, page_title, bytes,
+                    est_tokens, tainted_by, created_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    r.session,
+                    r.handle,
+                    r.bot,
+                    r.turn,
+                    r.step,
+                    r.tool,
+                    r.kind.as_str(),
+                    r.page_url,
+                    r.page_title,
+                    to_i64(r.bytes),
+                    to_i64(r.est_tokens),
+                    r.tainted_by,
+                    r.created_ms,
+                ],
+            )
+            .map_err(err)?;
+        Ok(())
+    }
+
+    fn result(&self, session: &str, handle: &str) -> Result<Option<ResultRow>, LoopStoreError> {
+        self.conn()
+            .query_row(
+                "SELECT * FROM loop_results WHERE session = ?1 AND handle = ?2",
+                params![session, handle],
+                |r| {
+                    Ok(ResultRow {
+                        session: r.get("session")?,
+                        handle: r.get("handle")?,
+                        bot: r.get("bot")?,
+                        turn: to_u32(r.get("turn")?),
+                        step: to_u32(r.get("step")?),
+                        tool: r.get("tool")?,
+                        kind: ResultKind::parse(&r.get::<_, String>("kind")?),
+                        page_url: r.get("page_url")?,
+                        page_title: r.get("page_title")?,
+                        bytes: to_u64(r.get("bytes")?),
+                        est_tokens: to_u64(r.get("est_tokens")?),
+                        tainted_by: r.get("tainted_by")?,
+                        created_ms: r.get("created_ms")?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(err)
+    }
+
+    fn last_result_number(&self, session: &str) -> Result<u32, LoopStoreError> {
+        let n: Option<i64> = self
+            .conn()
+            .query_row(
+                "SELECT MAX(CAST(SUBSTR(handle, 2) AS INTEGER)) FROM loop_results
+                 WHERE session = ?1",
+                [session],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        Ok(to_u32(n.unwrap_or(0)))
+    }
+
+    fn add_progress(&self, session: &str, note: &ProgressNote) -> Result<(), LoopStoreError> {
+        self.conn()
+            .execute(
+                "INSERT INTO loop_progress (session, turn, n, ms, note, tainted_by)
+                 VALUES (?1, ?2,
+                         (SELECT COALESCE(MAX(n), 0) + 1 FROM loop_progress
+                          WHERE session = ?1 AND turn = ?2),
+                         ?3, ?4, ?5)",
+                params![session, note.turn, note.ms, note.note, note.tainted_by],
+            )
+            .map_err(err)?;
+        Ok(())
+    }
+
+    fn progress(&self, session: &str, n: usize) -> Result<Vec<ProgressNote>, LoopStoreError> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT turn, ms, note, tainted_by FROM (
+                    SELECT * FROM loop_progress WHERE session = ?1
+                    ORDER BY turn DESC, n DESC LIMIT ?2)
+                 ORDER BY turn, n",
+            )
+            .map_err(err)?;
+        let rows = stmt
+            .query_map(params![session, to_i64(n)], |r| {
+                Ok(ProgressNote {
+                    turn: to_u32(r.get(0)?),
+                    ms: r.get(1)?,
+                    note: r.get(2)?,
+                    tainted_by: r.get(3)?,
+                })
+            })
+            .map_err(err)?;
+        rows.collect::<Result<_, _>>().map_err(err)
+    }
+
+    fn calibrations(&self) -> Result<Vec<CalibrationRow>, LoopStoreError> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare("SELECT model, ratio, samples FROM token_calibration ORDER BY model")
+            .map_err(err)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(CalibrationRow {
+                    model: r.get(0)?,
+                    ratio: r.get(1)?,
+                    samples: to_u32(r.get(2)?),
+                })
+            })
+            .map_err(err)?;
+        rows.collect::<Result<_, _>>().map_err(err)
+    }
+
+    fn save_calibration(&self, row: &CalibrationRow) -> Result<(), LoopStoreError> {
+        self.conn()
+            .execute(
+                "INSERT OR REPLACE INTO token_calibration (model, ratio, samples, updated_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![row.model, row.ratio, row.samples, now_ms()],
+            )
+            .map_err(err)?;
+        Ok(())
+    }
 }
 
 impl Store {
@@ -470,6 +606,45 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// When a turn of loop session `session` last moved, if it has any.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn loop_session_last_ms(&self, session: &str) -> Result<Option<i64>, StoreError> {
+        Ok(self.conn().query_row(
+            "SELECT MAX(updated_ms) FROM loop_turns WHERE session = ?1",
+            [session],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Forgets the stored results of `bot`'s sessions whose folders were
+    /// deleted (`folders`: session ids as folder names).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn forget_loop_results(&self, bot: &str, folders: &[String]) -> Result<usize, StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let sessions: Vec<String> = {
+            let mut stmt =
+                tx.prepare("SELECT DISTINCT session FROM loop_results WHERE bot = ?1")?;
+            let rows = stmt.query_map([bot], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut n = 0;
+        for session in sessions {
+            if folders.contains(&oxbot_loop::results::folder_name(&session)) {
+                n += tx.execute(
+                    "DELETE FROM loop_results WHERE session = ?1 AND bot = ?2",
+                    params![session, bot],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(n)
+    }
+
     /// The loop turn started by `bot`'s message `user_seq`, if any.
     ///
     /// # Errors
@@ -504,8 +679,23 @@ impl Store {
                 SELECT id FROM loop_sessions WHERE closed_ms IS NOT NULL AND closed_ms < ?1)",
             [now_ms - KEEP_CLOSED_DAYS * DAY_MS],
         )?;
+        // Stored results and notes go with their files: once no turn of
+        // their session has moved for the retention time. A bot's open
+        // session keeps them (the sweep keeps its files too).
+        let mut context = 0;
+        for table in ["loop_results", "loop_progress"] {
+            context += tx.execute(
+                &format!(
+                    "DELETE FROM {table}
+                     WHERE session NOT IN (
+                           SELECT session FROM loop_turns GROUP BY session HAVING MAX(updated_ms) >= ?1)
+                       AND session NOT IN (SELECT id FROM loop_sessions WHERE closed_ms IS NULL)"
+                ),
+                [now_ms - KEEP_RESULTS_DAYS * DAY_MS],
+            )?;
+        }
         tx.commit()?;
-        Ok(calls + messages)
+        Ok(calls + messages + context)
     }
 }
 
@@ -602,6 +792,38 @@ mod tests {
                 .unwrap(),
             2
         );
+    }
+
+    #[test]
+    fn stored_results_go_with_their_session_but_not_the_open_one() {
+        let store = Store::open_in_memory().unwrap();
+        let row = |session: &str| ResultRow {
+            session: session.into(),
+            handle: "r1".into(),
+            bot: "scout".into(),
+            turn: 0,
+            step: 1,
+            tool: "Read".into(),
+            kind: ResultKind::Text,
+            page_url: None,
+            page_title: None,
+            bytes: 3,
+            est_tokens: 1,
+            tainted_by: None,
+            created_ms: 1,
+        };
+        store.open_session("scout", "old", "h", false).unwrap();
+        store.begin_turn(&turn("old", 0)).unwrap();
+        store.save_result(&row("old")).unwrap();
+        // A newer session closes the old one; it stays open itself.
+        store.open_session("scout", "open", "h", false).unwrap();
+        store.begin_turn(&turn("open", 0)).unwrap();
+        store.save_result(&row("open")).unwrap();
+        let later = now_ms() + (KEEP_RESULTS_DAYS + 1) * DAY_MS;
+        assert_eq!(store.prune_loop(now_ms()).unwrap(), 0);
+        store.prune_loop(later).unwrap();
+        assert_eq!(store.result("old", "r1").unwrap(), None);
+        assert!(store.result("open", "r1").unwrap().is_some());
     }
 
     #[test]

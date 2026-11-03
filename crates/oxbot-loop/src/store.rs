@@ -26,7 +26,7 @@ pub struct StoredMessage {
     pub tokens: u32,
     /// Outside text (web pages, files, other bots).
     pub untrusted: bool,
-    /// A big result saved to a file, by its name under the results folder.
+    /// Where the whole result is stored (`r12`), if it is.
     pub handle: Option<String>,
     /// What the context builder keeps about it (kind, page, cleared).
     pub meta: Value,
@@ -155,6 +155,94 @@ pub struct ModelStat {
     pub avg_latency_ms: u64,
 }
 
+/// What a stored tool result holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultKind {
+    /// A browser page snapshot.
+    Page,
+    /// Any other text.
+    Text,
+}
+
+impl ResultKind {
+    /// Its name in the database.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Page => "page",
+            Self::Text => "text",
+        }
+    }
+
+    /// The kind called `name` (anything unknown is text).
+    #[must_use]
+    pub fn parse(name: &str) -> Self {
+        if name == "page" {
+            Self::Page
+        } else {
+            Self::Text
+        }
+    }
+}
+
+/// The index row of one stored tool result (its text is a file in the
+/// session's context folder).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResultRow {
+    /// The conversation.
+    pub session: String,
+    /// `r<N>`.
+    pub handle: String,
+    /// The bot.
+    pub bot: String,
+    /// The turn it came in.
+    pub turn: u32,
+    /// The step it came in.
+    pub step: u32,
+    /// The tool that returned it.
+    pub tool: String,
+    /// A page or other text.
+    pub kind: ResultKind,
+    /// The page it shows, for pages.
+    pub page_url: Option<String>,
+    /// The page's title, for pages.
+    pub page_title: Option<String>,
+    /// Its size.
+    pub bytes: u64,
+    /// Its estimated tokens.
+    pub est_tokens: u64,
+    /// Why it can't be trusted (outside text), if so.
+    pub tainted_by: Option<String>,
+    /// When it was stored.
+    pub created_ms: i64,
+}
+
+/// A progress note a bot left for itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressNote {
+    /// The turn it was left in.
+    pub turn: u32,
+    /// When.
+    pub ms: i64,
+    /// The note.
+    pub note: String,
+    /// Why it can't be trusted, if it was written after reading outside
+    /// text.
+    pub tainted_by: Option<String>,
+}
+
+/// What one model's token counts look like next to oxbot's estimate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalibrationRow {
+    /// The model.
+    pub model: String,
+    /// Provider tokens per estimated token (smoothed).
+    pub ratio: f64,
+    /// Requests it was learned from.
+    pub samples: u32,
+}
+
 /// Where the loop saves its state.
 pub trait LoopStore: Send + Sync {
     /// Opens conversation `id` for `bot`: the saved one when `resume` and
@@ -239,6 +327,48 @@ pub trait LoopStore: Send + Sync {
     /// # Errors
     /// The database failed.
     fn save_pref(&self, key: &str, value: &str) -> Result<(), LoopStoreError>;
+
+    /// Saves the index row of a stored tool result.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn save_result(&self, row: &ResultRow) -> Result<(), LoopStoreError>;
+
+    /// A stored result of `session` by its handle.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn result(&self, session: &str, handle: &str) -> Result<Option<ResultRow>, LoopStoreError>;
+
+    /// The highest result number `session` has used (0 for none).
+    ///
+    /// # Errors
+    /// The database failed.
+    fn last_result_number(&self, session: &str) -> Result<u32, LoopStoreError>;
+
+    /// Saves a progress note.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn add_progress(&self, session: &str, note: &ProgressNote) -> Result<(), LoopStoreError>;
+
+    /// The last `n` progress notes of `session`, oldest first.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn progress(&self, session: &str, n: usize) -> Result<Vec<ProgressNote>, LoopStoreError>;
+
+    /// Every model's token calibration.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn calibrations(&self) -> Result<Vec<CalibrationRow>, LoopStoreError>;
+
+    /// Saves one model's token calibration.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn save_calibration(&self, row: &CalibrationRow) -> Result<(), LoopStoreError>;
 }
 
 #[cfg(any(test, feature = "test-tools"))]
@@ -250,8 +380,8 @@ mod memory {
     use std::sync::{Mutex, MutexGuard, PoisonError};
 
     use super::{
-        CallRecord, LoopStore, LoopStoreError, ModelStat, SessionRow, StoredMessage, TurnRow,
-        TurnState, TurnStatus, Value,
+        CalibrationRow, CallRecord, LoopStore, LoopStoreError, ModelStat, ProgressNote, ResultRow,
+        SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus, Value,
     };
 
     #[derive(Default)]
@@ -261,6 +391,9 @@ mod memory {
         turns: BTreeMap<(String, u32), TurnRow>,
         calls: Vec<CallRecord>,
         prefs: BTreeMap<String, String>,
+        results: BTreeMap<(String, String), ResultRow>,
+        progress: BTreeMap<String, Vec<ProgressNote>>,
+        calibrations: BTreeMap<String, CalibrationRow>,
         fail_checkpoints: bool,
     }
 
@@ -307,6 +440,14 @@ mod memory {
         #[must_use]
         pub fn context(&self, session: &str) -> Option<Value> {
             self.inner().sessions.get(session).map(|s| s.2.clone())
+        }
+
+        /// Replaces the saved context state of a conversation (tests of
+        /// what a later start makes of it).
+        pub fn set_context(&self, session: &str, context: Value) {
+            if let Some(s) = self.inner().sessions.get_mut(session) {
+                s.2 = context;
+            }
         }
 
         /// Makes every later checkpoint fail (tests of a broken disk).
@@ -493,6 +634,58 @@ mod memory {
 
         fn save_pref(&self, key: &str, value: &str) -> Result<(), LoopStoreError> {
             self.inner().prefs.insert(key.to_owned(), value.to_owned());
+            Ok(())
+        }
+
+        fn save_result(&self, row: &ResultRow) -> Result<(), LoopStoreError> {
+            self.inner()
+                .results
+                .insert((row.session.clone(), row.handle.clone()), row.clone());
+            Ok(())
+        }
+
+        fn result(&self, session: &str, handle: &str) -> Result<Option<ResultRow>, LoopStoreError> {
+            Ok(self
+                .inner()
+                .results
+                .get(&(session.to_owned(), handle.to_owned()))
+                .cloned())
+        }
+
+        fn last_result_number(&self, session: &str) -> Result<u32, LoopStoreError> {
+            Ok(self
+                .inner()
+                .results
+                .keys()
+                .filter(|(s, _)| s == session)
+                .filter_map(|(_, h)| h.strip_prefix('r')?.parse().ok())
+                .max()
+                .unwrap_or(0))
+        }
+
+        fn add_progress(&self, session: &str, note: &ProgressNote) -> Result<(), LoopStoreError> {
+            self.inner()
+                .progress
+                .entry(session.to_owned())
+                .or_default()
+                .push(note.clone());
+            Ok(())
+        }
+
+        fn progress(&self, session: &str, n: usize) -> Result<Vec<ProgressNote>, LoopStoreError> {
+            let inner = self.inner();
+            let all = inner.progress.get(session).map_or(&[][..], Vec::as_slice);
+            Ok(all[all.len().saturating_sub(n)..].to_vec())
+        }
+
+        fn calibrations(&self) -> Result<Vec<CalibrationRow>, LoopStoreError> {
+            Ok(self.inner().calibrations.values().cloned().collect())
+        }
+
+        fn save_calibration(&self, row: &CalibrationRow) -> Result<(), LoopStoreError> {
+            self.inner()
+                .calibrations
+                .insert(row.model.clone(), row.clone());
             Ok(())
         }
     }

@@ -1,5 +1,7 @@
 //! Whole turns on a scripted model, browser and hub.
 
+mod context;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -246,9 +248,19 @@ async fn a_plain_answer() {
             "Edit",
             "Glob",
             "Grep",
-            "mcp__oxbot__ask_user"
+            "mcp__oxbot__ask_user",
+            "mcp__oxbot__update_todo",
+            "mcp__oxbot__note_progress",
+            "mcp__oxbot__read_result",
+            "mcp__oxbot__find_in_page",
+            "mcp__oxbot__read_section",
+            "mcp__oxbot__ask_page",
         ]
     );
+    // The window header rides in front of the message: the day only.
+    let first = req.messages[1].text();
+    assert!(first.starts_with("<window n=\"1\" date=\""), "{first}");
+    assert!(first.ends_with("\"/>\n\n[Sam] hi"), "{first}");
 }
 
 #[tokio::test]
@@ -288,9 +300,13 @@ async fn browsing_runs_each_tool_after_the_gate() {
     let req = &h.model.requests()[1];
     let last = req.messages.last().unwrap();
     assert_eq!(last.role, Role::Tool);
+    // Stored whole, shown whole (it's small), as data.
     assert!(
         last.text()
-            .starts_with("<web_page url=\"https://jobs.example/\">## Pages"),
+            .starts_with("[stored as r1: take_snapshot of jobs.example/, ")
+            && last
+                .text()
+                .contains("<web_page url=\"https://jobs.example/\" saved=\"r1\">## Pages"),
         "{}",
         last.text()
     );
@@ -724,22 +740,25 @@ async fn a_restart_goes_on_without_repeating_a_click() {
 }
 
 #[tokio::test]
-async fn a_long_conversation_drops_its_oldest_turns() {
+async fn a_long_conversation_is_summarized_into_a_new_window() {
+    let summary = json!({"done": [{"step": 1, "what": "answered one"}], "progress_note": "Go on."});
     let h = Harness::new(
         ScriptedModel::new()
             .then(Step::text("one"))
+            .then(Step::text(summary.to_string()))
             .then(Step::text("two")),
     );
-    let big = "x".repeat(300_000);
+    // Each message is about 80% of a 128k window's usable room.
+    let big = "x".repeat(250_000);
     let started = h.engine.start(h.spec(new_session())).await.unwrap();
     let mut session = started.session;
     let mut events = started.events;
     for seq in [1, 2] {
         session
             .send(TurnInput {
-                text: big.clone(),
+                text: format!("[Jay] {big}{seq}"),
                 user_seq: seq,
-                person: None,
+                person: Some("p1".into()),
                 origin: json!({}),
             })
             .await
@@ -757,9 +776,45 @@ async fn a_long_conversation_drops_its_oldest_turns() {
     }
     session.shutdown().await;
     let reqs = h.model.requests();
-    // The second request starts after the first turn.
-    assert_eq!(reqs[1].messages.len(), 2, "system and the new message");
-    assert_eq!(h.store.context("s1").unwrap()["from_idx"], 2);
+    assert_eq!(reqs.len(), 3);
+    // The summary: the fixed prompt, no tools, the private-bot rules of
+    // the bot (a shared one here), metered as a compaction.
+    assert_eq!(reqs[1].messages[0].text(), crate::COMPACT_V1);
+    assert_eq!(reqs[1].tools, Vec::new());
+    let kinds: Vec<_> = h.store.calls().iter().map(|c| c.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            oxbot_engine::CallKind::Chat,
+            oxbot_engine::CallKind::Compaction,
+            oxbot_engine::CallKind::Chat
+        ]
+    );
+    // The next request: the header with the task state, then the new
+    // message only.
+    let last = &reqs[2];
+    assert_eq!(
+        last.messages.len(),
+        2,
+        "system, then the header and the message"
+    );
+    let text = last.messages[1].text();
+    assert!(text.starts_with("<window n=\"2\""), "{}", &text[..200]);
+    assert!(text.contains("<task_state untrusted=\"no\">"));
+    assert!(text.ends_with('2'));
+    // A new message while the window is past the clearing line: a fresh
+    // window, with the earlier task as background and the last chat.
+    assert!(
+        text.contains("<earlier_chat>[Jay] xxx"),
+        "earlier chats are shown"
+    );
+    assert!(text.contains("You replied: one</earlier_chat>"));
+    let state = crate::context::state::WindowState::from_value(&h.store.context("s1").unwrap());
+    assert_eq!(state.window, 2);
+    let task = state.task_state.unwrap();
+    assert_eq!(task.goal, "");
+    assert!(task.facts[0].text.starts_with("Earlier task: [Jay] xxx"));
+    assert_eq!(h.store.progress("s1", 5).unwrap()[0].note, "Go on.");
 }
 
 #[tokio::test]

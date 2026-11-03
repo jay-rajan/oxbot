@@ -287,6 +287,43 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // what they did, the oxbot-tool calls of every turn (a case's
     // fixtures), and people's thumbs on replies.
     Step::Rust(comparisons),
+    // 19: the loop's context (#19): stored tool results (read back by
+    // handle), progress notes that outlive a window, and each model's token
+    // calibration. Window state stays in loop_sessions.context (17).
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS loop_results (
+            session    TEXT    NOT NULL,             -- loop_sessions.id
+            handle     TEXT    NOT NULL,             -- r<N>, counted per session
+            bot        TEXT    NOT NULL,
+            turn       INTEGER NOT NULL,
+            step       INTEGER NOT NULL,
+            tool       TEXT    NOT NULL,
+            kind       TEXT    NOT NULL DEFAULT 'text', -- page (a browser snapshot) | text
+            page_url   TEXT,
+            page_title TEXT,
+            bytes      INTEGER NOT NULL,
+            est_tokens INTEGER NOT NULL,
+            tainted_by TEXT,                         -- why it can't be trusted, if so
+            created_ms INTEGER NOT NULL,
+            PRIMARY KEY (session, handle)
+        );
+        CREATE INDEX IF NOT EXISTS loop_results_bot ON loop_results (bot, created_ms);
+        CREATE TABLE IF NOT EXISTS loop_progress (
+            session    TEXT    NOT NULL,
+            turn       INTEGER NOT NULL,
+            n          INTEGER NOT NULL,             -- 1, 2… within the turn
+            ms         INTEGER NOT NULL,
+            note       TEXT    NOT NULL,
+            tainted_by TEXT,
+            PRIMARY KEY (session, turn, n)
+        );
+        CREATE TABLE IF NOT EXISTS token_calibration (
+            model      TEXT    PRIMARY KEY,
+            ratio      REAL    NOT NULL,             -- provider tokens per estimated token
+            samples    INTEGER NOT NULL,
+            updated_ms INTEGER NOT NULL
+        );",
+    ),
 ];
 
 /// Migration 18. Skips what is already there, as 15 does.
