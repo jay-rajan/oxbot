@@ -96,6 +96,10 @@ pub struct Test {
     /// The stand-in `OpenRouter`'s free requests per day (default 1000).
     #[serde(default)]
     pub openrouter_daily: Option<u32>,
+    /// Context lengths the stand-in `OpenRouter` gives its models instead
+    /// of their own, e.g. `"e2e/tool-model:free=64000"`.
+    #[serde(default)]
+    pub openrouter_context: Option<String>,
     /// The stand-in Mac helper says this Mac can dictate on-device (and
     /// "hears" a sentence when asked).
     #[serde(default)]

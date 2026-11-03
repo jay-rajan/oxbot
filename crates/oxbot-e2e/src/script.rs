@@ -30,6 +30,15 @@
 //! stall_at = 2                              # the first request after 2 tool results waits a minute (OpenRouter)
 //!
 //! [[reply]]
+//! when = "compare lamps"
+//! big = { pages = 8, items = 75 }           # big fake pages read first (see crate::pages)
+//! tool = "mcp__oxbot__read_result"          # then this, with args
+//! args = { handle = "r1", find = "Lamp 1001" }
+//! then = [{ tool = "mcp__oxbot__find_in_page", args = { query = "lamp" } }] # more calls after it
+//! notes = 7800                              # each call step also says this many characters of notes (OpenRouter)
+//! ask_answer = "Lamp 1003 (uid=2_14)."      # what the helper says to ask_page (OpenRouter)
+//!
+//! [[reply]]
 //! when = "what's in"
 //! read = true                               # open each attached file (see below)
 //!
@@ -111,6 +120,27 @@ pub struct Reply {
     /// Said after a practice run's `[test run]` answer (the stand-in
     /// Claude gets it as a refusal) instead of `denied`.
     pub dry: Option<String>,
+    /// Big fake pages to read first (after `snapshots`).
+    pub big: Option<crate::pages::BigPages>,
+    /// More tool calls after `tool`, in order (the stand-in `OpenRouter`).
+    #[serde(default)]
+    pub then: Vec<Then>,
+    /// Characters of notes said with each tool call (the stand-in
+    /// `OpenRouter`), to fill a conversation the way a chatty model does.
+    pub notes: Option<usize>,
+    /// What the stand-in `OpenRouter`'s helper answers to `ask_page`.
+    pub ask_answer: Option<String>,
+}
+
+/// One more tool call of a reply.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Then {
+    /// The tool, as in `tool`.
+    pub tool: String,
+    /// Its arguments.
+    #[serde(default)]
+    pub args: toml::Table,
 }
 
 /// The plan's windows, from 0 to 1. The 5-hour one resets in
@@ -146,10 +176,17 @@ impl Script {
     /// gets the built-in echo), as the stand-in Claude always did.
     #[must_use]
     pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path)
+        let mut script: Self = std::fs::read_to_string(path)
             .ok()
             .and_then(|t| toml::from_str(&t).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Big pages are made once, as if written out in `snapshots`.
+        for reply in &mut script.reply {
+            if let Some(big) = &reply.big {
+                reply.snapshots.extend(big.snapshots());
+            }
+        }
+        script
     }
 
     /// The script named by `OXBOT_FAKE_SCRIPT`, or an empty one.
@@ -200,24 +237,13 @@ impl Reply {
     /// `mcp__…` names and file tools (`Read`, with a capital) stay as they are.
     #[must_use]
     pub fn tool_name(&self) -> Option<String> {
-        self.tool.as_ref().map(|t| {
-            if t.starts_with("mcp__") || t.starts_with(|c: char| c.is_ascii_uppercase()) {
-                t.clone()
-            } else {
-                format!("mcp__oxbot__{t}")
-            }
-        })
+        self.tool.as_deref().map(full_tool_name)
     }
 
     /// The tool's arguments as JSON.
     #[must_use]
     pub fn args_json(&self) -> Value {
-        Value::Object(
-            self.args
-                .iter()
-                .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(Value::Null)))
-                .collect(),
-        )
+        table_json(&self.args)
     }
 
     /// The pages it "reads" before its tool, in order.
@@ -227,6 +253,24 @@ impl Reply {
             .chain(&self.snapshots)
             .map(String::as_str)
     }
+}
+
+/// A script's tool name in full (see [`Reply::tool_name`]).
+#[must_use]
+pub fn full_tool_name(t: &str) -> String {
+    if t.starts_with("mcp__") || t.starts_with(|c: char| c.is_ascii_uppercase()) {
+        t.to_owned()
+    } else {
+        format!("mcp__oxbot__{t}")
+    }
+}
+
+fn table_json(args: &toml::Table) -> Value {
+    Value::Object(
+        args.iter()
+            .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(Value::Null)))
+            .collect(),
+    )
 }
 
 /// The message's text, without the `[Name] ` oxbot puts in front.
@@ -431,13 +475,27 @@ pub fn plan(reply: &Reply, text: &str, needs_page: impl Fn(&str) -> bool) -> Vec
     } else {
         PlannedCall { name: tool, args }
     });
+    for more in &reply.then {
+        let name = full_tool_name(&more.tool);
+        let args = table_json(&more.args);
+        calls.push(if name.starts_with(DEVTOOLS) {
+            with_page(&name, args, page)
+        } else {
+            PlannedCall { name, args }
+        });
+    }
     calls
 }
 
 /// The text inside one outer `<web_page …>` or `<file …>` block, as oxbot
-/// wraps outside text for a loop model, unescaped; other text as it is.
+/// wraps outside text for a loop model, unescaped; other text as it is. A
+/// `[stored as …]` line before the block is left out.
 #[must_use]
 pub fn unwrap_data_block(text: &str) -> String {
+    let text = match text.strip_prefix("[stored as ") {
+        Some(rest) => rest.split_once("]\n").map_or(text, |(_, block)| block),
+        None => text,
+    };
     for tag in ["web_page", "file"] {
         let open = format!("<{tag}");
         let close = format!("</{tag}>");

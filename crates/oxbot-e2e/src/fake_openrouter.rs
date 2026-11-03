@@ -22,7 +22,15 @@
 //!   sends a parameter its list doesn't have (`e2e/backup:free` takes no
 //!   `tool_choice` or `parallel_tool_calls`); none left is a 404.
 //!   A reply's `stall_at` makes its first request after that many tool
-//!   results wait a minute (for restart tests).
+//!   results wait a minute (for restart tests). The next call is counted
+//!   from the stand-in's own call ids (`call_e2e_<n>_<step>`), so a turn
+//!   whose older steps were summarized away goes on where it was; its
+//!   `notes` are said with each call. The usage it reports counts the
+//!   request at a token per 3 bytes.
+//!   oxbot's helper requests are known by their fixed prompts: a summary
+//!   (`COMPACT_V1`) gets a task state as JSON, a page question
+//!   (`ASK_PAGE_V1`) the script's `ask_answer`; the log says which
+//!   (`"helper"`).
 //!   Free requests count against a daily limit (`OXBOT_FAKE_OR_DAILY`,
 //!   default 1000); past it, 429 "free-models-per-day".
 //! - `GET /key`: the key's limits, with the free daily count.
@@ -87,12 +95,18 @@ const MODELS: &[(&str, &str, u32, bool, f64, f64)] = &[
     ("e2e/paid", "E2E Paid", 200_000, true, 0.000_001, 0.000_005),
 ];
 
-/// Usage reported when the reply doesn't say.
+/// Usage reported when the reply doesn't say (the prompt is counted from
+/// the request).
 const DEFAULT_USAGE: Usage = Usage {
     prompt: 1000,
     completion: 50,
     cost: 0.0,
 };
+
+/// How oxbot's summary prompt starts (`COMPACT_V1`).
+const COMPACT_PROMPT: &str = "You are compressing an agent's working memory";
+/// How oxbot's page-question prompt starts (`ASK_PAGE_V1`).
+const ASK_PAGE_PROMPT: &str = "You answer one question about one web page";
 
 /// How the stand-in is set up.
 #[derive(Debug, Clone)]
@@ -538,6 +552,8 @@ struct Answer {
     when: Option<String>,
     step: usize,
     stall: bool,
+    /// One of oxbot's helper requests: `compact` or `ask_page`.
+    helper: Option<&'static str>,
 }
 
 async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Response {
@@ -585,6 +601,8 @@ async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) ->
     entry["step"] = json!(answer.step);
     entry["called"] = json!(answer.call.as_ref().map(|c| &c.1));
     entry["stalled"] = json!(answer.stall);
+    entry["helper"] = json!(answer.helper);
+    entry["tokens"] = json!(body.len() / 4);
     fake.log(entry);
     if let Ok(mut c) = fake.counts.lock() {
         c.ok += 1;
@@ -721,6 +739,14 @@ impl Fake {
             }
         }
         let candidates = candidates(req)?;
+        let system = messages
+            .first()
+            .filter(|m| m["role"] == "system")
+            .map(|m| content_text(&m["content"]))
+            .unwrap_or_default();
+        if system.starts_with(COMPACT_PROMPT) || system.starts_with(ASK_PAGE_PROMPT) {
+            return self.helper(req, &candidates, &system, body_len);
+        }
         let last_user = messages.iter().rposition(|m| m["role"] == "user");
         let text = last_user
             .map(|i| user_text(&messages[i]["content"]))
@@ -738,7 +764,7 @@ impl Fake {
             .filter(|m| m["role"] == "tool")
             .map(|m| content_text(&m["content"]))
             .collect();
-        let step = results.len();
+        let step = next_step(after_user, results.len());
         let needs_page = |name: &str| {
             tools.iter().any(|t| {
                 t["function"]["name"] == name
@@ -748,10 +774,9 @@ impl Fake {
             })
         };
         let calls = plan(&reply, &text, needs_page);
-        let usage = reply.usage.unwrap_or(Usage {
-            cost: precise_cost(DEFAULT_USAGE, prompt_price, completion_price),
-            ..DEFAULT_USAGE
-        });
+        let usage = reply
+            .usage
+            .unwrap_or_else(|| counted(body_len, prompt_price, completion_price));
         let mut answer = Answer {
             model,
             text: None,
@@ -761,6 +786,7 @@ impl Fake {
             when: reply.when.clone(),
             step,
             stall: reply.stall_at == Some(step) && self.first_stall(&text, step),
+            helper: None,
         };
         let last = results.last().map_or("", String::as_str);
         let refused = last.strip_prefix("[oxbot said no]");
@@ -774,6 +800,9 @@ impl Fake {
             ));
             if step == 0 && !reply.read {
                 answer.text.clone_from(&reply.say);
+            }
+            if let Some(n) = reply.notes {
+                answer.text = Some(notes(step, n));
             }
             return Ok(answer);
         }
@@ -798,6 +827,100 @@ impl Fake {
         Ok(answer)
     }
 }
+
+/// The next call of a reply's plan: after the last one the stand-in made
+/// (its id, `call_e2e_<n>_<step>`, says which), else as many as there are
+/// results.
+fn next_step(after_user: &[Value], results: usize) -> usize {
+    after_user
+        .iter()
+        .filter(|m| m["role"] == "assistant")
+        .flat_map(|m| m["tool_calls"].as_array().cloned().unwrap_or_default())
+        .filter_map(|c| {
+            c["id"]
+                .as_str()?
+                .strip_prefix("call_e2e_")?
+                .rsplit('_')
+                .next()?
+                .parse::<usize>()
+                .ok()
+        })
+        .max()
+        .map_or(results, |n| n + 1)
+}
+
+/// The usage reported for a request of `body_len` bytes: a token per 3
+/// bytes in, a short answer out.
+fn counted(body_len: usize, prompt_price: f64, completion_price: f64) -> Usage {
+    let usage = Usage {
+        prompt: body_len as u64 / 3,
+        ..DEFAULT_USAGE
+    };
+    Usage {
+        cost: precise_cost(usage, prompt_price, completion_price),
+        ..usage
+    }
+}
+
+/// A chatty model's notes for step `step`, about `n` characters.
+fn notes(step: usize, n: usize) -> String {
+    let line = format!("Notes for step {step}: looked at what this page lists and kept going. ");
+    line.repeat(n / line.len() + 1).chars().take(n).collect()
+}
+
+impl Fake {
+    /// Answers one of oxbot's helper requests: a summary or a page
+    /// question.
+    fn helper(
+        &self,
+        req: &Value,
+        candidates: &[String],
+        system: &str,
+        body_len: usize,
+    ) -> Result<Answer, ApiError> {
+        let (model, prompt_price, completion_price) =
+            self.route(&servable(req, candidates, &[])?, &[], body_len / 4)?;
+        let input = req["messages"]
+            .as_array()
+            .and_then(|m| m.get(1))
+            .map(|m| content_text(&m["content"]))
+            .unwrap_or_default();
+        let (helper, text) = if system.starts_with(COMPACT_PROMPT) {
+            let steps =
+                input.matches("\n[step ").count() + usize::from(input.starts_with("[step "));
+            let summary = json!({
+                "done": [{"step": steps, "what": format!("looked at the pages of the first {steps} steps")}],
+                "open": ["finish the task"],
+                "handles": [{"id": "r1", "what": "the first page"}],
+                "progress_note": "Looked at the pages so far; go on from the last one."
+            });
+            ("compact", summary.to_string())
+        } else {
+            let answer = self
+                .config
+                .script
+                .reply
+                .iter()
+                .find_map(|r| r.ask_answer.clone())
+                .unwrap_or_else(|| "not on this page".to_owned());
+            ("ask_page", answer)
+        };
+        Ok(Answer {
+            model,
+            text: Some(text),
+            call: None,
+            usage: counted(body_len, prompt_price, completion_price),
+            delay_ms: COMPACT_DELAY_MS,
+            when: None,
+            step: 0,
+            stall: false,
+            helper: Some(helper),
+        })
+    }
+}
+
+/// How long a helper request takes, so its activity line can be seen.
+const COMPACT_DELAY_MS: u64 = 1_500;
 
 /// The cost of `usage` at a model's prices.
 fn precise_cost(usage: Usage, prompt: f64, completion: f64) -> f64 {
@@ -1286,6 +1409,7 @@ mod tests {
             when: None,
             step: 0,
             stall: false,
+            helper: None,
         };
         let events = stream_events("gen-1", &answer);
         assert_eq!(events[0], ": OPENROUTER PROCESSING\n\n");

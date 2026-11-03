@@ -32,7 +32,12 @@ impl FakeOpenRouter {
     ///
     /// # Errors
     /// Fails if it doesn't start within 10 seconds.
-    pub async fn start(program: &Path, script: &Path, daily: Option<u32>) -> anyhow::Result<Self> {
+    pub async fn start(
+        program: &Path,
+        script: &Path,
+        daily: Option<u32>,
+        contexts: Option<&str>,
+    ) -> anyhow::Result<Self> {
         let dir = tempfile::tempdir()?;
         let mut cmd = Command::new(program);
         cmd.arg("--dir")
@@ -46,6 +51,9 @@ impl FakeOpenRouter {
             .kill_on_drop(true);
         if let Some(daily) = daily {
             cmd.env("OXBOT_FAKE_OR_DAILY", daily.to_string());
+        }
+        if let Some(contexts) = contexts {
+            cmd.env("OXBOT_FAKE_OR_CONTEXT", contexts);
         }
         let mut child = cmd
             .spawn()
@@ -229,6 +237,9 @@ pub struct Launch {
     pub signed_in: bool,
     /// The stand-in `OpenRouter`'s free requests per day.
     pub openrouter_daily: Option<u32>,
+    /// Context lengths for the stand-in `OpenRouter`'s models
+    /// (`model=tokens,…`).
+    pub openrouter_context: Option<String>,
     /// The stand-in Mac helper can dictate.
     pub dictation: bool,
 }
@@ -303,6 +314,7 @@ impl Server {
                     &repo.join(program),
                     &launch.openrouter_script,
                     launch.openrouter_daily,
+                    launch.openrouter_context.as_deref(),
                 )
                 .await?,
             ),
@@ -446,6 +458,9 @@ fn spawn_oxbot(
         .env("OXBOT_PERSON", &config.person)
         .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
         .env("OXBOT_FAKE_SCRIPT", &launch.script)
+        // The stand-in browser tool serves bots on oxbot's own loop: it
+        // reads the stand-in OpenRouter's script.
+        .env("OXBOT_FAKE_DT_SCRIPT", &launch.openrouter_script)
         .env("RUST_LOG", "info")
         .env("OXBOT_E2E_HOST_RULES", site_rules)
         .stdin(Stdio::null())

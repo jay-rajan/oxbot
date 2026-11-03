@@ -3257,6 +3257,7 @@ dependencies = [
  "futures-util",
  "oxbot-core",
  "oxbot-llm",
+ "oxbot-loop",
  "png",
  "ring",
  "rusqlite",

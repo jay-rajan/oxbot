@@ -1,0 +1,26 @@
+# The stand-in OpenRouter's replies for the context tests: big pages, a
+# long task that fills a 64k window, and the page tools. The first `when`
+# found in the message (any case) wins.
+
+[[reply]]
+when = "compare all the lamps"
+# Eight pages of about 10k tokens each, trimmed to about 3.9k; a chatty
+# model's notes with every call, so the window fills even after old pages
+# are cleared, and a summary is needed.
+big = { pages = 8, items = 64 }
+notes = 7800
+tool = "mcp__oxbot__read_result"
+args = { handle = "r1", find = "Lamp 1003" }
+after = "Compared the lamps on all eight pages."
+
+[[reply]]
+when = "find the brass lamp"
+big = { items = 300, url = "https://shop.example.com/search?q=lamp", title = "Lamp search" }
+tool = "mcp__oxbot__find_in_page"
+args = { query = "lamp 1042", role = "link" }
+then = [{ tool = "mcp__oxbot__ask_page", args = { question = "Which lamp is the cheapest?" } }]
+ask_answer = "Lamp 1000 at $10.00 is the cheapest (uid=2_9)."
+after = "Lamp 1000 is the cheapest, at $10.00."
+
+[[reply]]
+say = "Hello from the stand-in."

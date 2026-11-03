@@ -5,6 +5,7 @@
 //! - [`script`]: the stand-ins' reply scripts (`e2e/claude/`).
 //! - [`fake_openrouter`], [`fake_devtools`]: stand-ins for `OpenRouter` and
 //!   the browser tool, for bots on oxbot's own loop.
+//! - [`pages`]: big fake pages for the scripts.
 //! - [`canary`]: checks a run never wrote the stand-in's key anywhere.
 //! - [`seed`]: a throwaway oxbot home made from `e2e/seed/`.
 //! - [`serve`]: starts oxbot on it in test mode with the stand-in Claude.
@@ -20,6 +21,7 @@ pub mod driver;
 pub mod fake_devtools;
 pub mod fake_openrouter;
 pub mod http;
+pub mod pages;
 pub mod pick;
 pub mod report;
 pub mod script;

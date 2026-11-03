@@ -31,6 +31,8 @@ toml.workspace = true
 [dev-dependencies]
 # The real model client, checked against the stand-in OpenRouter.
 oxbot-llm.workspace = true
+# The loop's page module: the big fake pages trim to what the tests need.
+oxbot-loop.workspace = true
 
 [lints]
 workspace = true

@@ -321,15 +321,23 @@ fn refresh_models_now_and_then(state: &AppState) {
 
 /// End-to-end tests only (`OXBOT_E2E=1`): the stand-in browser tool for
 /// bots on oxbot's own loop (`OXBOT_FAKE_DEVTOOLS`), with the reply script
-/// and log it reads.
+/// (`OXBOT_FAKE_DT_SCRIPT`, else the stand-in Claude's) and log it reads.
 fn fake_devtools(e2e: bool) -> Option<oxbot_browser::McpCommand> {
     if !e2e {
         return None;
     }
     let program = std::env::var_os("OXBOT_FAKE_DEVTOOLS")?;
-    let env = ["OXBOT_FAKE_SCRIPT", "OXBOT_FAKE_DT_LOG"]
+    let script = std::env::var("OXBOT_FAKE_DT_SCRIPT")
+        .or_else(|_| std::env::var("OXBOT_FAKE_SCRIPT"))
+        .ok();
+    let env = script
+        .map(|s| ("OXBOT_FAKE_SCRIPT".to_owned(), s))
         .into_iter()
-        .filter_map(|k| Some((k.to_owned(), std::env::var(k).ok()?)))
+        .chain(
+            std::env::var("OXBOT_FAKE_DT_LOG")
+                .ok()
+                .map(|l| ("OXBOT_FAKE_DT_LOG".to_owned(), l)),
+        )
         .collect();
     Some(oxbot_browser::McpCommand {
         program: PathBuf::from(program),

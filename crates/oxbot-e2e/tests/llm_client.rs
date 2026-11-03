@@ -38,6 +38,7 @@ async fn start(dir: &Path) -> FakeOpenRouter {
         Path::new(env!("CARGO_BIN_EXE_oxbot-fake-openrouter")),
         &script,
         None,
+        None,
     )
     .await
     .unwrap()
@@ -115,7 +116,13 @@ async fn the_client_runs_a_browsing_turn_on_the_stand_in() {
         .await
         .unwrap();
         assert_eq!(answer.model, "e2e/tool-model:free");
-        assert_eq!(answer.usage.prompt_tokens, 1000);
+        // The stand-in counts the request: a token per 3 bytes (the tool
+        // list alone is several thousand).
+        assert!(
+            answer.usage.prompt_tokens > 1000,
+            "{}",
+            answer.usage.prompt_tokens
+        );
         let calls = answer.message.tool_calls.clone();
         messages.push(answer.message.clone());
         let Some(call) = calls.first() else {

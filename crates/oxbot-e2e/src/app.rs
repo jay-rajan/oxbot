@@ -86,9 +86,9 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
     let mut checks = Vec::new();
     // The stand-in OpenRouter too, so the app never reaches the real one.
     let openrouter = match &config.fake_openrouter {
-        Some(program) => {
-            Some(crate::serve::FakeOpenRouter::start(&repo.join(program), &script, None).await?)
-        }
+        Some(program) => Some(
+            crate::serve::FakeOpenRouter::start(&repo.join(program), &script, None, None).await?,
+        ),
         None => None,
     };
     let mut cmd = Command::new(&exe);

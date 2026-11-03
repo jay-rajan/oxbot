@@ -68,6 +68,7 @@ async fn start(dir: &Path, daily: Option<u32>) -> FakeOpenRouter {
         Path::new(env!("CARGO_BIN_EXE_oxbot-fake-openrouter")),
         &script_file(dir),
         daily,
+        None,
     )
     .await
     .unwrap()
@@ -266,7 +267,8 @@ async fn streams_come_in_pieces_like_openrouters() {
         serde_json::from_str::<Value>(&args).unwrap(),
         json!({"name":"Recipes"})
     );
-    assert_eq!(usage["prompt_tokens"], 1000);
+    // The request counted at a token per 3 bytes.
+    assert_eq!(usage["prompt_tokens"], body.to_string().len() / 3);
 }
 
 #[tokio::test]

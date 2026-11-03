@@ -1,0 +1,38 @@
+name = "A big page comes as a map, and the page tools look inside"
+about = "A bot on OpenRouter opens a big results page: the model gets a small map of it instead of the page, searches it with find_in_page, and asks a helper about it with ask_page, which gets the page with a fixed prompt."
+covers = ["crates/oxbot-loop/src/page/**", "crates/oxbot-loop/src/tools/**", "crates/oxbot-loop/src/turn/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot-e2e/src/fake_openrouter.rs", "crates/oxbot-e2e/src/pages.rs"]
+openrouter = "context.toml"
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "find the brass lamp"
+[[step]]
+wait_for = "Lamp 1000 is the cheapest, at $10.00."
+timeout_ms = 60000
+[[step]]
+expect = "page search"
+note = "Each page tool is a line in the chat"
+[[step]]
+expect = "page question"
+shot = "answered"
+[[step]]
+expect_openrouter_body = "Page map of r1"
+note = "The model got a map of the page"
+[[step]]
+expect_openrouter_not = "Latest page snapshot"
+note = "The raw page never went to a model"
+[[step]]
+expect_openrouter_body = 'link \"Lamp 1042 with a brass arm and a linen shade\"'
+note = "find_in_page found the lamp asked for"
+[[step]]
+expect_openrouter = '"helper":"ask_page"'
+[[step]]
+expect_openrouter_body = "You answer one question about one web page"
+note = "The helper got the fixed prompt"
