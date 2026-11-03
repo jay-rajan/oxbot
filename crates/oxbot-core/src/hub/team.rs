@@ -24,6 +24,10 @@ impl Hub {
     /// answers it. Checked first as `tools/call` checks it: the bot has the
     /// tool, and its required arguments are there.
     pub(super) async fn host_tool(self: Arc<Self>, bot: BotId, call: HostToolCall) {
+        // A practice run's tools answer from its case, never for real.
+        if super::trials::is_trial(&bot) {
+            return self.trial_host_tool(bot, call).await;
+        }
         let set = tools::ToolSet {
             central: self.bot(bot.as_str()).is_ok_and(|b| b.is_central()),
             // As the prompt says (see `start_session`): the bot was given a browser.
@@ -39,9 +43,15 @@ impl Hub {
             .strip_prefix(&format!("mcp__{TOOL_SERVER_NAME}__"))
             .map_or(name.clone(), str::to_owned);
         let (ok, text) = match tools::check_call(&name, &args, set) {
-            Ok(()) => Arc::clone(&self).run_tool(bot, name, args).await,
+            Ok(()) => {
+                Arc::clone(&self)
+                    .run_tool(bot.clone(), name.clone(), args.clone())
+                    .await
+            }
             Err(message) => (false, message),
         };
+        // Herder's team tools are kept with the turn, for test cases.
+        self.keep_turn_tool(&bot, &name, &args, ok, &text);
         reply.send(ToolReply { ok, text });
     }
 
@@ -51,7 +61,7 @@ impl Hub {
     ///
     /// Boxed with a named type: giving a task can start another bot, whose
     /// tool calls come back here, and the compiler needs that loop broken.
-    fn run_tool(
+    pub(super) fn run_tool(
         self: Arc<Self>,
         bot: BotId,
         tool: String,

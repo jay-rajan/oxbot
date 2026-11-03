@@ -58,7 +58,11 @@ impl Hub {
     /// The rule that lets `ask` through for `bot` without a card, if one
     /// does. The caller still checks the tab really shows its site (see
     /// [`tab_shows`]).
-    fn matching_rule(&self, bot: &Bot, ask: &policy::Ask) -> Result<Option<RuleKey>, HubError> {
+    pub(super) fn matching_rule(
+        &self,
+        bot: &Bot,
+        ask: &policy::Ask,
+    ) -> Result<Option<RuleKey>, HubError> {
         let Some(label) = ask.rule.clone() else {
             return Ok(None);
         };

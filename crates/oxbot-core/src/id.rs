@@ -30,6 +30,9 @@ pub enum BotIdError {
     /// The id started or ended with a dash.
     #[error("bot id can't start or end with '-'")]
     EdgeDash,
+    /// The id has the shape oxbot keeps for its practice runs (`t--…`).
+    #[error("bot ids starting with t-- are oxbot's own")]
+    Reserved,
 }
 
 impl BotId {

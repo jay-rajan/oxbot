@@ -252,7 +252,10 @@ impl Hub {
         };
         runtime.question = Some(question.chars().take(crate::report::MAX_QUESTION).collect());
         // The taint stays: Claude still remembers what earlier turns read.
+        let origin = runtime.origin.clone();
         drop(runtimes);
+        // The owner's own message may run on the bot's shadow too.
+        self.maybe_shadow(bot, user_message.seq, &origin, text, files);
         self.announce_bots().await;
         Ok(())
     }

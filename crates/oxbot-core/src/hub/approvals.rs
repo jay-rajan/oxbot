@@ -101,31 +101,20 @@ impl Hub {
         // with what it records), so both engines get a normal result.
         // Claude Code's acceptEdits rule, shared: file tools inside the
         // bot's own folder run. (Claude's CLI never asks for those, so this
-        // only answers the loop.)
+        // only answers the loop.) A practice run's folder is its own copy,
+        // deleted when it ends, so its files are written as live.
         let inside = self
-            .bot(bot.as_str())
+            .run_bot(bot.as_str())
             .is_ok_and(|b| policy::file_call_inside(&request.tool, &request.input, &b.work_dir()));
-        let changes_files = matches!(request.tool.as_str(), "Write" | "Edit");
-        let decision = if inside && mode == GateMode::DryRun && changes_files {
-            // A practice run changes no files.
-            Decision::Simulate(format!(
-                "(practice run) would {} {}",
-                request.tool.to_lowercase(),
-                request
-                    .input
-                    .get("file_path")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-            ))
-        } else if inside || (mode == GateMode::DryRun && request.tool.starts_with(HOST_TOOL_PREFIX))
-        {
-            Decision::Allow
-        } else {
-            match self.decide_permission(&bot, &request, mode).await {
-                Ok(decision) => decision,
-                Err(err) => Decision::Deny(format!("oxbot couldn't check this: {err}")),
-            }
-        };
+        let decision =
+            if inside || (mode == GateMode::DryRun && request.tool.starts_with(HOST_TOOL_PREFIX)) {
+                Decision::Allow
+            } else {
+                match self.decide_permission(&bot, &request, mode).await {
+                    Ok(decision) => decision,
+                    Err(err) => Decision::Deny(format!("oxbot couldn't check this: {err}")),
+                }
+            };
         request.reply.send(decision);
     }
 
@@ -138,11 +127,17 @@ impl Hub {
         request: &PermissionRequest,
         mode: GateMode,
     ) -> Result<Decision, HubError> {
-        let bot = self.bot(bot_id.as_str())?;
+        let bot = self.run_bot(bot_id.as_str())?;
         let uses_browser = request
             .tool
             .starts_with(&format!("mcp__{MCP_SERVER_NAME}__"))
             || request.tool == format!("mcp__{TOOL_SERVER_NAME}__{SIGN_IN_TOOL}");
+        // Fail closed: a practice run browses only behind its guard.
+        if mode == GateMode::DryRun
+            && let Some(no) = self.trial_browser_refusal(bot_id, &request.tool).await
+        {
+            return Ok(no);
+        }
         if uses_browser && !self.take_browser(bot_id).await? {
             return Ok(Decision::Deny(
                 "Your turn ended while you waited for the browser.".to_owned(),
@@ -196,6 +191,10 @@ impl Hub {
         let verdict = policy::decide(&request.tool, &request.input, ctx, |uid| {
             labels.get(uid).cloned()
         });
+        if mode == GateMode::DryRun {
+            let label = click_label(&request.tool, &request.input, &labels);
+            return self.trial_gate(&bot, request, &verdict, page_url, label, element.as_ref());
+        }
         match verdict {
             Verdict::Allow => Ok(Decision::Allow),
             Verdict::AllowUnnamed(what) => {
@@ -218,9 +217,6 @@ impl Hub {
                     },
                 )?;
                 Ok(Decision::Deny(message))
-            }
-            Verdict::Ask(ask) if mode == GateMode::DryRun => {
-                Ok(Decision::Simulate(practice_text(&ask)))
             }
             Verdict::Ask(ask) => {
                 if self
@@ -365,15 +361,6 @@ impl Hub {
         )?;
         Ok(outcome)
     }
-}
-
-/// What a practice run tells the model about a step that would have
-/// needed the person's OK.
-fn practice_text(ask: &policy::Ask) -> String {
-    format!(
-        "(practice run) would {} \"{}\" on {}",
-        ask.action, ask.target, ask.site
-    )
 }
 
 /// The element uids a browser request names: `uid`, and each of

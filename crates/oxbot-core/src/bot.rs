@@ -376,6 +376,13 @@ impl Bot {
             path: dir.to_owned(),
             source,
         })?;
+        // That shape is a practice run's key: never a bot on disk.
+        if id.as_str().starts_with("t--") {
+            return Err(BotError::BadId {
+                path: dir.to_owned(),
+                source: BotIdError::Reserved,
+            });
+        }
         let toml_path = dir.join("bot.toml");
         let text = fs::read_to_string(&toml_path).map_err(io_err(&toml_path))?;
         let file: BotFile = toml::from_str(&text).map_err(|source| BotError::Toml {

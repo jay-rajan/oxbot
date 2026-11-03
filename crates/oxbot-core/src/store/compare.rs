@@ -199,6 +199,12 @@ fn cut(text: &str) -> String {
     format!("{}…", &text[..end])
 }
 
+/// How a shadow batch names the live message it shadows (its `cases`).
+#[must_use]
+pub fn shadow_cases(user_seq: u64) -> String {
+    format!("[\"seq:{user_seq}\"]")
+}
+
 fn u32_of(n: i64) -> u32 {
     u32::try_from(n).unwrap_or(0)
 }
@@ -726,6 +732,18 @@ impl Store {
             .optional()?)
     }
 
+    /// `bot`'s thumbs: the reply's `TurnDone` event → up (true) or down.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn rating_list(&self, bot: &BotId) -> Result<Vec<(u64, bool)>, StoreError> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT seq, up FROM turn_ratings WHERE bot = ?1 ORDER BY seq")?;
+        let rows = stmt.query_map([bot.as_str()], |r| Ok((from_sql(r.get(0)?), r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// `bot`'s thumbs, per engine and model.
     ///
     /// # Errors
@@ -763,6 +781,68 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(runs)
+    }
+
+    /// What the loop turn `turn` of `session` used: requests, input,
+    /// output and cached tokens, dollars, and the model that answered most.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn loop_turn_totals(
+        &self,
+        session: &str,
+        turn: u32,
+    ) -> Result<(u32, u64, u64, u64, f64, String), StoreError> {
+        Ok(self.conn().query_row(
+            "SELECT COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(cost_usd), 0),
+                    COALESCE((SELECT model FROM model_calls m2 WHERE m2.session = ?1 AND m2.turn = ?2
+                        AND m2.model != '' GROUP BY model ORDER BY COUNT(*) DESC, model LIMIT 1), '')
+             FROM model_calls WHERE session = ?1 AND turn = ?2 AND outcome != 'cancelled'",
+            params![session, turn],
+            |r| {
+                Ok((
+                    u32_of(r.get(0)?),
+                    from_sql(r.get(1)?),
+                    from_sql(r.get(2)?),
+                    from_sql(r.get(3)?),
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )?)
+    }
+
+    /// Links the runs of the shadow batch made for `bot`'s message
+    /// `user_seq` to test case `case` (the turn just became a case).
+    /// Returns whether there was one.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn link_shadow_runs(
+        &self,
+        bot: &BotId,
+        user_seq: u64,
+        case: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(self.conn().execute(
+            "UPDATE trial_runs SET case_id = ?3 WHERE batch IN (
+                SELECT id FROM trial_batches WHERE bot = ?1 AND kind = 'shadow' AND cases = ?2)",
+            params![bot.as_str(), shadow_cases(user_seq), case],
+        )? > 0)
+    }
+
+    /// Shadow runs started today (UTC), for the daily cap.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn shadows_since(&self, since_ms: i64) -> Result<u32, StoreError> {
+        let n: i64 = self.conn().query_row(
+            "SELECT COUNT(*) FROM trial_runs WHERE kind = 'shadow' AND COALESCE(started_ms, 0) >= ?1",
+            [since_ms],
+            |r| r.get(0),
+        )?;
+        Ok(u32_of(n))
     }
 
     /// Forgets everything stored under a practice run's own key (its

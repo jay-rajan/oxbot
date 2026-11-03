@@ -26,6 +26,7 @@ mod alerts;
 mod approvals;
 mod browsers;
 mod claude;
+mod compare;
 mod elements;
 mod engine_prefs;
 mod engines;
@@ -38,11 +39,13 @@ mod seqs;
 mod sign_ins;
 mod taint;
 mod team;
+mod trials;
 mod turns;
 mod uploads;
 
 pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
+pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::ENGINES_NOTICE;
 pub use engines::{ChainOrigin, Entry};
 pub use looped::LoopParts;
@@ -68,6 +71,10 @@ use turns::stop_idle_bots;
 
 /// Settings for the [`Hub`].
 #[derive(Debug, Clone)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent switches, three of them for tests only"
+)]
 pub struct HubConfig {
     /// The `claude` program.
     pub claude_program: PathBuf,
@@ -112,11 +119,20 @@ pub struct HubConfig {
     /// Most loop turns that may run at the same time (they wait for the
     /// model pacer, so they don't hold Claude's slots).
     pub max_loop_turns: usize,
+    /// oxbot's data folder: practice runs (`trials/`) and test cases'
+    /// files (`cases/`) live here. Defaults to a folder inside `bots_dir`
+    /// that isn't a bot; the app gives its data folder.
+    pub data_dir: PathBuf,
     /// Tests only (`test-people`): tests written before engines run every
     /// bot on Claude and anyone may give it tasks. Never in a normal build:
     /// there the field doesn't exist and the owner-only rule always holds.
     #[cfg(any(test, feature = "test-people"))]
     pub pre_engine_tests: bool,
+    /// Tests only (`test-people`): practice runs may use browser tools
+    /// without a guarded Chrome (tests have no Chrome). Never in a normal
+    /// build: there a practice run browses only behind its network guard.
+    #[cfg(any(test, feature = "test-people"))]
+    pub trials_without_guard: bool,
 }
 
 impl HubConfig {
@@ -124,9 +140,11 @@ impl HubConfig {
     /// minutes to answer a card or sign in, idle bots stop after 15 minutes.
     #[must_use]
     pub fn new(bots_dir: impl Into<PathBuf>) -> Self {
+        let bots_dir = bots_dir.into();
         Self {
             claude_program: PathBuf::from("claude"),
-            bots_dir: bots_dir.into(),
+            data_dir: bots_dir.join(".oxbot"),
+            bots_dir,
             max_concurrent_turns: 3,
             browser: None,
             approval_timeout: Duration::from_mins(10),
@@ -143,6 +161,8 @@ impl HubConfig {
             enrol_named_viewers: true,
             #[cfg(any(test, feature = "test-people"))]
             pre_engine_tests: true,
+            #[cfg(any(test, feature = "test-people"))]
+            trials_without_guard: false,
         }
     }
 
@@ -311,6 +331,10 @@ pub struct Hub {
     /// The Farm's own person, once looked up this run (see
     /// [`Hub::farm_person`]).
     farm: std::sync::Mutex<Option<PersonId>>,
+    /// Practice runs: what's queued and running (see [`trials`]).
+    trials: trials::Trials,
+    /// What a test case knew then (#20 fills it).
+    knowledge: Arc<dyn CaseKnowledge>,
     /// Files uploaded for messages not sent yet, by upload id.
     uploads: std::sync::Mutex<HashMap<String, uploads::Pending>>,
     /// Uploads being checked and converted at once, at most.
@@ -380,12 +404,16 @@ impl Hub {
             // Looked up (and its name brought up to date) on first use.
             farm: std::sync::Mutex::new(None),
             uploads: std::sync::Mutex::new(HashMap::new()),
+            trials: trials::Trials::default(),
+            knowledge: Arc::new(NoKnowledge),
             conversions: Semaphore::new(2),
         });
         // The home browser exists from the start, as before.
         let _ = hub.browser_for(&BrowserOwner::Home);
         // Partial uploads a crash left behind (then every minute, with idle bots).
         hub.sweep_incoming();
+        // Practice runs an earlier oxbot left are stopped and deleted.
+        hub.start_trials();
         tokio::spawn(stop_idle_bots(Arc::downgrade(&hub)));
         hub
     }
@@ -438,6 +466,10 @@ impl Hub {
 
     /// Stores an event and tells every client about it.
     fn record(&self, bot: &BotId, kind: EventKind) -> Result<BotEvent, HubError> {
+        // A practice run's events are its own, never a chat's.
+        if trials::is_trial(bot) {
+            return self.record_trial(bot, kind);
+        }
         let event = self.store.append(bot, kind)?;
         self.note_seq(&event);
         // No listeners is fine: nobody's connected right now.

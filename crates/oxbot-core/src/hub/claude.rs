@@ -192,7 +192,10 @@ impl Hub {
         }
         // Once per run, and after an upgrade renamed its sites (until a
         // check works), drop remembered sites the browser has no cookies for.
-        let due = self.store.site_check_due(&shared.owner).unwrap_or(false);
+        // A practice run's browser holds a copy: never checked against the
+        // real list.
+        let due = self.store.site_check_due(&shared.owner).unwrap_or(false)
+            && !super::trials::is_trial(&bot.id);
         if !shared.sites_checked.swap(true, Ordering::Relaxed) || due {
             let hub = Arc::clone(self);
             let shared = Arc::clone(shared);
@@ -297,7 +300,7 @@ impl Hub {
                     .await
                     .get(bot)
                     .is_none_or(|r| r.engine == EngineKind::Claude);
-                if claude {
+                if claude && !super::trials::is_trial(bot) {
                     self.note_model(bot, &model);
                 }
             }
@@ -337,6 +340,9 @@ impl Hub {
                 self.announce_usage();
             }
             // Only oxbot's own loop reports model requests.
+            EngineEvent::ModelCall(record) if super::trials::is_trial(bot) => {
+                self.trial_model_call(bot, &record);
+            }
             EngineEvent::ModelCall(record) => self.note_model_call(bot, &record).await,
             EngineEvent::TurnDone {
                 ok,
@@ -346,8 +352,11 @@ impl Hub {
             } => {
                 self.deny_open_approvals(bot);
                 self.cancel_sign_ins(bot);
-                if let Some(usage) = usage {
-                    self.store.add_usage(bot, &usage)?;
+                // A practice run's usage goes to its run, never the bot's.
+                match usage {
+                    Some(usage) if super::trials::is_trial(bot) => self.trial_usage(bot, &usage),
+                    Some(usage) => self.store.add_usage(bot, &usage)?,
+                    None => {}
                 }
                 if !ok {
                     self.record(bot, EventKind::Error { message: text })?;
@@ -434,7 +443,7 @@ impl Hub {
     /// Reads the snapshot files a browser result points to (off the async
     /// threads) into `bot`'s element book.
     async fn learn_files(&self, bot: &BotId, files: Vec<elements::SnapshotFile>) {
-        let Ok(work_dir) = self.bot(bot.as_str()).map(|b| b.work_dir()) else {
+        let Ok(work_dir) = self.run_bot(bot.as_str()).map(|b| b.work_dir()) else {
             return;
         };
         let Some(claude_home) = elements::claude_home() else {

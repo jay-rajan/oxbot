@@ -372,14 +372,12 @@ async fn host_message(
 }
 
 /// The gate's answer as Claude takes it. Claude can't fake a tool's
-/// result, so a practice run is a no that says what was recorded.
+/// result, so a practice run's result is a no with the same words.
 fn claude_decision(decision: Decision) -> ClaudeDecision {
     match decision {
         Decision::Allow => ClaudeDecision::Allow,
-        Decision::Deny(message) => ClaudeDecision::Deny(message),
-        Decision::Simulate(message) => ClaudeDecision::Deny(format!(
-            "Practice run: oxbot recorded this as done without running it. {message}"
-        )),
+        // A practice run: the same words the loop gives as the tool's result.
+        Decision::Deny(message) | Decision::Simulate(message) => ClaudeDecision::Deny(message),
     }
 }
 
@@ -468,7 +466,7 @@ mod tests {
         else {
             panic!("a practice run must not run")
         };
-        assert!(text.contains("Practice run") && text.ends_with("(would click)"));
+        assert_eq!(text, "(would click)", "the same words the loop gives");
     }
 
     #[tokio::test]

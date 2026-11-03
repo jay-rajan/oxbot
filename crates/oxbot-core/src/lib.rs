@@ -16,6 +16,7 @@
 
 pub mod attach;
 pub mod bot;
+pub mod compare;
 pub mod engine;
 pub mod home;
 pub mod hub;

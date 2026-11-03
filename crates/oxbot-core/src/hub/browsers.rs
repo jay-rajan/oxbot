@@ -98,6 +98,10 @@ impl Hub {
 
     /// The browser `bot` uses: its owner's own if it's private, else home.
     pub(super) fn browser_of(&self, bot: &Bot) -> Option<Arc<Shared>> {
+        // A practice run has its own Chrome, never a live one.
+        if super::trials::is_trial(&bot.id) {
+            return self.trial_browser(&bot.id);
+        }
         self.browser_for(&bot.browser_owner()?)
     }
 
@@ -186,7 +190,7 @@ impl Hub {
     }
 
     async fn downloads_for(&self, shared: &Shared, bot: &BotId) -> Result<(), HubError> {
-        let dir = self.bot(bot.as_str())?.work_dir().join("downloads");
+        let dir = self.run_bot(bot.as_str())?.work_dir().join("downloads");
         shared.browser.set_downloads(&dir).await;
         Ok(())
     }
