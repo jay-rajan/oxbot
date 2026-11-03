@@ -62,7 +62,8 @@ pub enum Verdict {
 }
 
 /// What a click would do, as far as oxbot can tell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Click {
     /// Search, filter, sort, paging, opening a result: runs.
     Query,
@@ -88,6 +89,18 @@ impl Click {
             Self::Query => 2,
             Self::Plain => 1,
             Self::Unknown => 0,
+        }
+    }
+
+    /// Its name: `query`, `plain`, `change`, `final`, `unknown`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Plain => "plain",
+            Self::Change => "change",
+            Self::Final => "final",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -991,6 +1004,194 @@ fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+// ---------------------------------------------------------------------------
+// Practice runs (#21): one overlay on the live verdict, for both engines.
+// ---------------------------------------------------------------------------
+
+/// How strict a practice run's network guard is, per test case.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrialMode {
+    /// Every request but GET, HEAD and OPTIONS is blocked (the default).
+    #[default]
+    Strict,
+    /// Pages may also read with POST from scripts (sites that search with
+    /// GraphQL, say); form posts and every other write stay blocked. Toggles
+    /// outside search areas and clicks oxbot can't name are recorded, not
+    /// done.
+    #[serde(rename = "xhr")]
+    XhrAllowed,
+}
+
+impl TrialMode {
+    /// Its name in the database and the protocol: `strict` or `xhr`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::XhrAllowed => "xhr",
+        }
+    }
+
+    /// The mode called `name` (as [`TrialMode::as_str`] writes it).
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "strict" => Some(Self::Strict),
+            "xhr" => Some(Self::XhrAllowed),
+            _ => None,
+        }
+    }
+}
+
+/// A step a practice run recorded instead of doing, e.g. `click button
+/// "Send" on mail.example.com`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Intent {
+    /// What kind of step (a change, an upload…).
+    pub kind: ApprovalKind,
+    /// The action, e.g. `click`.
+    pub action: String,
+    /// What it acts on, e.g. `button "Send"`.
+    pub target: String,
+    /// The site, e.g. `mail.example.com`.
+    pub site: String,
+    /// For a click: what kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub click: Option<Click>,
+    /// One of the bot's "Always allow" rules would have let it run live.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_rule: bool,
+}
+
+impl Intent {
+    /// The step a card would have asked about.
+    #[must_use]
+    pub fn from_ask(ask: &Ask) -> Self {
+        Self {
+            kind: ask.kind,
+            action: ask.action.clone(),
+            target: ask.target.clone(),
+            site: ask.site.clone(),
+            click: ask.click,
+            by_rule: false,
+        }
+    }
+
+    /// One line: `click button "Send" on mail.example.com`.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        if self.site.is_empty() || self.site == "oxbot" {
+            format!("{} {}", self.action, self.target)
+        } else {
+            format!("{} {} on {}", self.action, self.target, self.site)
+        }
+    }
+
+    /// Whether it changes something on a site (a change, a can't-undo
+    /// click, Enter in a text box, an upload) rather than a toggle or a
+    /// click oxbot couldn't name.
+    #[must_use]
+    pub fn is_change(&self) -> bool {
+        matches!(self.click, Some(Click::Change | Click::Final) | None)
+    }
+}
+
+/// What a practice run does with a tool call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrialVerdict {
+    /// Run it, as live.
+    Run,
+    /// Refuse it, as live.
+    Refuse(String),
+    /// Don't run it: record it, and tell the model it was done.
+    Record(Intent),
+}
+
+/// The tool call a practice run checks, as far as the gate read it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TrialCall<'a> {
+    /// The browser action (`click`, `click_at`…), if it's a browser tool.
+    pub action: Option<&'a str>,
+    /// The label of what a click aims at (`switch "Dark mode"`), if known.
+    pub label: Option<&'a str>,
+    /// What oxbot read about that element, if it looked.
+    pub element: Option<&'a ElementFacts>,
+    /// The page's site, e.g. `mail.example.com`.
+    pub site: &'a str,
+}
+
+/// How a practice run treats a tool call whose live verdict is `verdict`.
+/// Both engines use it, through the hub's gate:
+///
+/// - refused live: refused (and counted);
+/// - a card live: recorded, never shown, whatever "Always allow" rules say;
+/// - a click oxbot can't name: run in [`TrialMode::Strict`] (the network
+///   guard blocks any write it makes), recorded in
+///   [`TrialMode::XhrAllowed`];
+/// - a switch, checkbox or radio outside a search area: recorded in
+///   [`TrialMode::XhrAllowed`] (a script may save it with a POST);
+/// - anything else: run.
+#[must_use]
+pub fn trial_overlay(verdict: &Verdict, call: TrialCall<'_>, mode: TrialMode) -> TrialVerdict {
+    match verdict {
+        Verdict::Deny(why) => TrialVerdict::Refuse(why.clone()),
+        Verdict::Ask(ask) => TrialVerdict::Record(Intent::from_ask(ask)),
+        Verdict::AllowUnnamed(what) => match mode {
+            TrialMode::Strict => TrialVerdict::Run,
+            TrialMode::XhrAllowed => TrialVerdict::Record(Intent {
+                kind: ApprovalKind::Change,
+                action: "click".to_owned(),
+                target: what.clone(),
+                site: call.site.to_owned(),
+                click: Some(Click::Unknown),
+                by_rule: false,
+            }),
+        },
+        Verdict::Allow => {
+            let toggle = mode == TrialMode::XhrAllowed
+                && matches!(call.action, Some("click" | "click_at"))
+                && call.label.is_some_and(|label| {
+                    let (role, _) = split_label(label);
+                    matches!(role, "switch" | "checkbox" | "radio")
+                        && classify(Some(label), call.element) == Click::Plain
+                })
+                && !call.element.is_some_and(|e| e.in_search);
+            if toggle {
+                let label = call.label.unwrap_or_default();
+                let (role, name) = split_label(label);
+                TrialVerdict::Record(Intent {
+                    kind: ApprovalKind::Change,
+                    action: "click".to_owned(),
+                    target: format!("{role} \"{}\"", shown_name(name)),
+                    site: call.site.to_owned(),
+                    click: Some(Click::Plain),
+                    by_rule: false,
+                })
+            } else {
+                TrialVerdict::Run
+            }
+        }
+    }
+}
+
+/// What every practice-run result oxbot makes up starts with. The stand-in
+/// Claude and the judge look for it.
+pub const DRY_RUN_PREFIX: &str = "[test run]";
+
+/// What the model is told about a step a practice run recorded instead of
+/// doing. The same words on every engine; nothing else in a practice run
+/// says it's a test (the system prompt stays as live).
+#[must_use]
+pub fn dry_run_text(intent: &Intent) -> String {
+    format!(
+        "{DRY_RUN_PREFIX} oxbot recorded this instead of doing it: {}. This task is being replayed \
+         as a test, so nothing was sent. Treat it as done and successful, don't retry it or check \
+         for its effect, and carry on with the rest of the task.",
+        intent.describe()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1714,5 +1915,286 @@ mod tests {
             decide("Read", &json!({"file_path":"/etc/hosts"}), ctx(), no_names),
             Verdict::Deny(_)
         ));
+    }
+}
+
+#[cfg(test)]
+mod trial_tests {
+    //! The practice-run table (design §2.2): every row, in both network
+    //! modes.
+    use super::*;
+    use serde_json::json;
+
+    const WORK: &str = "/bots/jobs/work";
+
+    fn tool(name: &str) -> String {
+        format!("mcp__chrome-devtools__{name}")
+    }
+
+    fn names(uid: &str) -> Option<String> {
+        match uid {
+            "post" => Some("button \"Post\"".into()),
+            "delete" => Some("button \"Delete forever\"".into()),
+            "search" => Some("button \"Search\"".into()),
+            "link" => Some("link \"Jobs in Riverside\"".into()),
+            "switch" => Some("switch \"Remote only\"".into()),
+            "box" => Some("checkbox \"Full time\"".into()),
+            "password" => Some("textbox \"Password\"".into()),
+            "what" => Some("textbox \"Job title\"".into()),
+            _ => None,
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Want {
+        Run,
+        Refuse,
+        Record,
+    }
+
+    struct Row {
+        what: &'static str,
+        tool: String,
+        input: Value,
+        facts: Option<PageFacts>,
+        element: Option<ElementFacts>,
+        strict: Want,
+        xhr: Want,
+    }
+
+    fn row(what: &'static str, tool: String, input: Value, strict: Want, xhr: Want) -> Row {
+        Row {
+            what,
+            tool,
+            input,
+            facts: None,
+            element: None,
+            strict,
+            xhr,
+        }
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one row per line of the design's table"
+    )]
+    fn table() -> Vec<Row> {
+        use Want::{Record, Refuse, Run};
+        let text_box = PageFacts {
+            active: Some(Field {
+                kind: FieldKind::Text,
+                label: "Write a message".into(),
+            }),
+            ..PageFacts::default()
+        };
+        let search_area = ElementFacts {
+            in_search: true,
+            ..ElementFacts::default()
+        };
+        vec![
+            row("read", tool("take_snapshot"), json!({}), Run, Run),
+            row(
+                "navigate",
+                tool("navigate_page"),
+                json!({"url": "https://jobs.example.test/"}),
+                Run,
+                Run,
+            ),
+            row(
+                "type",
+                tool("fill"),
+                json!({"uid": "what", "value": "nurse"}),
+                Run,
+                Run,
+            ),
+            row("search", tool("click"), json!({"uid": "search"}), Run, Run),
+            row("link", tool("click"), json!({"uid": "link"}), Run, Run),
+            row(
+                "toggle",
+                tool("click"),
+                json!({"uid": "switch"}),
+                Run,
+                Record,
+            ),
+            Row {
+                element: Some(search_area),
+                ..row(
+                    "toggle in a search area",
+                    tool("click"),
+                    json!({"uid": "box"}),
+                    Run,
+                    Run,
+                )
+            },
+            row("unnamed", tool("click"), json!({"uid": "x9"}), Run, Record),
+            row(
+                "change",
+                tool("click"),
+                json!({"uid": "post"}),
+                Record,
+                Record,
+            ),
+            row(
+                "can't undo",
+                tool("click"),
+                json!({"uid": "delete"}),
+                Record,
+                Record,
+            ),
+            Row {
+                facts: Some(text_box),
+                ..row(
+                    "enter in a text box",
+                    tool("press_key"),
+                    json!({"key": "Enter"}),
+                    Record,
+                    Record,
+                )
+            },
+            row(
+                "upload",
+                tool("upload_file"),
+                json!({"uid": "x1", "filePath": format!("{WORK}/cv.pdf")}),
+                Record,
+                Record,
+            ),
+            row(
+                "password",
+                tool("fill"),
+                json!({"uid": "password", "value": "x"}),
+                Refuse,
+                Refuse,
+            ),
+            row(
+                "script",
+                tool("evaluate_script"),
+                json!({"function": "() => 1"}),
+                Refuse,
+                Refuse,
+            ),
+            row(
+                "file page",
+                tool("navigate_page"),
+                json!({"url": "file:///etc/passwd"}),
+                Refuse,
+                Refuse,
+            ),
+            row(
+                "files outside the folder",
+                tool("take_screenshot"),
+                json!({"filePath": "/tmp/x.png"}),
+                Refuse,
+                Refuse,
+            ),
+            row(
+                "create a bot",
+                "mcp__oxbot__create_bot".into(),
+                json!({"name": "Helper", "instructions": "help"}),
+                Record,
+                Record,
+            ),
+        ]
+    }
+
+    fn run(row: &Row, mode: TrialMode) -> TrialVerdict {
+        let ctx = Context {
+            work_dir: Path::new(WORK),
+            page_url: Some("https://jobs.example.test/post"),
+            facts: row.facts.as_ref(),
+            element: row.element.as_ref(),
+        };
+        let verdict = decide(&row.tool, &row.input, ctx, names);
+        let label = row.input.get("uid").and_then(Value::as_str).and_then(names);
+        let call = TrialCall {
+            action: browser_action(&row.tool),
+            label: label.as_deref(),
+            element: row.element.as_ref(),
+            site: "jobs.example.test",
+        };
+        trial_overlay(&verdict, call, mode)
+    }
+
+    fn kind(v: &TrialVerdict) -> Want {
+        match v {
+            TrialVerdict::Run => Want::Run,
+            TrialVerdict::Refuse(_) => Want::Refuse,
+            TrialVerdict::Record(_) => Want::Record,
+        }
+    }
+
+    #[test]
+    fn every_row_in_both_modes() {
+        for row in table() {
+            for (mode, want) in [
+                (TrialMode::Strict, row.strict),
+                (TrialMode::XhrAllowed, row.xhr),
+            ] {
+                let got = run(&row, mode);
+                assert_eq!(kind(&got), want, "{} in {mode:?}: {got:?}", row.what);
+            }
+        }
+    }
+
+    #[test]
+    fn a_recorded_click_says_what_it_would_have_done() {
+        let row = table().into_iter().find(|r| r.what == "change").unwrap();
+        let TrialVerdict::Record(intent) = run(&row, TrialMode::Strict) else {
+            panic!("recorded");
+        };
+        assert_eq!(
+            intent.describe(),
+            "click button \"Post\" on jobs.example.test"
+        );
+        assert_eq!(intent.click, Some(Click::Change));
+        assert!(intent.is_change());
+        let toggle = table().into_iter().find(|r| r.what == "toggle").unwrap();
+        let TrialVerdict::Record(intent) = run(&toggle, TrialMode::XhrAllowed) else {
+            panic!("recorded");
+        };
+        assert_eq!(
+            intent.describe(),
+            "click switch \"Remote only\" on jobs.example.test"
+        );
+        assert!(!intent.is_change());
+    }
+
+    #[test]
+    fn the_dry_run_text_is_stable() {
+        let intent = Intent {
+            kind: ApprovalKind::Change,
+            action: "click".into(),
+            target: "button \"Send\"".into(),
+            site: "mail.example.com".into(),
+            click: Some(Click::Change),
+            by_rule: false,
+        };
+        assert_eq!(
+            dry_run_text(&intent),
+            "[test run] oxbot recorded this instead of doing it: click button \"Send\" on \
+             mail.example.com. This task is being replayed as a test, so nothing was sent. Treat \
+             it as done and successful, don't retry it or check for its effect, and carry on with \
+             the rest of the task."
+        );
+        assert!(dry_run_text(&intent).starts_with(DRY_RUN_PREFIX));
+    }
+
+    #[test]
+    fn modes_and_intents_round_trip() {
+        for mode in [TrialMode::Strict, TrialMode::XhrAllowed] {
+            assert_eq!(TrialMode::parse(mode.as_str()), Some(mode));
+            assert_eq!(serde_json::to_value(mode).unwrap(), json!(mode.as_str()));
+        }
+        assert_eq!(TrialMode::parse("loose"), None);
+        let intent = Intent {
+            kind: ApprovalKind::Upload,
+            action: "upload a file to".into(),
+            target: "element 3".into(),
+            site: "jobs.example.test".into(),
+            click: None,
+            by_rule: true,
+        };
+        let json = serde_json::to_string(&intent).unwrap();
+        assert_eq!(serde_json::from_str::<Intent>(&json).unwrap(), intent);
+        assert!(json.contains(r#""kind":"upload""#), "{json}");
     }
 }
