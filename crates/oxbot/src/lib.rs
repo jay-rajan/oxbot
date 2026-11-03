@@ -15,6 +15,7 @@
 
 pub mod chat;
 pub mod client;
+pub mod compare;
 pub mod dictation;
 pub mod door;
 pub mod keychain;

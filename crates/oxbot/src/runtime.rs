@@ -176,6 +176,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             openrouter.client(),
             openrouter.key_cell(),
         )),
+        // Practice runs and test cases' files.
+        data_dir: home.root().to_path_buf(),
         ..HubConfig::for_app(home.bots_dir())
     };
     let hub = Hub::new(bots, store, config);

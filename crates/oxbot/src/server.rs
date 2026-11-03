@@ -1176,6 +1176,11 @@ async fn handle(
     if !viewer.farm && farm_only(&msg) {
         return error(&"Only the Farm can do that.");
     }
+    // Comparing engines and models: the owner's only (the hub checks).
+    let msg = match crate::compare::handle(msg, &state.hub, &viewer).await {
+        Ok(reply) => return reply,
+        Err(other) => other,
+    };
     let msg = match handle_farm(msg, state).await {
         Ok(reply) => return reply,
         Err(other) => other,
