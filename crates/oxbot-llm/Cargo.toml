@@ -1,0 +1,17 @@
+[package]
+name = "oxbot-llm"
+description = "A model client for OpenAI-style chat APIs (OpenRouter now, local servers later): provider-neutral messages, streaming, errors, OpenRouter's model list, key info and sign-in."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
