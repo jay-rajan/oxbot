@@ -3234,6 +3234,7 @@ dependencies = [
  "clap",
  "futures-util",
  "oxbot-core",
+ "oxbot-llm",
  "png",
  "ring",
  "rusqlite",
