@@ -135,6 +135,15 @@ becomes owner-only. Bots made before engines stay on Claude: on the first start 
 banner, and Settings → Engines lists the Claude bots other people used in the last 30 days, each
 with **Switch to OpenRouter** (or **Switch all**).
 
+Comparing engines (the owner only): under a finished reply, 👍/👎 and **Test case…** keep the
+task; **Compare…** in the bot's menu replays test cases on Claude and on OpenRouter models, side
+by side with a scoreboard (your marks, or Claude as judge on request). A replay never acts: every
+step that would send, post or change something is recorded instead (no card, nothing in the
+chat), in its own browser with a copy of the sign-ins it needs (no history, deleted when it ends)
+that blocks every request but reads, and WebSockets. **Shadow** in the message box runs your own
+messages on another model at the same time, the same way. Comparisons the owner starts may send a
+test case to any engine the owner picks; Claude runs and judges only tasks the owner started.
+
 OpenRouter: the Farm signs in once in Settings → Engines (**Sign in with OpenRouter**: OpenRouter
 opens in your browser and comes back to oxbot on this Mac, PKCE with a one-time state). The key
 lives only in your Mac's Keychain (one item per data folder), never in a file, the log, the

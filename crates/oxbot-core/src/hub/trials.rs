@@ -113,6 +113,8 @@ struct Active {
     step_cap: u32,
     over_budget: bool,
     asked_to_sign_in: bool,
+    /// The last model request was turned away for limits.
+    limited: bool,
     /// The report it would have saved.
     report: Option<Value>,
     /// Fired when its turn ends (`true`: without error).
@@ -307,9 +309,10 @@ impl Hub {
             a.run.output_tokens += record.completion_tokens;
             a.run.cached_tokens += record.cached_tokens;
             a.run.cost_usd += record.cost_usd;
-            if record.outcome == "rate_limited" || record.outcome == "daily_limit" {
-                "rate_limited".clone_into(&mut a.run.status);
-            }
+            a.limited = matches!(
+                record.outcome.as_str(),
+                "rate_limited" | "busy" | "daily_limit"
+            );
         }
     }
 
@@ -572,11 +575,28 @@ impl Hub {
             Err(err) => tracing::warn!(%err, "couldn't stop old practice runs"),
         }
         let root = trials_dir(&self.config.data_dir);
+        self.sweep_case_files();
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
             oxbot_browser::trial::sweep(&root).await;
             run_queue(weak).await;
         });
+    }
+
+    /// Deletes the files of test cases that are gone (their bot was
+    /// deleted, say).
+    fn sweep_case_files(&self) {
+        let Ok(entries) = std::fs::read_dir(cases_dir(&self.config.data_dir)) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if matches!(self.store.test_case(&name), Ok(None))
+                && let Err(err) = std::fs::remove_dir_all(entry.path())
+            {
+                tracing::warn!(%err, "couldn't delete a deleted test case's files");
+            }
+        }
     }
 
     /// Queues `job`; shadows go first.
@@ -853,6 +873,7 @@ impl Hub {
                 step_cap: input.step_cap,
                 over_budget: false,
                 asked_to_sign_in: false,
+                limited: false,
                 report: None,
                 ended: Some(ended),
             },
@@ -995,7 +1016,8 @@ impl Hub {
         let mut active = lock(&self.trials.active);
         if let Some(a) = active.get_mut(key) {
             let stopped = a.run.status == "stopped";
-            let limited = a.run.status == "rate_limited";
+            // Ended on a limit: inconclusive, not a fail.
+            let limited = !ok && a.limited;
             let status = if stopped {
                 "stopped"
             } else if limited {
