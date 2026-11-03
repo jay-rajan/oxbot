@@ -20,6 +20,7 @@ oxbot-engine = { path = "crates/oxbot-engine" }
 oxbot-browser = { path = "crates/oxbot-browser" }
 oxbot-gate = { path = "crates/oxbot-gate" }
 oxbot-llm = { path = "crates/oxbot-llm" }
+oxbot-loop = { path = "crates/oxbot-loop" }
 
 # External crates (versions checked 2026-10-27)
 anyhow = "1.0.104"
@@ -83,6 +84,8 @@ zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 # 2026-11-02; released 2026-02-20; already in the build through
 # rustls-platform-verifier). Its safe password API only.
 security-framework = { version = "=3.7.0", default-features = false }
+# The loop's Grep and Glob file tools (already in the build).
+regex = "=1.13.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
