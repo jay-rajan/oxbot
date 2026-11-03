@@ -629,6 +629,10 @@ pub struct OpenRouterView {
     /// Today's use (UTC day), per bot and per person.
     #[serde(default)]
     pub usage: Vec<RouterUsage>,
+    /// What to change on `OpenRouter`'s site when the account's privacy
+    /// settings rule out the free models lately.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_policy: Option<String>,
 }
 
 /// The `OpenRouter` key's limits and today's use.

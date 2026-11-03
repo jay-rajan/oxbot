@@ -548,7 +548,78 @@ async fn private_bots_never_drop_deny() {
         text.starts_with("No free model takes private work"),
         "{text}"
     );
+    assert!(text.contains("OpenRouter said"), "{text}");
     assert!(h.store.calls().iter().all(|c| c.private));
+    assert!(
+        !h.engine.data_policy_blocked(),
+        "a private bot asked for it: not the account's settings"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_accounts_data_policy_is_explained_with_openrouters_words() {
+    let said = "No endpoints found matching your data policy (Free model training). Configure: \
+                https://openrouter.ai/settings/privacy";
+    let h = Harness::new(
+        ScriptedModel::new()
+            .then(Step::error(ErrorKind::DataPolicy, said))
+            .then(Step::text("Hello again.")),
+    );
+    let seen = h
+        .turn(h.spec(new_session()), "hi", HubScript::default())
+        .await;
+    let Seen::Done(false, text) = seen.last().unwrap() else {
+        panic!("{seen:?}")
+    };
+    assert!(text.starts_with(crate::DATA_POLICY_HELP), "{text}");
+    assert!(text.contains("Enable free endpoints that may train on inputs"));
+    assert!(
+        text.ends_with(&format!("(OpenRouter said: \u{201c}{said}\u{201d})")),
+        "{text}"
+    );
+    assert_eq!(
+        h.model.requests().len(),
+        1,
+        "both models were ruled out at once"
+    );
+    assert_eq!(h.store.calls()[0].outcome, "error:data_policy");
+    assert!(h.engine.data_policy_blocked());
+
+    // A free model answering again clears it.
+    let seen = h
+        .turn(h.spec(new_session()), "hi again", HubScript::default())
+        .await;
+    assert_eq!(
+        seen.last().unwrap(),
+        &Seen::Done(true, "Hello again.".into())
+    );
+    assert!(!h.engine.data_policy_blocked());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_turn_keeps_what_the_service_said() {
+    let h = Harness::new(ScriptedModel::new().then(Step::error(
+        ErrorKind::NoProvider,
+        "No endpoints found that can handle the requested parameters.",
+    )));
+    let seen = h
+        .turn(h.spec(new_session()), "hi", HubScript::default())
+        .await;
+    let Seen::Done(false, text) = seen.last().unwrap() else {
+        panic!("{seen:?}")
+    };
+    assert!(
+        text.starts_with("No model can take this request right now."),
+        "{text}"
+    );
+    assert!(
+        text.contains("(OpenRouter said: \u{201c}No endpoints found that can handle the requested parameters.\u{201d})"),
+        "{text}"
+    );
+    assert!(
+        !h.engine.data_policy_blocked(),
+        "not the account's data policy"
+    );
 }
 
 #[derive(Debug)]

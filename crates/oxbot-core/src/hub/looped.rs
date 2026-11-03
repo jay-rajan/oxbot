@@ -13,7 +13,7 @@ use oxbot_loop::{
     Account, BrowserFactory, CatalogCache, GuardQuery, LimitHit, LoopEngine, LoopPrefs, LoopSetup,
     LoopStore, McpBrowserFactory, Pacer, UsageGuard,
 };
-use oxbot_protocol::EnginePrefs;
+use oxbot_protocol::{EnginePrefs, EnginesView, ServerMsg};
 
 use super::engine_prefs::{PREF_CATALOG, PREF_CATALOG_MS, engine_prefs_in};
 use super::engines::ChainOrigin;
@@ -258,6 +258,31 @@ impl Hub {
         if !windows.is_empty() {
             self.check_limit_alerts(&windows);
         }
+        let blocked = self.openrouter_data_policy_blocked();
+        let shown = self
+            .data_policy_shown
+            .swap(blocked, std::sync::atomic::Ordering::Relaxed);
+        if blocked != shown {
+            // A cue: each viewer gets their own engines view.
+            self.announce(ServerMsg::Engines(EnginesView {
+                notice: super::ENGINES_NOTICE.to_owned(),
+                owner: self.owner_display_name(),
+                openrouter_ready: self.engine_ready(EngineKind::OpenRouter).is_ok(),
+                banner: false,
+                review: Vec::new(),
+                models: Vec::new(),
+                openrouter: None,
+            }));
+        }
+    }
+
+    /// Whether the `OpenRouter` account's own privacy settings ruled out
+    /// the free models lately (see [`oxbot_loop::DATA_POLICY_HELP`]).
+    #[must_use]
+    pub fn openrouter_data_policy_blocked(&self) -> bool {
+        self.loop_engine
+            .as_ref()
+            .is_some_and(|e| e.data_policy_blocked())
     }
 
     /// `OpenRouter`'s limits as alert windows: free requests today, paid

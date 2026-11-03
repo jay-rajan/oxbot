@@ -33,7 +33,7 @@ use crate::session::{Conv, Core};
 use crate::store::{PendingCall, StoredMessage, TurnRow, TurnState, TurnStatus};
 use crate::tools::control::ASK_USER;
 use crate::tools::{ToolEnv, ToolKind, ToolOutcome};
-use crate::{KnowledgeBlock, KnowledgeQuery, OneShot, Shared};
+use crate::{DATA_POLICY_HELP, KnowledgeBlock, KnowledgeQuery, OneShot, Shared};
 
 /// Waits before retrying the same model after a network or server error.
 const RETRY_WAITS: [Duration; 3] = [
@@ -108,6 +108,11 @@ pub(crate) struct Caller<'a> {
     zdr_dropped: bool,
     same_retries: usize,
     cooled_for: Duration,
+    /// What the service said about the last request that failed.
+    last_error: Option<String>,
+    /// A model was ruled out by the account's data policy (on a request
+    /// that didn't ask for it).
+    data_policy: bool,
 }
 
 impl Caller<'_> {
@@ -201,6 +206,14 @@ impl Caller<'_> {
         }
     }
 
+    /// What the service last said, for the end of a failure message.
+    fn said(&self) -> String {
+        self.last_error
+            .as_ref()
+            .map(|m| format!(" (OpenRouter said: \u{201c}{m}\u{201d})"))
+            .unwrap_or_default()
+    }
+
     /// Why no model is left, or a second try without zero retention.
     fn nothing_left(&mut self, free_ok: bool) -> Stop {
         let private = self.private();
@@ -214,13 +227,17 @@ impl Caller<'_> {
             }
             return Stop::Fail(format!(
                 "No free model takes private work without keeping your data right now. You can \
-                 try later{} or (soon) use a model on this Mac.",
+                 try later{} or (soon) use a model on this Mac.{}",
                 if self.paid_note().is_empty() {
                     ""
                 } else {
                     ", switch on paid models"
-                }
+                },
+                self.said()
             ));
+        }
+        if self.data_policy {
+            return Stop::Fail(format!("{DATA_POLICY_HELP}{}", self.said()));
         }
         if !free_ok {
             return Stop::Fail(
@@ -238,8 +255,9 @@ impl Caller<'_> {
             );
         }
         Stop::Fail(format!(
-            "No model can take this request right now. Try again in a few minutes{}.",
-            self.paid_note()
+            "No model can take this request right now. Try again in a few minutes{}.{}",
+            self.paid_note(),
+            self.said()
         ))
     }
 
@@ -333,7 +351,18 @@ impl Caller<'_> {
                 record.cost_usd = self.cost(route, resp);
                 "ok".clone_into(&mut record.outcome);
             }
-            Err(err) => record.outcome = outcome_of(err),
+            Err(err) => {
+                record.outcome = outcome_of(err);
+                if err.kind != ErrorKind::Cancelled {
+                    // The service's own short words: never the key or headers.
+                    tracing::info!(
+                        model = %route.primary.id,
+                        status = err.status.unwrap_or(0),
+                        why = %err.message,
+                        "a model request failed"
+                    );
+                }
+            }
         }
         if let Err(err) = self.shared.setup.store.record_call(&record) {
             tracing::warn!(%err, "couldn't save a model request");
@@ -365,6 +394,10 @@ impl Caller<'_> {
     /// A request on `route` answered.
     fn answered(&mut self, route: &Route, resp: &ChatResponse) {
         self.shared.router.ok(&route.primary.id);
+        if route.primary.free && !self.private() {
+            // Free models answer requests without "deny" again.
+            self.shared.data_policy.clear();
+        }
         self.same_retries = 0;
         self.cooled_for = Duration::ZERO;
         let answered = if resp.model.is_empty() {
@@ -387,6 +420,9 @@ impl Caller<'_> {
         let model = &route.primary.id;
         if self.routing.sticky.as_ref() == Some(model) {
             self.routing.sticky = None;
+        }
+        if err.kind != ErrorKind::Cancelled {
+            self.last_error = Some(err.message.clone());
         }
         match err.retry_class() {
             RetryClass::RetrySame => {
@@ -413,7 +449,12 @@ impl Caller<'_> {
                             self.shared.setup.pacer.refresh_soon();
                         }
                     }
-                    ErrorKind::NoProvider => {
+                    ErrorKind::NoProvider | ErrorKind::DataPolicy => {
+                        if err.kind == ErrorKind::DataPolicy && !self.private() {
+                            // The account's own privacy settings, not oxbot's.
+                            self.data_policy = true;
+                            self.shared.data_policy.set();
+                        }
                         self.routing.no_provider.insert(model.clone());
                         self.routing
                             .no_provider
@@ -495,6 +536,8 @@ impl ModelCaller for HelperCaller<'_> {
                 zdr_dropped: false,
                 same_retries: 0,
                 cooled_for: Duration::ZERO,
+                last_error: None,
+                data_policy: false,
             };
             plain_call(&mut caller, messages, max_tokens).await
         })
@@ -563,6 +606,8 @@ pub(crate) async fn one_shot(shared: &Shared, req: OneShot) -> Result<String, St
         zdr_dropped: false,
         same_retries: 0,
         cooled_for: Duration::ZERO,
+        last_error: None,
+        data_policy: false,
     };
     plain_call(&mut caller, req.messages, req.max_tokens)
         .await
@@ -860,6 +905,8 @@ impl Turn {
             zdr_dropped: false,
             same_retries: 0,
             cooled_for: Duration::ZERO,
+            last_error: None,
+            data_policy: false,
         }
     }
 

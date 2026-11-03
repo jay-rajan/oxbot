@@ -49,6 +49,7 @@ pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::ENGINES_NOTICE;
 pub use engines::{ChainOrigin, Entry};
 pub use looped::LoopParts;
+pub use oxbot_loop::DATA_POLICY_HELP;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -312,6 +313,9 @@ pub struct Hub {
     loop_engine: Option<Arc<oxbot_loop::LoopEngine>>,
     /// Turns the loop may run at once.
     loop_turns: Arc<Semaphore>,
+    /// Whether the page was last told the `OpenRouter` account's privacy
+    /// settings rule out the free models.
+    data_policy_shown: std::sync::atomic::AtomicBool,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
     /// Each owner's browser, made when first needed.
     browsers: std::sync::Mutex<HashMap<BrowserOwner, Arc<Shared>>>,
@@ -388,6 +392,7 @@ impl Hub {
                 .as_ref()
                 .map(|parts| looped::build_engine(parts, &store, &config, me.clone())),
             loop_turns: Arc::new(Semaphore::new(config.max_loop_turns.max(1))),
+            data_policy_shown: std::sync::atomic::AtomicBool::new(false),
             store,
             turns: Arc::new(Semaphore::new(config.max_concurrent_turns)),
             claude: Arc::new(ClaudeEngine::new(&config.claude_program)),

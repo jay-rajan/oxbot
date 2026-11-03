@@ -206,6 +206,10 @@ impl AppState {
             models_fetched_ms,
             prefs: self.hub.engine_prefs(),
             usage: self.hub.openrouter_usage_today(),
+            data_policy: self
+                .hub
+                .openrouter_data_policy_blocked()
+                .then(|| oxbot_core::hub::DATA_POLICY_HELP.to_owned()),
         }
     }
 

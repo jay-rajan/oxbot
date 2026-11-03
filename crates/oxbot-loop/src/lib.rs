@@ -175,11 +175,42 @@ impl fmt::Debug for LoopSetup {
     }
 }
 
+/// What a bot says, and Settings → Engines shows, when the OpenRouter
+/// account's own privacy settings rule out the free models (OpenRouter's
+/// "No endpoints found matching your data policy"). oxbot never changes
+/// those settings itself.
+pub const DATA_POLICY_HELP: &str = "OpenRouter's privacy settings for this account rule out the \
+    free models oxbot tried: their providers may train on what they're sent. To use them, the \
+    owner can open openrouter.ai/settings/privacy and switch on \u{201c}Enable free endpoints \
+    that may train on inputs\u{201d} (and switch off \u{201c}ZDR Endpoints only\u{201d} if it's \
+    on), or switch on paid models in Settings \u{2192} Engines. Private bots never use those \
+    providers either way.";
+
+/// Whether the account's data policy ruled out free models lately (set
+/// when it did, cleared when a free model answered again).
+#[derive(Debug, Default)]
+pub(crate) struct DataPolicyFlag(std::sync::atomic::AtomicBool);
+
+impl DataPolicyFlag {
+    pub fn set(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn clear(&self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// What the engine shares between its sessions.
 pub(crate) struct Shared {
     pub setup: LoopSetup,
     pub router: Router,
     pub calibration: budget::Calibration,
+    pub data_policy: DataPolicyFlag,
 }
 
 /// The loop engine. One per hub.
@@ -228,6 +259,7 @@ impl LoopEngine {
                 setup,
                 router,
                 calibration: budget::Calibration::default(),
+                data_policy: DataPolicyFlag::default(),
             }),
         }
     }
@@ -242,6 +274,13 @@ impl LoopEngine {
     #[must_use]
     pub fn catalog(&self) -> Arc<CatalogCache> {
         Arc::clone(&self.shared.setup.catalog)
+    }
+
+    /// Whether the OpenRouter account's privacy settings ruled out the
+    /// free models lately (see [`DATA_POLICY_HELP`]).
+    #[must_use]
+    pub fn data_policy_blocked(&self) -> bool {
+        self.shared.data_policy.get()
     }
 
     /// The pacer (for key info).

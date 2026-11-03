@@ -17,8 +17,12 @@ pub enum ErrorKind {
     FreeDailyLimit,
     /// The model or its providers are down or busy.
     Overloaded,
-    /// No provider meets the request's routing rules (e.g. data policy).
+    /// No provider meets the request's routing rules (e.g. parameters).
     NoProvider,
+    /// No provider meets the data policy: the request's, or the account's
+    /// privacy settings on OpenRouter's site ("No endpoints found matching
+    /// your data policy").
+    DataPolicy,
     /// The conversation is longer than the model's window.
     ContextLength,
     /// The request was refused as invalid (e.g. tool schema, parameters).
@@ -78,6 +82,7 @@ impl ErrorKind {
             Self::RateLimited
             | Self::Overloaded
             | Self::NoProvider
+            | Self::DataPolicy
             | Self::NotFound
             | Self::BadRequest => RetryClass::NextModel,
             Self::ContextLength => RetryClass::Compact,
@@ -100,6 +105,7 @@ impl ErrorKind {
             Self::FreeDailyLimit => "daily_limit",
             Self::Overloaded => "busy",
             Self::NoProvider => "no_provider",
+            Self::DataPolicy => "data_policy",
             Self::ContextLength => "context_length",
             Self::BadRequest => "bad_request",
             Self::NotFound => "not_found",
@@ -239,8 +245,22 @@ impl LlmError {
 }
 
 /// Sorts an error by OpenRouter's `error_type` first, then the status,
-/// then the message.
+/// then the message. "No provider" for the data policy is told apart.
 fn classify(
+    status: Option<u16>,
+    error_type: Option<&str>,
+    message: &str,
+    has_limit_source: bool,
+) -> ErrorKind {
+    match classify_kind(status, error_type, message, has_limit_source) {
+        ErrorKind::NoProvider if message.to_ascii_lowercase().contains("data policy") => {
+            ErrorKind::DataPolicy
+        }
+        kind => kind,
+    }
+}
+
+fn classify_kind(
     status: Option<u16>,
     error_type: Option<&str>,
     message: &str,
@@ -411,7 +431,12 @@ mod tests {
             (403, "Input was flagged", ErrorKind::Refused),
             (
                 404,
-                "No endpoints found matching your data policy",
+                "No endpoints found matching your data policy (Free model training). Configure: https://openrouter.ai/settings/privacy",
+                ErrorKind::DataPolicy,
+            ),
+            (
+                404,
+                "No endpoints found that can handle the requested parameters.",
                 ErrorKind::NoProvider,
             ),
             (404, "Model does not exist", ErrorKind::NotFound),
@@ -541,5 +566,7 @@ mod tests {
         assert_eq!(ErrorKind::Cancelled.retry_class(), RetryClass::Cancelled);
         assert_eq!(ErrorKind::Config.retry_class(), RetryClass::Fail);
         assert_eq!(ErrorKind::Overloaded.as_str(), "busy");
+        assert_eq!(ErrorKind::DataPolicy.retry_class(), RetryClass::NextModel);
+        assert_eq!(ErrorKind::DataPolicy.as_str(), "data_policy");
     }
 }
