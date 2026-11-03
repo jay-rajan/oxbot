@@ -1,0 +1,33 @@
+name = "OpenRouter's privacy settings rule out the free models"
+about = "When the OpenRouter account's own privacy settings leave the free models no provider, the bot says what to change on OpenRouter's site, in plain words and with OpenRouter's own message, and Settings → Engines shows the same. oxbot changes nothing there itself."
+covers = ["crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/src/error.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "privacy blocks"
+[[step]]
+wait_for = "Enable free endpoints that may train on inputs"
+note = "The bot says what to switch on at openrouter.ai/settings/privacy"
+shot = "data-policy-chat"
+[[step]]
+expect = "OpenRouter said: “No endpoints found matching your data policy"
+note = "With OpenRouter's own words"
+[[step]]
+expect_not = "No model can take this request"
+[[step]]
+expect_openrouter = '"status":404'
+[[step]]
+click = "Settings"
+[[step]]
+click = "Engines"
+[[step]]
+expect_js = "(() => { const p = document.getElementById('orPolicy'); return !p.hidden && p.textContent.includes('openrouter.ai/settings/privacy'); })()"
+note = "Settings → Engines shows the same"
+shot = "data-policy-engines"

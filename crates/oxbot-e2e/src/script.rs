@@ -25,6 +25,7 @@
 //! when = "busy"
 //! say = "Answered by the backup."
 //! busy = ["e2e/tool-model:free"]            # these models answer 429 (OpenRouter)
+//! data_policy = ["e2e/backup:free"]         # the account's privacy settings rule these out (OpenRouter)
 //! usage = { prompt = 1200, completion = 80, cost = 0.0 } # reported usage (OpenRouter)
 //! stall_at = 2                              # the first request after 2 tool results waits a minute (OpenRouter)
 //!
@@ -43,7 +44,7 @@
 //! real model.
 //!
 //! Knobs one stand-in doesn't use are ignored by it: the stand-in Claude
-//! ignores `busy`, `usage` and `stall_at`, the stand-in `OpenRouter` ignores `limits`
+//! ignores `busy`, `data_policy`, `usage` and `stall_at`, the stand-in `OpenRouter` ignores `limits`
 //! and `model` (it says which model it routed to).
 
 use std::path::Path;
@@ -94,6 +95,10 @@ pub struct Reply {
     /// Models the stand-in `OpenRouter` says are busy (429) for this reply.
     #[serde(default)]
     pub busy: Vec<String>,
+    /// Models the stand-in `OpenRouter` rules out for this reply as the
+    /// account's privacy settings would (only providers that may train).
+    #[serde(default)]
+    pub data_policy: Vec<String>,
     /// The usage the stand-in `OpenRouter` reports for each request.
     pub usage: Option<Usage>,
     /// The stand-in `OpenRouter`'s first request for this reply after this

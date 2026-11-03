@@ -1,0 +1,29 @@
+name = "A model that lacks a parameter still answers"
+about = "OpenRouter rules out every provider that can't honor each parameter sent (require_parameters). The backup model takes tools but not tool_choice or parallel_tool_calls, so oxbot leaves those out whenever the backup may answer, and it does."
+covers = ["crates/oxbot-llm/src/wire.rs", "crates/oxbot-llm/src/openrouter.rs", "crates/oxbot-loop/src/router.rs", "crates/oxbot-loop/src/runner.rs"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "everyone's busy"
+[[step]]
+wait_for = "Answered by the backup."
+[[step]]
+expect_openrouter = '"routed":"e2e/backup:free"'
+note = "The backup answered with require_parameters on"
+[[step]]
+expect_openrouter_body = '"require_parameters":true'
+[[step]]
+expect_openrouter_not = '"tool_choice":"auto"'
+note = "Nothing the backup can't take was sent"
+[[step]]
+expect_openrouter_not = '"parallel_tool_calls":false'
+[[step]]
+expect_openrouter_body = '"max_tokens":'
+note = "What both models take still goes"

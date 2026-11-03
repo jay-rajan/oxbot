@@ -37,6 +37,11 @@ busy = ["e2e/tool-model:free"]
 usage = { prompt = 1200, completion = 80, cost = 0.0 }
 
 [[reply]]
+when = "privacy"
+say = "Not reached."
+data_policy = ["e2e/tool-model:free"]
+
+[[reply]]
 when = "post it"
 tool = "mcp__chrome-devtools__click"
 args = { uid = "1_3" }
@@ -105,6 +110,16 @@ fn request(model: &str, messages: &[Value]) -> Value {
         "parallel_tool_calls": false,
         "provider": { "data_collection": "deny", "zdr": true, "require_parameters": true },
     })
+}
+
+/// A request the backup can take: it has no `tool_choice` or
+/// `parallel_tool_calls`, so oxbot leaves them out.
+fn backup_request(model: &str, messages: &[Value]) -> Value {
+    let mut body = request(model, messages);
+    let fields = body.as_object_mut().unwrap();
+    fields.remove("tool_choice");
+    fields.remove("parallel_tool_calls");
+    body
 }
 
 /// Runs a reply to its end as the loop would, answering each tool call
@@ -266,12 +281,32 @@ async fn busy_models_fall_back_and_bad_requests_fail() {
     assert_eq!(reply.header("retry-after"), Some("1"));
 
     body["models"] = json!(["e2e/backup:free"]);
+    // The backup takes no tool_choice: with require_parameters, sending it
+    // rules the backup out, and only the busy model is left.
+    let reply = chat(&fake, &body).await;
+    assert_eq!(reply.status, 429, "{}", reply.body);
+    let mut body = backup_request("e2e/tool-model:free", &user);
+    body["models"] = json!(["e2e/backup:free"]);
     let reply = chat(&fake, &body).await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     let v: Value = serde_json::from_str(&reply.body).unwrap();
     assert_eq!(v["model"], "e2e/backup:free");
     assert_eq!(v["usage"]["prompt_tokens"], 1200);
     assert_eq!(v["choices"][0]["message"]["content"], "Answered.");
+
+    // The account's privacy settings rule out a model: another may
+    // answer; with none left, OpenRouter's 404 and its words.
+    let privacy = [json!({"role":"user","content":"[Jay] privacy?"})];
+    let body = request("e2e/tool-model:free", &privacy);
+    let reply = chat(&fake, &body).await;
+    assert_eq!(reply.status, 404);
+    assert!(
+        reply
+            .body
+            .contains("No endpoints found matching your data policy"),
+        "{}",
+        reply.body
+    );
 
     // Unknown models, orphan tool results and no key are refused.
     let reply = chat(&fake, &request("e2e/nope", &user)).await;
@@ -308,9 +343,9 @@ async fn busy_models_fall_back_and_bad_requests_fail() {
     assert_eq!(wrong.status, 401);
 
     // Two free requests a day: the second answered, the third refused.
-    let reply = chat(&fake, &request("e2e/backup:free", &user)).await;
+    let reply = chat(&fake, &backup_request("e2e/backup:free", &user)).await;
     assert_eq!(reply.status, 200);
-    let reply = chat(&fake, &request("e2e/backup:free", &user)).await;
+    let reply = chat(&fake, &backup_request("e2e/backup:free", &user)).await;
     assert_eq!(reply.status, 429);
     assert!(reply.body.contains("free-models-per-day"), "{}", reply.body);
     // The paid model still answers.

@@ -16,6 +16,11 @@
 //!   work: …" after `[tool error]`, else `after` with `{result}`. Models in
 //!   the reply's `busy` answer 429 (`Retry-After: 1`); the first model not
 //!   busy from `model` then `models` answers (`OpenRouter`'s own fallback).
+//!   Models in the reply's `data_policy` have no endpoint the account's
+//!   privacy settings allow (404, as `OpenRouter` words it). With
+//!   `provider.require_parameters`, a model is skipped when the request
+//!   sends a parameter its list doesn't have (`e2e/backup:free` takes no
+//!   `tool_choice` or `parallel_tool_calls`); none left is a 404.
 //!   A reply's `stall_at` makes its first request after that many tool
 //!   results wait a minute (for restart tests).
 //!   Free requests count against a daily limit (`OXBOT_FAKE_OR_DAILY`,
@@ -333,10 +338,7 @@ pub fn catalog<S: std::hash::BuildHasher>(contexts: &HashMap<String, u32, S>) ->
         .iter()
         .map(|&(id, name, context, tools, prompt, completion)| {
             let context = contexts.get(id).copied().unwrap_or(context);
-            let mut params = vec!["max_tokens", "temperature", "top_p", "stop"];
-            if tools {
-                params.extend(["tools", "tool_choice", "parallel_tool_calls"]);
-            }
+            let params = params_of(id, tools);
             json!({
                 "id": id,
                 "canonical_slug": id.trim_end_matches(":free"),
@@ -370,6 +372,81 @@ pub fn catalog<S: std::hash::BuildHasher>(contexts: &HashMap<String, u32, S>) ->
         })
         .collect();
     json!({ "data": data })
+}
+
+/// The request parameters a model takes. The backup, like several real
+/// free models, takes tools but not `tool_choice` or
+/// `parallel_tool_calls`.
+fn params_of(id: &str, tools: bool) -> Vec<&'static str> {
+    let mut params = vec!["max_tokens", "temperature", "top_p", "stop"];
+    if tools {
+        params.push("tools");
+        if id != "e2e/backup:free" {
+            params.extend(["tool_choice", "parallel_tool_calls"]);
+        }
+    }
+    params
+}
+
+/// Optional parameters a request may carry that `require_parameters`
+/// checks.
+const CHECKED_PARAMS: &[&str] = &[
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "stop",
+    "seed",
+];
+
+/// What `OpenRouter` says when the account's privacy settings rule out
+/// every endpoint.
+pub const DATA_POLICY_MESSAGE: &str = "No endpoints found matching your data policy (Free model \
+                                       training). Configure: https://openrouter.ai/settings/privacy";
+
+/// What `OpenRouter` says when no endpoint takes every parameter sent.
+pub const PARAMETERS_MESSAGE: &str = "No endpoints found that can handle the requested parameters. \
+                                      To learn more about provider routing, visit: \
+                                      https://openrouter.ai/docs/guides/routing/provider-selection";
+
+/// The candidates an endpoint could serve: not ruled out by the account's
+/// data policy, and (with `require_parameters`) taking every parameter
+/// sent.
+fn servable(
+    req: &Value,
+    candidates: &[String],
+    data_policy: &[String],
+) -> Result<Vec<String>, ApiError> {
+    let allowed: Vec<String> = candidates
+        .iter()
+        .filter(|m| !data_policy.contains(m))
+        .cloned()
+        .collect();
+    if allowed.is_empty() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, DATA_POLICY_MESSAGE));
+    }
+    if req["provider"]["require_parameters"] != true {
+        return Ok(allowed);
+    }
+    let sent: Vec<&str> = CHECKED_PARAMS
+        .iter()
+        .copied()
+        .filter(|p| req.get(*p).is_some_and(|v| !v.is_null()))
+        .collect();
+    let taking: Vec<String> = allowed
+        .into_iter()
+        .filter(|m| {
+            let tools = MODELS.iter().find(|x| x.0 == m).is_some_and(|x| x.3);
+            let params = params_of(m, tools);
+            sent.iter().all(|p| params.contains(p))
+        })
+        .collect();
+    if taking.is_empty() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, PARAMETERS_MESSAGE));
+    }
+    Ok(taking)
 }
 
 /// A price per token as `OpenRouter` writes it (a string).
@@ -649,8 +726,11 @@ impl Fake {
             .map(|i| user_text(&messages[i]["content"]))
             .unwrap_or_default();
         let reply = self.config.script.pick(&text);
-        let (model, prompt_price, completion_price) =
-            self.route(&candidates, &reply.busy, body_len / 4)?;
+        let (model, prompt_price, completion_price) = self.route(
+            &servable(req, &candidates, &reply.data_policy)?,
+            &reply.busy,
+            body_len / 4,
+        )?;
 
         let after_user = last_user.map_or(&messages[..], |i| &messages[i + 1..]);
         let results: Vec<String> = after_user

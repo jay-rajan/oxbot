@@ -136,6 +136,12 @@ when = "everyone's busy"
 say = "Answered by the backup."
 busy = ["e2e/tool-model:free"]
 
+# The OpenRouter account's privacy settings rule out both free models.
+[[reply]]
+when = "privacy blocks"
+say = "Not reached: no endpoint matches the account's data policy."
+data_policy = ["e2e/tool-model:free", "e2e/backup:free"]
+
 [[reply]]
 when = "take your time"
 say = "Done, slowly."

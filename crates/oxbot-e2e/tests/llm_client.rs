@@ -79,6 +79,9 @@ fn request(model: &str, fallbacks: &[&str], messages: Vec<Message>) -> ChatReque
         parallel_tool_calls: Some(false),
         max_tokens: Some(4096),
         provider: Some(ProviderPrefs::private_bot()),
+        // As oxbot's router sends it: only what every model asked takes
+        // (the backup has no tool_choice), since require_parameters is on.
+        supported: Some(vec!["tools".into(), "max_tokens".into()]),
         ..ChatRequest::default()
     }
 }
