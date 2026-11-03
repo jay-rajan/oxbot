@@ -2,108 +2,34 @@
 //! Claude Code's stream-json protocol and answers each message from a
 //! script, so tests are free, fast and give the same result every time.
 //!
-//! The script (`OXBOT_FAKE_SCRIPT`, a TOML file) is a list of replies; the
-//! first whose `when` appears in the message (any case) is used, and one
-//! without `when` is the fallback:
-//!
-//! ```toml
-//! [[reply]]
-//! when = "make a bot"
-//! tool = "create_bot"                      # oxbot's own tool, or a full mcp__… name
-//! args = { name = "Recipes", instructions = "Find recipes." }
-//! say = "Making it…"                        # said before the tool (optional)
-//! snapshots = ["## Pages\n1: A (https://a.example.com/) [selected]"]  # pages "read" first
-//! after = "Done: {result}"                  # said after it worked
-//! denied = "Okay, I won't."                 # said if the user said no
-//!
-//! [[reply]]
-//! when = "half"
-//! say = "About half."
-//! limits = { five_hour = 0.55, seven_day = 0.2 } # plan usage reported first
-//! model = "claude-sonnet-4-5-20250929"           # the model it says it is
-//!
-//! [[reply]]
-//! when = "what's in"
-//! read = true                               # open each attached file (see below)
-//!
-//! [[reply]]
-//! say = "Hello from the stand-in."
-//! ```
-//!
-//! With `read`, it opens every file oxbot's note lists, as Claude would with
-//! Read, and says what it found in each: the first line of a text file or of
-//! the text oxbot made of it, how many still frames a video became, or the
-//! kind of a picture or PDF. That shows what oxbot made of a file without a
-//! real Claude.
+//! The script (`OXBOT_FAKE_SCRIPT`, a TOML file) is a list of replies; see
+//! [`oxbot_e2e::script`] for its format. The stand-in `OpenRouter` reads the
+//! same scripts, so a test's replies are the same on either engine.
 
 use std::io::{BufRead, Write};
 
-use serde::Deserialize;
+use oxbot_e2e::script::{Limits, Reply, Script, attached, read_answer, user_text};
 use serde_json::{Value, json};
 
-#[derive(Debug, Default, Deserialize)]
-struct Script {
-    #[serde(default)]
-    reply: Vec<Reply>,
-}
-
-#[derive(Debug, Default, Clone, Deserialize)]
-struct Reply {
-    when: Option<String>,
-    say: Option<String>,
-    tool: Option<String>,
-    #[serde(default)]
-    args: toml::Table,
-    /// A fake page snapshot to "read" first (for browser tools).
-    snapshot: Option<String>,
-    /// More fake page snapshots to "read" first, in order (after
-    /// `snapshot`), e.g. the pages a report cites.
-    #[serde(default)]
-    snapshots: Vec<String>,
-    after: Option<String>,
-    denied: Option<String>,
-    /// Wait this long before answering (to see "working" states).
-    #[serde(default)]
-    delay_ms: u64,
-    /// Open the attached files and say what's in them.
-    #[serde(default)]
-    read: bool,
-    /// Plan usage to report before answering, as Claude's `rate_limit_event`.
-    limits: Option<Limits>,
-    /// The model it says it is (default `fake`).
-    model: Option<String>,
-}
-
-/// The plan's windows, from 0 to 1. The 5-hour one resets in
-/// `resets_in_min` (default 3 hours), the weekly one in 3 days.
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Limits {
-    five_hour: Option<f64>,
-    seven_day: Option<f64>,
-    resets_in_min: Option<i64>,
-}
-
-impl Limits {
-    fn event(&self) -> Value {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
-        let mut windows = serde_json::Map::new();
-        let five_at = now + self.resets_in_min.unwrap_or(180) * 60;
-        for (name, used, at) in [
-            ("five_hour", self.five_hour, five_at),
-            ("seven_day", self.seven_day, now + 3 * 86_400),
-        ] {
-            if let Some(used) = used {
-                windows.insert(
-                    name.to_owned(),
-                    json!({"utilization": used, "resetsAt": at, "status": "allowed"}),
-                );
-            }
+/// Claude's `rate_limit_event` for the plan usage a reply reports.
+fn limits_event(limits: &Limits) -> Value {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let mut windows = serde_json::Map::new();
+    let five_at = now + limits.resets_in_min.unwrap_or(180) * 60;
+    for (name, used, at) in [
+        ("five_hour", limits.five_hour, five_at),
+        ("seven_day", limits.seven_day, now + 3 * 86_400),
+    ] {
+        if let Some(used) = used {
+            windows.insert(
+                name.to_owned(),
+                json!({"utilization": used, "resetsAt": at, "status": "allowed"}),
+            );
         }
-        json!({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":windows}})
     }
+    json!({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":windows}})
 }
 
 /// What the stand-in is waiting for.
@@ -141,11 +67,7 @@ impl Out {
 }
 
 fn main() {
-    let script: Script = std::env::var("OXBOT_FAKE_SCRIPT")
-        .ok()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| toml::from_str(&t).ok())
-        .unwrap_or_default();
+    let script = Script::from_env();
     let mut out = Out(std::io::stdout(), 0);
     let mut waiting = Waiting::Nothing;
     for line in std::io::stdin().lock().lines() {
@@ -156,13 +78,13 @@ fn main() {
         match msg["type"].as_str() {
             Some("user") => {
                 let text = user_text(&msg["message"]["content"]);
-                let reply = pick(&script, &text);
+                let reply = script.pick(&text);
                 let model = reply.model.as_deref().unwrap_or("fake");
                 out.line(
                     &json!({"type":"system","subtype":"init","session_id":"fake","model":model}),
                 );
                 if let Some(limits) = &reply.limits {
-                    out.line(&limits.event());
+                    out.line(&limits_event(limits));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(reply.delay_ms));
                 waiting = start(&mut out, reply, &text);
@@ -224,131 +146,37 @@ fn main() {
     }
 }
 
-/// The message's text, without the `[Name] ` oxbot puts in front.
-fn user_text(content: &Value) -> String {
-    let text = match content {
-        Value::String(s) => s.clone(),
-        Value::Array(parts) => parts
-            .iter()
-            .filter_map(|p| p["text"].as_str())
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    };
-    match text.strip_prefix('[').and_then(|r| r.split_once("] ")) {
-        Some((_, rest)) => rest.to_owned(),
-        None => text,
-    }
-}
-
-fn pick(script: &Script, text: &str) -> Reply {
-    let lower = text.to_lowercase();
-    script
-        .reply
-        .iter()
-        .find(|r| {
-            r.when
-                .as_ref()
-                .is_some_and(|w| lower.contains(&w.to_lowercase()))
-        })
-        .or_else(|| script.reply.iter().find(|r| r.when.is_none()))
-        .cloned()
-        .unwrap_or_else(|| Reply {
-            say: Some(format!("(stand-in) You said: {text}")),
-            ..Reply::default()
-        })
-}
-
-/// Opens each file oxbot's note lists (a `- /path (…)` line), as Read
-/// would, and says what's in it, one line each.
-fn read_files(out: &mut Out, text: &str) -> String {
-    let mut said = Vec::new();
-    for line in text.lines() {
-        let Some(rest) = line.strip_prefix("- /") else {
-            continue;
-        };
-        let (path, about) = rest.split_once(" (").unwrap_or((rest, ""));
-        let path = format!("/{path}");
-        let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
-        let about = about
-            .strip_suffix(')')
-            .unwrap_or(about)
-            .trim_end_matches(')');
-        let readable = about.rsplit_once(": ").map(|(_, p)| p.to_owned());
-        let (opened, found) = if let Some(frames) = about
-            .split_once("still frames: ")
-            .or_else(|| about.split_once("still frame: "))
-        {
-            let dir = frames.1.split("/01.jpg").next().unwrap_or("");
-            let n = std::fs::read_dir(dir).map_or(0, Iterator::count);
-            (format!("{dir}/01.jpg"), format!("{n} frames of {name}"))
-        } else if let Some(txt) = readable.filter(|p| {
-            std::path::Path::new(p)
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("txt"))
-        }) {
-            let first = first_line(&txt);
-            (txt, format!("{name}: {first}"))
-        } else if about == "text" {
-            (path.clone(), format!("{name}: {}", first_line(&path)))
-        } else {
-            let kind = about.split([',', ':']).next().unwrap_or("file");
-            (path.clone(), format!("{name} ({kind})"))
-        };
+/// Opens each file oxbot's note lists, as Read would, and says what's in
+/// it, one line each.
+fn read_files(out: &mut Out, text: &str, say: Option<&str>) -> String {
+    let files = attached(text);
+    for file in &files {
         let n = out.next();
-        out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("r{n}"),"name":"Read","input":{"file_path":opened}}]},"parent_tool_use_id":null}));
-        out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("r{n}"),"content":found}]},"parent_tool_use_id":null}));
-        said.push(format!("Read {found}"));
+        out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("r{n}"),"name":"Read","input":{"file_path":file.opened}}]},"parent_tool_use_id":null}));
+        out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("r{n}"),"content":file.found}]},"parent_tool_use_id":null}));
     }
-    if said.is_empty() {
-        "I don't see any files.".to_owned()
-    } else {
-        said.join("\n")
-    }
-}
-
-/// The first line of a file that has words.
-fn first_line(path: &str) -> String {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| t.lines().find(|l| !l.trim().is_empty()).map(str::to_owned))
-        .unwrap_or_else(|| "(can't read it)".to_owned())
+    read_answer(say, &files)
 }
 
 fn start(out: &mut Out, reply: Reply, text: &str) -> Waiting {
     if reply.read {
-        let found = read_files(out, text);
-        let said = match &reply.say {
-            Some(say) => format!("{say}\n{found}"),
-            None => found,
-        };
+        let said = read_files(out, text, reply.say.as_deref());
         out.done(&said);
         return Waiting::Nothing;
     }
-    let Some(tool) = reply.tool.clone() else {
+    let Some(name) = reply.tool_name() else {
         out.done(reply.say.as_deref().unwrap_or(""));
         return Waiting::Nothing;
     };
     if let Some(say) = &reply.say {
         out.say(say);
     }
-    let name = if tool.starts_with("mcp__") {
-        tool
-    } else {
-        format!("mcp__oxbot__{tool}")
-    };
-    for snapshot in reply.snapshot.iter().chain(&reply.snapshots) {
+    for snapshot in reply.page_snapshots() {
         let n = out.next();
         out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("s{n}"),"name":"mcp__chrome-devtools__take_snapshot","input":{}}]},"parent_tool_use_id":null}));
         out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("s{n}"),"content":snapshot}]},"parent_tool_use_id":null}));
     }
-    let input = Value::Object(
-        reply
-            .args
-            .iter()
-            .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(Value::Null)))
-            .collect(),
-    );
+    let input = reply.args_json();
     let n = out.next();
     out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("c{n}"),"name":name,"input":input}]},"parent_tool_use_id":null}));
     out.line(&json!({"type":"control_request","request_id":format!("r{n}"),"request":{"subtype":"can_use_tool","tool_name":name,"input":input,"tool_use_id":format!("c{n}")}}));

@@ -2,6 +2,7 @@
 //!
 //! - [`spec`]: the test files in `e2e/tests/` and the repo's `e2e/pr_test.toml`.
 //! - [`pick`]: which tests a change needs, and why.
+//! - [`script`]: the stand-ins' reply scripts (`e2e/claude/`).
 //! - [`seed`]: a throwaway oxbot home made from `e2e/seed/`.
 //! - [`serve`]: starts oxbot on it in test mode with the stand-in Claude.
 //! - [`driver`]: Chrome (`DevTools`) and Safari (`WebDriver`), behind one API.
@@ -15,6 +16,7 @@ pub mod driver;
 pub mod http;
 pub mod pick;
 pub mod report;
+pub mod script;
 pub mod seed;
 pub mod serve;
 pub mod spec;
