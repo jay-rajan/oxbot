@@ -106,7 +106,7 @@ fn search_tools_match_goldens() {
         out.push_str("\n\n");
     }
     out.push_str("### read_section 3_61 (the results list), 30 lines\n");
-    out.push_str(&t.section("3_61", 30, 4000).unwrap());
+    out.push_str(&t.section("3_61", 1, 30, 4000).unwrap());
     out.push('\n');
     golden("search", "tools", &out);
 }

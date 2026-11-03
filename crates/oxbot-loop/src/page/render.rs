@@ -16,7 +16,7 @@
 //! goes too.
 
 use super::est;
-use super::trim::{Fold, Kind, ON_TOP, Trimmed};
+use super::trim::{Fold, Kind, NAME_CAP, ON_TOP, Trimmed};
 
 /// Never removed.
 const NEVER: u8 = 8;
@@ -37,7 +37,7 @@ impl Trimmed {
     /// depth), no budget.
     #[must_use]
     pub fn render(&self) -> String {
-        join(&self.rendered(0..self.nodes.len(), true, self.handle.as_deref()))
+        join(&self.rendered(0..self.nodes.len(), true, self.handle.as_deref(), NAME_CAP))
     }
 
     /// Estimated tokens of [`Trimmed::render`].
@@ -52,7 +52,7 @@ impl Trimmed {
     /// text and the number of lines omitted.
     #[must_use]
     pub fn render_within(&self, cap_tokens: u64, handle: &str) -> (String, usize) {
-        let lines = self.rendered(0..self.nodes.len(), true, Some(handle));
+        let lines = self.rendered(0..self.nodes.len(), true, Some(handle), NAME_CAP);
         let trailer = |n: usize| format!("[trimmed: {n} lines omitted; full page {handle}]");
         let (kept, omitted) = self.fit(&lines, cap_tokens, |n| trailer(n).len() + 1, false);
         let mut text = join_kept(&lines, &kept);
@@ -71,7 +71,8 @@ impl Trimmed {
     /// whether it was cut.
     #[must_use]
     pub fn render_unfolded_within(&self, cap_tokens: u64) -> (String, bool) {
-        let lines = self.rendered(0..self.nodes.len(), false, None);
+        // Every item and every word: the question may need any of them.
+        let lines = self.rendered(0..self.nodes.len(), false, None, usize::MAX);
         let (kept, omitted) = self.fit(&lines, cap_tokens, |_| 0, true);
         (join_kept(&lines, &kept), omitted > 0)
     }
@@ -83,6 +84,7 @@ impl Trimmed {
         range: std::ops::Range<usize>,
         fold: bool,
         handle: Option<&str>,
+        names: usize,
     ) -> Vec<Line> {
         let base = self.nodes.get(range.start).map_or(0, |n| n.depth);
         let mut out = Vec::new();
@@ -108,7 +110,7 @@ impl Trimmed {
                 }
                 _ => {
                     out.push(Line {
-                        text: format!("{indent}{}", self.line(i)),
+                        text: format!("{indent}{}", self.line_cut(i, names)),
                         node: i,
                         hidden_end: None,
                     });

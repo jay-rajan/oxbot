@@ -5,7 +5,7 @@
 
 use std::fmt::Write as _;
 
-use super::trim::{Kind, ON_TOP, Trimmed, cut, squash, thousands};
+use super::trim::{Kind, NAME_CAP, ON_TOP, Trimmed, cut, squash, thousands};
 use super::{Snapshot, est};
 
 /// The map should fit this.
@@ -27,7 +27,7 @@ const CONTROLS: [&str; 9] = [
     "switch",
 ];
 /// Roles counted per landmark: (role, one, many). Counts show in this order.
-const COUNTED: [(&str, &str, &str); 22] = [
+pub(super) const COUNTED: [(&str, &str, &str); 22] = [
     ("heading", "heading", "headings"),
     ("link", "link", "links"),
     ("button", "button", "buttons"),
@@ -203,7 +203,7 @@ impl Trimmed {
         out.push_str("On top:\n");
         let mut shown = 0;
         for t in tops {
-            let lines = self.rendered(t..self.nodes[t].end, true, Some(handle));
+            let lines = self.rendered(t..self.nodes[t].end, true, Some(handle), NAME_CAP);
             let room = max_lines.saturating_sub(shown);
             for l in lines.iter().take(room) {
                 let _ = writeln!(out, "  {}", l.text);
@@ -358,4 +358,9 @@ fn hint(handle: &str) -> String {
     format!(
         "Look inside with find_in_page(page: \"{handle}\", query or role), read_section(page: \"{handle}\", uid), or ask_page(page: \"{handle}\", question)."
     )
+}
+
+/// The role words `find_in_page` takes, as hits print them.
+pub(super) fn role_words() -> Vec<&'static str> {
+    COUNTED.iter().map(|(role, _, _)| *role).collect()
 }

@@ -1,0 +1,28 @@
+## Pages
+1: Banana Bread (https://recipes.example.com/banana-bread) [selected]
+## Latest page snapshot
+uid=6_0 RootWebArea "Banana Bread" url="https://recipes.example.com/banana-bread"
+  uid=6_1 main
+    uid=6_2 heading "Banana Bread" level="1"
+    uid=6_3 heading "Ingredients" level="2"
+    uid=6_4 list
+      uid=6_5 listitem
+        uid=6_6 StaticText "3 ripe bananas, mashed"
+      uid=6_7 listitem
+        uid=6_8 StaticText "1/3 cup melted butter"
+      uid=6_9 listitem
+        uid=6_10 StaticText "1 teaspoon baking soda"
+      uid=6_11 listitem
+        uid=6_12 StaticText "pinch of salt"
+      uid=6_13 listitem
+        uid=6_14 StaticText "3/4 cup sugar"
+      uid=6_15 listitem
+        uid=6_16 StaticText "1 large egg, beaten"
+      uid=6_17 listitem
+        uid=6_18 StaticText "1 teaspoon vanilla extract"
+      uid=6_19 listitem
+        uid=6_20 StaticText "1 1/2 cups all-purpose flour"
+      uid=6_21 listitem
+        uid=6_22 StaticText "1/2 cup chopped walnuts"
+    uid=6_23 heading "Directions" level="2"
+    uid=6_24 StaticText "Preheat the oven to 350 degrees F."

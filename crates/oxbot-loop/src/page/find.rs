@@ -19,7 +19,6 @@ use super::trim::{Kind, Trimmed, cut, thousands};
 use super::{FindQuery, est};
 
 /// Hit lines keep names to this many chars.
-const HIT_NAME: usize = 120;
 /// Longest path entry name.
 const PATH_NAME: usize = 40;
 /// Path entries shown.
@@ -46,17 +45,19 @@ impl Trimmed {
             .take(MAX_WORDS)
             .map(str::to_lowercase)
             .collect();
-        let roles: Vec<String> = q
-            .roles
-            .iter()
-            .map(|r| r.trim().to_lowercase())
-            .filter(|r| !r.is_empty())
-            .map(|r| match r.as_str() {
-                "img" => "image".to_owned(),
-                "statictext" => "text".to_owned(),
-                _ => r,
-            })
-            .collect();
+        let mut roles: Vec<String> = Vec::new();
+        for r in &q.roles {
+            let r = r.trim().to_lowercase();
+            if r.is_empty() {
+                continue;
+            }
+            roles.push(role_of(&r).ok_or_else(|| {
+                format!(
+                    "\"{r}\" isn't a role here; use one of the words the map and hits print: {}",
+                    super::map::role_words().join(", ")
+                )
+            })?);
+        }
         if words.is_empty() && roles.is_empty() {
             return Err("give query or role (or both)".to_owned());
         }
@@ -195,7 +196,8 @@ impl Trimmed {
     /// holder, and its section path.
     fn hit_line(&self, i: usize) -> String {
         let n = &self.nodes[i];
-        let mut s = self.line_cut(i, HIT_NAME);
+        // Every word: what the task looks for may be at the end.
+        let mut s = self.line_cut(i, usize::MAX);
         if n.name.is_empty() && HOLDERS.contains(&n.role.as_str()) {
             let mut text = String::new();
             for d in i + 1..n.end {
@@ -207,12 +209,9 @@ impl Trimmed {
                     text.push_str(" · ");
                 }
                 text.push_str(name);
-                if text.chars().count() > HIT_NAME {
-                    break;
-                }
             }
             if !text.is_empty() {
-                let _ = write!(s, " (text: \"{}\")", cut(&text, HIT_NAME));
+                let _ = write!(s, " (text: \"{text}\")");
             }
         }
         let path = self.path(i);
@@ -316,13 +315,20 @@ impl Trimmed {
         Ok((a..a, a))
     }
 
-    /// `read_section` (delta §B2): the trimmed subtree under `uid`, repeats
-    /// folded, line-numbered, at most `max_lines` (≤ 150) lines, capped at
-    /// `cap_tokens`.
+    /// `read_section`: the subtree under `uid` with every item (nothing
+    /// folded) and every word (long text wraps onto `…` lines),
+    /// line-numbered from `from_line` (1-based), at most `max_lines`
+    /// (≤ 150) lines and `cap_tokens`; the last line says where to go on.
     ///
     /// # Errors
     /// A short message for the model when the page has no such uid.
-    pub fn section(&self, uid: &str, max_lines: usize, cap_tokens: u64) -> Result<String, String> {
+    pub fn section(
+        &self,
+        uid: &str,
+        from_line: usize,
+        max_lines: usize,
+        cap_tokens: u64,
+    ) -> Result<String, String> {
         let page = self.handle.as_deref().unwrap_or("the page");
         let uid = uid.trim();
         let uid = uid.strip_prefix("uid=").unwrap_or(uid);
@@ -332,8 +338,13 @@ impl Trimmed {
             ));
         };
         let node = &self.nodes[i];
-        let lines = self.rendered(i..node.end, true, self.handle.as_deref());
+        let lines: Vec<String> = self
+            .rendered(i..node.end, false, None, usize::MAX)
+            .into_iter()
+            .flat_map(|l| wrap_line(&l.text))
+            .collect();
         let max = max_lines.clamp(1, MAX_SECTION);
+        let from = from_line.max(1);
         let mut out = format!(
             "Section uid={} ({}) in {page}: {} lines",
             node.uid,
@@ -343,28 +354,110 @@ impl Trimmed {
         if node.uid != uid {
             let _ = write!(out, " (uid={uid} is shown as part of uid={})", node.uid);
         }
-        let width = lines.len().min(max).to_string().len();
-        let mut shown = 0;
-        for (k, l) in lines.iter().take(max).enumerate() {
-            let row = format!("{:>width$}  {}", k + 1, l.text);
-            let footer = if k + 1 < lines.len() { 30 } else { 0 };
-            if est(&out) + est(&row) + 1 + footer > cap_tokens {
+        if from > lines.len() {
+            let _ = write!(out, "\n(it has only {} lines)", thousands(lines.len()));
+            return Ok(out);
+        }
+        let last = (from - 1 + max).min(lines.len());
+        let width = last.to_string().len();
+        let mut shown_to = from - 1;
+        for (k, l) in lines.iter().enumerate().take(last).skip(from - 1) {
+            let row = format!("{:>width$}  {l}", k + 1);
+            let footer = if k + 1 < lines.len() { 40 } else { 0 };
+            if shown_to >= from && est(&out) + est(&row) + 1 + footer > cap_tokens {
                 break;
             }
             out.push('\n');
             out.push_str(&row);
-            shown += 1;
+            shown_to = k + 1;
         }
-        if shown < lines.len() {
+        if shown_to < lines.len() {
             let _ = write!(
                 out,
-                "\n[showing lines 1–{shown} of {}; read_section a child uid, or find_in_page, to see more]",
-                thousands(lines.len())
+                "\n[lines {from}–{shown_to} of {}; continue with read_section(page: \"{page}\", uid: \"{}\", from_line: {})]",
+                thousands(lines.len()),
+                node.uid,
+                shown_to + 1
             );
         }
         Ok(out)
     }
 }
+
+/// Most characters of one section line; longer text wraps.
+const WRAP: usize = 400;
+
+/// `line` as lines of at most [`WRAP`] characters, broken at spaces; the
+/// rest of a long text goes on `…` lines under it.
+fn wrap_line(line: &str) -> Vec<String> {
+    if line.chars().count() <= WRAP {
+        return vec![line.to_owned()];
+    }
+    let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+    let mut out = Vec::new();
+    let mut rest = line;
+    let mut first = true;
+    while !rest.is_empty() {
+        let room = if first { WRAP } else { WRAP - indent.len() - 4 };
+        let cut = match rest.char_indices().nth(room) {
+            None => rest.len(),
+            Some((at, _)) => rest[..at]
+                .rfind(' ')
+                .filter(|i| *i > at / 2)
+                .map_or(at, |i| i + 1),
+        };
+        let (piece, tail) = rest.split_at(cut);
+        out.push(if first {
+            piece.trim_end().to_owned()
+        } else {
+            format!("{indent}  … {}", piece.trim())
+        });
+        rest = tail;
+        first = false;
+    }
+    out
+}
+
+/// The role a word names: a role as hits print it (`listitem`), or as the
+/// map counts it (`list item`, `list items`, `text blocks`).
+fn role_of(word: &str) -> Option<String> {
+    let word = word.trim();
+    match word {
+        "img" => return Some("image".to_owned()),
+        "statictext" => return Some("text".to_owned()),
+        _ => {}
+    }
+    if let Some((role, _, _)) = super::map::COUNTED
+        .iter()
+        .find(|(role, one, many)| [*role, *one, *many].contains(&word))
+    {
+        return Some((*role).to_owned());
+    }
+    // Any other role hits can show (landmarks, regions…), as printed.
+    KNOWN_ROLES.contains(&word).then(|| word.to_owned())
+}
+
+/// Roles a trimmed page keeps besides the counted ones.
+const KNOWN_ROLES: [&str; 18] = [
+    "main",
+    "navigation",
+    "dialog",
+    "alertdialog",
+    "alert",
+    "form",
+    "search",
+    "banner",
+    "contentinfo",
+    "complementary",
+    "region",
+    "list",
+    "cell",
+    "columnheader",
+    "rowheader",
+    "grid",
+    "rootwebarea",
+    "menuitemcheckbox",
+];
 
 fn more_line(n: usize) -> String {
     format!("{} more; narrow with role or near", thousands(n))

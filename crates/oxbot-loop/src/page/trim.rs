@@ -494,6 +494,15 @@ impl Trimmed {
         self
     }
 
+    /// The uid of the first node whose name has `text` (tests).
+    #[cfg(test)]
+    pub(super) fn node_uid_with(&self, text: &str) -> Option<String> {
+        self.nodes
+            .iter()
+            .find(|n| n.name.contains(text))
+            .map(|n| n.uid.clone())
+    }
+
     /// uid → normalized trimmed line (no indent), every node including
     /// folded ones, for diffs.
     #[must_use]
@@ -531,12 +540,16 @@ impl Trimmed {
         last: usize,
         handle: Option<&str>,
     ) -> String {
+        // How to see them: the parent's section shows every item.
+        let parent = self.nodes[i]
+            .parent
+            .map_or_else(|| self.nodes[0].uid.clone(), |p| self.nodes[p].uid.clone());
         let how = match handle {
-            Some(h) => format!("find_in_page(page: \"{h}\", …)"),
-            None => "find_in_page(…)".to_owned(),
+            Some(h) => format!("read_section(page: \"{h}\", uid: \"{parent}\") shows them all"),
+            None => format!("read_section(uid: \"{parent}\") shows them all"),
         };
         format!(
-            "… {} more like the above (uids {} … {}); {how} to search them",
+            "… {} more like the above (uids {} … {}); {how}",
             thousands(count),
             self.nodes[i].uid,
             self.nodes[last].uid

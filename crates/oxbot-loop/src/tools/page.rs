@@ -34,8 +34,11 @@ const MAX_LIMIT: usize = 40;
 const DEFAULT_LIMIT: usize = 20;
 /// Most lines `read_section` shows.
 const MAX_SECTION: usize = 150;
-/// Longest answer `ask_page` asks for.
+/// Longest answer `ask_page` passes on.
 pub const ASK_PAGE_TOKENS: u32 = 800;
+/// What `ask_page` lets the helper write: room for a reasoning model's
+/// thinking before its answer.
+pub const ASK_PAGE_OUTPUT: u32 = 4_000;
 
 /// The helper's prompt for `ask_page`, version 1. Fixed bytes, so it
 /// caches.
@@ -68,7 +71,7 @@ pub fn specs() -> Vec<ToolSpec> {
                 "properties": {
                     "page": page_param(),
                     "query": {"type": "string", "description": "Words to look for."},
-                    "role": {"type": "string", "description": "Roles to keep, e.g. \"link\" or \"button,link\"."},
+                    "role": {"type": "string", "description": "Roles to keep, as hits and the map print them, e.g. \"link\", \"button,link\", \"listitem\", \"heading\" or \"text\"."},
                     "near": {"type": "string", "description": "A heading or section name to search under."},
                     "limit": {"type": "integer", "description": "Most matches (at most 40)."}
                 }
@@ -76,15 +79,16 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: READ_SECTION.to_owned(),
-            description: "Show the part of a stored page under one element (a uid from the map \
-                or find_in_page): its headings, links, buttons and text, line by line (at most \
-                150 lines)."
+            description: "Show the part of a stored page under one element (a uid from the map, \
+                find_in_page or a \"more like the above\" line): every item and all its text, \
+                line by line (at most 150 lines at a time; from_line goes on where it stopped)."
                 .to_owned(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "page": page_param(),
                     "uid": {"type": "string", "description": "The element's uid, like 3_14."},
+                    "from_line": {"type": "integer", "description": "First line to show, from 1."},
                     "max_lines": {"type": "integer", "description": "Most lines (at most 150)."}
                 },
                 "required": ["uid"]
@@ -168,7 +172,12 @@ pub async fn run(name: &str, args: &Value, env: &PageEnv<'_>) -> Result<PageAnsw
                 .and_then(|n| usize::try_from(n).ok())
                 .unwrap_or(MAX_SECTION)
                 .clamp(1, MAX_SECTION);
-            parsed.trimmed.section(uid, max, cap)?
+            let from = args
+                .get("from_line")
+                .and_then(Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or(1);
+            parsed.trimmed.section(uid, from, max, cap)?
         }
         ASK_PAGE => ask(args, env, &handle, &parsed).await?,
         other => return Err(format!("unknown page tool {other}")),
@@ -233,7 +242,7 @@ async fn ask(
     // Half the window for the page: room for the prompt, the answer and
     // a model with a smaller window answering.
     let room = (env.budget.usable() / 2)
-        .saturating_sub(est(ASK_PAGE_V1) + est(&question) + u64::from(ASK_PAGE_TOKENS));
+        .saturating_sub(est(ASK_PAGE_V1) + est(&question) + u64::from(ASK_PAGE_OUTPUT));
     let (page, cut) = parsed.trimmed.render_unfolded_within(room.max(500));
     let url = parsed.snapshot.url();
     let attrs = format!(" url=\"{}\" saved=\"{handle}\"", super::attr(url));
@@ -246,9 +255,12 @@ async fn ask(
     let messages = vec![Message::system(ASK_PAGE_V1), Message::user(input)];
     match env
         .helper
-        .call(CallKind::PageQuestion, messages, ASK_PAGE_TOKENS)
+        .call(CallKind::PageQuestion, messages, ASK_PAGE_OUTPUT)
         .await
     {
+        Ok(answer) if answer.trim().is_empty() => {
+            Err("ask_page got no answer from the helper. Try find_in_page instead.".to_owned())
+        }
         Ok(answer) => {
             let mut answer = super::control::cut_lines(answer.trim(), u64::from(ASK_PAGE_TOKENS));
             if cut {

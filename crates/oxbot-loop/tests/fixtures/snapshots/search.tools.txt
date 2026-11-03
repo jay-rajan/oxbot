@@ -33,7 +33,7 @@ uid=3_3670 link "Next" url="/search?q=lamp&page=2"  — main › "Results for "l
 uid=3_3670 link "Next" url="/search?q=lamp&page=2"  — main › "Results for "lamp"" › navigation "Pagination"
 
 ### read_section 3_61 (the results list), 30 lines
-Section uid=3_61 (list) in r12: 26 lines
+Section uid=3_61 (list) in r12: 1,201 lines
  1  uid=3_61 list "Search results"
  2    uid=3_62 listitem
  3      uid=3_64 link "Desk lamp model 1, adjustable arm, warm white LED" url="/p/1?ref=search&q=lamp&pos=1&sid=a1b2c3d4e5f6"
@@ -55,8 +55,13 @@ Section uid=3_61 (list) in r12: 26 lines
 19      uid=3_112 link "Desk lamp model 5, adjustable arm, warm white LED" url="/p/5?ref=search&q=lamp&pos=5&sid=a1b2c3d4e5f6"
 20      uid=3_116 text "$45.65 4.0 out of 5 stars (186)"
 21      uid=3_121 button "Add to cart"
-22    … 294 more like the above (uids 3_122 … 3_3638); find_in_page(page: "r12", …) to search them
-23    uid=3_3650 listitem
-24      uid=3_3652 link "Desk lamp model 300, adjustable arm, warm white LED" url="/p/300?ref=search&q=lamp&pos=300&sid=a1b2c3d4e5…"
-25      uid=3_3656 text "$40.00 3.0 out of 5 stars (1,101)"
-26      uid=3_3661 button "Add to cart"
+22    uid=3_122 listitem
+23      uid=3_124 link "Desk lamp model 6, adjustable arm, warm white LED" url="/p/6?ref=search&q=lamp&pos=6&sid=a1b2c3d4e5f6"
+24      uid=3_128 text "$52.78 3.0 out of 5 stars (223)"
+25      uid=3_133 button "Add to cart"
+26    uid=3_134 listitem
+27      uid=3_136 link "Desk lamp model 7, adjustable arm, warm white LED" url="/p/7?ref=search&q=lamp&pos=7&sid=a1b2c3d4e5f6"
+28      uid=3_140 text "$59.91 3.5 out of 5 stars (260)"
+29      uid=3_145 button "Add to cart"
+30    uid=3_146 listitem
+[lines 1–30 of 1,201; continue with read_section(page: "r12", uid: "3_61", from_line: 31)]

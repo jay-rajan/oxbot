@@ -1,0 +1,16 @@
+## Pages
+1: Built-in Functions — docs (https://docs.example.org/3/library/functions.html) [selected]
+## Latest page snapshot
+uid=5_0 RootWebArea "Built-in Functions — docs" url="https://docs.example.org/3/library/functions.html"
+  uid=5_1 navigation "Related"
+    uid=5_2 link "Index" focusable url="https://docs.example.org/3/genindex.html"
+  uid=5_3 main
+    uid=5_4 heading "Built-in Functions" level="1"
+    uid=5_5 heading "abs" level="2"
+    uid=5_6 generic
+      uid=5_7 StaticText "abs(x) Return the absolute value of a number. The argument may be an integer, a floating-point number, or an object implementing __abs__(). If the argument is a complex number, its magnitude is returned. abs(x) Return the absolute value of a number. The argument may be an integer, a floating-point number, or an object implementing __abs__(). If the argument is a complex number, its magnitude is returned. "
+        uid=5_8 InlineTextBox "abs(x) Return the absolute value of a number. The argument may be an integer, a "
+    uid=5_9 heading "zip" level="2"
+    uid=5_10 generic
+      uid=5_11 StaticText "zip(*iterables, strict=False) Iterate over several iterables in parallel, producing tuples with an item from each one. Example: for item in zip([1, 2, 3], ['sugar', 'spice', 'everything nice']): print(item). More formally: zip() returns an iterator of tuples, where the i-th tuple contains the i-th element from each of the argument iterables. Another way to think of zip() is that it turns rows into columns, and columns into rows. This is similar to transposing a matrix. zip() is lazy: The elements won't be processed until the iterable is iterated on. By default, zip() stops when the shortest iterable is exhausted. Changed in version 3.10: Added the strict argument."
+        uid=5_12 InlineTextBox "zip(*iterables, strict=False) Iterate over several iterables in parallel, produc"

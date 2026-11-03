@@ -49,7 +49,7 @@ uid=20_0 RootWebArea "Home - Social"
       uid=20_53 button "Like, 12 likes" pressed
       uid=20_54 button "Reply"
       uid=20_55 button "Share"
-    … 114 more like the above (uids 20_56 … 20_1073); find_in_page(page: "r12", …) to search them
+    … 114 more like the above (uids 20_56 … 20_1073); read_section(page: "r12", uid: "20_6") shows them all
     uid=20_1082 article "Post by Jay"
       uid=20_1083 link "Jay" url="/@jay"
       uid=20_1084 link "120h" url="/@jay/post/1119"

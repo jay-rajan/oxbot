@@ -150,7 +150,7 @@ fn ignored_and_noise_nodes_are_see_through() {
     );
     // Merged and see-through uids still lead somewhere.
     assert!(
-        t.section("1_6", 10, 1000)
+        t.section("1_6", 1, 10, 1000)
             .unwrap()
             .contains("uid=1_6 is shown as part of uid=1_4")
     );
@@ -297,7 +297,7 @@ fn repeats_fold_and_stay_searchable() {
     let t = s.trim().with_handle("r3");
     let text = t.render();
     assert!(
-        text.contains("… 14 more like the above (uids 3_25 … 3_64); find_in_page(page: \"r3\", …) to search them"),
+        text.contains("… 14 more like the above (uids 3_25 … 3_64); read_section(page: \"r3\", uid: \"3_5\") shows them all"),
         "{text}"
     );
     assert!(text.contains("Lamp 4\"") && text.contains("Lamp 19\"") && !text.contains("Lamp 5\""));
@@ -524,28 +524,35 @@ fn find_respects_the_cap_and_needs_a_query_or_role() {
 #[test]
 fn section_numbers_lines_and_folds() {
     let t = snap("search").trim().with_handle("r12");
-    let sec = t.section("3_61", 150, 4000).unwrap();
+    let sec = t.section("3_61", 1, 150, 4000).unwrap();
     let mut lines = sec.lines();
+    // Every item: a section never folds.
     assert_eq!(
         lines.next(),
-        Some("Section uid=3_61 (list) in r12: 26 lines")
+        Some("Section uid=3_61 (list) in r12: 1,201 lines")
     );
-    assert_eq!(lines.next(), Some(" 1  uid=3_61 list \"Search results\""));
-    assert!(sec.contains("22    … 294 more like the above"), "{sec}");
-    let short = t.section("uid=3_61", 3, 4000).unwrap();
+    assert_eq!(lines.next(), Some("  1  uid=3_61 list \"Search results\""));
+    assert!(!sec.contains("more like the above"), "{sec}");
+    let short = t.section("uid=3_61", 1, 3, 4000).unwrap();
     assert_eq!(short.lines().count(), 5);
     assert!(short.ends_with(
-        "[showing lines 1–3 of 26; read_section a child uid, or find_in_page, to see more]"
+        "[lines 1–3 of 1,201; continue with read_section(page: \"r12\", uid: \"3_61\", from_line: 4)]"
     ));
+    // And on from there.
+    let next = t.section("3_61", 4, 2, 4000).unwrap();
+    assert!(
+        next.contains("\n4  ") && next.contains("from_line: 6)]"),
+        "{next}"
+    );
     // A folded item reads like any other.
-    let hidden = t.section("3_2414", 10, 4000).unwrap();
+    let hidden = t.section("3_2414", 1, 10, 4000).unwrap();
     assert!(hidden.contains("Desk lamp model 197,"), "{hidden}");
     assert!(
-        t.section("9_9", 10, 4000)
+        t.section("9_9", 1, 10, 4000)
             .unwrap_err()
             .contains("no uid=9_9")
     );
-    let capped = t.section("3_0", 150, 300).unwrap();
+    let capped = t.section("3_0", 1, 150, 300).unwrap();
     assert!(est(&capped) <= 300);
 }
 
@@ -626,7 +633,7 @@ fn diff_folds_added_and_removed_runs() {
 
 /// Measured on the long search-results fixture (300 results, 209 KB):
 /// raw snapshot 69,723 tokens, the old 12,000-char preview 4,008 tokens,
-/// the page map 394 tokens, the full trimmed page 1,191 tokens.
+/// the page map 394 tokens, the full trimmed page 1,196 tokens.
 #[test]
 fn measurement_map_vs_old_preview() {
     let raw = fixture("search");
@@ -641,7 +648,103 @@ fn measurement_map_vs_old_preview() {
     );
     assert_eq!(
         (raw_t, preview_t, map_t, full_t),
-        (69_723, 4_008, 394, 1_191)
+        (69_723, 4_008, 394, 1_196)
     );
     assert!(map_t * 10 < preview_t && map_t <= 600);
+}
+
+// ---- long text and short lists (from real tasks that went wrong) ----
+
+#[test]
+fn long_text_is_cut_only_on_the_whole_page() {
+    let s = snap("docs");
+    let t = s.trim().with_handle("r41");
+    // The whole page cuts a long paragraph…
+    assert!(t.render().contains("(+"), "{}", t.render());
+    // …but a section, a hit and the helper's page have every word.
+    let zip = t.node_uid_with("zip(*iterables").unwrap();
+    let sec = t.section(&zip, 1, 150, 4000).unwrap();
+    assert!(
+        sec.contains("Changed in version 3.10: Added the strict argument."),
+        "{sec}"
+    );
+    assert!(!sec.contains("(+"), "{sec}");
+    // Wrapped, not one endless line.
+    assert!(sec.lines().all(|l| l.chars().count() <= 420), "{sec}");
+    let hits = t
+        .find(
+            &FindQuery {
+                query: Some("strict argument"),
+                roles: Vec::new(),
+                near: None,
+                limit: 20,
+            },
+            4000,
+        )
+        .unwrap();
+    assert!(hits.contains("Changed in version 3.10"), "{hits}");
+    let (whole, cut) = t.render_unfolded_within(4000);
+    assert!(!cut && whole.contains("Changed in version 3.10"), "{whole}");
+}
+
+#[test]
+fn a_short_list_folds_on_the_page_but_never_in_a_section() {
+    let t = snap("recipe").trim().with_handle("r7");
+    let page = t.render();
+    // Nine ingredients: the page shows 5 and the last, and says how to see
+    // the rest.
+    assert!(
+        page.contains("… 3 more like the above (uids 6_15 … 6_19); read_section(page: \"r7\", uid: \"6_4\") shows them all"),
+        "{page}"
+    );
+    let sec = t.section("6_4", 1, 150, 4000).unwrap();
+    for item in [
+        "3 ripe bananas",
+        "1 large egg",
+        "1 1/2 cups all-purpose flour",
+        "1/2 cup chopped walnuts",
+    ] {
+        assert!(sec.contains(item), "{item}: {sec}");
+    }
+    assert!(!sec.contains("more like the above"));
+    // find_in_page searches folded items and the role words the map uses.
+    let hits = t
+        .find(
+            &FindQuery {
+                query: Some("walnuts"),
+                roles: vec!["list items".into()],
+                near: None,
+                limit: 20,
+            },
+            4000,
+        )
+        .unwrap();
+    assert!(hits.contains("chopped walnuts"), "{hits}");
+    let text = t
+        .find(
+            &FindQuery {
+                query: Some("preheat"),
+                roles: vec!["text blocks".into()],
+                near: None,
+                limit: 20,
+            },
+            4000,
+        )
+        .unwrap();
+    assert!(text.contains("350 degrees"), "{text}");
+    let bad = t
+        .find(
+            &FindQuery {
+                query: None,
+                roles: vec!["paragraph".into()],
+                near: None,
+                limit: 20,
+            },
+            4000,
+        )
+        .unwrap_err();
+    assert!(
+        bad.contains("isn't a role here") && bad.contains("listitem"),
+        "{bad}"
+    );
 }
