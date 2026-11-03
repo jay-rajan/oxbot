@@ -6,13 +6,16 @@
 //! One file per table group: [`migrations`] (the schema and its changes),
 //! people, sites, gates, events, sessions, usage, "Always allow" rules,
 //! sidebar sections, research reports with the pages each session
-//! opened, usage alerts and preferences, and who started each turn.
+//! opened, usage alerts and preferences, who started each turn, and
+//! oxbot's own loop (conversations, turns, model requests).
 
 mod alerts;
 pub use alerts::{AlertChange, LimitAlert};
 mod events;
 pub use events::Replay;
 mod gates;
+mod loop_state;
+pub use loop_state::{CallTotals, DayUsage, KEEP_CALLS_DAYS, KEEP_CLOSED_DAYS};
 mod migrations;
 mod origins;
 pub use origins::TurnOriginRecord;

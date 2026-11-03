@@ -212,6 +212,77 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // owner; provenance for knowledge and comparisons), and which engine a
     // saved session belongs to.
     Step::Rust(engines_and_origins),
+    // 17: oxbot's own loop: conversations, turns with their checkpoints,
+    // and every model request (the meter).
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS loop_sessions (
+            id          TEXT    PRIMARY KEY,     -- same id as sessions.claude_session for engine 'openrouter'
+            bot         TEXT    NOT NULL,
+            prompt_hash TEXT    NOT NULL,        -- SHA-256 of the stable prefix (system prompt + tools)
+            context     TEXT    NOT NULL DEFAULT '{}', -- the context builder's state
+            created_ms  INTEGER NOT NULL,
+            closed_ms   INTEGER                  -- replaced by a newer session of the bot
+        );
+        CREATE INDEX IF NOT EXISTS loop_sessions_bot ON loop_sessions (bot, created_ms);
+        CREATE TABLE IF NOT EXISTS loop_messages (
+            session   TEXT    NOT NULL,
+            idx       INTEGER NOT NULL,          -- 0, 1, 2...: append-only
+            turn      INTEGER NOT NULL,
+            role      TEXT    NOT NULL,          -- user | assistant | tool
+            body      TEXT    NOT NULL,          -- oxbot_llm::Message as stored JSON (version 1)
+            tokens    INTEGER NOT NULL DEFAULT 0,-- size estimate, for the context budget
+            untrusted INTEGER NOT NULL DEFAULT 0,-- outside text (web, files, other bots)
+            handle    TEXT,                      -- big result saved under work/.oxbot/results/
+            meta      TEXT    NOT NULL DEFAULT '{}', -- the context builder's notes on it
+            PRIMARY KEY (session, idx)
+        );
+        CREATE TABLE IF NOT EXISTS loop_turns (
+            session    TEXT    NOT NULL,
+            turn       INTEGER NOT NULL,
+            bot        TEXT    NOT NULL,
+            user_seq   INTEGER NOT NULL,         -- the UserMessage event (joins turn_origins)
+            origin     TEXT    NOT NULL,         -- who started the task chain, as JSON
+            question   TEXT    NOT NULL,
+            status     TEXT    NOT NULL,         -- running | waiting_user | done | failed | stopped
+            step       INTEGER NOT NULL DEFAULT 0,
+            pending    TEXT,                     -- a call that started and whose result isn't saved
+            model      TEXT,                     -- last model that answered
+            resumes    INTEGER NOT NULL DEFAULT 0,
+            dry_run    INTEGER NOT NULL DEFAULT 0,
+            started_ms INTEGER NOT NULL,
+            updated_ms INTEGER NOT NULL,
+            ended_ms   INTEGER,
+            PRIMARY KEY (session, turn)
+        );
+        CREATE INDEX IF NOT EXISTS loop_turns_running ON loop_turns (status) WHERE status = 'running';
+        CREATE INDEX IF NOT EXISTS loop_turns_bot ON loop_turns (bot);
+        CREATE TABLE IF NOT EXISTS model_calls (
+            id                INTEGER PRIMARY KEY,
+            ts_ms             INTEGER NOT NULL,
+            day               TEXT    NOT NULL,  -- UTC 'YYYY-MM-DD' (free daily counts reset 00:00 UTC)
+            bot               TEXT    NOT NULL,
+            person            TEXT,              -- the chain's person
+            session           TEXT,
+            turn              INTEGER,
+            step              INTEGER,
+            provider          TEXT    NOT NULL,  -- openrouter (local later)
+            requested         TEXT    NOT NULL,  -- model asked for
+            model             TEXT    NOT NULL,  -- model that answered ('' if none)
+            free              INTEGER NOT NULL,
+            private           INTEGER NOT NULL,  -- asked for no data collection
+            generation_id     TEXT,
+            prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            cached_tokens     INTEGER NOT NULL DEFAULT 0,
+            cost_usd          REAL    NOT NULL DEFAULT 0,
+            latency_ms        INTEGER NOT NULL DEFAULT 0,
+            outcome           TEXT    NOT NULL,  -- ok | rate_limited | busy | daily_limit | error:<kind> | cancelled
+            kind              TEXT    NOT NULL DEFAULT 'chat' -- chat | compaction | reflection | judge
+        );
+        CREATE INDEX IF NOT EXISTS model_calls_bot_day ON model_calls (day, bot);
+        CREATE INDEX IF NOT EXISTS model_calls_person_day ON model_calls (day, person);
+        CREATE INDEX IF NOT EXISTS model_calls_model ON model_calls (model, ts_ms);",
+    ),
 ];
 
 /// Migration 16. Skips what is already there, as 15 does.

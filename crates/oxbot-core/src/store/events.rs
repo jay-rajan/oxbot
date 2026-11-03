@@ -101,7 +101,7 @@ pub(super) fn from_sql(n: i64) -> u64 {
 impl Store {
     /// Forgets everything about a deleted bot: its history, session, usage,
     /// "Always allow" rules, reports, the pages its session opened, who
-    /// started its turns, and
+    /// started its turns, its loop conversations and turns, and
     /// where anyone filed it in their sections (a new bot can get its id).
     /// Returns the people whose sections it was in.
     ///
@@ -110,6 +110,11 @@ impl Store {
     pub fn delete_bot(&self, bot: &BotId) -> Result<Vec<PersonId>, StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM loop_messages WHERE session IN (SELECT id FROM loop_sessions WHERE bot = ?1)",
+            [bot.as_str()],
+        )?;
+        tx.execute("DELETE FROM loop_sessions WHERE bot = ?1", [bot.as_str()])?;
         let filed: Vec<String> = {
             let mut stmt =
                 tx.prepare("SELECT DISTINCT person_id FROM bot_sections WHERE bot = ?1")?;
@@ -125,6 +130,7 @@ impl Store {
             "reports",
             "session_pages",
             "turn_origins",
+            "loop_turns",
         ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),

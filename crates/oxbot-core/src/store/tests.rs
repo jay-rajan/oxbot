@@ -1495,3 +1495,81 @@ fn who_started_a_turn_is_kept_until_the_bot_is_deleted() {
     store.delete_bot(&bot("helper")).unwrap();
     assert_eq!(store.turn_origin(&bot("helper"), 7).unwrap(), None);
 }
+
+#[test]
+fn a_version_16_database_gets_the_loop_tables() {
+    use oxbot_loop::LoopStore as _;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 16).unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    assert_eq!(store.running_turns().unwrap(), Vec::new());
+    assert_eq!(store.bot_requests("2026-11-02", "scout").unwrap(), 0);
+    assert!(!tmp.path().join("oxbot.db.v16.bak").exists());
+    // Running it again changes nothing.
+    drop(store);
+    let conn = Connection::open(&path).unwrap();
+    if let migrations::Step::Sql(sql) = &MIGRATIONS[16] {
+        conn.execute_batch(sql).unwrap();
+    } else {
+        panic!("migration 17 is SQL");
+    }
+}
+
+#[test]
+fn deleting_a_bot_deletes_its_loop_conversations() {
+    use oxbot_loop::LoopStore as _;
+    use oxbot_loop::store::{StoredMessage, TurnRow, TurnState, TurnStatus};
+    let store = Store::open_in_memory().unwrap();
+    for (b, id) in [("scout", "s1"), ("news", "s2")] {
+        store.open_session(b, id, "h", false).unwrap();
+        store
+            .begin_turn(&TurnRow {
+                session: id.into(),
+                turn: 0,
+                bot: b.into(),
+                user_seq: 1,
+                origin: serde_json::json!({}),
+                question: "q".into(),
+                status: TurnStatus::Running,
+                step: 0,
+                pending: None,
+                model: None,
+                resumes: 0,
+                dry_run: false,
+            })
+            .unwrap();
+        store
+            .checkpoint(
+                id,
+                0,
+                &[StoredMessage {
+                    idx: 0,
+                    turn: 0,
+                    message: oxbot_llm::Message::user("hi"),
+                    tokens: 1,
+                    untrusted: false,
+                    handle: None,
+                    meta: serde_json::json!({}),
+                }],
+                &TurnState {
+                    step: 0,
+                    model: None,
+                    pending: None,
+                },
+                None,
+            )
+            .unwrap();
+    }
+    store.delete_bot(&bot("scout")).unwrap();
+    assert_eq!(store.messages("s1").unwrap(), Vec::new());
+    assert_eq!(store.messages("s2").unwrap().len(), 1);
+    let running = store.running_turns().unwrap();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].bot, "news");
+}

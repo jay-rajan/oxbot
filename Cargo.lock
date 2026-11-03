@@ -3207,6 +3207,8 @@ dependencies = [
  "oxbot-claude",
  "oxbot-core",
  "oxbot-engine",
+ "oxbot-llm",
+ "oxbot-loop",
  "oxbot-protocol",
  "psl",
  "pulldown-cmark",
