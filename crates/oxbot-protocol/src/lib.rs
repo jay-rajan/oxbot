@@ -171,6 +171,29 @@ pub enum ClientMsg {
     },
     /// Ask for Settings → Engines ([`ServerMsg::Engines`]).
     ListEngines,
+    /// Start "Sign in with `OpenRouter`": the Mac's browser opens
+    /// `OpenRouter`'s page, which comes back to oxbot with a new key. The
+    /// Farm only.
+    OpenRouterSignIn,
+    /// Forget the `OpenRouter` key and stop `OpenRouter` bots. The Farm only.
+    OpenRouterSignOut,
+    /// Read `OpenRouter`'s model list (and the key's limits) again. The Farm
+    /// only.
+    RefreshModels,
+    /// Change the household's engine settings. The Farm only.
+    SetEnginePrefs {
+        /// All of them.
+        prefs: EnginePrefs,
+    },
+    /// Set an `OpenRouter` bot's own cap on model requests a day. Its maker
+    /// or the Farm.
+    SetBotDailyLimit {
+        /// Bot id.
+        bot: String,
+        /// Requests a day; `None` for the household's default.
+        #[serde(default)]
+        daily_requests: Option<u32>,
+    },
     /// The Farm's owner has seen the one-time notice that Claude bots take
     /// tasks only from them. The Farm only.
     EnginesNoticeSeen,
@@ -412,6 +435,135 @@ pub struct EnginesView {
     /// tasks only from the owner.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub review: Vec<ReviewBot>,
+    /// Free models `OpenRouter` bots can use (tools, a big enough window),
+    /// for picking one for a bot.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<ModelRow>,
+    /// The Farm only: the `OpenRouter` account, models, limits and use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openrouter: Option<OpenRouterView>,
+}
+
+/// Settings → Engines → `OpenRouter`, for the Farm.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenRouterView {
+    /// Signed in: oxbot has a key.
+    pub signed_in: bool,
+    /// The key's limits and today's use, once read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<KeyLimits>,
+    /// Paid models that could run the bots, cheapest first (for the paid
+    /// fallback).
+    #[serde(default)]
+    pub paid_models: Vec<ModelRow>,
+    /// Free models left out: no tools, or too small a window.
+    #[serde(default)]
+    pub filtered_out: u32,
+    /// When the model list was read (ms since the Unix epoch; 0: never).
+    #[serde(default)]
+    pub models_fetched_ms: i64,
+    /// The household's settings.
+    pub prefs: EnginePrefs,
+    /// Today's use (UTC day), per bot and per person.
+    #[serde(default)]
+    pub usage: Vec<RouterUsage>,
+}
+
+/// The `OpenRouter` key's limits and today's use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeyLimits {
+    /// Spending limit in US dollars (`None`: none).
+    #[serde(default)]
+    pub limit_usd: Option<f64>,
+    /// What's left of it.
+    #[serde(default)]
+    pub remaining_usd: Option<f64>,
+    /// Spent today (UTC).
+    #[serde(default)]
+    pub usage_daily_usd: f64,
+    /// The account never bought credits (50 free requests a day, not 1,000).
+    #[serde(default)]
+    pub is_free_tier: bool,
+    /// Free-model requests used today, when `OpenRouter` says.
+    #[serde(default)]
+    pub free_used: Option<u32>,
+    /// Free-model requests allowed a day, when `OpenRouter` says.
+    #[serde(default)]
+    pub free_limit: Option<u32>,
+}
+
+/// A model on the list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelRow {
+    /// Its id, e.g. `vendor/model:free`.
+    pub id: String,
+    /// Its name.
+    pub name: String,
+    /// Context window in tokens.
+    pub context_length: u32,
+    /// US dollars per million input tokens (0 for free models).
+    #[serde(default)]
+    pub usd_per_mtok_in: f64,
+    /// US dollars per million output tokens.
+    #[serde(default)]
+    pub usd_per_mtok_out: f64,
+}
+
+/// One row of today's `OpenRouter` use: a bot's, or a person's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouterUsage {
+    /// Bot id (a bot's row).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot: Option<String>,
+    /// Person's name (a person's row).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
+    /// Model requests.
+    pub requests: u32,
+    /// Tokens sent.
+    pub prompt_tokens: u64,
+    /// Tokens answered.
+    pub completion_tokens: u64,
+    /// US dollars (free models: 0).
+    pub cost_usd: f64,
+    /// The model used most.
+    #[serde(default)]
+    pub model: String,
+}
+
+/// The household's engine settings (Settings → Engines).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnginePrefs {
+    /// Use paid models when every free one failed (off).
+    pub paid_fallback: bool,
+    /// Which paid models, by id.
+    pub paid_models: Vec<String>,
+    /// Most paid spending a day, in US cents (default 100: $1.00).
+    pub paid_daily_cents: u32,
+    /// Each bot's model requests a day, unless it has its own (200).
+    pub bot_daily_requests: u32,
+    /// Each person's model requests a day (`None`: no cap).
+    pub person_daily_requests: Option<u32>,
+    /// The model people's own Herders use (`None`: Auto).
+    pub herder_model: Option<String>,
+    /// Ask providers not to keep data for every bot, not just private ones
+    /// (off: fewer free models take it).
+    pub no_data_collection: bool,
+}
+
+impl Default for EnginePrefs {
+    fn default() -> Self {
+        Self {
+            paid_fallback: false,
+            paid_models: Vec::new(),
+            paid_daily_cents: 100,
+            bot_daily_requests: 200,
+            person_daily_requests: None,
+            herder_model: None,
+            no_data_collection: false,
+        }
+    }
 }
 
 /// A Claude bot other people used, for the owner to review.
@@ -620,6 +772,23 @@ pub enum ServerMsg {
     /// notice and whether `OpenRouter` is ready. The answer to
     /// [`ClientMsg::ListEngines`], and sent again when it changes.
     Engines(EnginesView),
+    /// The `OpenRouter` sign-in page, for the Farm connection that asked: in
+    /// case no browser window opened.
+    OpenRouterAuth {
+        /// The page's address.
+        url: String,
+    },
+    /// What an `OpenRouter` bot's turn used, for the chat's footer.
+    Meter {
+        /// Bot id.
+        bot: String,
+        /// The model that answered (the last one, if several did).
+        model: String,
+        /// Model requests in the turn.
+        requests: u32,
+        /// US dollars (free models: 0).
+        cost_usd: f64,
+    },
     /// Something the client asked for went wrong.
     Error {
         /// What went wrong, for the user.
@@ -1407,10 +1576,61 @@ mod tests {
             openrouter_ready: false,
             banner: false,
             review: Vec::new(),
+            models: Vec::new(),
+            openrouter: None,
         });
         let json = serde_json::to_string(&view).unwrap();
         assert!(json.starts_with(r#"{"type":"engines","#), "{json}");
-        assert!(!json.contains("review"), "{json}");
+        assert!(
+            !json.contains("review") && !json.contains("openrouter\""),
+            "{json}"
+        );
+    }
+
+    #[test]
+    fn openrouter_messages_are_snake_case_and_prefs_default_safely() {
+        for (msg, tag) in [
+            (ClientMsg::OpenRouterSignIn, "open_router_sign_in"),
+            (ClientMsg::OpenRouterSignOut, "open_router_sign_out"),
+            (ClientMsg::RefreshModels, "refresh_models"),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&msg).unwrap(),
+                format!(r#"{{"type":"{tag}"}}"#)
+            );
+        }
+        // Missing settings take the defaults: paid models and asking every
+        // provider not to keep data both off.
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_engine_prefs","prefs":{"paid_fallback":true}}"#)
+                .unwrap();
+        let ClientMsg::SetEnginePrefs { prefs } = msg else {
+            panic!("prefs")
+        };
+        assert!(prefs.paid_fallback && !prefs.no_data_collection);
+        assert_eq!(
+            (prefs.bot_daily_requests, prefs.paid_daily_cents),
+            (200, 100)
+        );
+        let limit: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_bot_daily_limit","bot":"a"}"#).unwrap();
+        assert_eq!(
+            limit,
+            ClientMsg::SetBotDailyLimit {
+                bot: "a".into(),
+                daily_requests: None
+            }
+        );
+        let meter = serde_json::to_string(&ServerMsg::Meter {
+            bot: "scout".into(),
+            model: "e2e/tool-model:free".into(),
+            requests: 3,
+            cost_usd: 0.0,
+        })
+        .unwrap();
+        assert!(meter.starts_with(r#"{"type":"meter","#), "{meter}");
+        let auth = serde_json::to_string(&ServerMsg::OpenRouterAuth { url: "u".into() }).unwrap();
+        assert_eq!(auth, r#"{"type":"open_router_auth","url":"u"}"#);
     }
 
     #[test]

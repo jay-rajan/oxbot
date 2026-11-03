@@ -165,6 +165,12 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .engines-banner .alert-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .engines-banner button { background: none; border: 0; color: inherit; padding: 2px 6px; border-radius: 6px; flex: none; }
 .engines-banner .alert-more { text-decoration: underline; }
+#setEngines:not([hidden]) { display: grid; gap: 18px; }
+.engine-prefs { display: grid; gap: 10px; padding: 0; }
+.paid-box { display: grid; gap: 8px; }
+.model-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 5px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.model-row small { color: var(--muted); }
+.meter { color: var(--muted); font-size: .75rem; margin: -2px 0 6px; }
 label select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .menu { display: none; border: 0; background: none; color: var(--ink); font-size: 1.3rem; padding: 0 4px; }
 .log { flex: 1; overflow-y: auto; padding: 18px max(18px, env(safe-area-inset-right)) 12px 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -421,6 +427,10 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <label class="check"><input type="radio" name="bdEngine" value="openrouter"> OpenRouter (free models)</label>
       <label class="check" id="bdClaudeRow"><input type="radio" name="bdEngine" value="claude"> Claude (only you)</label>
       <p class="hint" id="bdEngineHint"></p>
+      <div class="manage" id="bdOrBox" hidden>
+        <label>Model<select id="bdModel"><option value="">Auto (free models first)</option></select></label>
+        <label>Model requests a day (empty: the household's)<input type="number" id="bdDaily" min="1" max="100000" step="1"></label>
+      </div>
     </fieldset>
     <section class="rules-box" aria-labelledby="bdRulesTitle"><h3 id="bdRulesTitle">Always allowed</h3><ul class="rules" id="bdRules"></ul></section>
     </div>
@@ -547,6 +557,42 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <h3>Claude</h3>
       <ul class="checks" id="claudeStatus"></ul>
     </section>
+    <section id="orSection" hidden>
+      <h3>OpenRouter</h3>
+      <p class="door-status"><i class="gate-dot" id="orDot" aria-hidden="true"></i><span id="orStatus">Not signed in.</span></p>
+      <div class="btns"><button class="primary" type="button" id="orSignIn">Sign in with OpenRouter</button><button class="ghost" type="button" id="orSignOut" hidden>Sign out</button><button class="ghost" type="button" id="orRefresh">Refresh</button></div>
+      <p class="hint" id="orLink" hidden>If no window opened, <a id="orLinkA" href="#" target="_blank" rel="noopener noreferrer">open this link</a>.</p>
+      <p class="hint" id="orAbout">One OpenRouter key for the household. It stays in this Mac's Keychain: never in a file, the log or the page. Signing in opens OpenRouter in your browser; it comes back to oxbot on this Mac.</p>
+      <dl class="about" id="orKey" hidden></dl>
+    </section>
+    <section id="orModelsSection" hidden>
+      <h3>Free models</h3>
+      <ul class="site-rows" id="orModels"></ul>
+      <p class="hint" id="orModelsNote"></p>
+    </section>
+    <section id="orPrefsSection" hidden>
+      <h3>Limits and privacy</h3>
+      <form class="engine-prefs" id="orPrefsForm">
+        <label>Model requests a day, per bot<input type="number" id="orBotDaily" min="1" max="100000" step="1" required></label>
+        <label>Model requests a day, per person (empty: no limit)<input type="number" id="orPersonDaily" min="1" max="100000" step="1"></label>
+        <label class="check"><input type="checkbox" id="orNoData"> Ask providers not to keep data, for every bot</label>
+        <p class="hint">Free models may keep and learn from what shared bots send. Private bots always ask for providers that don't. Asking it for every bot leaves fewer free models.</p>
+        <label class="check"><input type="checkbox" id="orPaid"> Use paid models when every free one is busy</label>
+        <div class="paid-box" id="orPaidBox" hidden>
+          <label>Most to spend a day on paid models, in dollars<input type="number" id="orPaidCap" min="0" max="100" step="0.01"></label>
+          <ul class="site-rows" id="orPaidModels"></ul>
+        </div>
+        <div class="btns"><button class="primary" type="submit" id="orSave">Save</button></div>
+      </form>
+    </section>
+    <section id="orUsageSection" hidden>
+      <h3>Usage today</h3>
+      <div class="tbl"><table class="usage">
+        <thead><tr><th>Bot or person</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th><th>Model</th></tr></thead>
+        <tbody id="orUsageRows"></tbody>
+      </table></div>
+      <p class="hint" id="orUsageNote">Since midnight UTC, when OpenRouter's free daily requests start again.</p>
+    </section>
     <section id="reviewSection" hidden>
       <h3>Claude bots other people used</h3>
       <p class="hint">In the last 30 days, other people gave these bots tasks. They take tasks only from you now. Switch one to OpenRouter so others can use it again; its chat stays.</p>
@@ -608,6 +654,7 @@ const setupRuns = new Map(); // setup action -> { text, running }
 const people = new Map();    // name -> color
 let setup = null, signOutArmed = null;
 let engines = null;          // Settings → Engines, as the server sent it
+let orAuthUrl = null;        // the OpenRouter sign-in page, if no window opened
 const logLines = [];
 
 const store = {
@@ -747,6 +794,12 @@ function onMessage(m) {
     case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); break;
     case "setup": setup = m; renderSetup(); renderEngines(); break;
     case "engines": engines = m; renderEngines(); break;
+    case "open_router_auth": orAuthUrl = m.url; renderEngines(); break;
+    case "meter": {
+      const b = bot(m.bot); b.meter = m;
+      if (m.bot === current) { const el = meterEl(m); if (el) { $("log").appendChild(el); scrollDown(); } }
+      break;
+    }
     case "sites":
       if (m.owner) mySites = m.sites; else sites = m.sites;
       renderSiteRows(); renderSignedIn(); break;
@@ -1473,9 +1526,100 @@ function renderEngines() {
     btn.onclick = () => send({ type: "set_engine", bot: r.bot, engine: "openrouter" });
     li.append(name, btn); rows.appendChild(li);
   }
+  renderOpenRouter();
   $("switchAll").disabled = !ready;
   $("reviewNote").textContent = ready ? "" : "Sign in with OpenRouter first to switch them.";
   $("enginesBanner").hidden = !(engines && engines.banner && settings && settings.farm);
+}
+// Settings → Engines → OpenRouter (the Farm): sign-in, the key's limits,
+// models, limits and privacy, and today's use.
+function renderOpenRouter() {
+  const or = engines && engines.openrouter;
+  for (const id of ["orSection", "orModelsSection", "orPrefsSection", "orUsageSection"]) $(id).hidden = !or;
+  if (!or) return;
+  const ready = !!(settings && settings.openrouter_ready);
+  $("orDot").classList.toggle("on", or.signed_in);
+  $("orStatus").textContent = !or.signed_in ? "Not signed in." : ready ? "Signed in. OpenRouter bots are ready." : "Signed in.";
+  $("orSignIn").hidden = or.signed_in; $("orSignOut").hidden = !or.signed_in;
+  $("orLink").hidden = or.signed_in || !orAuthUrl;
+  if (orAuthUrl) $("orLinkA").href = orAuthUrl;
+  if (or.signed_in) orAuthUrl = null;
+  const key = $("orKey"); key.textContent = ""; key.hidden = !or.key;
+  if (or.key) {
+    const k = or.key;
+    const rows = [["Spent today", money(k.usage_daily_usd || 0)]];
+    if (k.free_limit) rows.push(["Free requests today", `${k.free_used || 0} of ${k.free_limit}`]);
+    rows.push(["Key limit", k.limit_usd == null ? "none" : `${money(k.remaining_usd || 0)} left of ${money(k.limit_usd)}`]);
+    if (k.is_free_tier) rows.push(["Account", "No credits bought: 50 free requests a day (1,000 once you buy $10)"]);
+    for (const [dt, dd] of rows) { const t = document.createElement("dt"); t.textContent = dt; const d = document.createElement("dd"); d.textContent = dd; key.append(t, d); }
+  }
+  const models = $("orModels"); models.textContent = "";
+  for (const m of engines.models || []) {
+    const li = document.createElement("li"); li.className = "model-row";
+    const n = document.createElement("span"); n.textContent = m.name || m.id;
+    const c = document.createElement("small"); c.textContent = `${Math.round(m.context_length / 1000)}k`;
+    li.title = m.id; li.append(n, c); models.appendChild(li);
+  }
+  if (!(engines.models || []).length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = or.models_fetched_ms ? "No free model can run the bots right now." : "Not read yet: press Refresh."; models.appendChild(li); }
+  const when = or.models_fetched_ms ? `Read ${new Date(or.models_fetched_ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. ` : "";
+  $("orModelsNote").textContent = `${when}${or.filtered_out ? `${or.filtered_out} more free models can't run the bots (no tools, or too small a window). ` : ""}Bots use free models first, the most reliable first.`;
+  // The form keeps what's being typed until it's saved.
+  if (!$("orPrefsForm").contains(document.activeElement)) fillPrefs(or);
+  const rows = $("orUsageRows"); rows.textContent = "";
+  for (const u of or.usage || []) {
+    const tr = document.createElement("tr");
+    const who = u.bot ? botName(u.bot) : u.person || "";
+    for (const v of [who, String(u.requests), fmt(u.prompt_tokens), fmt(u.completion_tokens), money(u.cost_usd), u.model.replace(/^.*\//, "")]) { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); }
+    rows.appendChild(tr);
+  }
+  if (!(or.usage || []).length) { const tr = document.createElement("tr"); const td = document.createElement("td"); td.colSpan = 6; td.className = "hint"; td.textContent = "Nothing yet today."; tr.appendChild(td); rows.appendChild(tr); }
+}
+function fillPrefs(or) {
+  const p = or.prefs;
+  $("orBotDaily").value = p.bot_daily_requests;
+  $("orPersonDaily").value = p.person_daily_requests == null ? "" : p.person_daily_requests;
+  $("orNoData").checked = !!p.no_data_collection;
+  $("orPaid").checked = !!p.paid_fallback;
+  $("orPaidCap").value = (p.paid_daily_cents / 100).toFixed(2);
+  $("orPaidBox").hidden = !p.paid_fallback;
+  const list = $("orPaidModels"); list.textContent = "";
+  const picked = new Set(p.paid_models);
+  for (const m of or.paid_models || []) {
+    const li = document.createElement("li");
+    const l = document.createElement("label"); l.className = "check";
+    const box = document.createElement("input"); box.type = "checkbox"; box.value = m.id; box.checked = picked.has(m.id);
+    l.append(box, document.createTextNode(` ${m.name || m.id} · $${m.usd_per_mtok_in.toFixed(2)} / $${m.usd_per_mtok_out.toFixed(2)} per million tokens`));
+    li.appendChild(l); list.appendChild(li);
+  }
+  if (!(or.paid_models || []).length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "No paid models listed yet."; list.appendChild(li); }
+}
+$("orPaid").onchange = () => { $("orPaidBox").hidden = !$("orPaid").checked; };
+$("orPrefsForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const or = engines && engines.openrouter; if (!or) return;
+  const person = $("orPersonDaily").value.trim();
+  const prefs = {
+    ...or.prefs,
+    bot_daily_requests: Math.round(Number($("orBotDaily").value)),
+    person_daily_requests: person ? Math.round(Number(person)) : null,
+    no_data_collection: $("orNoData").checked,
+    paid_fallback: $("orPaid").checked,
+    paid_daily_cents: Math.round(Number($("orPaidCap").value || 0) * 100),
+    paid_models: [...$("orPaidModels").querySelectorAll("input:checked")].map((b) => b.value),
+  };
+  send({ type: "set_engine_prefs", prefs });
+  $("orSave").blur();
+  toast("Saved.");
+});
+$("orSignIn").onclick = () => send({ type: "open_router_sign_in" });
+$("orSignOut").onclick = () => send({ type: "open_router_sign_out" });
+$("orRefresh").onclick = () => send({ type: "refresh_models" });
+// The chat's footer after an OpenRouter bot's turn: model, requests, cost.
+function meterEl(m) {
+  if (!m || !m.requests) return null;
+  const el = div("meter");
+  el.textContent = `· ${m.model.replace(/^.*\//, "")} · ${m.requests} request${m.requests === 1 ? "" : "s"} · ${money(m.cost_usd || 0)}`;
+  return el;
 }
 $("switchAll").onclick = () => { for (const r of (engines && engines.review) || []) send({ type: "set_engine", bot: r.bot, engine: "openrouter" }); };
 $("enginesReview").onclick = () => { send({ type: "engines_notice_seen" }); openEngines(); };
@@ -1969,6 +2113,15 @@ $("botMore").onclick = () => {
     r.disabled = b.busy || (r.value === "claude" && !(settings && settings.owner));
   }
   bdEngineHint();
+  const sel = $("bdModel"); sel.textContent = "";
+  const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Auto (free models first)"; sel.appendChild(auto);
+  const listed = (engines && engines.models) || [];
+  for (const m of listed) { const o = document.createElement("option"); o.value = m.id; o.textContent = m.name || m.id; sel.appendChild(o); }
+  const pinned = b.info.engine === "openrouter" ? b.info.model || "" : "";
+  if (pinned && !listed.some((m) => m.id === pinned)) { const o = document.createElement("option"); o.value = pinned; o.textContent = pinned; sel.appendChild(o); }
+  sel.value = pinned;
+  $("bdDaily").value = b.info.daily_requests == null ? "" : b.info.daily_requests;
+  $("bdModel").disabled = $("bdDaily").disabled = b.busy;
   resetDelete();
   // Its "Always allowed" rules come from the server (only for those who manage it).
   if (manage) { rulesFor = b.info.id; rules = null; renderRules(); send({ type: "list_allow_rules", bot: b.info.id }); }
@@ -2000,6 +2153,7 @@ function bdEngineHint() {
   const b = bots.get(current); if (!b) return;
   const was = b.info.engine === "openrouter" ? "openrouter" : "claude", now = bdEngine();
   const hint = $("bdEngineHint"); hint.classList.remove("warn-hint");
+  $("bdOrBox").hidden = now !== "openrouter";
   if (now === "claude" && was !== "claude") {
     // Only the owner's own private bot stays as it was; anything others use becomes owner-only.
     const onlyMine = $("bdPrivate").checked && b.info.created_by === (settings && settings.you);
@@ -2026,8 +2180,14 @@ $("botForm").addEventListener("submit", (ev) => {
   renameBot(b.info.id, name);
   if ($("bdPrivate").checked !== !!b.info.private) setPrivate(b.info.id, $("bdPrivate").checked);
   const engine = bdEngine(), was = b.info.engine === "openrouter" ? "openrouter" : "claude";
+  const model = $("bdModel").value, wasModel = was === "openrouter" ? b.info.model || "" : "";
   // The dialog said what switching to Claude means: that's the confirmation.
-  if (!b.info.central && engine && engine !== was) send({ type: "set_engine", bot: b.info.id, engine, confirm_owner_only: engine === "claude" });
+  if (!b.info.central && engine && engine !== was) send({ type: "set_engine", bot: b.info.id, engine, confirm_owner_only: engine === "claude", model: engine === "openrouter" ? model : null });
+  else if (!b.info.central && engine === "openrouter" && model !== wasModel) send({ type: "set_engine", bot: b.info.id, engine, model });
+  if (!b.info.central && engine === "openrouter") {
+    const daily = $("bdDaily").value.trim(), n = daily ? Math.round(Number(daily)) : null;
+    if (n !== (b.info.daily_requests == null ? null : b.info.daily_requests)) send({ type: "set_bot_daily_limit", bot: b.info.id, daily_requests: n });
+  }
   $("botDlg").close();
 });
 

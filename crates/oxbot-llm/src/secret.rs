@@ -4,6 +4,8 @@
 //! `Clone`, and `Debug` prints `ApiKey(…)`. Its memory is wiped when it is
 //! dropped. [`KeyCell`] is the one shared place the client reads it from,
 //! per request; the server sets and clears it on sign-in and sign-out.
+//! [`SecretStore`] is where it is kept between runs (the macOS Keychain in
+//! the app, [`MemorySecrets`] in tests).
 
 use std::fmt;
 use std::sync::{Arc, PoisonError, RwLock};
@@ -153,6 +155,72 @@ impl fmt::Debug for KeyCell {
     }
 }
 
+/// Where the key is kept between runs: the macOS Keychain in the app,
+/// memory (or a test file) in tests. Never a plain file, a log or the
+/// database.
+pub trait SecretStore: Send + Sync + fmt::Debug {
+    /// The key kept, if any.
+    ///
+    /// # Errors
+    /// The store couldn't be read, or what it holds isn't a key.
+    fn load(&self) -> Result<Option<ApiKey>, SecretError>;
+    /// Keeps `key`, replacing any old one.
+    ///
+    /// # Errors
+    /// The store couldn't be written.
+    fn save(&self, key: &ApiKey) -> Result<(), SecretError>;
+    /// Forgets the key (nothing kept is fine).
+    ///
+    /// # Errors
+    /// The store couldn't be changed.
+    fn delete(&self) -> Result<(), SecretError>;
+}
+
+/// A secret store failed. The text never holds the key.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct SecretError(pub String);
+
+/// A [`SecretStore`] in memory only: for tests, and when no other store
+/// may be used.
+#[derive(Default)]
+pub struct MemorySecrets(std::sync::Mutex<Option<Zeroizing<Vec<u8>>>>);
+
+impl MemorySecrets {
+    /// An empty store.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl fmt::Debug for MemorySecrets {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("MemorySecrets")
+    }
+}
+
+impl SecretStore for MemorySecrets {
+    fn load(&self) -> Result<Option<ApiKey>, SecretError> {
+        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.as_ref()
+            .map(|bytes| ApiKey::from_bytes(bytes.to_vec()))
+            .transpose()
+            .map_err(|e| SecretError(format!("The kept key is unusable: {e}.")))
+    }
+
+    fn save(&self, key: &ApiKey) -> Result<(), SecretError> {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(Zeroizing::new(key.expose_for_storage().to_vec()));
+        Ok(())
+    }
+
+    fn delete(&self) -> Result<(), SecretError> {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +277,18 @@ mod tests {
                 .expose(),
             FAKE
         );
+    }
+
+    #[test]
+    fn memory_secrets_keep_one_key_and_never_show_it() {
+        let store = MemorySecrets::new();
+        assert!(store.load().unwrap().is_none());
+        store.save(&ApiKey::new(FAKE.to_owned()).unwrap()).unwrap();
+        assert_eq!(store.load().unwrap().unwrap().expose(), FAKE);
+        assert_eq!(format!("{store:?}"), "MemorySecrets");
+        store.delete().unwrap();
+        store.delete().unwrap();
+        assert!(store.load().unwrap().is_none());
     }
 
     #[test]

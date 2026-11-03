@@ -135,6 +135,16 @@ banner, and Settings → Engines lists the Claude bots other people used in the 
 with **Switch to OpenRouter** (or **Switch all**). Model calls go only to Anthropic (Claude bots)
 or OpenRouter (OpenRouter bots).
 
+OpenRouter: the Farm signs in once in Settings → Engines (**Sign in with OpenRouter**: OpenRouter
+opens in your browser and comes back to oxbot on this Mac, PKCE with a one-time state). The key
+lives only in your Mac's Keychain (one item per data folder), never in a file, the log, the
+database or the page; signing out deletes it (to revoke the key itself, delete "oxbot on {your
+Mac}" at openrouter.ai/keys). The same tab shows the key's limits and today's use, the free
+models that can run bots (read from OpenRouter's model list, which needs no key), daily request
+limits per bot and per person, an off-by-default switch for paid models when every free one is
+busy (with a daily cap), and an off-by-default switch to ask providers not to keep data for
+every bot (private bots always ask).
+
 ## Layout
 | Crate | What it is |
 |---|---|

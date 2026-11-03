@@ -149,6 +149,19 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         .await
         .with_context(|| format!("couldn't listen on {wanted}; is oxbot already running?"))?;
     let addr = listener.local_addr()?;
+    let device = server_name();
+    // The household's OpenRouter account: its key from the Keychain (test
+    // mode: the stand-in's, never the Keychain), shared with the model
+    // clients through `openrouter.key_cell()`.
+    let openrouter = Arc::new(
+        crate::openrouter_auth::OpenRouter::new(
+            crate::openrouter_auth::endpoint(e2e).context("OXBOT_OPENROUTER_URL isn't usable")?,
+            crate::keychain::secret_store(home.root(), e2e),
+            format!("oxbot on {device}"),
+            !e2e,
+        )
+        .context("couldn't set up the OpenRouter client")?,
+    );
     let helper = mac_helper();
     let config = HubConfig {
         claude_program: std::env::var_os("OXBOT_CLAUDE")
@@ -163,7 +176,6 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
 
     let farm_key =
         crate::secret::farm_key(home.root()).context("couldn't make or read the Farm secret")?;
-    let device = server_name();
     let door = options.gate_port.map(|port| {
         // Tests have no real network: they get a fixed one to allow.
         let probe = if e2e {
@@ -209,9 +221,12 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         dictation: Arc::new(crate::dictation::Dictation::new(helper)),
         next_conn: Arc::default(),
         engine_review: Arc::default(),
+        port: addr.port(),
+        openrouter: Some(openrouter),
     };
     state.refresh_setup().await;
     state.review_engines();
+    refresh_models_now_and_then(&state);
     crate::notify::start(&state);
     // The door opens when the Mac is on an allowed network and a Gate is
     // paired, and keeps checking.
@@ -232,6 +247,39 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         stop,
         task,
     })
+}
+
+/// How often `OpenRouter`'s model list is read again.
+const MODELS_EVERY: std::time::Duration = std::time::Duration::from_hours(6);
+
+/// Reads the key's limits at start, and `OpenRouter`'s model list (no key
+/// needed) at start if the kept one is older than [`MODELS_EVERY`], then
+/// every [`MODELS_EVERY`]. Not in this crate's tests, which never reach
+/// the network.
+fn refresh_models_now_and_then(state: &AppState) {
+    if cfg!(test) {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        // The key's limits for Settings → Engines, once at start.
+        if let Some(account) = state.openrouter.as_ref().filter(|a| a.signed_in()) {
+            account.refresh_key_info().await;
+            state.openrouter_changed();
+        }
+        let every_ms = i64::try_from(MODELS_EVERY.as_millis()).unwrap_or(i64::MAX);
+        let fetched = state.hub.model_catalog().map_or(0, |(_, ms)| ms);
+        let mut wait = std::time::Duration::from_millis(
+            u64::try_from((fetched + every_ms - now_ms()).max(0)).unwrap_or(0),
+        );
+        loop {
+            tokio::time::sleep(wait).await;
+            if let Err(why) = state.refresh_models().await {
+                tracing::warn!(why, "model list not refreshed");
+            }
+            wait = MODELS_EVERY;
+        }
+    });
 }
 
 /// The browser tool shipped inside oxbot.app, logged.

@@ -1,0 +1,44 @@
+name = "Sign in with OpenRouter"
+about = "The Farm signs in to (the stand-in) OpenRouter from Settings → Engines: the sign-in page comes back to oxbot, which keeps the key out of every file, and Engines then shows it signed in with the free models that can run bots."
+covers = ["crates/oxbot/src/openrouter_auth.rs", "crates/oxbot/src/keychain.rs", "crates/oxbot/src/server.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui/**", "crates/oxbot-core/src/hub/engine_prefs.rs", "crates/oxbot-protocol/**"]
+openrouter_signed_in = false
+
+[[step]]
+click = "Settings"
+[[step]]
+click = "Engines"
+[[step]]
+expect = "Not signed in."
+[[step]]
+click = "Sign in with OpenRouter"
+[[step]]
+wait_for = "open this link"
+note = "The page's fallback link (tests open no browser window)"
+[[step]]
+follow = "open this link"
+[[step]]
+wait_for = "Authorize oxbot"
+note = "The stand-in OpenRouter's sign-in page"
+[[step]]
+click = "Authorize oxbot"
+[[step]]
+wait_for = "Signed in to OpenRouter. You can close this tab."
+shot = "signed-in-tab"
+[[step]]
+open = "/"
+[[step]]
+click = "Settings"
+[[step]]
+click = "Engines"
+[[step]]
+wait_for = "Signed in"
+[[step]]
+expect = "2 more free models can't run the bots"
+note = "Two of the stand-in's free models have no tools or too small a window"
+[[step]]
+expect_js = "document.querySelectorAll('#orModels .model-row').length === 2"
+note = "…and two can"
+[[step]]
+expect = "Free requests today"
+note = "The key's limits, read with the new key"
+shot = "engines-signed-in"

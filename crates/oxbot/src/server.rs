@@ -21,8 +21,8 @@ use oxbot_core::id::BrowserOwner;
 use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
-    AppSettings, ClientMsg, DEFAULT_PAGE, EnginesView, LogLine, MAX_PAGE, ReviewBot, ServerHello,
-    ServerMsg, SetupAction, SetupReport,
+    AppSettings, ClientMsg, DEFAULT_PAGE, EnginesView, KeyLimits, LogLine, MAX_PAGE, ModelRow,
+    OpenRouterView, ReviewBot, ServerHello, ServerMsg, SetupAction, SetupReport,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
@@ -78,6 +78,11 @@ pub struct AppState {
     /// Claude bots other people used before they became owner-only, found
     /// at start (see [`AppState::review_engines`]).
     pub engine_review: Arc<std::sync::RwLock<Vec<ReviewBot>>>,
+    /// The port this server listens on (`OpenRouter`'s sign-in comes back
+    /// to it); 0 if unknown.
+    pub port: u16,
+    /// The household's `OpenRouter` account (`None`: not in this server).
+    pub openrouter: Option<Arc<crate::openrouter_auth::OpenRouter>>,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -142,13 +147,102 @@ impl AppState {
         } else {
             Vec::new()
         };
+        let catalog = self.catalog();
+        let models = catalog
+            .as_ref()
+            .map(|(c, _)| c.free_for_loop().map(model_row).collect())
+            .unwrap_or_default();
+        let openrouter = farm.then(|| self.openrouter_view(catalog.as_ref()));
         EnginesView {
             notice: oxbot_core::hub::ENGINES_NOTICE.to_owned(),
             owner: self.hub.owner_display_name(),
             openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
             banner: farm && self.hub.engines_notice_due(),
             review,
+            models,
+            openrouter,
         }
+    }
+
+    /// `OpenRouter`'s model list as last read, and when.
+    fn catalog(&self) -> Option<(oxbot_llm::Catalog, i64)> {
+        let (json, ms) = self.hub.model_catalog()?;
+        match serde_json::from_str(&json) {
+            Ok(catalog) => Some((catalog, ms)),
+            Err(err) => {
+                tracing::warn!(%err, "the kept model list is unreadable");
+                None
+            }
+        }
+    }
+
+    /// Settings → Engines → `OpenRouter`, for the Farm.
+    fn openrouter_view(&self, catalog: Option<&(oxbot_llm::Catalog, i64)>) -> OpenRouterView {
+        let account = self.openrouter.as_deref();
+        let key = account
+            .and_then(crate::openrouter_auth::OpenRouter::key_info)
+            .map(|k| KeyLimits {
+                limit_usd: k.limit_usd,
+                remaining_usd: k.remaining_usd,
+                usage_daily_usd: k.usage_daily_usd,
+                is_free_tier: k.is_free_tier,
+                free_used: k.free_daily.map(|q| q.used),
+                free_limit: k.free_daily.map(|q| q.limit),
+            });
+        let (paid_models, filtered_out, models_fetched_ms) =
+            catalog.map_or((Vec::new(), 0, 0), |(c, ms)| {
+                let filtered = c.models.iter().filter(|m| m.free && !m.fits_loop()).count();
+                (
+                    c.paid_for_loop().into_iter().map(model_row).collect(),
+                    u32::try_from(filtered).unwrap_or(u32::MAX),
+                    *ms,
+                )
+            });
+        OpenRouterView {
+            signed_in: account.is_some_and(crate::openrouter_auth::OpenRouter::signed_in),
+            key,
+            paid_models,
+            filtered_out,
+            models_fetched_ms,
+            prefs: self.hub.engine_prefs(),
+            usage: self.hub.openrouter_usage_today(),
+        }
+    }
+
+    /// Tells everyone `OpenRouter` changed (signed in or out, new models):
+    /// each gets their own settings and engines view.
+    pub fn openrouter_changed(&self) {
+        self.hub.announce(ServerMsg::Settings(self.settings()));
+        self.hub
+            .announce(ServerMsg::Engines(self.engines_for(&self.farm_viewer())));
+    }
+
+    /// Reads `OpenRouter`'s model list and the key's limits again, keeps the
+    /// list, and tells everyone.
+    ///
+    /// # Errors
+    /// Why the list wasn't read or kept, in words.
+    pub async fn refresh_models(&self) -> Result<(), String> {
+        let Some(account) = self.openrouter.clone() else {
+            return Err("OpenRouter isn't available in this oxbot.".to_owned());
+        };
+        account.refresh_key_info().await;
+        let catalog = account.fetch_models().await;
+        let result = match catalog {
+            Ok(catalog) => match serde_json::to_string(&catalog) {
+                Ok(json) => self
+                    .hub
+                    .set_model_catalog(&json, crate::runtime::now_ms())
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            },
+            Err(err) => {
+                tracing::warn!(kind = ?err.kind, "couldn't read OpenRouter's model list");
+                Err(format!("OpenRouter's model list couldn't be read: {err}"))
+            }
+        };
+        self.openrouter_changed();
+        result
     }
 
     /// Looks again for Claude bots other people used in the last 30 days
@@ -234,6 +328,8 @@ impl AppState {
             dictation: Arc::new(crate::dictation::Dictation::new(None)),
             next_conn: Arc::default(),
             engine_review: Arc::default(),
+            port: 0,
+            openrouter: None,
         }
     }
 }
@@ -248,6 +344,11 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
+        // "Sign in with OpenRouter" comes back here: this Mac only.
+        .route(
+            crate::openrouter_auth::CALLBACK_PATH,
+            get(crate::openrouter_auth::callback),
+        )
         .route(
             "/upload",
             // The upload streams to disk with its own limit.
@@ -713,6 +814,12 @@ impl Client {
 
     /// The engines view with bot ids as this client sees them.
     fn outer_engines(&self, mut view: EnginesView) -> EnginesView {
+        if let Some(or) = &mut view.openrouter {
+            or.usage.retain_mut(|u| match &u.bot {
+                Some(bot) => self.outer(bot).map(|b| u.bot = Some(b)).is_some(),
+                None => true,
+            });
+        }
         view.review = view
             .review
             .into_iter()
@@ -806,7 +913,6 @@ impl Client {
                     .collect(),
                 owner_id,
             },
-            ServerMsg::Engines(view) => ServerMsg::Engines(self.outer_engines(view)),
             ServerMsg::Usage(mut usage) => {
                 usage.bots = usage
                     .bots
@@ -818,6 +924,25 @@ impl Client {
                     .collect();
                 ServerMsg::Usage(usage)
             }
+            other => return self.outbound_engines(other),
+        })
+    }
+
+    /// [`Client::outbound`] for the engines view and turn meters.
+    fn outbound_engines(&self, msg: ServerMsg) -> Option<ServerMsg> {
+        Some(match msg {
+            ServerMsg::Engines(view) => ServerMsg::Engines(self.outer_engines(view)),
+            ServerMsg::Meter {
+                bot,
+                model,
+                requests,
+                cost_usd,
+            } => ServerMsg::Meter {
+                bot: self.outer(&bot)?,
+                model,
+                requests,
+                cost_usd,
+            },
             other => other,
         })
     }
@@ -1054,6 +1179,10 @@ async fn handle(
         Ok(reply) => return reply,
         Err(other) => other,
     };
+    let msg = match handle_engines(msg, state, &viewer).await {
+        Ok(reply) => return reply,
+        Err(other) => other,
+    };
     match msg {
         ClientMsg::ListBots => match state.hub.bots().await {
             Ok(bots) => {
@@ -1077,30 +1206,6 @@ async fn handle(
             private,
             engine,
         } => create_bot(state, client, &name, &instructions, private, engine).await,
-        ClientMsg::SetEngine {
-            bot,
-            engine,
-            model,
-            confirm_owner_only,
-        } => {
-            let done = state
-                .hub
-                .set_engine(
-                    &bot,
-                    engine_kind(engine),
-                    model,
-                    &viewer,
-                    confirm_owner_only,
-                )
-                .await;
-            if done.is_ok() {
-                // The owner's review list changes with it.
-                state
-                    .hub
-                    .announce(ServerMsg::Engines(state.engines_for(&viewer)));
-            }
-            reply(done)
-        }
         ClientMsg::SetPrivate { bot, private } => {
             reply(state.hub.set_private(&bot, private, &viewer).await)
         }
@@ -1135,6 +1240,45 @@ async fn handle(
         | ClientMsg::DeleteReport { .. } => handle_reports(msg, state, client),
         other => handle_sign_ins(other, state, &viewer).await,
     }
+}
+
+/// Switching a bot's engine and its own daily limit (the hub decides who
+/// may). Gives other messages back.
+async fn handle_engines(
+    msg: ClientMsg,
+    state: &AppState,
+    viewer: &Viewer,
+) -> Result<Vec<ServerMsg>, ClientMsg> {
+    Ok(match msg {
+        ClientMsg::SetBotDailyLimit {
+            bot,
+            daily_requests,
+        } => reply(
+            state
+                .hub
+                .set_bot_daily_limit(&bot, daily_requests, viewer)
+                .await,
+        ),
+        ClientMsg::SetEngine {
+            bot,
+            engine,
+            model,
+            confirm_owner_only,
+        } => {
+            let done = state
+                .hub
+                .set_engine(&bot, engine_kind(engine), model, viewer, confirm_owner_only)
+                .await;
+            if done.is_ok() {
+                // The owner's review list changes with it.
+                state
+                    .hub
+                    .announce(ServerMsg::Engines(state.engines_for(viewer)));
+            }
+            reply(done)
+        }
+        other => return Err(other),
+    })
 }
 
 /// Sending messages (with files), the Mac's dictation, and the setup
@@ -1334,6 +1478,10 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             Ok(()) => vec![ServerMsg::Engines(state.engines_for(&state.farm_viewer()))],
             Err(e) => error(&e),
         },
+        ClientMsg::OpenRouterSignIn
+        | ClientMsg::OpenRouterSignOut
+        | ClientMsg::RefreshModels
+        | ClientMsg::SetEnginePrefs { .. } => handle_openrouter(msg, state).await,
         ClientMsg::RunSetup { action } => {
             if state
                 .setup_running
@@ -1350,6 +1498,76 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
         }
         other => return Err(other),
     })
+}
+
+/// The household's `OpenRouter` account: sign in and out, the model list,
+/// the settings. The Farm only (checked by the caller).
+async fn handle_openrouter(msg: ClientMsg, state: &AppState) -> Vec<ServerMsg> {
+    let error = |e: &dyn std::fmt::Display| {
+        vec![ServerMsg::Error {
+            message: e.to_string(),
+        }]
+    };
+    let account = state.openrouter.clone();
+    match msg {
+        ClientMsg::OpenRouterSignIn => {
+            let Some(account) = account else {
+                return error(&"OpenRouter isn't available in this oxbot.");
+            };
+            match account.start_sign_in(state.port) {
+                Ok(url) => vec![ServerMsg::OpenRouterAuth { url }],
+                Err(e) => error(&e),
+            }
+        }
+        ClientMsg::OpenRouterSignOut => {
+            let Some(account) = account else {
+                return Vec::new();
+            };
+            let done = account.sign_out();
+            state.hub.stop_engine_sessions(EngineKind::OpenRouter).await;
+            state.openrouter_changed();
+            match done {
+                Ok(()) => vec![ServerMsg::Notice {
+                    message: format!(
+                        "Signed out of OpenRouter. To revoke the key itself, delete \"oxbot on {}\" at openrouter.ai/keys.",
+                        state.server_name
+                    ),
+                    owner: None,
+                    owner_id: None,
+                }],
+                Err(e) => error(&e),
+            }
+        }
+        ClientMsg::RefreshModels => {
+            // Reading the list can take a while: don't hold the connection.
+            let state = state.clone();
+            tokio::spawn(async move {
+                if let Err(why) = state.refresh_models().await {
+                    tracing::warn!(why, "model list not refreshed");
+                }
+            });
+            Vec::new()
+        }
+        ClientMsg::SetEnginePrefs { prefs } => match state.hub.set_engine_prefs(prefs) {
+            Ok(_) => {
+                state.openrouter_changed();
+                Vec::new()
+            }
+            Err(e) => error(&e),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// A model as listed in Settings → Engines.
+fn model_row(m: &oxbot_llm::ModelInfo) -> ModelRow {
+    ModelRow {
+        id: m.id.clone(),
+        name: m.name.clone(),
+        context_length: m.context_length,
+        usd_per_mtok_in: m.prompt_usd_per_token * 1e6,
+        usd_per_mtok_out: m.completion_usd_per_token * 1e6,
+    }
 }
 
 /// The door's jobs: pairing, removing Gates, and which networks phones may
@@ -1392,6 +1610,11 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetUsageAlerts { .. }
             | ClientMsg::SetNotifyWhenHidden { .. }
             | ClientMsg::EnginesNoticeSeen
+            // The household's OpenRouter account and settings.
+            | ClientMsg::OpenRouterSignIn
+            | ClientMsg::OpenRouterSignOut
+            | ClientMsg::RefreshModels
+            | ClientMsg::SetEnginePrefs { .. }
             // The Mac's own microphone, and opening files on its screen.
             | ClientMsg::Dictate { .. }
             | ClientMsg::OpenFile { .. }
@@ -1680,6 +1903,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // History and report lists are direct answers, listed so one never
         // reaches a client that doesn't see its bot.
         ServerMsg::History { ref bot, .. }
+        | ServerMsg::Meter { ref bot, .. }
         | ServerMsg::Activity { ref bot, .. }
         | ServerMsg::Browser { ref bot, .. }
         | ServerMsg::Reports { ref bot, .. } => client.sees(bot).then_some(msg),
@@ -1713,6 +1937,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // Dictation goes straight to the connection that asked; if it were
         // ever broadcast, only the Farm could have asked.
         ServerMsg::Log(_)
+        | ServerMsg::OpenRouterAuth { .. }
         | ServerMsg::Dictation { .. }
         | ServerMsg::Pairing(_)
         | ServerMsg::PairingClosed
@@ -2680,5 +2905,198 @@ mod tests {
             (review[0].bot.as_str(), &review[0].used_by[..]),
             ("recipes", &["Sam".to_owned()][..])
         );
+    }
+
+    const FAKE_KEY: &str = "sk-or-v1-test-feedfacecafe0123";
+
+    /// [`engines_state`] signed in to a stand-in `OpenRouter` nobody
+    /// answers on, listening on a real port.
+    async fn signed_in_state(
+        dir: &std::path::Path,
+    ) -> (AppState, Viewer, Arc<oxbot_llm::MemorySecrets>) {
+        let (mut state, sam) = engines_state(dir);
+        let secrets = Arc::new(oxbot_llm::MemorySecrets::new());
+        oxbot_llm::SecretStore::save(
+            &*secrets,
+            &oxbot_llm::ApiKey::new(FAKE_KEY.to_owned()).unwrap(),
+        )
+        .unwrap();
+        let stand_in = oxbot_llm::Endpoint::loopback(
+            "http://127.0.0.1:9/api/v1",
+            oxbot_llm::Provider::OpenRouter,
+        )
+        .unwrap();
+        state.openrouter = Some(Arc::new(
+            crate::openrouter_auth::OpenRouter::new(
+                stand_in,
+                secrets.clone(),
+                "oxbot on test-mac".into(),
+                false,
+            )
+            .unwrap(),
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.port = listener.local_addr().unwrap().port();
+        tokio::spawn(serve(listener, state.clone(), std::future::pending()));
+        (state, sam, secrets)
+    }
+
+    /// A raw GET to the server: (status, body).
+    async fn get_page(port: u16, path: &str, host: &str) -> (u16, String) {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let mut tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        tcp.write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .await
+        .unwrap();
+        let mut reply = String::new();
+        tcp.read_to_string(&mut reply).await.unwrap();
+        let status = reply[9..12].parse().unwrap();
+        (status, reply)
+    }
+
+    #[tokio::test]
+    async fn only_the_farm_signs_in_and_the_key_never_reaches_a_page() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, sam, _) = signed_in_state(tmp.path()).await;
+        let (out, _rx) = mpsc::channel(4);
+        let farm = state.farm_viewer();
+        for msg in [
+            ClientMsg::OpenRouterSignIn,
+            ClientMsg::OpenRouterSignOut,
+            ClientMsg::RefreshModels,
+            ClientMsg::SetEnginePrefs {
+                prefs: oxbot_protocol::EnginePrefs::default(),
+            },
+        ] {
+            assert!(farm_only(&msg));
+            let mut client = Client::with_visible(
+                sam.clone(),
+                state.hub.visible_ids(&sam),
+                herder_for(&state, &sam),
+            );
+            let replies = handle(msg, &state, &mut client, &out).await;
+            assert!(
+                matches!(&replies[..], [ServerMsg::Error { message }] if message == "Only the Farm can do that."),
+                "{replies:?}"
+            );
+        }
+        // Sam gets no account details; the Farm does, but never the key.
+        assert!(state.engines_for(&sam).openrouter.is_none());
+        let view = state.engines_for(&farm);
+        assert!(view.openrouter.as_ref().unwrap().signed_in);
+        for json in [
+            serde_json::to_string(&ServerMsg::Engines(view)).unwrap(),
+            serde_json::to_string(&ServerMsg::Settings(state.settings_for(&farm))).unwrap(),
+            format!("{state:?}"),
+        ] {
+            assert!(!json.contains("feedfacecafe"), "{json}");
+        }
+
+        let mut client = Client::with_visible(
+            farm.clone(),
+            state.hub.visible_ids(&farm),
+            herder_for(&state, &farm),
+        );
+        let replies = handle(ClientMsg::OpenRouterSignIn, &state, &mut client, &out).await;
+        let [ServerMsg::OpenRouterAuth { url }] = &replies[..] else {
+            panic!("{replies:?}")
+        };
+        let callback = format!("localhost%3A{}%2Fopenrouter%2Fcallback", state.port);
+        assert!(url.contains(&callback), "{url}");
+        assert!(url.contains("key_label=oxbot+on+test-mac"), "{url}");
+    }
+
+    #[tokio::test]
+    async fn the_sign_in_callback_takes_only_oxbots_own_address_and_a_live_state() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, _, _) = signed_in_state(tmp.path()).await;
+        let own = format!("localhost:{}", state.port);
+        let (status, _) = get_page(
+            state.port,
+            "/openrouter/callback?code=c&state=s",
+            "evil.example",
+        )
+        .await;
+        assert_eq!(status, 403, "another address (DNS rebinding)");
+        let (status, page) =
+            get_page(state.port, "/openrouter/callback?code=c&state=s", &own).await;
+        assert_eq!(status, 400);
+        assert!(
+            page.contains("This sign-in link isn't valid any more."),
+            "{page}"
+        );
+        assert!(
+            page.to_ascii_lowercase()
+                .contains("cache-control: no-store"),
+            "{page}"
+        );
+        assert!(
+            page.to_ascii_lowercase()
+                .contains("referrer-policy: no-referrer"),
+            "{page}"
+        );
+        // A real sign-in's state, but used once already by a wrong guess.
+        let url = state
+            .openrouter
+            .as_ref()
+            .unwrap()
+            .start_sign_in(state.port)
+            .unwrap();
+        let live = url
+            .split("state=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap();
+        let (status, _) =
+            get_page(state.port, "/openrouter/callback?code=c&state=wrong", &own).await;
+        assert_eq!(status, 400);
+        let (status, page) = get_page(
+            state.port,
+            &format!("/openrouter/callback?code=c&state={live}"),
+            &own,
+        )
+        .await;
+        assert_eq!(status, 400, "single use: {page}");
+    }
+
+    #[tokio::test]
+    async fn signing_out_forgets_the_key_and_prefs_are_the_farms() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, _, secrets) = signed_in_state(tmp.path()).await;
+        let farm = state.farm_viewer();
+        let (out, _rx) = mpsc::channel(4);
+        let mut client = Client::with_visible(
+            farm.clone(),
+            state.hub.visible_ids(&farm),
+            herder_for(&state, &farm),
+        );
+        let prefs = oxbot_protocol::EnginePrefs {
+            no_data_collection: true,
+            ..oxbot_protocol::EnginePrefs::default()
+        };
+        let replies = handle(
+            ClientMsg::SetEnginePrefs {
+                prefs: prefs.clone(),
+            },
+            &state,
+            &mut client,
+            &out,
+        )
+        .await;
+        assert!(replies.is_empty(), "{replies:?}");
+        assert_eq!(state.hub.engine_prefs(), prefs);
+        let replies = handle(ClientMsg::OpenRouterSignOut, &state, &mut client, &out).await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Notice { message, .. }] if message.contains("openrouter.ai/keys")),
+            "{replies:?}"
+        );
+        assert!(oxbot_llm::SecretStore::load(&*secrets).unwrap().is_none());
+        assert!(!state.engines_for(&farm).openrouter.unwrap().signed_in);
     }
 }

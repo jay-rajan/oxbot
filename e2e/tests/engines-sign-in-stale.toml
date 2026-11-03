@@ -1,0 +1,29 @@
+name = "A stale OpenRouter sign-in is refused"
+about = "A sign-in that comes back with the wrong state isn't taken: the tab says to start again, and oxbot stays signed out."
+covers = ["crates/oxbot/src/openrouter_auth.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
+openrouter_signed_in = false
+
+[[step]]
+click = "Settings"
+[[step]]
+click = "Engines"
+[[step]]
+click = "Sign in with OpenRouter"
+[[step]]
+wait_for = "open this link"
+[[step]]
+follow = "open this link"
+[[step]]
+wait_for = "Send a wrong state"
+[[step]]
+click = "Send a wrong state"
+[[step]]
+wait_for = "This sign-in link isn't valid any more. Start again in oxbot."
+[[step]]
+open = "/"
+[[step]]
+click = "Settings"
+[[step]]
+click = "Engines"
+[[step]]
+expect = "Not signed in."

@@ -43,7 +43,7 @@ pub use openrouter::{
 };
 #[cfg(feature = "test-model")]
 pub use scripted::{ScriptedModel, Step};
-pub use secret::{ApiKey, KeyCell, KeyError};
+pub use secret::{ApiKey, KeyCell, KeyError, MemorySecrets, SecretError, SecretStore};
 pub use tokio_util::sync::CancellationToken;
 pub use types::{
     CallUsage, ChatDelta, ChatRequest, ChatResponse, FinishReason, Message, Part, Provider,

@@ -254,6 +254,8 @@ impl View {
             | ServerMsg::Report(_)
             | ServerMsg::Reports { .. }
             | ServerMsg::Engines(_)
+            | ServerMsg::OpenRouterAuth { .. }
+            | ServerMsg::Meter { .. }
             | ServerMsg::Usage(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }
