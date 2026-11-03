@@ -436,6 +436,29 @@ async fn host_tools_run_in_the_hub() {
 }
 
 #[tokio::test]
+async fn failed_host_tools_are_marked_as_errors() {
+    let h = Harness::new(
+        ScriptedModel::new()
+            .then(Step::tool(
+                "mcp__oxbot__give_task",
+                json!({"bot": "nobody", "task": "x"}),
+            ))
+            .then(Step::text("It didn't work.")),
+    );
+    let hub = HubScript {
+        host: Arc::new(|_, _| ToolReply {
+            ok: false,
+            text: "There is no bot called nobody.".into(),
+        }),
+        ..HubScript::default()
+    };
+    let seen = h.turn(h.spec(new_session()), "ask nobody", hub).await;
+    assert!(seen.contains(&Seen::ToolResult(
+        "[tool error] There is no bot called nobody.".into()
+    )));
+}
+
+#[tokio::test]
 async fn stopping_while_the_gate_waits() {
     let h = Harness::new(ScriptedModel::new().then(Step::tool(
         "mcp__chrome-devtools__click",

@@ -256,10 +256,14 @@ async fn host(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
         r = wait => r,
         () = env.cancel.cancelled() => return Raw::error("Stopped."),
     };
+    if !reply.ok {
+        // Marked like every other failed tool, so models can tell.
+        return Raw::error(reply.text);
+    }
     Raw {
         text: reply.text,
         wrap: None,
-        error: !reply.ok,
+        error: false,
     }
 }
 
