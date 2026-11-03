@@ -141,7 +141,7 @@ async fn ask_page_asks_a_helper_with_the_bots_privacy() {
     // Every item, not folded.
     assert!(input.contains("Lamp 399 with a brass arm"));
     assert_eq!(helper.tools, Vec::new());
-    assert_eq!(helper.max_tokens, Some(800));
+    assert_eq!(helper.max_tokens, Some(4_000), "room to think first");
     assert!(helper.provider.as_ref().unwrap().denies_data_collection());
     let answer = &tool_texts(&reqs[3])[1];
     assert_eq!(
@@ -508,4 +508,163 @@ async fn helper_requests_reach_the_hubs_meter_too() {
         oxbot_engine::CallKind::PageQuestion,
     );
     assert_eq!(kinds, [chat, chat, page, chat]);
+}
+
+#[tokio::test]
+async fn an_empty_helper_answer_tries_the_next_model_then_is_an_error() {
+    // A reasoning model that spends its answer thinking: no text at all.
+    let thinking_only = || {
+        Step::text("").with_usage(CallUsage {
+            completion_tokens: 4_000,
+            reasoning_tokens: 4_000,
+            ..CallUsage::default()
+        })
+    };
+    let h = with_page(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::tool(
+                "mcp__oxbot__ask_page",
+                json!({"question": "Which lamp?"}),
+            ))
+            .then(thinking_only())
+            .then(Step::text("Lamp 3.").from_model("b:free"))
+            .then(Step::tool(
+                "mcp__oxbot__ask_page",
+                json!({"question": "And the cheapest?"}),
+            ))
+            .then(thinking_only())
+            .then(thinking_only())
+            .then(Step::text("Done.")),
+        big_page(400, false),
+    );
+    h.turn(h.spec(new_session()), "[Jay] lamps", HubScript::default())
+        .await;
+    let reqs = h.model.requests();
+    // The second helper request went to the other model.
+    assert_eq!(reqs[2].model, "a:free");
+    assert_eq!(reqs[3].model, "b:free");
+    let answer = &tool_texts(&reqs[4])[1];
+    assert!(answer.contains("Lamp 3."), "{answer}");
+    // Empty twice: a tool error, never an empty success.
+    let failed = &tool_texts(&reqs[7])[2];
+    assert!(
+        failed.starts_with("[tool error] ask_page couldn't get an answer"),
+        "{failed}"
+    );
+    assert!(failed.contains("find_in_page"), "{failed}");
+}
+
+#[tokio::test]
+async fn a_repeat_is_caught_with_other_line_counts_or_limits() {
+    let h = with_page(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::tool(
+                "mcp__oxbot__read_section",
+                json!({"uid": "1_3", "max_lines": 40}),
+            ))
+            // Fewer lines of the same: already shown.
+            .then(Step::tool(
+                "mcp__oxbot__read_section",
+                json!({"uid": "1_3", "max_lines": 10}),
+            ))
+            // Further on: new lines, so it runs.
+            .then(Step::tool(
+                "mcp__oxbot__read_section",
+                json!({"uid": "1_3", "from_line": 41}),
+            ))
+            .then(Step::tool(
+                "mcp__oxbot__find_in_page",
+                json!({"query": "lamp 7", "limit": 5}),
+            ))
+            .then(Step::tool(
+                "mcp__oxbot__find_in_page",
+                json!({"query": "lamp 7", "limit": 30}),
+            ))
+            // The right tool under the browser's prefix.
+            .then(Step::tool(
+                "mcp__chrome-devtools__find_in_page",
+                json!({"query": "x"}),
+            ))
+            .then(Step::text("Ok.")),
+        big_page(400, false),
+    );
+    h.turn(h.spec(new_session()), "[Jay] lamps", HubScript::default())
+        .await;
+    let texts = tool_texts(&h.model.requests()[7]);
+    let again = "You already did this at step 2; the result is above.";
+    assert_eq!(texts[2], again);
+    assert!(texts[3].contains("Section uid=1_3"), "{}", texts[3]);
+    assert!(texts[3].contains("\n 41  "), "{}", texts[3]);
+    assert_eq!(
+        texts[5],
+        "You already did this at step 5; the result is above."
+    );
+    assert_eq!(
+        texts[6],
+        "[tool error] There is no tool called \"mcp__chrome-devtools__find_in_page\"; it's mcp__oxbot__find_in_page."
+    );
+}
+
+#[tokio::test]
+async fn a_long_turn_is_told_to_wrap_up_and_ends_clearly_at_the_cap() {
+    let mut model = ScriptedModel::new();
+    for _ in 0..10 {
+        model = model.then(Step::tool("Glob", json!({"pattern": "*.md"})));
+    }
+    model = model.then(Step::text("Next one."));
+    let h = Harness::with(model, |s| {
+        s.prefs.write().unwrap().max_steps = 10;
+    });
+    let started = h.engine.start(h.spec(new_session())).await.unwrap();
+    let (mut session, mut events) = (started.session, started.events);
+    one_turn_any(&mut session, &mut events, "[Jay] glob a lot", 1).await;
+    one_turn_any(&mut session, &mut events, "[Jay] something new", 2).await;
+    session.shutdown().await;
+    let reqs = h.model.requests();
+    // At 7 of 10 steps: 3 left.
+    let texts = tool_texts(&reqs[7]);
+    assert!(
+        texts[6].ends_with(
+            "[oxbot] You have 3 steps left: finish with what you have, and say what's missing."
+        ),
+        "{}",
+        texts[6]
+    );
+    assert_eq!(texts.iter().filter(|t| t.contains("steps left")).count(), 1);
+    // The stop is in the conversation, so the new message reads as new.
+    let last = &reqs[10];
+    let n = last.messages.len();
+    assert!(
+        last.messages[n - 2]
+            .text()
+            .starts_with("(I stopped here: this task reached its limit of 10 steps")
+    );
+    assert_eq!(last.messages[n - 1].text(), "[Jay] something new");
+}
+
+/// Runs one turn and waits for its end, ok or not.
+async fn one_turn_any(
+    session: &mut Box<dyn oxbot_engine::Session>,
+    events: &mut mpsc::Receiver<EngineEvent>,
+    text: &str,
+    seq: u64,
+) {
+    session
+        .send(TurnInput {
+            text: text.into(),
+            user_seq: seq,
+            person: Some("p1".into()),
+            origin: json!({"person": "p1"}),
+        })
+        .await
+        .unwrap();
+    loop {
+        match events.recv().await.unwrap() {
+            EngineEvent::TurnDone { .. } => break,
+            EngineEvent::Permission(r) => r.reply.send(Decision::Allow),
+            _ => {}
+        }
+    }
 }

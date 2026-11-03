@@ -55,7 +55,8 @@ impl Turn {
         cancel: &CancellationToken,
     ) -> Option<End> {
         let mut refused = false;
-        for (call, pending) in calls {
+        let count = calls.len();
+        for (n, (call, pending)) in calls.into_iter().enumerate() {
             let mut asked = None;
             let mut outcome = if refused {
                 ToolOutcome::note(SKIPPED, false)
@@ -80,6 +81,13 @@ impl Turn {
             };
             if outcome.error && outcome.meta.kind != EntryKind::Refusal {
                 self.count_failure(&call, &mut outcome);
+            }
+            if n + 1 == count
+                && let Some(note) = self.wrap_up.take()
+                && let Some(Part::Text(t)) = outcome.for_model.last_mut()
+            {
+                t.push_str("\n\n");
+                t.push_str(&note);
             }
             let _ = core
                 .events
@@ -315,15 +323,16 @@ impl Turn {
         {
             map.insert("page".to_owned(), Value::String(latest));
         }
-        let key = call_key(&call.name, &args);
+        let (key, wanted) = repeat_key(&call.name, &args);
         // Only while the first answer is still there to see: not once it's
         // a stub or out of the window (its stub says to ask again).
         let state = WindowState::from_value(&conv.context);
-        if let Some((step, _)) = self
-            .seen
-            .get(&key)
-            .filter(|(_, idx)| *idx >= state.start_idx && !state.cleared.contains_key(idx))
-        {
+        if let Some((step, ..)) = self.seen.get(&key).filter(|(_, idx, from, to)| {
+            *idx >= state.start_idx
+                && !state.cleared.contains_key(idx)
+                && wanted.0 >= *from
+                && wanted.1 <= *to
+        }) {
             let mut o = ToolOutcome::note(
                 format!("You already did this at step {step}; the result is above."),
                 false,
@@ -397,11 +406,48 @@ impl Turn {
             }
         };
         if !outcome.error {
-            // Saved next, as the conversation's next message.
-            self.seen.insert(key, (self.step, conv.next_idx()));
+            // Saved next, as the conversation's next message; with the lines
+            // it showed (a section may stop early).
+            let shown_to = shown_to(&outcome.text_for_hub).unwrap_or(usize::MAX);
+            self.seen
+                .insert(key, (self.step, conv.next_idx(), wanted.0, shown_to));
         }
         outcome
     }
+}
+
+/// What a read-only call asks for, to spot repeats: a key and the lines
+/// it wants. A section is the same ask whatever its line count when it
+/// wants lines already shown; a search the same whatever its limit.
+fn repeat_key(name: &str, args: &Value) -> (String, (usize, usize)) {
+    let mut args = args.clone();
+    if name == page::READ_SECTION {
+        let n = |k: &str, d: usize| {
+            args.get(k)
+                .and_then(Value::as_u64)
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(d)
+        };
+        let from = n("from_line", 1).max(1);
+        let to = from + n("max_lines", 150).clamp(1, 150) - 1;
+        let page = args.get("page").and_then(Value::as_str).unwrap_or("");
+        let uid = args.get("uid").and_then(Value::as_str).unwrap_or("");
+        let uid = uid.trim().trim_start_matches("uid=");
+        return (format!("{name} {page} {uid}"), (from, to));
+    }
+    if let Some(map) = args.as_object_mut() {
+        map.remove("limit");
+    }
+    (call_key(name, &args), (0, 0))
+}
+
+/// The last line a section showed (`[lines 1–40 of 90; …]`), if it stopped
+/// early.
+fn shown_to(text: &str) -> Option<usize> {
+    let at = text.rfind("[lines ")?;
+    let rest = &text[at + 7..];
+    let (_, after) = rest.split_once('–')?;
+    after.split(' ').next()?.parse().ok()
 }
 
 /// A call's name and arguments (sorted keys), to spot repeats.

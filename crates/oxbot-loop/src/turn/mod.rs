@@ -129,10 +129,14 @@ pub(crate) struct Turn {
     /// The budget of the last request (tool results are cut to it).
     budget: TokenBudget,
     /// Read-only loop calls already made this turn: key → (step, the
-    /// result's message).
-    seen: HashMap<String, (u32, u32)>,
+    /// result's message, first and last line shown).
+    seen: HashMap<String, (u32, u32, usize, usize)>,
     /// Calls that failed this turn: key → times.
     failures: HashMap<String, u32>,
+    /// The step budget's wrap-up note was given.
+    nudged: bool,
+    /// The note to add to this step's last result, if it's due now.
+    pub(super) wrap_up: Option<String>,
 }
 
 impl Turn {
@@ -205,6 +209,8 @@ impl Turn {
             budget: TokenBudget::for_model(64_000, None),
             seen: HashMap::new(),
             failures: HashMap::new(),
+            nudged: false,
+            wrap_up: None,
         }
     }
 
@@ -335,6 +341,18 @@ impl Turn {
                 return End::Stopped;
             }
             if self.step >= max_steps {
+                // Said in the conversation too, so the next message reads as
+                // a new one, not as more steps of this task.
+                let stop = Message::assistant(
+                    format!(
+                        "(I stopped here: this task reached its limit of {max_steps} steps before \
+                         I finished it.)"
+                    ),
+                    Vec::new(),
+                );
+                if let Err(stop) = self.save(core, conv, vec![ToSave::plain(stop)], None) {
+                    return stop.into();
+                }
                 return End::Failed(format!(
                     "This task took {max_steps} steps without finishing, so it stopped. Send \
                      what's left as a new, smaller request."
@@ -378,6 +396,7 @@ impl Turn {
                 return End::Done(text);
             }
             let calls = calls.into_iter().map(|c| (c, None)).collect();
+            self.wrap_up = wrap_up_note(self.step, max_steps, &mut self.nudged);
             if let Some(end) = self
                 .tool_calls(core, conv, &caller, calls, &mut bad_calls, cancel)
                 .await
@@ -543,6 +562,22 @@ impl Turn {
             }
         }
     }
+}
+
+/// Share of the step budget after which the model is told to wrap up.
+const WRAP_UP_PERCENT: u32 = 70;
+
+/// The wrap-up note once `step` reaches 70% of `max_steps`.
+fn wrap_up_note(step: u32, max_steps: u32, nudged: &mut bool) -> Option<String> {
+    let at = (max_steps * WRAP_UP_PERCENT).div_ceil(100);
+    if *nudged || step < at || step >= max_steps {
+        return None;
+    }
+    *nudged = true;
+    let left = max_steps - step;
+    Some(format!(
+        "[oxbot] You have {left} steps left: finish with what you have, and say what's missing."
+    ))
 }
 
 /// What the bot knows for this turn, if there's a knowledge source.

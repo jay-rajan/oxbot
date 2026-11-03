@@ -244,6 +244,19 @@ impl ToolRegistry {
     /// What to tell the model.
     pub fn validate(&self, call: &ToolCall) -> Result<&ToolEntry, String> {
         let Some(entry) = self.get(&call.name) else {
+            // The right tool under another prefix: name it.
+            let bare = call.name.rsplit("__").next().unwrap_or(&call.name);
+            if let Some(right) = self
+                .entries
+                .iter()
+                .find(|e| e.spec.name.rsplit("__").next() == Some(bare))
+            {
+                return Err(format!(
+                    "There is no tool called \"{}\"; it's {}.",
+                    shorten(&call.name, 80),
+                    right.spec.name
+                ));
+            }
             return Err(format!(
                 "There is no tool called \"{}\". Use one of the tools you were given.",
                 shorten(&call.name, 80)
