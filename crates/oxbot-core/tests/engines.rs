@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use oxbot_core::engine::EngineKind;
-use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, Store, Viewer};
+use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, LoopParts, Store, Viewer};
+use oxbot_llm::{ScriptedModel, Step};
 use oxbot_protocol::{EventKind, ServerMsg};
 use tokio::sync::broadcast::Receiver;
 
@@ -319,4 +320,85 @@ async fn only_the_owner_switches_a_bot_to_claude() {
         .await
         .unwrap_err();
     assert_eq!(err.to_string(), "Herder's engine is fixed.");
+}
+
+#[tokio::test]
+async fn a_message_waiting_for_a_slot_is_checked_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bots = tmp.path().join("bots");
+    std::fs::create_dir_all(&bots).unwrap();
+    let all: Vec<Bot> = ["busy", "scout"]
+        .iter()
+        .map(|id| {
+            let mut bot = Bot::create(&bots, BotId::new(*id).unwrap(), id, "").unwrap();
+            bot.engine = EngineKind::OpenRouter;
+            bot.save().unwrap();
+            bot
+        })
+        .collect();
+    // The first request never answers, so "busy" holds the only loop slot.
+    let model = Arc::new(ScriptedModel::new().then(Step::Hang));
+    let config = HubConfig {
+        openrouter: Some(LoopParts {
+            free_per_minute: 1000,
+            ..LoopParts::new(Arc::clone(&model) as _, None, None)
+        }),
+        max_loop_turns: 1,
+        pre_engine_tests: false,
+        ..HubConfig::for_app(&bots)
+    };
+    let hub = Hub::new(
+        all,
+        Store::open(&tmp.path().join("oxbot.db")).unwrap(),
+        config,
+    );
+    hub.set_model_catalog(
+        &serde_json::json!({"models": [{"id": "m:free", "name": "M", "context_length": 128_000,
+            "max_completion": null, "prompt_usd_per_token": 0.0, "completion_usd_per_token": 0.0,
+            "tools": true, "images_in": false, "text_io": true, "free": true}]})
+        .to_string(),
+        1,
+    )
+    .unwrap();
+    hub.farm_person("Jay").unwrap();
+    let owner = hub.farm_viewer("Jay");
+    hub.send_as("busy", "take your time", &owner).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while model.requests().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    // Sam's message to Scout (on OpenRouter: anyone may task it) waits for the slot…
+    let waiting = {
+        let hub = Arc::clone(&hub);
+        tokio::spawn(async move { hub.send_as("scout", "hello", &Viewer::gate("Sam")).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!waiting.is_finished(), "it waits for the loop's only slot");
+    // …while the owner switches Scout to Claude, then the slot frees up.
+    hub.set_engine("scout", EngineKind::Claude, None, &owner, true)
+        .await
+        .unwrap();
+    hub.cancel("busy").await.unwrap();
+
+    let err = tokio::time::timeout(Duration::from_secs(10), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert!(matches!(err, HubError::OwnerOnly { .. }), "{err}");
+    assert_eq!(
+        hub.history("scout", 0).unwrap(),
+        [],
+        "nothing reached Scout"
+    );
+    assert_eq!(
+        model.requests().len(),
+        1,
+        "no model request for Sam's message"
+    );
+    hub.shutdown().await;
 }
