@@ -13,6 +13,8 @@ mod cookies;
 mod element;
 mod guard;
 mod http;
+pub mod netguard;
+pub mod trial;
 mod web;
 
 use std::path::{Path, PathBuf};
@@ -25,6 +27,7 @@ use tokio::sync::Mutex;
 pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
 pub use cookies::CookieMarks;
 pub use element::{ELEMENT_FACTS_FN, ElementFacts};
+pub use netguard::{BlockedRequest, NetMode};
 pub use web::{is_home_network, normalize_web_url, web_host};
 
 /// npm package for the browser tool.

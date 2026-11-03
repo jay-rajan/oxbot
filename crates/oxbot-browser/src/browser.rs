@@ -12,6 +12,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, watch};
 
 use crate::guard::Guard;
+use crate::netguard::{BlockedRequest, NetGuard, NetMode};
 use crate::{BrowserError, CookieMarks, ElementFacts, Tools, http};
 
 /// What the shared browser should be.
@@ -70,6 +71,10 @@ pub struct Browser {
     status: watch::Sender<BrowserStatus>,
     /// The user agent hidden Chrome sends, worked out on first start.
     user_agent: std::sync::OnceLock<Option<String>>,
+    /// A practice run's Chrome: how much its pages may send.
+    net: Option<NetMode>,
+    /// Its network guard, while Chrome runs.
+    net_guard: Mutex<Option<NetGuard>>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -88,6 +93,28 @@ impl Browser {
     /// # Errors
     /// Fails if no free local port can be found for Chrome's control port.
     pub fn new(tools: Arc<Tools>, spec: BrowserSpec) -> std::io::Result<Arc<Self>> {
+        Self::make(tools, spec, None)
+    }
+
+    /// A practice run's browser for `spec`: every tab is held until its
+    /// network guard is on (see [`crate::netguard`]), and pages may send
+    /// only what `mode` lets through. Nothing starts until it's needed.
+    ///
+    /// # Errors
+    /// Fails if no free local port can be found for Chrome's control port.
+    pub fn new_trial(
+        tools: Arc<Tools>,
+        spec: BrowserSpec,
+        mode: NetMode,
+    ) -> std::io::Result<Arc<Self>> {
+        Self::make(tools, spec, Some(mode))
+    }
+
+    fn make(
+        tools: Arc<Tools>,
+        spec: BrowserSpec,
+        net: Option<NetMode>,
+    ) -> std::io::Result<Arc<Self>> {
         let port = std::net::TcpListener::bind("127.0.0.1:0")?
             .local_addr()?
             .port();
@@ -101,7 +128,36 @@ impl Browser {
             guard: Mutex::new(None),
             status: watch::channel(BrowserStatus::Off).0,
             user_agent: std::sync::OnceLock::new(),
+            net,
+            net_guard: Mutex::new(None),
         }))
+    }
+
+    /// Whether this is a practice run's browser.
+    #[must_use]
+    pub fn is_trial(&self) -> bool {
+        self.net.is_some()
+    }
+
+    /// For a practice run's browser: whether its network guard is on in
+    /// every tab, waiting up to `wait` for it. Always true for a live one.
+    pub async fn net_ready(&self, wait: Duration) -> bool {
+        if self.net.is_none() {
+            return true;
+        }
+        match self.net_guard.lock().await.as_ref() {
+            Some(guard) => guard.wait_ready(wait).await,
+            None => false,
+        }
+    }
+
+    /// For a practice run's browser: the requests its network guard
+    /// stopped (the first ones), and how many in all.
+    pub async fn blocked_requests(&self) -> (Vec<BlockedRequest>, usize) {
+        match self.net_guard.lock().await.as_ref() {
+            Some(guard) => guard.blocked(),
+            None => (Vec::new(), 0),
+        }
     }
 
     /// Chrome's control port, the same for the life of this `Browser`, so a
@@ -165,6 +221,11 @@ impl Browser {
             return Err(err);
         }
         self.start_guard().await;
+        if let Err(err) = self.start_net_guard().await {
+            // Fail closed: a practice run's Chrome without its guard isn't used.
+            let _ = child.kill().await;
+            return Err(err);
+        }
         *state = State::Hidden(child);
         self.status.send_replace(BrowserStatus::Ready);
         Ok(())
@@ -421,6 +482,7 @@ impl Browser {
     /// before they're saved, losing a fresh sign-in. So oxbot asks Chrome
     /// itself to close (`Browser.close`), and only signals it if that fails.
     async fn quit(&self, mut child: Child) {
+        self.net_guard.lock().await.take();
         if let Some(guard) = self.guard.lock().await.take() {
             guard.close_browser().await;
             if tokio::time::timeout(Duration::from_secs(10), child.wait())
@@ -455,6 +517,19 @@ impl Browser {
         Ok(())
     }
 
+    /// A practice run's network guard, before any page loads. Nothing for
+    /// a live browser.
+    async fn start_net_guard(&self) -> Result<(), BrowserError> {
+        let Some(mode) = self.net else {
+            return Ok(());
+        };
+        let guard = NetGuard::start(self.port, mode)
+            .await
+            .map_err(BrowserError::Chrome)?;
+        *self.net_guard.lock().await = Some(guard);
+        Ok(())
+    }
+
     async fn start_guard(&self) {
         let downloads = self
             .downloads
@@ -486,30 +561,7 @@ impl Browser {
             "--user-data-dir={}( |$)",
             regex_escape(&self.profile_dir.display().to_string())
         );
-        let Ok(found) = Command::new("pgrep")
-            .args(["-f", "--", &pattern])
-            .output()
-            .await
-        else {
-            return;
-        };
-        let mut stopped = false;
-        for pid in String::from_utf8_lossy(&found.stdout).split_whitespace() {
-            // Helpers (`--type=renderer`…) of a Chrome that's just quitting
-            // carry the profile too; only a main Chrome is a leftover.
-            let Ok(cmd) = Command::new("ps")
-                .args(["-o", "command=", "-p", pid])
-                .output()
-                .await
-            else {
-                continue;
-            };
-            if is_main_chrome(&String::from_utf8_lossy(&cmd.stdout)) {
-                let _ = Command::new("kill").args(["-TERM", pid]).status().await;
-                stopped = true;
-            }
-        }
-        if stopped {
+        if stop_main_chromes(&pattern).await {
             tracing::warn!(
                 browser = self.label,
                 "stopped a leftover Chrome on the shared profile"
@@ -627,6 +679,48 @@ async fn stop_chrome(child: &mut Child) {
         tracing::warn!(pid, "Chrome didn't quit in time; forcing it");
     }
     let _ = child.kill().await;
+}
+
+/// Stops every main Chrome whose command line matches `pattern` (an
+/// extended regex for `pgrep -f`). Returns whether it stopped any.
+async fn stop_main_chromes(pattern: &str) -> bool {
+    let Ok(found) = Command::new("pgrep")
+        .args(["-f", "--", pattern])
+        .output()
+        .await
+    else {
+        return false;
+    };
+    let mut stopped = false;
+    for pid in String::from_utf8_lossy(&found.stdout).split_whitespace() {
+        // Helpers (`--type=renderer`…) of a Chrome that's just quitting
+        // carry the profile too; only a main Chrome is a leftover.
+        let Ok(cmd) = Command::new("ps")
+            .args(["-o", "command=", "-p", pid])
+            .output()
+            .await
+        else {
+            continue;
+        };
+        if is_main_chrome(&String::from_utf8_lossy(&cmd.stdout)) {
+            let _ = Command::new("kill").args(["-TERM", pid]).status().await;
+            stopped = true;
+        }
+    }
+    stopped
+}
+
+/// Stops any Chrome still running on a profile inside `root` (practice
+/// runs an oxbot that stopped mid-run left behind).
+pub(crate) async fn stop_chromes_under(root: &Path) {
+    let pattern = format!(
+        "--user-data-dir={}/",
+        regex_escape(&root.display().to_string())
+    );
+    if stop_main_chromes(&pattern).await {
+        tracing::warn!("stopped a practice run's leftover Chrome");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 }
 
 /// Whether a process command line is a main Chrome, not one of its helpers.
