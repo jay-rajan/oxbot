@@ -151,6 +151,11 @@ impl Caller<'_> {
                     }
                     return Ok(route);
                 }
+                // A private bot every free model's providers refused (some
+                // also busy): that's the reason, not "busy".
+                Pick::AllCooling(_) if self.private() && !self.routing.no_provider.is_empty() => {
+                    return Err(self.nothing_left(free_ok));
+                }
                 Pick::AllCooling(until) => {
                     let wait = until.saturating_duration_since(Instant::now());
                     if self.cooled_for + wait > MAX_COOL_WAIT {
@@ -193,12 +198,13 @@ impl Caller<'_> {
                 return Stop::Fail(String::new());
             }
             return Stop::Fail(format!(
-                "No free model takes private work without keeping your data right now. You can \
-                 try later{} or (soon) use a model on this Mac.{}",
+                "This bot is private, so it may only use model providers that don't keep its \
+                 data, and none of the free models has one right now. You can make the bot \
+                 shared{}, or try again later.{}",
                 if self.paid_note().is_empty() {
                     ""
                 } else {
-                    ", switch on paid models"
+                    ", switch on paid models in Settings → Engines"
                 },
                 self.said()
             ));
@@ -530,12 +536,18 @@ fn helper_model(shared: &Shared, kind: CallKind) -> Arc<dyn ChatModel> {
     }
 }
 
-/// One request without tools, with retries; the answer's text.
+/// Tries on another model after an empty answer (e.g. a reasoning model
+/// that spent its whole answer on thinking).
+const EMPTY_RETRIES: usize = 1;
+
+/// One request without tools, with retries; the answer's text, never
+/// empty (an empty answer moves to the next model once, then fails).
 async fn plain_call(
     caller: &mut Caller<'_>,
     messages: Vec<Message>,
     max_tokens: u32,
 ) -> Result<String, LlmError> {
+    let mut empty = 0;
     loop {
         let mut route = match caller.next_route().await {
             Ok(r) => r,
@@ -546,7 +558,22 @@ async fn plain_call(
         match caller.send(&route, messages.clone(), Vec::new()).await {
             Ok(resp) => {
                 caller.answered(&route, &resp);
-                return Ok(resp.message.text());
+                let text = resp.message.text();
+                if !text.trim().is_empty() {
+                    return Ok(text);
+                }
+                tracing::info!(model = %route.primary.id, "a helper request came back empty");
+                if empty >= EMPTY_RETRIES {
+                    return Err(LlmError::new(
+                        ErrorKind::Protocol,
+                        "the model gave an empty answer",
+                    ));
+                }
+                empty += 1;
+                caller.routing.excluded.insert(route.primary.id.clone());
+                if let Some(answered) = caller.routing.sticky.take() {
+                    caller.routing.excluded.insert(answered);
+                }
             }
             Err(err) => match caller.after_error(&route, &err).await {
                 Next::Again => {}

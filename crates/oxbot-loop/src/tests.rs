@@ -534,6 +534,34 @@ async fn a_busy_model_cools_down_and_the_next_answers() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_private_bot_refused_everywhere_is_told_why_not_busy() {
+    let policy = || {
+        Step::error(
+            ErrorKind::DataPolicy,
+            "No endpoints found matching your data policy",
+        )
+    };
+    let h = Harness::new(
+        ScriptedModel::new()
+            .then(Step::Fail(LlmError {
+                retry_after: Some(Duration::from_secs(60)),
+                ..LlmError::new(ErrorKind::RateLimited, "slow down")
+            }))
+            .then(policy())
+            .then(policy()),
+    );
+    let mut spec = h.spec(new_session());
+    spec.privacy = Privacy::Private;
+    let seen = h.turn(spec, "read my mail", HubScript::default()).await;
+    let Seen::Done(false, text) = seen.last().unwrap() else {
+        panic!("{seen:?}")
+    };
+    assert!(text.starts_with("This bot is private"), "{text}");
+    assert!(text.contains("make the bot shared"), "{text}");
+    assert!(!text.contains("busy"), "{text}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn private_bots_never_drop_deny() {
     let no_provider = || {
         Step::error(
@@ -561,7 +589,7 @@ async fn private_bots_never_drop_deny() {
         panic!("{seen:?}")
     };
     assert!(
-        text.starts_with("No free model takes private work"),
+        text.starts_with("This bot is private, so it may only use"),
         "{text}"
     );
     assert!(text.contains("OpenRouter said"), "{text}");
