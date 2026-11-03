@@ -646,6 +646,19 @@ impl Hub {
                 done += 1;
                 continue;
             }
+            // The rest of today's free requests are kept for live bots.
+            if run.engine == "openrouter"
+                && let (Some(left), reserve) = self.openrouter_room()
+                && left <= reserve
+            {
+                "rate_limited".clone_into(&mut run.status);
+                "Not run: the rest of today's free requests are kept for live bots."
+                    .clone_into(&mut run.answer);
+                let _ = self.store.save_run(&run);
+                self.announce_run(&run);
+                done += 1;
+                continue;
+            }
             let case = run
                 .case_id
                 .as_deref()

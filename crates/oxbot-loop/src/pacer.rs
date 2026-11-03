@@ -27,7 +27,8 @@ pub enum Lane {
     /// A real task: served first.
     #[default]
     Live,
-    /// A practice run: served when no real task waits.
+    /// A practice run: served when no real task waits, and at most half
+    /// the free rate, so live bots always have room.
     Trial,
 }
 
@@ -56,6 +57,8 @@ impl Account for oxbot_llm::OpenAiClient {
 struct State {
     /// When the free requests of the last minute went out.
     sent: VecDeque<Instant>,
+    /// Those of practice runs.
+    trial_sent: VecDeque<Instant>,
     /// Waiting requests by ticket: (bot, lane).
     waiting: BTreeMap<u64, (String, Lane)>,
     next_ticket: u64,
@@ -145,16 +148,22 @@ impl Pacer {
                     return Err(PacerStop::DailyUsedUp);
                 }
                 let now = Instant::now();
-                while s
-                    .sent
-                    .front()
-                    .is_some_and(|t| now.duration_since(*t) >= Duration::from_mins(1))
-                {
-                    s.sent.pop_front();
+                let state = &mut *s;
+                for queue in [&mut state.sent, &mut state.trial_sent] {
+                    while queue
+                        .front()
+                        .is_some_and(|t| now.duration_since(*t) >= Duration::from_mins(1))
+                    {
+                        queue.pop_front();
+                    }
                 }
-                let full = s.sent.len() >= self.per_minute;
+                let full = s.sent.len() >= self.per_minute
+                    || (lane == Lane::Trial && s.trial_sent.len() >= self.trial_per_minute());
                 if !full && next_ticket(&s) == Some(ticket) {
                     s.sent.push_back(now);
+                    if lane == Lane::Trial {
+                        s.trial_sent.push_back(now);
+                    }
                     s.serial += 1;
                     let serial = s.serial;
                     s.served.insert(bot.to_owned(), serial);
@@ -162,7 +171,12 @@ impl Pacer {
                     s.since_refresh += 1;
                     break s.since_refresh.is_multiple_of(REFRESH_EVERY) || s.remaining.is_none();
                 }
-                full.then(|| s.sent.front().map(|t| *t + Duration::from_mins(1)))
+                let oldest = if lane == Lane::Trial && s.sent.len() < self.per_minute {
+                    s.trial_sent.front()
+                } else {
+                    s.sent.front()
+                };
+                full.then(|| oldest.map(|t| *t + Duration::from_mins(1)))
                     .flatten()
             };
             let sleep = async {
@@ -183,6 +197,11 @@ impl Pacer {
             self.refresh_soon();
         }
         Ok(())
+    }
+
+    /// Free requests a minute practice runs may send: half the rate.
+    fn trial_per_minute(&self) -> usize {
+        (self.per_minute / 2).max(1)
     }
 
     /// Whether free requests are out for today (and forgets yesterday's
@@ -409,5 +428,27 @@ mod tests {
             t.await.unwrap();
         }
         assert_eq!(*order.lock().unwrap(), vec!["l", "t"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn practice_runs_get_half_the_rate() {
+        let pacer = Pacer::with_rate(4, None);
+        let cancel = CancellationToken::new();
+        pacer.acquire("t", Lane::Trial, &cancel).await.unwrap();
+        pacer.acquire("t", Lane::Trial, &cancel).await.unwrap();
+        let third = tokio::time::timeout(
+            Duration::from_secs(30),
+            pacer.acquire("t", Lane::Trial, &cancel),
+        )
+        .await;
+        assert!(
+            third.is_err(),
+            "a third practice request waits for the minute"
+        );
+        // Live bots still have the other half.
+        pacer.acquire("l", Lane::Live, &cancel).await.unwrap();
+        pacer.acquire("l", Lane::Live, &cancel).await.unwrap();
+        tokio::time::advance(Duration::from_secs(31)).await;
+        pacer.acquire("t", Lane::Trial, &cancel).await.unwrap();
     }
 }
