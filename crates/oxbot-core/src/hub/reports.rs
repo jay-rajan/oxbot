@@ -33,7 +33,7 @@ impl Hub {
                 );
             };
             (
-                runtime.asker.clone(),
+                runtime.origin.asker().cloned(),
                 runtime.question.clone().unwrap_or_default(),
                 report::check(args, &runtime.visited),
             )

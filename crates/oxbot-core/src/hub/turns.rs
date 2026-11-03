@@ -9,10 +9,11 @@ use oxbot_browser::BrowserStatus;
 use oxbot_protocol::{Attachment, EventKind};
 use tokio::sync::OwnedSemaphorePermit;
 
+use super::engines::{ChainOrigin, entry_of};
 use super::{Hub, HubError, lock};
 use crate::bot::{Bot, Viewer};
 use crate::engine::TurnInput;
-use crate::id::{BotId, PersonId};
+use crate::id::BotId;
 
 impl Hub {
     /// Sends a message to a bot from the person called `from` (made if new,
@@ -34,8 +35,11 @@ impl Hub {
             Some(name) => Some(self.person_named(name)?.id),
             None => None,
         };
-        self.send_for(bot, text, &[], from, person.as_ref(), false)
-            .await
+        let origin = ChainOrigin {
+            person,
+            ..ChainOrigin::default()
+        };
+        self.send_for(bot, text, &[], from, &origin, false).await
     }
 
     /// Like [`Hub::send`], from `viewer` (by their person id).
@@ -66,15 +70,16 @@ impl Hub {
     ) -> Result<(), HubError> {
         let viewer = self.resolve(viewer).into_owned();
         let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
+        let origin = ChainOrigin::from_viewer(&viewer, entry_of(&viewer));
         let files = if files.is_empty() {
             Vec::new()
         } else {
-            let id = self.bot_for(bot, &viewer)?.id;
-            self.claim_uploads(&id, viewer.id.as_ref(), files)?
+            let target = self.bot_for(bot, &viewer)?;
+            // Refused before its files are taken: they stay for another try.
+            self.may_task(&target, &origin)?;
+            self.claim_uploads(&target.id, viewer.id.as_ref(), files)?
         };
-        let sent = self
-            .send_for(bot, text, &files, from, viewer.id.as_ref(), false)
-            .await;
+        let sent = self.send_for(bot, text, &files, from, &origin, false).await;
         // Not sent (busy, say): the files wait to be sent again.
         if sent.is_err() {
             self.uploads_not_sent(&files);
@@ -82,19 +87,22 @@ impl Hub {
         sent
     }
 
-    /// Delivers a message shown as from `from`, for a turn that acts for
-    /// `person` (who may not be the sender: Herder passes tasks on for
-    /// people, `relayed`).
+    /// Delivers a message shown as from `from`, for a turn of the task
+    /// chain `origin` (whose person may not be the sender: Herder passes
+    /// tasks on for people, `relayed`). Refused, with nothing recorded,
+    /// if the chain may not task the bot or its engine can't run.
     pub(super) async fn send_for(
         self: &Arc<Self>,
         bot: &str,
         text: &str,
         files: &[Attachment],
         from: Option<&str>,
-        person: Option<&PersonId>,
+        origin: &ChainOrigin,
         relayed: bool,
     ) -> Result<(), HubError> {
         let bot = self.bot(bot)?;
+        self.may_task(&bot, origin)?;
+        self.engine(self.engine_of(&bot))?;
         let from = from.map(str::trim).filter(|f| !f.is_empty());
         let permit = Arc::clone(&self.turns)
             .acquire_owned()
@@ -105,17 +113,21 @@ impl Hub {
         self.claim(&bot.id).await?;
         // It may have been made private, renamed or deleted while this
         // message waited for a turn: use it as it is now.
+        // Its engine may have changed meanwhile too: check again.
         let result = match self.bot(bot.id.as_str()) {
-            Ok(bot) => {
-                let sent = Sent {
-                    text,
-                    files,
-                    from,
-                    person,
-                    relayed,
-                };
-                self.deliver(&bot, &sent, permit).await
-            }
+            Ok(bot) => match self.may_task(&bot, origin) {
+                Ok(()) => {
+                    let sent = Sent {
+                        text,
+                        files,
+                        from,
+                        origin,
+                        relayed,
+                    };
+                    self.deliver(&bot, &sent, permit).await
+                }
+                Err(err) => Err(err),
+            },
             Err(err) => Err(err),
         };
         lock(&self.starting).remove(&bot.id);
@@ -144,7 +156,7 @@ impl Hub {
             text,
             files,
             from,
-            person,
+            origin,
             relayed,
         } = *sent;
         let user_message = self.record(
@@ -157,6 +169,17 @@ impl Hub {
         )?;
         // In the chat now, so kept: no longer waiting to be sent.
         self.uploads_sent(files);
+        let mut origin = origin.clone();
+        if origin.root.is_none() {
+            origin.root = Some((bot.id.clone(), user_message.seq));
+        }
+        let engine = self.engine_of(bot);
+        if let Err(err) =
+            self.store
+                .add_turn_origin(&bot.id, user_message.seq, &origin.record(engine))
+        {
+            tracing::warn!(bot = %bot.id, %err, "couldn't save who started a turn");
+        }
 
         let running = self.runtimes.lock().await.contains_key(&bot.id);
         if !running {
@@ -170,12 +193,18 @@ impl Hub {
             };
             self.runtimes.lock().await.insert(bot.id.clone(), runtime);
         }
+        // A task passed on by a bot that had read untrusted text may carry
+        // what that text asked for.
+        if let Some(why) = &origin.tainted_by {
+            self.mark_untrusted(&bot.id, format!("a task passed on after reading {why}"))
+                .await;
+        }
 
         // The chat keeps the task as Herder wrote it; only Claude is told
         // it was passed on and may quote web text.
         let mut message = match from {
             Some(from) if relayed => {
-                let name = person.and_then(|id| self.person_name(id));
+                let name = origin.asker().and_then(|id| self.person_name(id));
                 relayed_line(from, name.as_deref(), text)
             }
             _ => sender_line(from, text),
@@ -190,8 +219,8 @@ impl Hub {
         let turn = TurnInput {
             text: message,
             user_seq: user_message.seq,
-            person: person.map(ToString::to_string),
-            origin: serde_json::Value::Null,
+            person: origin.asker().map(ToString::to_string),
+            origin: serde_json::to_value(&origin).unwrap_or_default(),
         };
         let mut runtimes = self.runtimes.lock().await;
         let Some(runtime) = runtimes.get_mut(&bot.id) else {
@@ -206,7 +235,7 @@ impl Hub {
         runtime.busy = true;
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
-        runtime.asker = person.cloned();
+        runtime.origin = origin;
         let question = if text.is_empty() {
             files
                 .iter()
@@ -336,8 +365,8 @@ struct Sent<'a> {
     files: &'a [Attachment],
     /// Who it's shown as from.
     from: Option<&'a str>,
-    /// Who the turn acts for.
-    person: Option<&'a PersonId>,
+    /// Whose task chain it is.
+    origin: &'a ChainOrigin,
     /// Herder passing on a task for `person`.
     relayed: bool,
 }

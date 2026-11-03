@@ -464,7 +464,7 @@ fn new_runtime(
         tool_names: HashMap::new(),
         page: None,
         elements: elements::ElementBook::default(),
-        asker: None,
+        origin: super::ChainOrigin::default(),
         taint: None,
         question: None,
         visited,

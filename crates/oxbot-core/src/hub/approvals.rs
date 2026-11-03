@@ -250,7 +250,7 @@ impl Hub {
             .lock()
             .await
             .get(&bot.id)
-            .and_then(|r| r.asker.clone());
+            .and_then(|r| r.origin.asker().cloned());
         let name = asker.as_ref().and_then(|id| self.person_name(id));
         ask.action = match (ask.private, name) {
             (true, Some(name)) => format!("create a private bot for {name}"),
@@ -289,7 +289,7 @@ impl Hub {
             .lock()
             .await
             .get(bot_id)
-            .and_then(|r| r.asker.clone());
+            .and_then(|r| r.origin.asker().cloned());
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let approval = Approval {
             id,

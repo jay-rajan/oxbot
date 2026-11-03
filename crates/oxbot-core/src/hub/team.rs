@@ -11,7 +11,7 @@ use tokio::sync::broadcast;
 
 use super::access::maker_name;
 use super::taint::OTHER_PEOPLES_BOTS;
-use super::{Hub, HubError};
+use super::{ChainOrigin, Hub, HubError};
 use crate::bot::{Bot, Viewer};
 use crate::engine::text::data_block;
 use crate::engine::{HostToolCall, ToolReply};
@@ -69,17 +69,18 @@ impl Hub {
         let text = |key: &str| tools::text_arg(args, key).trim().to_owned();
         // Herder acts for whoever sent the message it's answering, and sees
         // only what they may see (never the Farm's view).
-        let asker = self
+        let origin = self
             .runtimes
             .lock()
             .await
             .get(bot)
-            .and_then(|r| r.asker.clone());
-        let asker = self.person_viewer(asker.as_ref());
+            .map(|r| r.origin.clone())
+            .unwrap_or_default();
+        let asker = self.person_viewer(origin.asker());
         match tool {
             tools::SIGN_IN_TOOL => self.request_sign_in(bot, &text("url"), &text("why")).await,
             tools::LIST_BOTS_TOOL => {
-                let (list, others) = self.team(bot, &asker).await;
+                let (list, others) = self.team(bot, &asker, &origin).await;
                 if others {
                     self.mark_untrusted(bot, OTHER_PEOPLES_BOTS.to_owned())
                         .await;
@@ -115,8 +116,12 @@ impl Hub {
             }
             tools::GIVE_TASK_TOOL => {
                 let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(true);
-                self.give_task(bot, &asker, &text("bot"), &text("message"), wait)
-                    .await
+                let task = Task {
+                    target: &text("bot"),
+                    message: &text("message"),
+                    wait,
+                };
+                self.give_task(bot, &asker, &origin, task).await
             }
             tools::READ_REPLY_TOOL => self.read_reply(bot, &asker, &text("bot")).await,
             tools::SAVE_REPORT_TOOL => self.save_report(bot, args).await,
@@ -128,7 +133,12 @@ impl Hub {
     /// for (as data), and status. Also whether it lists a name or
     /// instructions someone other than `asker` wrote, which Herder can't
     /// trust.
-    async fn team(&self, me: &BotId, asker: &Viewer) -> (String, bool) {
+    pub(super) async fn team(
+        &self,
+        me: &BotId,
+        asker: &Viewer,
+        origin: &ChainOrigin,
+    ) -> (String, bool) {
         let busy: HashSet<BotId> = self
             .runtimes
             .lock()
@@ -173,7 +183,12 @@ impl Hub {
                 .chars()
                 .take(160)
                 .collect();
-            let status = if busy.contains(&b.id) {
+            let status = if !b.is_central() && self.may_task(&b, origin).is_err() {
+                &format!(
+                    "owner only (runs on {}'s Claude plan), so you can't give it tasks",
+                    self.owner_name()
+                )
+            } else if busy.contains(&b.id) {
                 "working"
             } else {
                 "free"
@@ -205,16 +220,20 @@ impl Hub {
         (out, others)
     }
 
-    /// Sends `target` a task from Herder (`from`) and, if `wait`,
-    /// waits for its reply.
-    async fn give_task(
+    /// Sends a task from Herder (`from`), in the task chain `origin` that
+    /// acts for `asker`, and, if it says to wait, waits for the reply.
+    pub(super) async fn give_task(
         self: &Arc<Self>,
         from: &BotId,
         asker: &Viewer,
-        target: &str,
-        message: &str,
-        wait: bool,
+        origin: &ChainOrigin,
+        task: Task<'_>,
     ) -> (bool, String) {
+        let Task {
+            target,
+            message,
+            wait,
+        } = task;
         if let Some(locked) = self.locked_message(target, asker) {
             return (false, locked);
         }
@@ -230,6 +249,14 @@ impl Hub {
         if to.is_central() {
             return (false, herder_message(&to));
         }
+        // The chain stays whoever started it: passing it on never makes it
+        // the owner's.
+        let relayed = origin.relayed_by(from, self.untrusted(from).await);
+        match self.may_task(&to, &relayed) {
+            Ok(()) => {}
+            Err(HubError::OwnerOnly { .. }) => return (false, self.owner_only_message(&to)),
+            Err(err) => return (false, format!("Couldn't send the task: {err}")),
+        }
         if to.private
             && let Some(refused) = self.check_private_task(from, asker, &to, message).await
         {
@@ -243,17 +270,11 @@ impl Hub {
         let start = self.seqs_of(&to.id).last;
         let sender = self.bot_name(from);
         match self
-            .send_for(
-                to.id.as_str(),
-                message,
-                &[],
-                Some(&sender),
-                asker.id.as_ref(),
-                true,
-            )
+            .send_for(to.id.as_str(), message, &[], Some(&sender), &relayed, true)
             .await
         {
             Ok(()) => {}
+            Err(HubError::OwnerOnly { .. }) => return (false, self.owner_only_message(&to)),
             Err(HubError::Busy(_)) => {
                 return (
                     false,
@@ -456,6 +477,15 @@ impl Hub {
             _ => None,
         }
     }
+}
+
+/// A task Herder gives: to bot `target`, `message`, and whether to wait
+/// for the reply.
+#[derive(Clone, Copy)]
+pub(super) struct Task<'a> {
+    pub(super) target: &'a str,
+    pub(super) message: &'a str,
+    pub(super) wait: bool,
 }
 
 /// What Herder hears about the reports `bot` saved during a task: their

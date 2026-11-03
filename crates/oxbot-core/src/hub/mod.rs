@@ -41,6 +41,7 @@ mod uploads;
 
 pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
+pub use engines::{ChainOrigin, Entry};
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -187,6 +188,14 @@ pub enum HubError {
     /// The bot's engine can't run right now (not set up on this Mac yet).
     #[error("{0}")]
     EngineNotReady(String),
+    /// The bot runs on the owner's own Claude plan: only they give it tasks.
+    #[error("Only {owner} can give {bot} tasks: it runs on {owner}'s own Claude plan.")]
+    OwnerOnly {
+        /// The bot's name.
+        bot: String,
+        /// The owner's name.
+        owner: String,
+    },
 }
 
 /// A bot's running engine session (a `claude` child), and what oxbot
@@ -211,10 +220,10 @@ struct Runtime {
     page: Option<(String, String)>,
     /// Element uid → words, from every page snapshot this session read.
     elements: elements::ElementBook,
-    /// The person this turn acts for: who sent the message, or the person
-    /// Herder passed a task on for. Herder's tools act for them, and only
-    /// they (and the Farm) answer the turn's cards.
-    asker: Option<PersonId>,
+    /// Who this turn's task chain acts for: who sent the message, or the
+    /// person Herder passed a task on for (its `asker`). Herder's tools act
+    /// for them, and only they (and the Farm) answer the turn's cards.
+    origin: engines::ChainOrigin,
     /// What this Claude session has read that oxbot doesn't trust, which
     /// may have asked for what comes next (see [`taint`] for the sources).
     /// Passing a task to a private bot then needs the person's OK.

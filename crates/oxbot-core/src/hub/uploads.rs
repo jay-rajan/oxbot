@@ -63,6 +63,10 @@ impl Hub {
         id: &str,
         name: &str,
     ) -> Result<Attachment, AttachError> {
+        // Files for a bot the sender may not give tasks are refused first.
+        if let Err(err) = self.may_send(bot.as_str(), viewer) {
+            return Err(AttachError::Unsupported(err.to_string()));
+        }
         // A few at a time: converting can be heavy.
         let Ok(_slot) = self.conversions.acquire().await else {
             return Err(AttachError::Unreadable(
