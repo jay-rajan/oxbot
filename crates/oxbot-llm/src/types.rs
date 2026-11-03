@@ -224,8 +224,9 @@ pub struct ToolCall {
     /// The arguments, parsed. `Value::Null` when `raw` isn't a JSON object
     /// (see [`ToolCall::arguments_error`]).
     pub arguments: Value,
-    /// The model's exact arguments text, kept so a parse failure can be
-    /// shown back to it.
+    /// The model's exact arguments text. Kept so a parse failure can be
+    /// shown back to it, and resent byte for byte in later requests (a
+    /// stable prefix lets providers reuse their cache).
     pub raw: String,
 }
 
@@ -308,8 +309,9 @@ pub enum ToolChoice {
     Tool(String),
 }
 
-/// One request to a chat model.
-#[derive(Clone, Debug, PartialEq)]
+/// One request to a chat model. `Default` leaves every option unset; use
+/// [`ChatRequest::new`] for oxbot's defaults.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChatRequest {
     /// The model to ask first.
     pub model: String,
@@ -326,6 +328,10 @@ pub struct ChatRequest {
     pub parallel_tool_calls: Option<bool>,
     /// Longest answer, in tokens.
     pub max_tokens: Option<u32>,
+    /// Sampling temperature (`None`: the model's default).
+    pub temperature: Option<f32>,
+    /// Sampling seed, for repeatable runs where the model supports it.
+    pub seed: Option<u64>,
     /// OpenRouter's provider routing (privacy, order). `None` for local.
     pub provider: Option<ProviderPrefs>,
 }
@@ -343,6 +349,8 @@ impl ChatRequest {
             tool_choice: ToolChoice::Auto,
             parallel_tool_calls: Some(false),
             max_tokens: None,
+            temperature: None,
+            seed: None,
             provider: None,
         }
     }
@@ -710,5 +718,10 @@ mod tests {
         assert_eq!(r.parallel_tool_calls, Some(false));
         assert_eq!(r.tool_choice, ToolChoice::Auto);
         assert!(r.provider.is_none());
+        assert_eq!(r.temperature, None);
+        assert_eq!(r.seed, None);
+        let d = ChatRequest::default();
+        assert_eq!(d.parallel_tool_calls, None);
+        assert_eq!(d.messages, Vec::<Message>::new());
     }
 }
