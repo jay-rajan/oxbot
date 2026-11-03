@@ -7,6 +7,7 @@
 //! only place it sends data is Anthropic.
 
 pub mod event;
+pub mod one_shot;
 pub mod process;
 
 pub use event::{
