@@ -8,6 +8,11 @@ license.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[features]
+# ScriptedModel, a ChatModel that answers from a script, for other crates'
+# tests. Never in a normal build.
+test-model = []
+
 [dependencies]
 bytes.workspace = true
 futures-util.workspace = true
@@ -22,6 +27,10 @@ tokio.workspace = true
 tokio-util.workspace = true
 url.workspace = true
 zeroize.workspace = true
+
+[dev-dependencies]
+# Runs the scripted model's own tests in every `cargo test`.
+oxbot-llm = { path = ".", features = ["test-model"] }
 
 [lints]
 workspace = true

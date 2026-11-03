@@ -10,6 +10,7 @@
 //! - [`sse`] and [`wire`]: the stream format and the OpenAI-style JSON.
 //! - [`secret`]: [`ApiKey`] and [`KeyCell`], which never show the key.
 //! - [`oauth`]: "Sign in with OpenRouter" (PKCE).
+//! - `scripted` (feature `test-model`): a scripted model for tests.
 //!
 //! Local servers (#22) plug in as an [`Endpoint::loopback`] with
 //! [`Provider::Local`], or as another [`ChatModel`] implementation (e.g.
@@ -24,6 +25,8 @@ pub mod client;
 pub mod error;
 pub mod oauth;
 pub mod openrouter;
+#[cfg(feature = "test-model")]
+pub mod scripted;
 pub mod secret;
 pub mod sse;
 pub mod types;
@@ -38,6 +41,8 @@ pub use oauth::{Pkce, auth_url, exchange_code, random_state};
 pub use openrouter::{
     Catalog, DataCollection, KeyInfo, MIN_CONTEXT, ModelInfo, ProviderPrefs, Quota,
 };
+#[cfg(feature = "test-model")]
+pub use scripted::{ScriptedModel, Step};
 pub use secret::{ApiKey, KeyCell, KeyError};
 pub use tokio_util::sync::CancellationToken;
 pub use types::{
