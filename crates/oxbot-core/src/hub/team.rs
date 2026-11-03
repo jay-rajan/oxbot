@@ -1,5 +1,5 @@
 //! oxbot's own tools: Herder's team tools (`team`, `give_task`,
-//! `read_reply`) and the sign-in tool, run for a bot's Claude.
+//! `read_reply`) and the sign-in tool, run for a bot's engine.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -14,21 +14,19 @@ use super::taint::OTHER_PEOPLES_BOTS;
 use super::{Hub, HubError};
 use crate::bot::{Bot, Viewer};
 use crate::engine::text::data_block;
+use crate::engine::{HostToolCall, ToolReply};
 use crate::id::BotId;
 use crate::policy;
 use crate::tools::{self, TOOL_SERVER_NAME};
 
 impl Hub {
-    /// Answers a message for oxbot's own tool server.
-    pub(super) async fn tool_message(
-        self: Arc<Self>,
-        bot: BotId,
-        request_id: String,
-        message: Value,
-    ) {
+    /// Runs one of oxbot's own tools that `bot`'s engine called, and
+    /// answers it. Checked first as `tools/call` checks it: the bot has the
+    /// tool, and its required arguments are there.
+    pub(super) async fn host_tool(self: Arc<Self>, bot: BotId, call: HostToolCall) {
         let set = tools::ToolSet {
             central: self.bot(bot.as_str()).is_ok_and(|b| b.is_central()),
-            // As the prompt says (see `start_claude`): the bot was given a browser.
+            // As the prompt says (see `start_session`): the bot was given a browser.
             browser: self
                 .runtimes
                 .lock()
@@ -36,18 +34,15 @@ impl Hub {
                 .get(&bot)
                 .is_some_and(|r| r.browser.is_some()),
         };
-        let response = tools::handle(&message, set, |tool, args| {
-            let hub = Arc::clone(&self);
-            let bot = bot.clone();
-            hub.run_tool(bot, tool, args)
-        })
-        .await;
-        let mut runtimes = self.runtimes.lock().await;
-        if let Some(runtime) = runtimes.get_mut(&bot)
-            && let Err(err) = runtime.process.answer_mcp(&request_id, response).await
-        {
-            tracing::warn!(%bot, %err, "couldn't answer Claude's tool call");
-        }
+        let HostToolCall { name, args, reply } = call;
+        let name = name
+            .strip_prefix(&format!("mcp__{TOOL_SERVER_NAME}__"))
+            .map_or(name.clone(), str::to_owned);
+        let (ok, text) = match tools::check_call(&name, &args, set) {
+            Ok(()) => Arc::clone(&self).run_tool(bot, name, args).await,
+            Err(message) => (false, message),
+        };
+        reply.send(ToolReply { ok, text });
     }
 
     /// Runs one of oxbot's tools for `bot` (`tools::handle` has already

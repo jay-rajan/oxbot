@@ -16,6 +16,8 @@ use std::future::Future;
 
 use serde_json::{Value, json};
 
+use crate::engine::ToolSpec;
+
 /// The tool server's name; Claude sees its tools as `mcp__oxbot__*`.
 pub const TOOL_SERVER_NAME: &str = "oxbot";
 /// The sign-in tool's name.
@@ -48,6 +50,15 @@ pub struct ToolSet {
     pub browser: bool,
 }
 
+impl From<crate::engine::HostTools> for ToolSet {
+    fn from(tools: crate::engine::HostTools) -> Self {
+        Self {
+            central: tools.central,
+            browser: tools.browser,
+        }
+    }
+}
+
 impl ToolSet {
     /// Whether `tool` is one of these.
     #[must_use]
@@ -71,6 +82,36 @@ pub fn mcp_entry() -> Value {
 #[must_use]
 pub fn full_name(tool: &str) -> String {
     format!("mcp__{TOOL_SERVER_NAME}__{tool}")
+}
+
+/// The tools a bot has, as every engine shows them to the model: the same
+/// JSON as `tools/list`, with Claude's full names (`mcp__oxbot__*`).
+#[must_use]
+pub fn specs(set: ToolSet) -> Vec<ToolSpec> {
+    tools(set)
+        .into_iter()
+        .map(|tool| ToolSpec {
+            name: full_name(tool["name"].as_str().unwrap_or_default()),
+            description: tool["description"].as_str().unwrap_or_default().to_owned(),
+            parameters: tool["inputSchema"].clone(),
+        })
+        .collect()
+}
+
+/// Checks a call to one of oxbot's tools before it runs: the bot has the
+/// tool (its own name, e.g. `give_task`), and every required text argument
+/// is there. The error is what to tell the bot.
+///
+/// # Errors
+/// `unknown tool`, or `{tool} needs {argument}`.
+pub fn check_call(tool: &str, arguments: &Value, set: ToolSet) -> Result<(), String> {
+    if !set.has(tool) {
+        return Err("unknown tool".to_owned());
+    }
+    match missing_argument(tool, arguments) {
+        Some(missing) => Err(format!("{tool} needs {missing}")),
+        None => Ok(()),
+    }
 }
 
 /// The tools a bot sees, as `tools/list` describes them.
@@ -206,15 +247,12 @@ where
         "tools/list" => json!({ "tools": tools(set) }),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            if !set.has(name) {
-                return error(&id, -32602, "unknown tool");
-            }
             let arguments = params
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            if let Some(missing) = missing_argument(name, &arguments) {
-                return error(&id, -32602, &format!("{name} needs {missing}"));
+            if let Err(message) = check_call(name, &arguments, set) {
+                return error(&id, -32602, &message);
             }
             let (ok, message) = call(name.to_owned(), arguments).await;
             json!({ "content": [{ "type": "text", "text": message }], "isError": !ok })
@@ -296,6 +334,36 @@ mod tests {
         assert!(central.iter().any(|n| n == CREATE_BOT_TOOL));
         assert_eq!(mcp_entry()["type"], "sdk");
         assert_eq!(full_name(GIVE_TASK_TOOL), "mcp__oxbot__give_task");
+    }
+
+    #[test]
+    fn specs_are_the_listed_tools_under_their_full_names() {
+        let both = ToolSet {
+            central: true,
+            browser: true,
+        };
+        let listed = specs(both);
+        assert_eq!(listed.len(), tools(both).len());
+        assert_eq!(listed[0].name, "mcp__oxbot__request_sign_in");
+        assert_eq!(listed[0].parameters, tools(both)[0]["inputSchema"]);
+        assert!(listed.iter().any(|s| s.name == full_name(GIVE_TASK_TOOL)));
+        assert_eq!(specs(PLAIN).len(), 1);
+    }
+
+    #[test]
+    fn calls_are_checked_as_tools_call_checks_them() {
+        assert_eq!(
+            check_call(GIVE_TASK_TOOL, &json!({"bot":"x","message":"hi"}), PLAIN),
+            Err("unknown tool".into())
+        );
+        assert_eq!(
+            check_call(GIVE_TASK_TOOL, &json!({"bot":"x"}), CENTRAL),
+            Err("give_task needs message".into())
+        );
+        assert_eq!(
+            check_call(GIVE_TASK_TOOL, &json!({"bot":"x","message":"hi"}), CENTRAL),
+            Ok(())
+        );
     }
 
     #[tokio::test]

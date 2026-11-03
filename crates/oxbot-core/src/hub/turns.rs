@@ -1,5 +1,5 @@
-//! Turns: delivering a message to a bot's Claude, cancelling, stopping
-//! idle bots and shutting down.
+//! Turns: delivering a message to a bot's engine (its Claude), cancelling,
+//! stopping idle bots and shutting down.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -11,6 +11,7 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::{Hub, HubError, lock};
 use crate::bot::{Bot, Viewer};
+use crate::engine::TurnInput;
 use crate::id::{BotId, PersonId};
 
 impl Hub {
@@ -146,7 +147,7 @@ impl Hub {
             person,
             relayed,
         } = *sent;
-        self.record(
+        let user_message = self.record(
             &bot.id,
             EventKind::UserMessage {
                 text: text.to_owned(),
@@ -160,7 +161,7 @@ impl Hub {
         let running = self.runtimes.lock().await.contains_key(&bot.id);
         if !running {
             // Started outside the lock: the first start can take a while.
-            let runtime = match self.start_claude(bot).await {
+            let runtime = match self.start_session(bot).await {
                 Ok(r) => r,
                 Err(err) => {
                     self.turn_failed(&bot.id, &err.to_string())?;
@@ -186,11 +187,16 @@ impl Hub {
             }
             message.push_str(&crate::attach::note(from, files, &bot.work_dir()));
         }
+        let turn = TurnInput {
+            text: message,
+            user_seq: user_message.seq,
+            origin: serde_json::Value::Null,
+        };
         let mut runtimes = self.runtimes.lock().await;
         let Some(runtime) = runtimes.get_mut(&bot.id) else {
             unreachable!("inserted above, and only this call may touch the bot meanwhile");
         };
-        if let Err(err) = runtime.process.send(&message).await {
+        if let Err(err) = runtime.session.send(turn).await {
             runtimes.remove(&bot.id);
             drop(runtimes);
             self.turn_failed(&bot.id, &err.to_string())?;
@@ -244,7 +250,7 @@ impl Hub {
         self.cancel_sign_ins(&id);
         let mut runtimes = self.runtimes.lock().await;
         if let Some(runtime) = runtimes.get_mut(&id).filter(|r| r.busy) {
-            runtime.process.interrupt().await?;
+            runtime.session.interrupt().await?;
         }
         Ok(())
     }
@@ -253,7 +259,7 @@ impl Hub {
     pub async fn shutdown(&self) {
         let runtimes: Vec<_> = self.runtimes.lock().await.drain().collect();
         for (_, runtime) in runtimes {
-            runtime.process.shutdown().await;
+            runtime.session.shutdown().await;
         }
         for shared in self.all_browsers() {
             shared.browser.shutdown().await;
@@ -263,7 +269,7 @@ impl Hub {
     pub(super) async fn stop_claude(&self, bot: &BotId) {
         let runtime = self.runtimes.lock().await.remove(bot);
         if let Some(r) = runtime {
-            r.process.shutdown().await;
+            r.session.shutdown().await;
         }
     }
 

@@ -1,5 +1,5 @@
-//! A bot's `claude` child: starting it and turning its output into stored
-//! events, cards and tool results.
+//! A bot's engine session (its `claude` child): starting it and turning
+//! its events into stored events, cards and tool results.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -7,15 +7,17 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use oxbot_browser::{MCP_SERVER_NAME, normalize_web_url};
-use oxbot_claude::{Activity, ClaudeConfig, ClaudeEvent, ClaudeProcess, Session, ToolUse};
 use oxbot_protocol::{EventKind, ServerMsg};
-use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::taint::{UNKNOWN_RESULT, untrusted_tool};
 use super::team::team_label;
 use super::{Hub, HubError, Runtime, Shared, elements};
 use crate::bot::Bot;
+use crate::engine::{
+    Activity, BrowserSpec, EngineEvent, GateMode, HostTools, McpCommand, ModelChoice, Privacy,
+    Resume, Session, SessionSpec, Started, ToolUse,
+};
 use crate::id::BotId;
 use crate::prompt::{Capabilities, system_prompt};
 use crate::report::Visit;
@@ -23,43 +25,37 @@ use crate::store::{MAX_SESSION_PAGES, SavedSession};
 use crate::tools::{self, SAVE_REPORT_TOOL, SIGN_IN_TOOL, TOOL_SERVER_NAME};
 
 impl Hub {
-    /// Starts `bot`'s Claude and a task that turns its output into events.
-    /// Resumes the saved session unless the system prompt has changed.
-    pub(super) async fn start_claude(self: &Arc<Self>, bot: &Bot) -> Result<Runtime, HubError> {
+    /// Starts `bot`'s engine session (its Claude) and a task that turns its
+    /// events into stored events. Resumes the saved session unless the
+    /// system prompt has changed.
+    pub(super) async fn start_session(self: &Arc<Self>, bot: &Bot) -> Result<Runtime, HubError> {
         let bot = &self.as_herder(bot);
         let shared = self.browser_of(bot);
         let caps = Capabilities {
             browser: shared.is_some(),
         };
         let prompt = system_prompt(bot, caps);
-        let session = match self.store.session(&bot.id)? {
-            Some(saved) if saved.prompt == prompt => Session::Resume(saved.id),
+        let resume = match self.store.session(&bot.id)? {
+            Some(saved) if saved.prompt == prompt => Resume::Resume(saved.id),
             saved => {
                 if saved.is_some() {
                     tracing::info!(bot = %bot.id, "system prompt changed; starting a new Claude session");
                 }
-                Session::New(uuid::Uuid::new_v4().to_string())
+                Resume::New(uuid::Uuid::new_v4().to_string())
             }
         };
         // A resumed session still remembers what it read and opened.
-        let (taint, visited) = match &session {
-            Session::Resume(_) => (
+        let (taint, visited) = match &resume {
+            Resume::Resume(_) => (
                 self.store.session_taint(&bot.id)?,
                 self.store.session_pages(&bot.id)?.into_iter().collect(),
             ),
-            Session::New(_) => (None, BTreeMap::new()),
+            Resume::New(_) => (None, BTreeMap::new()),
         };
-        let mut config = ClaudeConfig::new(bot.work_dir(), session.clone());
-        config.program.clone_from(&self.config.claude_program);
-        config.model.clone_from(&bot.model);
-        config.extra_env.clone_from(&self.config.extra_env);
-        config.instructions = Some(prompt.clone());
-        // Every tool that isn't pre-allowed is checked by oxbot.
-        config.ask_oxbot = true;
 
-        let mut servers = serde_json::Map::new();
         // The bot takes turns on this browser even if Chrome didn't start now.
         let browser = shared.clone();
+        let mut browser_spec = None;
         if let (Some(tools), Some(shared)) = (self.config.browser.clone(), &shared) {
             if !tools.is_installed() {
                 self.notice("Setting up the browser for bots (first time only)…");
@@ -70,11 +66,11 @@ impl Hub {
             };
             match started.await {
                 Ok(()) => {
-                    servers.insert(
-                        MCP_SERVER_NAME.to_owned(),
-                        tools.mcp_server(shared.browser.port(), &bot.work_dir()),
-                    );
-                    servers.insert(TOOL_SERVER_NAME.to_owned(), tools::mcp_entry());
+                    let mcp_json = tools.mcp_server(shared.browser.port(), &bot.work_dir());
+                    browser_spec = Some(BrowserSpec {
+                        mcp: McpCommand::from_server_entry(&mcp_json).unwrap_or_default(),
+                        mcp_json,
+                    });
                     // Once per run, and after an upgrade renamed its sites (until
                     // a check works), drop remembered sites the browser has no
                     // cookies for.
@@ -99,36 +95,55 @@ impl Hub {
                 }
             }
         }
-        // Herder always gets its team tools, browser or not.
-        if bot.is_central() {
-            servers.insert(TOOL_SERVER_NAME.to_owned(), tools::mcp_entry());
-        }
-        if !servers.is_empty() {
-            config.mcp_config = Some(json!({ "mcpServers": servers }).to_string());
+        // As the prompt says: Herder gets its team tools, a bot given a
+        // browser can save reports.
+        let host_tools = HostTools {
+            central: bot.is_central(),
+            browser: shared.is_some(),
+        };
+        let spec = SessionSpec {
+            bot: bot.id.to_string(),
+            work_dir: bot.work_dir(),
+            system_prompt: prompt.clone(),
+            resume: resume.clone(),
+            model: bot
+                .model
+                .clone()
+                .map_or(ModelChoice::Auto, ModelChoice::Named),
+            browser: browser_spec,
+            host_tools,
+            host_tool_specs: tools::specs(host_tools.into()),
+            privacy: if bot.private {
+                Privacy::Private
+            } else {
+                Privacy::Standard
+            },
+            gate_mode: GateMode::Live,
+            env: self.config.extra_env.clone(),
             // A sign-in or a task can take minutes, and a task for a private
             // bot may wait for a card first: let a tool call wait that long.
-            let wait = self.config.sign_in_timeout.max(self.config.task_timeout)
+            tool_wait: self.config.sign_in_timeout.max(self.config.task_timeout)
                 + self.config.approval_timeout
-                + Duration::from_mins(1);
-            config
-                .extra_env
-                .push(("MCP_TOOL_TIMEOUT".to_owned(), wait.as_millis().to_string()));
-        }
+                + Duration::from_mins(1),
+        };
 
-        let (process, events) = ClaudeProcess::spawn(&config)?;
+        let Started {
+            session, events, ..
+        } = self.claude.start(spec).await?;
         self.store.set_session(
             &bot.id,
             Some(&SavedSession {
-                id: session.id().to_owned(),
+                id: resume.id().to_owned(),
                 prompt,
             }),
         )?;
         tokio::spawn(Arc::clone(self).pump(bot.id.clone(), events));
-        Ok(new_runtime(process, browser, &session, taint, visited))
+        Ok(new_runtime(session, browser, &resume, taint, visited))
     }
 
-    /// Turns one bot's Claude output into stored events until the child exits.
-    async fn pump(self: Arc<Self>, bot: BotId, mut events: mpsc::Receiver<ClaudeEvent>) {
+    /// Turns one bot's engine events into stored events until its session
+    /// ends.
+    async fn pump(self: Arc<Self>, bot: BotId, mut events: mpsc::Receiver<EngineEvent>) {
         let mut started = false;
         while let Some(event) = events.recv().await {
             if let Err(err) = self.handle(&bot, event, &mut started).await {
@@ -136,7 +151,7 @@ impl Hub {
             }
         }
 
-        // The child exited.
+        // The session ended (the child exited).
         self.deny_open_approvals(&bot);
         self.cancel_sign_ins(&bot);
         let removed = self.runtimes.lock().await.remove(&bot);
@@ -157,21 +172,21 @@ impl Hub {
     async fn handle(
         self: &Arc<Self>,
         bot: &BotId,
-        event: ClaudeEvent,
+        event: EngineEvent,
         started: &mut bool,
     ) -> Result<(), HubError> {
         match event {
-            ClaudeEvent::Init { model, .. } => {
+            EngineEvent::Started { model } => {
                 *started = true;
                 self.note_model(bot, &model);
             }
-            ClaudeEvent::TextDelta(text) => {
+            EngineEvent::TextDelta(text) => {
                 let _ = self.updates.send(ServerMsg::Delta {
                     bot: bot.to_string(),
                     text,
                 });
             }
-            ClaudeEvent::Assistant { text, tool_uses } => {
+            EngineEvent::Assistant { text, tool_uses } => {
                 if !text.trim().is_empty() {
                     self.record(bot, EventKind::AssistantMessage { text })?;
                 }
@@ -182,33 +197,27 @@ impl Hub {
                     self.record(bot, EventKind::ToolUse { name, summary })?;
                 }
             }
-            ClaudeEvent::ToolResult { tool_use_id, text } => {
+            EngineEvent::ToolResult { tool_use_id, text } => {
                 self.tool_result(bot, &tool_use_id, &text).await;
                 let _ = self.updates.send(ServerMsg::Activity {
                     bot: bot.to_string(),
                     text: activity_label(&Activity::Requesting),
                 });
             }
-            ClaudeEvent::Permission(request) => {
+            EngineEvent::Permission(request) => {
                 tokio::spawn(Arc::clone(self).permission(bot.clone(), request));
             }
-            ClaudeEvent::McpMessage {
-                request_id,
-                server,
-                message,
-            } => {
-                if server == TOOL_SERVER_NAME {
-                    tokio::spawn(Arc::clone(self).tool_message(bot.clone(), request_id, message));
-                } else {
-                    tracing::warn!(%bot, server, "message for a tool server oxbot doesn't host");
-                }
+            EngineEvent::HostTool(call) => {
+                tokio::spawn(Arc::clone(self).host_tool(bot.clone(), call));
             }
-            ClaudeEvent::Limits(windows) => {
+            EngineEvent::Limits(windows) => {
                 self.store.set_limits(&windows)?;
                 self.check_limit_alerts(&windows);
                 self.announce_usage();
             }
-            ClaudeEvent::TurnResult {
+            // Only oxbot's own loop reports model requests; the meter comes with it.
+            EngineEvent::ModelCall(_) => {}
+            EngineEvent::TurnDone {
                 ok,
                 text,
                 duration_ms,
@@ -216,7 +225,9 @@ impl Hub {
             } => {
                 self.deny_open_approvals(bot);
                 self.cancel_sign_ins(bot);
-                self.store.add_usage(bot, &usage)?;
+                if let Some(usage) = usage {
+                    self.store.add_usage(bot, &usage)?;
+                }
                 if !ok {
                     self.record(bot, EventKind::Error { message: text })?;
                 }
@@ -230,13 +241,12 @@ impl Hub {
                 self.announce_bots().await;
                 self.announce_usage();
             }
-            ClaudeEvent::Activity(activity) => {
+            EngineEvent::Activity(activity) => {
                 let _ = self.updates.send(ServerMsg::Activity {
                     bot: bot.to_string(),
                     text: activity_label(&activity),
                 });
             }
-            ClaudeEvent::ControlAck { .. } => {}
         }
         Ok(())
     }
@@ -325,18 +335,18 @@ impl Hub {
     }
 }
 
-/// A just-started `claude` child's runtime. A resumed session keeps what
-/// it had read (`taint`) and the pages it opened (`visited`); a new one
-/// starts trusted, with none.
+/// A just-started session's runtime. A resumed session keeps what it had
+/// read (`taint`) and the pages it opened (`visited`); a new one starts
+/// trusted, with none.
 fn new_runtime(
-    process: ClaudeProcess,
+    session: Box<dyn Session>,
     browser: Option<Arc<Shared>>,
-    session: &Session,
+    resume: &Resume,
     taint: Option<String>,
     visited: BTreeMap<String, Visit>,
 ) -> Runtime {
     let mut runtime = Runtime {
-        process,
+        session,
         busy: false,
         permit: None,
         browser,
@@ -350,12 +360,12 @@ fn new_runtime(
         question: None,
         visited,
     };
-    match (session, taint) {
-        (Session::Resume(_), Some(why)) => {
+    match (resume, taint) {
+        (Resume::Resume(_), Some(why)) => {
             runtime.mark_untrusted(why);
         }
-        (Session::Resume(_), None) => {}
-        (Session::New(_), _) => runtime.reset_for_new_session(),
+        (Resume::Resume(_), None) => {}
+        (Resume::New(_), _) => runtime.reset_for_new_session(),
     }
     runtime
 }

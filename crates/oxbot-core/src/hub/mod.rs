@@ -49,11 +49,13 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use oxbot_browser::{Browser, BrowserError, Tools};
-use oxbot_claude::{ClaudeError, ClaudeProcess};
+use oxbot_claude::ClaudeError;
 use oxbot_protocol::{Answer, Approval, BotEvent, EventKind, ServerMsg, SignInRequest, Usage};
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, broadcast, oneshot};
 
 use crate::bot::{Bot, BotError};
+use crate::engine::claude::ClaudeEngine;
+use crate::engine::{Engine, EngineError, Session};
 use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
 use crate::store::{Seqs, Store, StoreError};
 use turns::stop_idle_bots;
@@ -160,11 +162,15 @@ pub enum HubError {
     /// Claude couldn't be started or stopped responding.
     #[error(transparent)]
     Claude(#[from] ClaudeError),
+    /// A bot's engine couldn't start a session or stopped responding.
+    #[error(transparent)]
+    Engine(#[from] EngineError),
 }
 
-/// A bot's running `claude` child, and what oxbot knows about its turn.
+/// A bot's running engine session (a `claude` child), and what oxbot
+/// knows about its turn.
 struct Runtime {
-    process: ClaudeProcess,
+    session: Box<dyn Session>,
     busy: bool,
     /// Held while a turn runs, so at most `max_concurrent_turns` run at once.
     permit: Option<OwnedSemaphorePermit>,
@@ -227,6 +233,8 @@ pub struct Hub {
     bots: RwLock<BTreeMap<BotId, Bot>>,
     store: Store,
     config: HubConfig,
+    /// Runs bots on Claude Code.
+    claude: Arc<dyn Engine>,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
     /// Each owner's browser, made when first needed.
     browsers: std::sync::Mutex<HashMap<BrowserOwner, Arc<Shared>>>,
@@ -291,6 +299,7 @@ impl Hub {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
             store,
             turns: Arc::new(Semaphore::new(config.max_concurrent_turns)),
+            claude: Arc::new(ClaudeEngine::new(&config.claude_program)),
             config,
             runtimes: Mutex::new(HashMap::new()),
             browsers: std::sync::Mutex::new(HashMap::new()),

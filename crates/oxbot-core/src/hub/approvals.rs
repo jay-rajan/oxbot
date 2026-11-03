@@ -1,18 +1,18 @@
-//! Approval cards ("red cards"): deciding Claude's permission requests by
-//! policy, asking the person the turn acts for, and who may answer.
+//! Approval cards ("red cards"): deciding an engine's permission requests
+//! by policy, asking the person the turn acts for, and who may answer.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use oxbot_browser::MCP_SERVER_NAME;
-use oxbot_claude::{Decision, PermissionRequest};
 use oxbot_protocol::{Answer, Approval, ApprovalKind, EventKind, Outcome, ServerMsg};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
 use super::{Hub, HubError, lock};
 use crate::bot::{Bot, Viewer};
+use crate::engine::{Decision, PermissionRequest};
 use crate::id::BotId;
 use crate::policy::{self, PageFacts, Verdict};
 use crate::tools::{SIGN_IN_TOOL, TOOL_SERVER_NAME};
@@ -87,22 +87,14 @@ impl Hub {
         }
     }
 
-    /// Claude asks whether `bot` may run a tool: decide, maybe ask the user,
-    /// then answer Claude.
+    /// `bot`'s engine asks whether it may run a tool: decide, maybe ask the
+    /// user, then answer the engine.
     pub(super) async fn permission(self: Arc<Self>, bot: BotId, request: PermissionRequest) {
         let decision = match self.decide_permission(&bot, &request).await {
             Ok(decision) => decision,
             Err(err) => Decision::Deny(format!("oxbot couldn't check this: {err}")),
         };
-        let mut runtimes = self.runtimes.lock().await;
-        if let Some(runtime) = runtimes.get_mut(&bot)
-            && let Err(err) = runtime
-                .process
-                .answer(&request.request_id, &request.input, &decision)
-                .await
-        {
-            tracing::warn!(%bot, %err, "couldn't answer Claude's permission request");
-        }
+        request.reply.send(decision);
     }
 
     async fn decide_permission(
