@@ -428,7 +428,10 @@ mod tests {
             mcp_override: Some(stand_in.clone()),
             ..ToolsConfig::in_home(tmp.path())
         });
-        assert_eq!(tools.mcp_command(9333, Path::new("/w")), stand_in);
+        // The stand-in is told which Chrome, as the real tool is.
+        let mut told = stand_in.clone();
+        told.args.push("--browserUrl=http://127.0.0.1:9333".into());
+        assert_eq!(tools.mcp_command(9333, Path::new("/w")), told);
         assert_eq!(
             tools.mcp_server(9333, Path::new("/w"))["command"],
             json!(
