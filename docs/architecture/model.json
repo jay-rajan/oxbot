@@ -165,7 +165,7 @@
     {
       "id": "oxbot-loop",
       "label": "oxbot-loop",
-      "sub": "runner \u00b7 gate \u00b7 router \u00b7 meter",
+      "sub": "runner · context · page tools · gate · router · meter",
       "kind": "crate",
       "status": "built",
       "m": "Step 5",
@@ -1928,7 +1928,7 @@
             "h": 160,
             "name": "Loop",
             "tech": "oxbot-loop",
-            "desc": "Runner (a step at a time, checkpoint each), tool registry, gate check, model router, pacer, meter.",
+            "desc": "Runner (a step at a time, checkpoint each), context builder and compactor, stored results with page maps and page tools, gate check, router, pacer, meter.",
             "status": "built"
           },
           {
