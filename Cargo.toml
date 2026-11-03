@@ -67,6 +67,18 @@ http-body-util = "0.1.5"
 hyper = { version = "1.12.0", default-features = false, features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 
+# The model client for OpenRouter and (later) local OpenAI-style servers
+# (versions checked 2026-11-02). reqwest without its own TLS provider: the
+# client builds rustls with ring (as above) and the macOS trust store via
+# the platform verifier, so no aws-lc/cmake. HTTP/2 and body streaming only.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "http2", "stream"] }
+rustls-platform-verifier = "=0.7.1"
+# CancellationToken for stopping a model request at any await.
+tokio-util = { version = "=0.7.20", default-features = false }
+# Wipes the OpenRouter key from memory when it is dropped (already in the
+# build through rustls).
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
