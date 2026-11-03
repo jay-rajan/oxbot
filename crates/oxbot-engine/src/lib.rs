@@ -23,8 +23,8 @@ pub mod trust;
 use std::fmt;
 
 pub use event::{
-    Activity, CallRecord, EngineEvent, HostToolCall, LimitWindow, PermissionRequest, ToolUse,
-    TurnUsage,
+    Activity, CallKind, CallRecord, EngineEvent, HostToolCall, LimitWindow, PermissionRequest,
+    ToolUse, TurnUsage,
 };
 pub use futures_util::future::BoxFuture;
 pub use reply::{Decision, Refusal, Reply, ReplyWait, ToolReply};

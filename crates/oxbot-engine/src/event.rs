@@ -210,6 +210,37 @@ pub struct CallRecord {
     /// `ok`, `rate_limited`, `busy`, `daily_limit`, `error:<kind>` or
     /// `cancelled`.
     pub outcome: String,
+    /// What the request was for.
+    #[serde(default)]
+    pub kind: CallKind,
+}
+
+/// What a model request was for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallKind {
+    /// A step of a bot's turn.
+    #[default]
+    Chat,
+    /// Shortening a long conversation.
+    Compaction,
+    /// Learning from a finished task.
+    Reflection,
+    /// Judging a practice run.
+    Judge,
+}
+
+impl CallKind {
+    /// Its name in the database, e.g. `chat`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Compaction => "compaction",
+            Self::Reflection => "reflection",
+            Self::Judge => "judge",
+        }
+    }
 }
 
 #[cfg(test)]

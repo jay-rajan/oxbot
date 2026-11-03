@@ -3304,6 +3304,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxbot-loop"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "oxbot-engine",
+ "oxbot-llm",
+ "oxbot-loop",
+ "regex",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "oxbot-protocol"
 version = "0.1.0"
 dependencies = [

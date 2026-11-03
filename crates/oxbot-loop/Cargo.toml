@@ -1,0 +1,36 @@
+[package]
+name = "oxbot-loop"
+description = "oxbot's own agent loop: runs a bot's turns step by step on a chat model, with every tool call checked by oxbot first, each step saved, and model requests routed, paced and metered."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+# ScriptedBrowser and MemoryLoopStore, for other crates' tests. Never in a
+# normal build.
+test-tools = []
+
+[dependencies]
+futures-util.workspace = true
+oxbot-engine.workspace = true
+oxbot-llm.workspace = true
+regex.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+oxbot-llm = { workspace = true, features = ["test-model"] }
+oxbot-loop = { path = ".", features = ["test-tools"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true
