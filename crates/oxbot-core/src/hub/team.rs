@@ -13,6 +13,7 @@ use super::access::maker_name;
 use super::taint::OTHER_PEOPLES_BOTS;
 use super::{Hub, HubError};
 use crate::bot::{Bot, Viewer};
+use crate::engine::text::data_block;
 use crate::id::BotId;
 use crate::policy;
 use crate::tools::{self, TOOL_SERVER_NAME};
@@ -490,29 +491,6 @@ fn reports_line(bot: &Bot, titles: &[String]) -> String {
 /// Herder's prompt says is data, never instructions (see [`data_block`]).
 fn bot_reply(bot: &BotId, text: &str) -> String {
     data_block("bot_reply", &format!(" bot=\"{bot}\""), text)
-}
-
-/// Text someone else wrote, as Herder gets it: inside `<tag attrs>…</tag>`,
-/// which Herder's prompt says is data. `&` and `<` are escaped, so the text
-/// can't open a tag or end the block early; a closing tag for the block
-/// (any case) becomes `<\/tag`.
-fn data_block(tag: &str, attrs: &str, text: &str) -> String {
-    let close = format!("</{tag}");
-    let mut out = String::with_capacity(text.len() + 32);
-    for (at, c) in text.char_indices() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' if text
-                .get(at..at + close.len())
-                .is_some_and(|t| t.eq_ignore_ascii_case(&close)) =>
-            {
-                out.push_str("<\\");
-            }
-            '<' => out.push_str("&lt;"),
-            c => out.push(c),
-        }
-    }
-    format!("<{tag}{attrs}>{out}</{tag}>")
 }
 
 /// What Herder hears about another Herder: never a team member, since its

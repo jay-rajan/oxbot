@@ -15,6 +15,7 @@ dirs.workspace = true
 infer.workspace = true
 oxbot-browser.workspace = true
 oxbot-claude.workspace = true
+oxbot-engine.workspace = true
 oxbot-protocol.workspace = true
 # Migration 9's frozen copy of `site_of` names sites with it.
 psl.workspace = true

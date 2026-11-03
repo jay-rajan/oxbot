@@ -6,6 +6,9 @@
 
 use serde_json::Value;
 
+// Shared with every engine; kept under these paths too.
+pub use oxbot_engine::{Activity, LimitWindow, ToolUse, TurnUsage};
+
 /// The parts of Claude's output oxbot cares about.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClaudeEvent {
@@ -72,52 +75,6 @@ pub enum ClaudeEvent {
     },
 }
 
-/// Tokens and cost of one turn, as Claude reports them.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct TurnUsage {
-    /// New input tokens.
-    pub input_tokens: u64,
-    /// Output tokens.
-    pub output_tokens: u64,
-    /// Input tokens read from the prompt cache.
-    pub cache_read_tokens: u64,
-    /// Input tokens written to the prompt cache.
-    pub cache_write_tokens: u64,
-    /// Claude's own cost estimate in US dollars (what the API would charge;
-    /// a subscription counts usage against its limits instead).
-    pub cost_usd: f64,
-}
-
-/// One of the user's plan limits, e.g. the 5-hour or 7-day window.
-#[derive(Debug, Clone, PartialEq)]
-pub struct LimitWindow {
-    /// Claude's name for it, e.g. `five_hour` or `seven_day`.
-    pub name: String,
-    /// How much of it is used, from 0 to 1.
-    pub used: f64,
-    /// When it resets, in seconds since the Unix epoch (0 if unknown).
-    pub resets_at: i64,
-    /// `allowed`, `allowed_warning` or `rejected`.
-    pub status: String,
-}
-
-/// What Claude is doing mid-turn, like the spinner in the terminal.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Activity {
-    /// Waiting on the model ("Clauding…" in the terminal).
-    Requesting,
-    /// Extended thinking.
-    Thinking,
-    /// Writing the reply.
-    Writing,
-    /// Calling a tool.
-    UsingTool(String),
-    /// The API asked it to wait and retry (e.g. rate limits).
-    Retrying,
-    /// Any other status the CLI reports, e.g. `compacting`.
-    Other(String),
-}
-
 /// Claude asking whether it may run a tool.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PermissionRequest {
@@ -129,44 +86,6 @@ pub struct PermissionRequest {
     pub input: Value,
     /// The tool call it's for.
     pub tool_use_id: String,
-}
-
-/// A tool Claude called.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ToolUse {
-    /// The call's id, which its result and any permission request carry.
-    pub id: String,
-    /// Tool name, e.g. `Write`.
-    pub name: String,
-    /// The tool's arguments, as Claude sent them.
-    pub input: Value,
-}
-
-impl ToolUse {
-    /// One short line about what the tool did, for showing in a chat.
-    #[must_use]
-    pub fn summary(&self) -> String {
-        let field = |k: &str| self.input.get(k).and_then(Value::as_str);
-        let text = field("file_path")
-            .map(file_name)
-            .or_else(|| field("pattern"))
-            .or_else(|| field("path").map(file_name))
-            .or_else(|| field("command"))
-            .or_else(|| field("url"))
-            .unwrap_or("");
-        shorten(text, 80)
-    }
-}
-
-fn file_name(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
-}
-
-fn shorten(text: &str, max: usize) -> String {
-    match text.char_indices().nth(max) {
-        Some((cut, _)) => format!("{}…", &text[..cut]),
-        None => text.to_owned(),
-    }
 }
 
 /// Parses one output line.

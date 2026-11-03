@@ -6,6 +6,7 @@
 //! - [`store`]: every bot's history and Claude session, in SQLite
 //! - [`hub`]: runs the bots, one long-lived Claude per bot, and broadcasts
 //!   what happens
+//! - [`engine`]: what runs a bot (the types every engine shares)
 //! - [`policy`]: what a bot may do with a tool, decided by oxbot
 //! - [`tools`]: oxbot's own tools for bots (`request_sign_in`, `save_report`,
 //!   Herder's team tools), hosted in-process
@@ -15,6 +16,7 @@
 
 pub mod attach;
 pub mod bot;
+pub mod engine;
 pub mod home;
 pub mod hub;
 pub mod id;
@@ -25,6 +27,7 @@ pub mod store;
 pub mod tools;
 
 pub use bot::{Bot, BotError, Viewer};
+pub use engine::text::data_block;
 pub use home::Home;
 pub use hub::{Hub, HubConfig, HubError};
 pub use id::{BotId, BotIdError, MAX_BOT_ID_LEN};

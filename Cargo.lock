@@ -3168,6 +3168,7 @@ dependencies = [
 name = "oxbot-claude"
 version = "0.1.0"
 dependencies = [
+ "oxbot-engine",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -3185,6 +3186,7 @@ dependencies = [
  "oxbot-browser",
  "oxbot-claude",
  "oxbot-core",
+ "oxbot-engine",
  "oxbot-protocol",
  "psl",
  "pulldown-cmark",
@@ -3239,6 +3241,17 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "oxbot-engine"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

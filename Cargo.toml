@@ -16,6 +16,7 @@ oxbot = { path = "crates/oxbot" }
 oxbot-protocol = { path = "crates/oxbot-protocol" }
 oxbot-core = { path = "crates/oxbot-core" }
 oxbot-claude = { path = "crates/oxbot-claude" }
+oxbot-engine = { path = "crates/oxbot-engine" }
 oxbot-browser = { path = "crates/oxbot-browser" }
 oxbot-gate = { path = "crates/oxbot-gate" }
 oxbot-llm = { path = "crates/oxbot-llm" }
