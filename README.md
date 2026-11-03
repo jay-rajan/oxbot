@@ -116,6 +116,25 @@ The chat page also opens in a normal browser (`cargo run -p oxbot -- serve --ope
 for testing and dev mode only: the desktop app is the way to use oxbot.
 Plan: https://claude.ai/artifact/32dqY3emzXCfBj9QGkF5rZ · Architecture: https://claude.ai/artifact/3mVTriA2zwH7yzSL9D98F6 (rebuild: `python3 docs/architecture/build.py`)
 
+## Engines
+
+Every bot runs on an engine. **OpenRouter** (the default) runs oxbot's own agent loop on
+OpenRouter's models, free ones first, with your household's OpenRouter key; anyone in the
+household can give these bots tasks. **Claude** runs Claude Code on the Farm owner's own Claude
+plan.
+
+> **Claude bots run on your own Claude plan. Anthropic's terms don't let others use your
+> account, so only you can give them tasks. Everyone else uses OpenRouter bots.**
+
+oxbot enforces this itself: other people, their phones, their Herders, and tasks they started
+can't reach a Claude bot (others still read what it shares; their message box says who can
+give it tasks). Herder (yours) runs on Claude; everyone else's Herder runs on OpenRouter. A
+bot's ··· settings switch its engine; switching a bot others use to Claude says first that it
+becomes owner-only. Bots made before engines stay on Claude: on the first start the owner gets a
+banner, and Settings → Engines lists the Claude bots other people used in the last 30 days, each
+with **Switch to OpenRouter** (or **Switch all**). Model calls go only to Anthropic (Claude bots)
+or OpenRouter (OpenRouter bots).
+
 ## Layout
 | Crate | What it is |
 |---|---|

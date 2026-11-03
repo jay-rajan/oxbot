@@ -27,6 +27,7 @@ mod approvals;
 mod browsers;
 mod claude;
 mod elements;
+mod engine_prefs;
 mod engines;
 mod people;
 mod reports;
@@ -41,6 +42,7 @@ mod uploads;
 
 pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
+pub use engine_prefs::ENGINES_NOTICE;
 pub use engines::{ChainOrigin, Entry};
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 

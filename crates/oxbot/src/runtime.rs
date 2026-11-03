@@ -208,8 +208,10 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         notifier: crate::notify::pick(options.notifier, e2e),
         dictation: Arc::new(crate::dictation::Dictation::new(helper)),
         next_conn: Arc::default(),
+        engine_review: Arc::default(),
     };
     state.refresh_setup().await;
+    state.review_engines();
     crate::notify::start(&state);
     // The door opens when the Mac is on an allowed network and a Gate is
     // paired, and keeps checking.

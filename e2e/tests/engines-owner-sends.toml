@@ -1,0 +1,12 @@
+name = "The owner gives a Claude bot tasks"
+about = "On the Farm, Recipes (Claude) takes a message as before, with a Claude badge and no owner-only note."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/engine_prefs.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect_js = "document.getElementById('engineBadge').textContent === 'Claude' && document.getElementById('engineNote').hidden"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in Claude."

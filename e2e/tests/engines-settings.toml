@@ -1,0 +1,38 @@
+name = "Settings → Engines and a new Claude bot"
+about = "The Farm reads the notice in Settings → Engines, then makes a bot on Claude: the dialog says only it can give it tasks, and the new bot shows a Claude badge."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/engine_prefs.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Settings"
+[[step]]
+click = "Engines"
+[[step]]
+expect = "Anthropic's terms don't let others use your account, so only you can give them tasks."
+shot = "engines-tab"
+[[step]]
+expect = "Claude Code"
+note = "Claude's setup check"
+[[step]]
+click = "Close"
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Pantry" }
+[[step]]
+expect_js = "(() => { const s = document.getElementById('nbEngine'); s.value = 'claude'; s.dispatchEvent(new Event('change')); return true; })()"
+note = "Pick Claude (only you)"
+[[step]]
+expect = "It runs on your own Claude plan, so only you can give it tasks."
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@pantry"
+[[step]]
+expect_js = "document.getElementById('engineBadge').textContent === 'Claude'"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "document.querySelector('input[name=bdEngine][value=claude]').checked"
+note = "The bot's settings show its engine"
+[[step]]
+expect = "only Jay can give it tasks"

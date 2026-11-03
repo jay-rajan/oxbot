@@ -26,6 +26,12 @@ struct Server {
 /// A server in test mode (`as=` names a person) with Herder, a shared
 /// `notes` bot and Sam's private `diary`, and the stand-in Mac helper.
 async fn start() -> Server {
+    start_with(false).await
+}
+
+/// As [`start`]; with `engines`, every engine rule holds (the bots are on
+/// Claude, so only the Farm's owner, Jay, may give them tasks).
+async fn start_with(engines: bool) -> Server {
     let dir = tempfile::tempdir().unwrap();
     let claude_tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxbot-claude/tests");
     let store = Store::open_in_memory().unwrap();
@@ -47,6 +53,7 @@ async fn start() -> Server {
                 .display()
                 .to_string(),
         )],
+        pre_engine_tests: !engines,
         ..HubConfig::new(dir.path())
     };
     let hub = Hub::new(vec![herder, notes, diary], store, config);
@@ -58,6 +65,10 @@ async fn start() -> Server {
         ..AppState::new(hub, "test-mac")
     };
     state.refresh_setup().await;
+    if engines {
+        // Chooses Jay as the Farm's person.
+        let _ = state.farm_viewer();
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let key = state.farm_key.clone();
@@ -182,6 +193,23 @@ async fn uploads_need_the_farm_or_a_test_person_and_this_page() {
         (file.name.as_str(), file.kind, file.size),
         ("a.txt", AttachmentKind::Text, 2)
     );
+}
+
+#[tokio::test]
+async fn files_for_a_claude_bot_come_only_from_its_owner() {
+    let s = start_with(true).await;
+    let (status, body) = upload(&s, "bot=notes&name=a.txt&as=Ann", "", b"hi").await;
+    assert_eq!(status, 403, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Only Jay can give Notes tasks"),
+        "{body}"
+    );
+    assert_eq!(files_in(&s.work), 0, "nothing kept");
+    let (status, body) = upload(&s, "bot=notes&name=a.txt", &farm(&s), b"hi").await;
+    assert_eq!(status, 200, "{body}");
 }
 
 #[tokio::test]

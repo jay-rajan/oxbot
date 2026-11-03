@@ -253,6 +253,7 @@ impl View {
             | ServerMsg::AllowRules { .. }
             | ServerMsg::Report(_)
             | ServerMsg::Reports { .. }
+            | ServerMsg::Engines(_)
             | ServerMsg::Usage(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }

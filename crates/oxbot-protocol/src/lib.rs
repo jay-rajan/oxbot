@@ -147,7 +147,33 @@ pub enum ClientMsg {
         /// Only its creator (and the Farm) can see and use it.
         #[serde(default)]
         private: bool,
+        /// The engine it runs on; `None` for the server's default. Only the
+        /// Farm's owner may pick Claude.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        engine: Option<EngineKind>,
     },
+    /// Switch a bot to another engine. Its maker or the Farm; only the
+    /// Farm's owner may switch one to Claude, and a bot others use only
+    /// with `confirm_owner_only` (it then takes tasks only from the owner).
+    /// Herders' engines are fixed.
+    SetEngine {
+        /// Bot id.
+        bot: String,
+        /// The engine.
+        engine: EngineKind,
+        /// Its model: a Claude alias, or an `OpenRouter` model id; empty for
+        /// the default (Auto). `None` keeps the one it has.
+        #[serde(default)]
+        model: Option<String>,
+        /// The person was told the bot becomes owner-only, and said yes.
+        #[serde(default)]
+        confirm_owner_only: bool,
+    },
+    /// Ask for Settings → Engines ([`ServerMsg::Engines`]).
+    ListEngines,
+    /// The Farm's owner has seen the one-time notice that Claude bots take
+    /// tasks only from them. The Farm only.
+    EnginesNoticeSeen,
     /// Make a bot private (only its creator and the Farm see it, and it
     /// uses its creator's own browser) or shared. Its creator or the Farm
     /// only.
@@ -355,6 +381,50 @@ pub enum ClientMsg {
     },
 }
 
+/// Which engine runs a bot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineKind {
+    /// Claude Code on the Farm owner's own Claude plan: only the owner
+    /// gives it tasks.
+    #[default]
+    Claude,
+    /// oxbot's own agent loop on `OpenRouter`'s models: anyone in the
+    /// household may give it tasks.
+    #[serde(rename = "openrouter")]
+    OpenRouter,
+}
+
+/// Settings → Engines: which engine does what, and who may use it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnginesView {
+    /// The notice everyone sees: Claude bots run on the owner's own plan.
+    pub notice: String,
+    /// The Farm owner's name.
+    pub owner: String,
+    /// Whether `OpenRouter` bots can run on this Mac now.
+    #[serde(default)]
+    pub openrouter_ready: bool,
+    /// The Farm only: show the one-time notice as a banner.
+    #[serde(default)]
+    pub banner: bool,
+    /// The Farm only: Claude bots other people used lately, which now take
+    /// tasks only from the owner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review: Vec<ReviewBot>,
+}
+
+/// A Claude bot other people used, for the owner to review.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewBot {
+    /// Bot id.
+    pub bot: String,
+    /// Its name.
+    pub name: String,
+    /// Who else sent it messages in the last 30 days.
+    pub used_by: Vec<String>,
+}
+
 /// A message from the server to a client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -546,6 +616,10 @@ pub enum ServerMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    /// Settings → Engines. The Farm gets all of it; everyone else the
+    /// notice and whether `OpenRouter` is ready. The answer to
+    /// [`ClientMsg::ListEngines`], and sent again when it changes.
+    Engines(EnginesView),
     /// Something the client asked for went wrong.
     Error {
         /// What went wrong, for the user.
@@ -573,6 +647,10 @@ pub struct UsageAlert {
 
 /// The app-wide settings shown in the Settings panel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a wire message: each flag is its own JSON field"
+)]
 pub struct AppSettings {
     /// The oxbot version running.
     pub version: String,
@@ -600,6 +678,16 @@ pub struct AppSettings {
     /// only, and only where the Mac can recognize speech on-device.
     #[serde(default)]
     pub dictation: bool,
+    /// Whether this client is the Farm's owner (the Farm, or the Farm's
+    /// person on a Gate): the only one who may give Claude bots tasks.
+    #[serde(default)]
+    pub owner: bool,
+    /// The Farm owner's name, e.g. `Jay`.
+    #[serde(default)]
+    pub owner_name: String,
+    /// Whether `OpenRouter` bots can run on this Mac now.
+    #[serde(default)]
+    pub openrouter_ready: bool,
 }
 
 fn yes() -> bool {
@@ -1118,6 +1206,25 @@ pub struct BotInfo {
     /// The owner's person id, for the server's checks. Never sent.
     #[serde(skip)]
     pub owner: Option<String>,
+    /// The engine it runs on.
+    #[serde(default)]
+    pub engine: EngineKind,
+    /// Its model as shown, if it has one set (a Claude alias, or a pinned
+    /// `OpenRouter` model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Whether the client's person may give it tasks. Decided by the
+    /// server for each client (Claude bots: only the Farm's owner).
+    #[serde(default = "yes")]
+    pub can_task: bool,
+    /// An `OpenRouter` bot's own cap on model requests a day, if it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_requests: Option<u32>,
+    /// Who alone may give it tasks: the Farm's person's id for a Claude
+    /// bot (empty: only the Farm connection), `None` for anyone who sees
+    /// it. For the server's checks. Never sent.
+    #[serde(skip)]
+    pub task_owner: Option<String>,
 }
 
 /// One stored event in a bot's history.
@@ -1243,6 +1350,70 @@ mod tests {
     }
 
     #[test]
+    fn engines_ride_along_and_who_may_task_stays_on_the_server() {
+        let old: BotInfo = serde_json::from_str(
+            r#"{"id":"a","name":"A","busy":false,"last_seq":0,"browser_state":"off"}"#,
+        )
+        .unwrap();
+        assert!(old.can_task, "an older server let everyone task");
+        assert_eq!(old.engine, EngineKind::Claude);
+        let info = BotInfo {
+            id: "a".into(),
+            engine: EngineKind::OpenRouter,
+            task_owner: Some("p_0123456789abcdef".into()),
+            ..BotInfo::default()
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains(r#""engine":"openrouter""#), "{json}");
+        assert!(
+            !json.contains("p_0123") && !json.contains("task_owner"),
+            "{json}"
+        );
+
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_engine","bot":"a","engine":"claude"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::SetEngine {
+                bot: "a".into(),
+                engine: EngineKind::Claude,
+                model: None,
+                confirm_owner_only: false,
+            }
+        );
+        let msg: ClientMsg = serde_json::from_str(
+            r#"{"type":"create_bot","name":"X","instructions":"","engine":"openrouter"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            msg,
+            ClientMsg::CreateBot {
+                engine: Some(EngineKind::OpenRouter),
+                ..
+            }
+        ));
+        for (msg, tag) in [
+            (ClientMsg::ListEngines, "list_engines"),
+            (ClientMsg::EnginesNoticeSeen, "engines_notice_seen"),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&msg).unwrap(),
+                format!(r#"{{"type":"{tag}"}}"#)
+            );
+        }
+        let view = ServerMsg::Engines(EnginesView {
+            notice: "n".into(),
+            owner: "Jay".into(),
+            openrouter_ready: false,
+            banner: false,
+            review: Vec::new(),
+        });
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(json.starts_with(r#"{"type":"engines","#), "{json}");
+        assert!(!json.contains("review"), "{json}");
+    }
+
+    #[test]
     fn hello_round_trips_through_json() {
         let hello = ServerHello::new("jays-mac", 1);
         let json = serde_json::to_string(&hello).unwrap();
@@ -1304,6 +1475,7 @@ mod tests {
                 name: "X".into(),
                 instructions: String::new(),
                 private: false,
+                engine: None,
             }
         );
     }
@@ -1552,6 +1724,9 @@ mod tests {
             usage_alerts: true,
             notify_when_hidden: None,
             dictation: false,
+            owner: true,
+            owner_name: "Jay".into(),
+            openrouter_ready: false,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));

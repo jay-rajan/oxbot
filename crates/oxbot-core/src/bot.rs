@@ -187,6 +187,13 @@ impl Viewer {
             let maker = self.maker(b.owner.as_deref(), b.created_by.as_deref());
             b.locked = !self.can_see(maker, b.private);
             b.can_manage = !b.central && self.can_manage(maker);
+            // Claude bots take tasks only from the Farm's owner.
+            b.can_task = !b.locked
+                && b.task_owner.as_deref().is_none_or(|owner| {
+                    self.farm
+                        || (!owner.is_empty()
+                            && self.id.as_ref().is_some_and(|id| id.as_str() == owner))
+                });
             if b.locked {
                 b.busy = false;
                 b.last_seq = 0;

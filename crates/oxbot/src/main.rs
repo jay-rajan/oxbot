@@ -167,6 +167,7 @@ async fn bots(action: BotsAction) -> anyhow::Result<()> {
                     name,
                     instructions,
                     private: false,
+                    engine: None,
                 };
                 match client::request(port, &msg).await? {
                     ServerMsg::Error { message } => bail!(message),

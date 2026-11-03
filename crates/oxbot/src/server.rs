@@ -15,13 +15,14 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
+use oxbot_core::engine::EngineKind;
 use oxbot_core::hub::answers;
 use oxbot_core::id::BrowserOwner;
 use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
-    AppSettings, ClientMsg, DEFAULT_PAGE, LogLine, MAX_PAGE, ServerHello, ServerMsg, SetupAction,
-    SetupReport,
+    AppSettings, ClientMsg, DEFAULT_PAGE, EnginesView, LogLine, MAX_PAGE, ReviewBot, ServerHello,
+    ServerMsg, SetupAction, SetupReport,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
@@ -74,6 +75,9 @@ pub struct AppState {
     pub dictation: Arc<crate::dictation::Dictation>,
     /// Numbers connections, so dictation goes back to the one that asked.
     pub next_conn: Arc<std::sync::atomic::AtomicU64>,
+    /// Claude bots other people used before they became owner-only, found
+    /// at start (see [`AppState::review_engines`]).
+    pub engine_review: Arc<std::sync::RwLock<Vec<ReviewBot>>>,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -115,7 +119,55 @@ impl AppState {
                 .map(|_| self.hub.notify_when_hidden()),
             // The Mac's own microphone: the Farm's alone.
             dictation: viewer.farm && self.dictation.available(),
+            owner: self.hub.is_owner_viewer(viewer),
+            owner_name: self.hub.owner_display_name(),
+            openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
         }
+    }
+
+    /// Settings → Engines as `viewer` gets it: everyone the notice and
+    /// whether `OpenRouter` is ready; the Farm also the banner and the Claude
+    /// bots others used (those still on Claude).
+    #[must_use]
+    pub fn engines_for(&self, viewer: &Viewer) -> EnginesView {
+        let farm = viewer.farm;
+        let review = if farm {
+            self.engine_review
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .filter(|r| self.hub.engine_of_bot(&r.bot) == Some(EngineKind::Claude))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        EnginesView {
+            notice: oxbot_core::hub::ENGINES_NOTICE.to_owned(),
+            owner: self.hub.owner_display_name(),
+            openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
+            banner: farm && self.hub.engines_notice_due(),
+            review,
+        }
+    }
+
+    /// Looks again for Claude bots other people used in the last 30 days
+    /// (once at start: they are owner-only now, and the owner reviews
+    /// them in Settings → Engines).
+    pub fn review_engines(&self) {
+        const DAYS_30_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+        let since = crate::runtime::now_ms() - DAYS_30_MS;
+        let found = self.hub.claude_bots_others_used(since);
+        if !found.is_empty() {
+            tracing::info!(
+                bots = found.len(),
+                "Claude bots other people used are owner-only now"
+            );
+        }
+        *self
+            .engine_review
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = found;
     }
 
     /// Who the Farm's own window is: the Farm's own person. (Gates connect
@@ -181,6 +233,7 @@ impl AppState {
             notifier: None,
             dictation: Arc::new(crate::dictation::Dictation::new(None)),
             next_conn: Arc::default(),
+            engine_review: Arc::default(),
         }
     }
 }
@@ -356,6 +409,11 @@ async fn upload(
         }
         Err(err) => return upload_error(StatusCode::FORBIDDEN, &err.to_string()),
     };
+    // Files only for a bot they may give tasks (Claude bots: the owner's),
+    // refused before anything is read.
+    if let Err(err) = state.hub.may_send(bot_id.as_str(), &viewer) {
+        return upload_error(StatusCode::FORBIDDEN, &err.to_string());
+    }
     // Too big to take, by what it says it is.
     let length = headers
         .get(header::CONTENT_LENGTH)
@@ -653,6 +711,19 @@ impl Client {
         }
     }
 
+    /// The engines view with bot ids as this client sees them.
+    fn outer_engines(&self, mut view: EnginesView) -> EnginesView {
+        view.review = view
+            .review
+            .into_iter()
+            .filter_map(|mut r| {
+                r.bot = self.outer(&r.bot)?;
+                Some(r)
+            })
+            .collect();
+        view
+    }
+
     /// The message with bot ids as this client sees them, or `None` if it's
     /// about someone else's Herder.
     fn outbound(&self, msg: ServerMsg) -> Option<ServerMsg> {
@@ -735,6 +806,7 @@ impl Client {
                     .collect(),
                 owner_id,
             },
+            ServerMsg::Engines(view) => ServerMsg::Engines(self.outer_engines(view)),
             ServerMsg::Usage(mut usage) => {
                 usage.bots = usage
                     .bots
@@ -1003,22 +1075,31 @@ async fn handle(
             name,
             instructions,
             private,
+            engine,
+        } => create_bot(state, client, &name, &instructions, private, engine).await,
+        ClientMsg::SetEngine {
+            bot,
+            engine,
+            model,
+            confirm_owner_only,
         } => {
-            match state
+            let done = state
                 .hub
-                .create_bot_as(&name, &instructions, Some(&viewer), private)
-                .await
-            {
-                Ok(info) => {
-                    client.visible.insert(info.id.clone());
-                    viewer
-                        .redact(vec![info])
-                        .into_iter()
-                        .map(ServerMsg::BotCreated)
-                        .collect()
-                }
-                Err(e) => error(&e),
+                .set_engine(
+                    &bot,
+                    engine_kind(engine),
+                    model,
+                    &viewer,
+                    confirm_owner_only,
+                )
+                .await;
+            if done.is_ok() {
+                // The owner's review list changes with it.
+                state
+                    .hub
+                    .announce(ServerMsg::Engines(state.engines_for(&viewer)));
             }
+            reply(done)
         }
         ClientMsg::SetPrivate { bot, private } => {
             reply(state.hub.set_private(&bot, private, &viewer).await)
@@ -1089,6 +1170,7 @@ async fn handle_messages(
             }
             Vec::new()
         }
+        ClientMsg::ListEngines => vec![ServerMsg::Engines(state.engines_for(viewer))],
         ClientMsg::CheckSetup => vec![
             ServerMsg::Setup(state.refresh_setup().await),
             // Whether the mic shows may have changed.
@@ -1248,6 +1330,10 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
+        ClientMsg::EnginesNoticeSeen => match state.hub.set_engines_notice_seen() {
+            Ok(()) => vec![ServerMsg::Engines(state.engines_for(&state.farm_viewer()))],
+            Err(e) => error(&e),
+        },
         ClientMsg::RunSetup { action } => {
             if state
                 .setup_running
@@ -1305,6 +1391,7 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
             | ClientMsg::SetNotifyWhenHidden { .. }
+            | ClientMsg::EnginesNoticeSeen
             // The Mac's own microphone, and opening files on its screen.
             | ClientMsg::Dictate { .. }
             | ClientMsg::OpenFile { .. }
@@ -1348,6 +1435,82 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
         Err(e) => vec![ServerMsg::Error {
             message: e.to_string(),
         }],
+    }
+}
+
+/// Makes a bot for the client on `engine` (the server's default if
+/// `None`). Claude only for the Farm's owner; `OpenRouter` only once it's
+/// set up. Checked before anything is made.
+async fn create_bot(
+    state: &AppState,
+    client: &mut Client,
+    name: &str,
+    instructions: &str,
+    private: bool,
+    engine: Option<oxbot_protocol::EngineKind>,
+) -> Vec<ServerMsg> {
+    let viewer = client.viewer.clone();
+    let error = |e: &dyn std::fmt::Display| {
+        vec![ServerMsg::Error {
+            message: e.to_string(),
+        }]
+    };
+    let wanted = engine.map(engine_kind);
+    match wanted {
+        Some(EngineKind::Claude) if !state.hub.is_owner_viewer(&viewer) => {
+            let owner = state.hub.owner_display_name();
+            return error(&format!(
+                "Only {owner} can make Claude bots: they run on {owner}'s own Claude plan."
+            ));
+        }
+        Some(EngineKind::OpenRouter) => {
+            if let Err(why) = state.hub.engine_ready(EngineKind::OpenRouter) {
+                return error(&why);
+            }
+        }
+        _ => {}
+    }
+    let info = match state
+        .hub
+        .create_bot_as(name, instructions, Some(&viewer), private)
+        .await
+    {
+        Ok(info) => info,
+        Err(e) => return error(&e),
+    };
+    client.visible.insert(info.id.clone());
+    let mut out = Vec::new();
+    if let Some(wanted) = wanted.filter(|w| *w != engine_kind(info.engine)) {
+        // The person picked it in the dialog, which said what Claude means.
+        if let Err(e) = state
+            .hub
+            .set_engine(&info.id, wanted, None, &viewer, true)
+            .await
+        {
+            out.push(ServerMsg::Error {
+                message: format!("Made {}, but couldn't switch its engine: {e}", info.name),
+            });
+        }
+    }
+    let info = match state.hub.bots().await {
+        Ok(list) => list.into_iter().find(|b| b.id == info.id).unwrap_or(info),
+        Err(_) => info,
+    };
+    out.splice(
+        0..0,
+        viewer
+            .redact(vec![info])
+            .into_iter()
+            .map(ServerMsg::BotCreated),
+    );
+    out
+}
+
+/// The engine as the hub names it.
+fn engine_kind(engine: oxbot_protocol::EngineKind) -> EngineKind {
+    match engine {
+        oxbot_protocol::EngineKind::Claude => EngineKind::Claude,
+        oxbot_protocol::EngineKind::OpenRouter => EngineKind::OpenRouter,
     }
 }
 
@@ -1480,6 +1643,10 @@ fn for_viewer(msg: ServerMsg, state: &AppState, viewer: &Viewer) -> Option<Serve
             Some(ServerMsg::ApprovalNeeded(a))
         }
         ServerMsg::AllowRules { ref bot, .. } => state.hub.may_manage(bot, viewer).then_some(msg),
+        // Settings and the engines view are made for each viewer: one sent
+        // to everyone is a cue to send them their own.
+        ServerMsg::Settings(_) => Some(ServerMsg::Settings(state.settings_for(viewer))),
+        ServerMsg::Engines(_) => Some(ServerMsg::Engines(state.engines_for(viewer))),
         other => Some(other),
     }
 }
@@ -1574,6 +1741,8 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // Plan limits already go to everyone in `Usage`; an alert names no
         // bot, site or person.
         | ServerMsg::UsageAlert(_)
+        // Made for each viewer in [`for_viewer`].
+        | ServerMsg::Engines(_)
         | ServerMsg::Error { .. } => Some(msg),
     }
 }
@@ -2347,6 +2516,169 @@ mod tests {
         assert!(
             matches!(&got[..], [ServerMsg::Error { message }] if message == "That report was deleted."),
             "{got:?}"
+        );
+    }
+
+    /// A server with every engine rule on: Recipes (shared, Claude) and
+    /// Sam's own Notes (`OpenRouter`); Jay is the Farm's person.
+    fn engines_state(dir: &std::path::Path) -> (AppState, Viewer) {
+        use oxbot_core::{Bot, BotId};
+        let store = oxbot_core::Store::open(&dir.join("oxbot.db")).unwrap();
+        let (sam, _) = store.find_or_create_person("Sam").unwrap();
+        let mut notes = Bot::create_owned(
+            dir,
+            BotId::new("notes").unwrap(),
+            "Notes",
+            "",
+            Some(&sam.id),
+            Some("Sam"),
+        )
+        .unwrap();
+        notes.engine = EngineKind::OpenRouter;
+        notes.save().unwrap();
+        let bots = vec![
+            Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
+            Bot::create(dir, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
+            notes,
+        ];
+        let config = oxbot_core::HubConfig {
+            pre_engine_tests: false,
+            ..oxbot_core::HubConfig::for_app(dir)
+        };
+        let hub = Hub::new(bots, store, config);
+        let state = AppState {
+            local_person: "Jay".to_owned(),
+            ..AppState::new(hub, "test-mac")
+        };
+        // Chooses Jay as the Farm's person.
+        let _ = state.farm_viewer();
+        let sam = Viewer::person(sam.id, "Sam", false);
+        (state, sam)
+    }
+
+    #[tokio::test]
+    async fn only_the_owner_may_task_claude_bots_whoever_sees_the_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, sam) = engines_state(tmp.path());
+        let farm = state.farm_viewer();
+        let jay_phone = Viewer {
+            farm: false,
+            ..farm.clone()
+        };
+        let bots = state.hub.bots().await.unwrap();
+        let can_task = |viewer: &Viewer| {
+            let mut client = Client::new(viewer.clone(), &bots);
+            let Some(ServerMsg::Bots { bots }) =
+                forward(ServerMsg::Bots { bots: bots.clone() }, &mut client)
+            else {
+                panic!("bots")
+            };
+            let json = serde_json::to_string(&bots).unwrap();
+            assert!(!json.contains("task_owner"), "{json}");
+            bots.into_iter()
+                .filter(|b| b.id != "assistant")
+                .map(|b| (b.id, b.can_task))
+                .collect::<Vec<_>>()
+        };
+        let all = vec![("notes".to_owned(), true), ("recipes".to_owned(), true)];
+        assert_eq!(can_task(&farm), all);
+        assert_eq!(can_task(&jay_phone), all);
+        assert_eq!(
+            can_task(&sam),
+            [("notes".to_owned(), true), ("recipes".to_owned(), false)]
+        );
+        // The engine is listed for everyone.
+        assert!(
+            bots.iter()
+                .any(|b| b.id == "notes" && b.engine == oxbot_protocol::EngineKind::OpenRouter)
+        );
+
+        let settings = state.settings_for(&sam);
+        assert!(!settings.owner && settings.owner_name == "Jay");
+        assert!(!settings.openrouter_ready);
+        assert!(state.settings_for(&jay_phone).owner);
+        assert!(state.settings_for(&farm).owner);
+    }
+
+    #[tokio::test]
+    async fn only_the_owner_switches_bots_to_claude_or_makes_claude_bots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, sam) = engines_state(tmp.path());
+        let (out, _rx) = mpsc::channel(4);
+        let mut client = Client::with_visible(
+            sam.clone(),
+            state.hub.visible_ids(&sam),
+            herder_for(&state, &sam),
+        );
+        let to_claude = ClientMsg::SetEngine {
+            bot: "notes".into(),
+            engine: oxbot_protocol::EngineKind::Claude,
+            model: None,
+            confirm_owner_only: true,
+        };
+        assert!(!farm_only(&to_claude));
+        let replies = handle(to_claude, &state, &mut client, &out).await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("Only Jay can switch a bot to Claude")),
+            "{replies:?}"
+        );
+        assert_eq!(
+            state.hub.engine_of_bot("notes"),
+            Some(EngineKind::OpenRouter)
+        );
+
+        let make = ClientMsg::CreateBot {
+            name: "Diary".into(),
+            instructions: String::new(),
+            private: true,
+            engine: Some(oxbot_protocol::EngineKind::Claude),
+        };
+        let replies = handle(make, &state, &mut client, &out).await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("Only Jay can make Claude bots")),
+            "{replies:?}"
+        );
+        assert!(state.hub.bot("diary").is_err(), "nothing made");
+
+        // The notice is the Farm's to dismiss.
+        assert!(farm_only(&ClientMsg::EnginesNoticeSeen));
+        let replies = handle(ClientMsg::EnginesNoticeSeen, &state, &mut client, &out).await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { .. }]),
+            "{replies:?}"
+        );
+        assert!(state.hub.engines_notice_due());
+
+        // Everyone gets the notice; only the Farm the banner and the review.
+        let view = state.engines_for(&sam);
+        assert_eq!(view.notice, oxbot_core::hub::ENGINES_NOTICE);
+        assert!(!view.banner && view.review.is_empty());
+        assert!(state.engines_for(&state.farm_viewer()).banner);
+    }
+
+    #[tokio::test]
+    async fn the_owner_reviews_claude_bots_others_used_until_switched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, _sam) = engines_state(tmp.path());
+        // Sam's message to Recipes from before engines.
+        oxbot_core::Store::open(&tmp.path().join("oxbot.db"))
+            .unwrap()
+            .append(
+                &oxbot_core::BotId::new("recipes").unwrap(),
+                oxbot_protocol::EventKind::UserMessage {
+                    text: "dinner?".into(),
+                    from: Some("Sam".into()),
+                    files: Vec::new(),
+                },
+            )
+            .unwrap();
+        state.review_engines();
+        let farm = state.farm_viewer();
+        let review = state.engines_for(&farm).review;
+        assert_eq!(review.len(), 1);
+        assert_eq!(
+            (review[0].bot.as_str(), &review[0].used_by[..]),
+            ("recipes", &["Sam".to_owned()][..])
         );
     }
 }

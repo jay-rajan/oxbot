@@ -424,6 +424,7 @@ async fn bots_are_created_from_a_name() {
         private: false,
         name: "Daily News".into(),
         instructions: "Summarize the news.".into(),
+        engine: None,
     };
     send(&mut ws, &create).await;
     let (id, list) = created(&mut ws).await;

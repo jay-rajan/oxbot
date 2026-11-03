@@ -66,6 +66,8 @@ impl Hub {
         list.into_iter()
             .map(|b| {
                 let seq = seqs.get(&b.id).copied().unwrap_or_default();
+                let mut info = BotInfo::default();
+                self.fill_engine(&b, &mut info);
                 Ok(BotInfo {
                     busy: busy.contains(&b.id),
                     last_seq: seq.last,
@@ -79,7 +81,7 @@ impl Hub {
                     owner: b.owner.as_ref().map(ToString::to_string),
                     id: b.id.to_string(),
                     name: b.name,
-                    ..BotInfo::default()
+                    ..info
                 })
             })
             .collect()
