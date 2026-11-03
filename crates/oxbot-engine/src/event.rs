@@ -217,7 +217,7 @@ pub struct CallRecord {
 
 /// What a model request was for.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum CallKind {
     /// A step of a bot's turn.
     #[default]
@@ -228,6 +228,8 @@ pub enum CallKind {
     Reflection,
     /// Judging a practice run.
     Judge,
+    /// A question about one stored web page (`ask_page`).
+    PageQuestion,
 }
 
 impl CallKind {
@@ -239,6 +241,7 @@ impl CallKind {
             Self::Compaction => "compaction",
             Self::Reflection => "reflection",
             Self::Judge => "judge",
+            Self::PageQuestion => "page_question",
         }
     }
 }
