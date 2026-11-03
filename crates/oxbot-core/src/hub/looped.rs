@@ -309,6 +309,22 @@ impl Hub {
         }
     }
 
+    /// One model request of a Claude bot (or a practice run on Claude):
+    /// saved for comparing engines, never counted against `OpenRouter`'s
+    /// limits (those count `openrouter` rows only). Owner-only data; it
+    /// stays on the Mac.
+    pub(super) async fn note_claude_call(&self, bot: &BotId, mut record: CallRecord) {
+        if let Some(r) = self.runtimes.lock().await.get(bot) {
+            record.person = r.origin.asker().map(ToString::to_string);
+        }
+        if let Err(err) = oxbot_loop::LoopStore::record_call(self.store.as_ref(), &record) {
+            tracing::warn!(%err, "couldn't save a Claude request");
+        }
+        if super::trials::is_trial(bot) {
+            self.trial_model_call(bot, &record);
+        }
+    }
+
     /// One model request of `bot`'s turn: the turn's meter, and the
     /// `OpenRouter` alerts.
     pub(super) async fn note_model_call(&self, bot: &BotId, record: &CallRecord) {

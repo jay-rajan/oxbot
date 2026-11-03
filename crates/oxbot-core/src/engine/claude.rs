@@ -16,7 +16,10 @@
 //! hold only weak handles: dropping the session kills the child at once,
 //! as dropping the `ClaudeProcess` always did.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
+use std::time::Instant;
 
 use oxbot_browser::MCP_SERVER_NAME;
 use oxbot_claude::{
@@ -26,8 +29,8 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
-    BoxFuture, Decision, Engine, EngineError, EngineEvent, EngineKind, HostToolCall, ModelChoice,
-    NotReady, PermissionRequest, Reply, Resume, SessionSpec, Started, TurnInput,
+    BoxFuture, CallRecord, Decision, Engine, EngineError, EngineEvent, EngineKind, HostToolCall,
+    ModelChoice, NotReady, PermissionRequest, Reply, Resume, SessionSpec, Started, TurnInput,
 };
 use crate::tools::{self, TOOL_SERVER_NAME, ToolSet};
 
@@ -97,9 +100,11 @@ impl ClaudeEngine {
         let (commands, commands_rx) = mpsc::unbounded_channel();
         let reader = Reader {
             bot: spec.bot.clone(),
+            session: spec.resume.id().to_owned(),
             set: ToolSet::from(spec.host_tools),
             events,
             commands: commands.downgrade(),
+            requests: Mutex::new(Requests::default()),
         };
         tokio::spawn(run_process(process, commands_rx, spec.bot.clone()));
         tokio::spawn(reader.run(claude_events));
@@ -254,10 +259,57 @@ async fn run_process(
 /// Turns one child's events into engine events.
 struct Reader {
     bot: String,
+    /// The Claude session.
+    session: String,
     /// oxbot's own tools this bot has (fixed for the session).
     set: ToolSet,
     events: mpsc::Sender<EngineEvent>,
     commands: mpsc::WeakUnboundedSender<Command>,
+    /// Model requests under way, for the meter.
+    requests: Mutex<Requests>,
+}
+
+/// Claude's model requests under way in a session: each one's model and
+/// start, by the API's message id, and how many there were this turn.
+#[derive(Debug, Default)]
+struct Requests {
+    started: HashMap<String, (String, Instant, i64)>,
+    step: u32,
+}
+
+impl Reader {
+    /// One finished request as a meter record: the same row the loop
+    /// writes, from Claude's own counts (no cost: the turn has the total).
+    fn request_done(&self, id: &str, usage: &oxbot_claude::TurnUsage) -> CallRecord {
+        let mut requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        let (model, started, ts_ms) = requests
+            .started
+            .remove(id)
+            .unwrap_or_else(|| (String::new(), Instant::now(), crate::store::now_ms()));
+        requests.step += 1;
+        CallRecord {
+            ts_ms,
+            day: oxbot_loop::meter::utc_day(ts_ms),
+            bot: self.bot.clone(),
+            person: None,
+            session: Some(self.session.clone()),
+            turn: None,
+            step: Some(requests.step),
+            provider: super::CLAUDE_PROVIDER.to_owned(),
+            requested: model.clone(),
+            model,
+            free: false,
+            private: false,
+            generation_id: Some(id.to_owned()).filter(|i| !i.is_empty()),
+            prompt_tokens: usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
+            completion_tokens: usage.output_tokens,
+            cached_tokens: usage.cache_read_tokens,
+            cost_usd: 0.0,
+            latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            outcome: "ok".to_owned(),
+            kind: oxbot_engine::CallKind::Chat,
+        }
+    }
 }
 
 impl Reader {
@@ -275,7 +327,25 @@ impl Reader {
 
     fn convert(&self, event: ClaudeEvent) -> Option<EngineEvent> {
         Some(match event {
-            ClaudeEvent::Init { model, .. } => EngineEvent::Started { model },
+            ClaudeEvent::Init { model, .. } => {
+                // A new turn: its requests count from one.
+                self.requests
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .step = 0;
+                EngineEvent::Started { model }
+            }
+            ClaudeEvent::RequestStarted { id, model } => {
+                self.requests
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .started
+                    .insert(id, (model, Instant::now(), crate::store::now_ms()));
+                return None;
+            }
+            ClaudeEvent::RequestDone { id, usage } => {
+                EngineEvent::ModelCall(self.request_done(&id, &usage))
+            }
             ClaudeEvent::TextDelta(text) => EngineEvent::TextDelta(text),
             ClaudeEvent::Assistant { text, tool_uses } => {
                 EngineEvent::Assistant { text, tool_uses }
@@ -405,6 +475,60 @@ mod tests {
             env: vec![("PATH".into(), "/bin".into())],
             tool_wait: Duration::from_secs(90),
         }
+    }
+
+    #[test]
+    fn each_claude_request_is_a_meter_row() {
+        let (events, _rx) = mpsc::channel(4);
+        let (commands, _crx) = mpsc::unbounded_channel::<Command>();
+        let reader = Reader {
+            bot: "helper".into(),
+            session: "abc".into(),
+            set: ToolSet::from(HostTools::default()),
+            events,
+            commands: commands.downgrade(),
+            requests: Mutex::new(Requests::default()),
+        };
+        assert!(
+            reader
+                .convert(ClaudeEvent::Init {
+                    session_id: "abc".into(),
+                    model: "claude-sonnet-4-5".into(),
+                })
+                .is_some()
+        );
+        assert!(
+            reader
+                .convert(ClaudeEvent::RequestStarted {
+                    id: "msg_1".into(),
+                    model: "claude-sonnet-4-5".into(),
+                })
+                .is_none()
+        );
+        let usage = oxbot_claude::TurnUsage {
+            input_tokens: 2,
+            output_tokens: 40,
+            cache_read_tokens: 3_000,
+            cache_write_tokens: 500,
+            cost_usd: 0.0,
+        };
+        let Some(EngineEvent::ModelCall(record)) = reader.convert(ClaudeEvent::RequestDone {
+            id: "msg_1".into(),
+            usage,
+        }) else {
+            panic!("no meter row");
+        };
+        assert_eq!(record.provider, "anthropic");
+        assert_eq!(record.model, "claude-sonnet-4-5");
+        assert_eq!(record.bot, "helper");
+        assert_eq!(record.session.as_deref(), Some("abc"));
+        assert_eq!(record.step, Some(1));
+        assert_eq!(record.prompt_tokens, 3_502);
+        assert_eq!(record.cached_tokens, 3_000);
+        assert_eq!(record.completion_tokens, 40);
+        assert_eq!(record.kind, oxbot_engine::CallKind::Chat);
+        assert!(!record.free && record.cost_usd == 0.0);
+        assert_eq!(record.outcome, "ok");
     }
 
     #[test]

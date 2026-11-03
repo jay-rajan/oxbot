@@ -68,6 +68,22 @@ pub enum ClaudeEvent {
         /// The JSON-RPC message.
         message: Value,
     },
+    /// One model request started (`message_start`; needs
+    /// `--include-partial-messages`).
+    RequestStarted {
+        /// The API's message id.
+        id: String,
+        /// The model asked.
+        model: String,
+    },
+    /// One model request finished, with what it used (`message_delta`).
+    /// Its cost is in the turn's total, not here.
+    RequestDone {
+        /// The API's message id.
+        id: String,
+        /// Its tokens.
+        usage: TurnUsage,
+    },
     /// The CLI confirmed a control request (e.g. an interrupt).
     ControlAck {
         /// The id oxbot sent with the request.
@@ -119,31 +135,7 @@ pub fn parse_line(line: &str) -> Result<Option<ClaudeEvent>, serde_json::Error> 
             Some("api_retry") => Some(ClaudeEvent::Activity(Activity::Retrying)),
             _ => None,
         },
-        Some("stream_event") => {
-            let event = v.get("event").unwrap_or(&Value::Null);
-            match event.get("type").and_then(Value::as_str) {
-                Some("content_block_delta") => match event.get("delta") {
-                    Some(d) if d.get("type").and_then(Value::as_str) == Some("text_delta") => {
-                        Some(ClaudeEvent::TextDelta(s(d, "text")))
-                    }
-                    _ => None,
-                },
-                Some("content_block_start") => {
-                    let block = event.get("content_block").unwrap_or(&Value::Null);
-                    match block.get("type").and_then(Value::as_str) {
-                        Some("thinking" | "redacted_thinking") => {
-                            Some(ClaudeEvent::Activity(Activity::Thinking))
-                        }
-                        Some("text") => Some(ClaudeEvent::Activity(Activity::Writing)),
-                        Some("tool_use") => {
-                            Some(ClaudeEvent::Activity(Activity::UsingTool(s(block, "name"))))
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
-        }
+        Some("stream_event") => stream_event(&v),
         // A tool finished and its result went back to the model.
         Some("user") => Some(tool_result(&v)),
         Some("assistant") => {
@@ -190,6 +182,49 @@ pub fn parse_line(line: &str) -> Result<Option<ClaudeEvent>, serde_json::Error> 
         _ => None,
     };
     Ok(event)
+}
+
+/// A `stream_event` line (needs `--include-partial-messages`): live text,
+/// what Claude is doing, and each model request's start and usage.
+fn stream_event(v: &Value) -> Option<ClaudeEvent> {
+    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let event = v.get("event").unwrap_or(&Value::Null);
+    match event.get("type").and_then(Value::as_str) {
+        Some("message_start") => {
+            let message = event.get("message").unwrap_or(&Value::Null);
+            Some(ClaudeEvent::RequestStarted {
+                id: s(message, "id"),
+                model: s(message, "model"),
+            })
+        }
+        Some("message_delta") if event.get("usage").is_some() => Some(ClaudeEvent::RequestDone {
+            id: s(v, "api_message_id"),
+            usage: TurnUsage {
+                cost_usd: 0.0,
+                ..turn_usage(event)
+            },
+        }),
+        Some("content_block_delta") => match event.get("delta") {
+            Some(d) if d.get("type").and_then(Value::as_str) == Some("text_delta") => {
+                Some(ClaudeEvent::TextDelta(s(d, "text")))
+            }
+            _ => None,
+        },
+        Some("content_block_start") => {
+            let block = event.get("content_block").unwrap_or(&Value::Null);
+            match block.get("type").and_then(Value::as_str) {
+                Some("thinking" | "redacted_thinking") => {
+                    Some(ClaudeEvent::Activity(Activity::Thinking))
+                }
+                Some("text") => Some(ClaudeEvent::Activity(Activity::Writing)),
+                Some("tool_use") => {
+                    Some(ClaudeEvent::Activity(Activity::UsingTool(s(block, "name"))))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// A request from the CLI to oxbot: a permission question, or a message for
@@ -370,6 +405,44 @@ mod tests {
             Some(ClaudeEvent::Activity(Activity::UsingTool(
                 "mcp__chrome-devtools__navigate_page".into()
             )))
+        );
+    }
+
+    #[test]
+    fn each_model_request_reports_what_it_used() {
+        let events = parse_all(include_str!("../tests/fixtures/streaming.jsonl"));
+        let started: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ClaudeEvent::RequestStarted { id, model } => Some((id.as_str(), model.as_str())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            started,
+            [
+                ("msg_011CgT2JiPgY2ZuWrCwMNoCd", "claude-haiku-5-5"),
+                ("msg_011CgT2KSbS9Wpz5gdkQFGUk", "claude-haiku-5-5")
+            ]
+        );
+        let done: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ClaudeEvent::RequestDone { id, usage } => Some((id.as_str(), *usage)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(done.len(), 2);
+        assert_eq!(done[0].0, "msg_011CgT2JiPgY2ZuWrCwMNoCd");
+        assert_eq!(
+            done[1].1,
+            TurnUsage {
+                input_tokens: 2,
+                output_tokens: 3,
+                cache_read_tokens: 2876,
+                cache_write_tokens: 1212,
+                cost_usd: 0.0,
+            }
         );
     }
 

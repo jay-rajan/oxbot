@@ -305,6 +305,10 @@ impl Hub {
     pub(super) fn trial_model_call(&self, key: &BotId, record: &CallRecord) {
         if let Some(a) = lock(&self.trials.active).get_mut(key) {
             a.run.requests += 1;
+            if record.provider == crate::engine::CLAUDE_PROVIDER {
+                // Claude's tokens and cost come with its turn's total.
+                return;
+            }
             a.run.input_tokens += record.prompt_tokens;
             a.run.output_tokens += record.completion_tokens;
             a.run.cached_tokens += record.cached_tokens;

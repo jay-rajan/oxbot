@@ -339,7 +339,10 @@ impl Hub {
                 self.check_limit_alerts(&windows);
                 self.announce_usage();
             }
-            // Only oxbot's own loop reports model requests.
+            // Claude reports each of its requests too, for comparisons.
+            EngineEvent::ModelCall(record) if record.provider == crate::engine::CLAUDE_PROVIDER => {
+                self.note_claude_call(bot, record).await;
+            }
             EngineEvent::ModelCall(record) if super::trials::is_trial(bot) => {
                 self.trial_model_call(bot, &record);
             }

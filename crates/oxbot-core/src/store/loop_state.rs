@@ -586,9 +586,11 @@ impl Store {
             "SELECT {column}, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens), SUM(cost_usd),
                     (SELECT model FROM model_calls m2
                      WHERE m2.day = m.day AND m2.{column} = m.{column} AND m2.model != ''
+                       AND m2.provider != 'anthropic'
                      GROUP BY model ORDER BY COUNT(*) DESC, model LIMIT 1)
              FROM model_calls m
              WHERE day = ?1 AND {column} IS NOT NULL AND outcome != 'cancelled'
+               AND provider != 'anthropic'
              GROUP BY {column} ORDER BY {column}"
         ))?;
         let rows = stmt.query_map([day], |r| {
@@ -883,6 +885,11 @@ mod tests {
                 provider: "local".into(),
                 ..call("news", Some("p2"), "llama", "ok", 0.0)
             },
+            // A Claude bot's own request, kept for comparisons only.
+            CallRecord {
+                provider: "anthropic".into(),
+                ..call("scout", Some("p1"), "claude-sonnet-4-5", "ok", 0.0)
+            },
         ] {
             store.record_call(&c).unwrap();
         }
@@ -902,7 +909,15 @@ mod tests {
         assert_eq!(scout.requests, 3);
         assert_eq!(scout.prompt_tokens, 300);
         assert_eq!(scout.main_model, "a:free");
+        assert!(
+            usage
+                .bots
+                .iter()
+                .all(|(_, t)| t.main_model != "claude-sonnet-4-5"),
+            "Claude's requests aren't OpenRouter usage"
+        );
         let stats = store.model_stats(0).unwrap();
+        assert!(stats.iter().all(|s| !s.model.starts_with("claude")));
         let a = stats.iter().find(|s| s.model == "a:free").unwrap();
         assert_eq!((a.ok, a.total), (1, 3));
         assert!(

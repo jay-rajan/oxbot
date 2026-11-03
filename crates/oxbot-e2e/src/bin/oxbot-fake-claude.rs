@@ -41,7 +41,8 @@ enum Waiting {
     Mcp(Reply),
 }
 
-struct Out(std::io::Stdout, u64);
+/// Standard output, a counter for ids, and the model it says it is.
+struct Out(std::io::Stdout, u64, String);
 
 impl Out {
     fn line(&mut self, v: &Value) {
@@ -53,9 +54,27 @@ impl Out {
         self.1 += 1;
         self.1
     }
+    /// One model request, as Claude streams its start and its usage.
+    fn request(&mut self) {
+        let id = format!("msg_fake_{}", self.next());
+        let model = self.2.clone();
+        self.line(&json!({"type":"stream_event","event":{"type":"message_start","message":{"id":id,"model":model,
+            "usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}},
+            "parent_tool_use_id":null}));
+        self.line(&json!({"type":"stream_event","event":{"type":"message_delta","delta":{},
+            "usage":{"input_tokens":3,"output_tokens":7,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}},
+            "api_message_id":id,"parent_tool_use_id":null}));
+    }
+    /// One assistant message, after its request.
+    fn assistant(&mut self, content: &Value) {
+        self.request();
+        self.line(
+            &json!({"type":"assistant","message":{"content":content},"parent_tool_use_id":null}),
+        );
+    }
     fn say(&mut self, text: &str) {
         if !text.is_empty() {
-            self.line(&json!({"type":"assistant","message":{"content":[{"type":"text","text":text}]},"parent_tool_use_id":null}));
+            self.assistant(&json!([{"type":"text","text":text}]));
         }
     }
     fn done(&mut self, text: &str) {
@@ -68,7 +87,7 @@ impl Out {
 
 fn main() {
     let script = Script::from_env();
-    let mut out = Out(std::io::stdout(), 0);
+    let mut out = Out(std::io::stdout(), 0, String::new());
     let mut waiting = Waiting::Nothing;
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -80,6 +99,7 @@ fn main() {
                 let text = user_text(&msg["message"]["content"]);
                 let reply = script.pick(&text);
                 let model = reply.model.as_deref().unwrap_or("fake");
+                model.clone_into(&mut out.2);
                 out.line(
                     &json!({"type":"system","subtype":"init","session_id":"fake","model":model}),
                 );
@@ -155,7 +175,7 @@ fn read_files(out: &mut Out, text: &str, say: Option<&str>) -> String {
     let files = attached(text);
     for file in &files {
         let n = out.next();
-        out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("r{n}"),"name":"Read","input":{"file_path":file.opened}}]},"parent_tool_use_id":null}));
+        out.assistant(&json!([{"type":"tool_use","id":format!("r{n}"),"name":"Read","input":{"file_path":file.opened}}]));
         out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("r{n}"),"content":file.found}]},"parent_tool_use_id":null}));
     }
     read_answer(say, &files)
@@ -176,12 +196,12 @@ fn start(out: &mut Out, reply: Reply, text: &str) -> Waiting {
     }
     for snapshot in reply.page_snapshots() {
         let n = out.next();
-        out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("s{n}"),"name":"mcp__chrome-devtools__take_snapshot","input":{}}]},"parent_tool_use_id":null}));
+        out.assistant(&json!([{"type":"tool_use","id":format!("s{n}"),"name":"mcp__chrome-devtools__take_snapshot","input":{}}]));
         out.line(&json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":format!("s{n}"),"content":snapshot}]},"parent_tool_use_id":null}));
     }
     let input = reply.args_json();
     let n = out.next();
-    out.line(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":format!("c{n}"),"name":name,"input":input}]},"parent_tool_use_id":null}));
+    out.assistant(&json!([{"type":"tool_use","id":format!("c{n}"),"name":name,"input":input}]));
     out.line(&json!({"type":"control_request","request_id":format!("r{n}"),"request":{"subtype":"can_use_tool","tool_name":name,"input":input,"tool_use_id":format!("c{n}")}}));
     Waiting::Permission(reply, name, input)
 }

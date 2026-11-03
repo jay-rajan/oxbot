@@ -6,3 +6,7 @@
 pub mod claude;
 
 pub use oxbot_engine::*;
+
+/// The provider of Claude's own model requests in the meter
+/// (`model_calls.provider`).
+pub const CLAUDE_PROVIDER: &str = "anthropic";
