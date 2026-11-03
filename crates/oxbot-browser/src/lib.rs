@@ -17,6 +17,7 @@ mod web;
 
 use std::path::{Path, PathBuf};
 
+use oxbot_engine::McpCommand;
 use serde_json::json;
 use tokio::process::Command;
 use tokio::sync::Mutex;
@@ -122,6 +123,10 @@ pub struct ToolsConfig {
     /// Keep sign-in windows hidden too (end-to-end tests, so no windows pop
     /// up on the screen while they run).
     pub hidden_windows: bool,
+    /// End-to-end tests only: the browser tool oxbot's own loop runs
+    /// instead of `chrome-devtools-mcp` (a stand-in). Claude bots keep the
+    /// real one.
+    pub mcp_override: Option<McpCommand>,
 }
 
 /// The browser tool shipped inside oxbot.app: a Node.js runtime and the
@@ -164,6 +169,7 @@ impl ToolsConfig {
             env: Vec::new(),
             built_in: None,
             hidden_windows: false,
+            mcp_override: None,
         }
     }
 
@@ -270,30 +276,58 @@ impl Tools {
         Ok(program)
     }
 
+    /// The browser tool as a command, for the Chrome on `port`, saving
+    /// files only in `workspace`: the same program, flags and environment
+    /// for every engine (or, in end-to-end tests, the stand-in set as
+    /// [`ToolsConfig::mcp_override`]).
+    #[must_use]
+    pub fn mcp_command(&self, port: u16, workspace: &Path) -> McpCommand {
+        match &self.config.mcp_override {
+            Some(stand_in) => stand_in.clone(),
+            None => self.real_mcp_command(port, workspace),
+        }
+    }
+
+    fn real_mcp_command(&self, port: u16, workspace: &Path) -> McpCommand {
+        let env = MCP_ENV
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .chain(self.config.env.iter().cloned())
+            .collect();
+        let args = mcp_args(&format!("http://127.0.0.1:{port}"), workspace);
+        match &self.config.built_in {
+            // The built-in Node.js runs the built-in tool.
+            Some(tool) => McpCommand {
+                program: tool.node.clone(),
+                args: std::iter::once(tool.entry.display().to_string())
+                    .chain(args)
+                    .collect(),
+                env,
+            },
+            None => McpCommand {
+                program: self.config.mcp_program(),
+                args,
+                env,
+            },
+        }
+    }
+
     /// The browser tool's entry for Claude's `--mcp-config` `mcpServers`
     /// (named [`MCP_SERVER_NAME`]), for the Chrome on `port`, saving files
     /// only in `workspace`.
     #[must_use]
     pub fn mcp_server(&self, port: u16, workspace: &Path) -> serde_json::Value {
-        let env: serde_json::Map<_, _> = MCP_ENV
+        let command = self.real_mcp_command(port, workspace);
+        let env: serde_json::Map<_, _> = command
+            .env
             .iter()
-            .map(|(k, v)| ((*k).to_owned(), json!(v)))
-            .chain(self.config.env.iter().map(|(k, v)| (k.clone(), json!(v))))
+            .map(|(k, v)| (k.clone(), json!(v)))
             .collect();
-        let args = mcp_args(&format!("http://127.0.0.1:{port}"), workspace);
-        match &self.config.built_in {
-            // The built-in Node.js runs the built-in tool.
-            Some(tool) => json!({
-                "command": tool.node,
-                "args": std::iter::once(tool.entry.display().to_string()).chain(args).collect::<Vec<_>>(),
-                "env": env,
-            }),
-            None => json!({
-                "command": self.config.mcp_program(),
-                "args": args,
-                "env": env,
-            }),
-        }
+        json!({
+            "command": command.program,
+            "args": command.args,
+            "env": env,
+        })
     }
 }
 
@@ -356,5 +390,37 @@ mod tests {
         assert_eq!(entry["command"], json!(tool.node));
         assert_eq!(entry["args"][0], json!(tool.entry.display().to_string()));
         assert_eq!(entry["args"][1], "--browserUrl=http://127.0.0.1:9333");
+        // The loop runs the same command.
+        let command = tools.mcp_command(9333, Path::new("/bots/x/work"));
+        assert_eq!(command.program, tool.node);
+        assert_eq!(command.args[1], "--browserUrl=http://127.0.0.1:9333");
+        assert!(
+            command
+                .env
+                .iter()
+                .any(|(k, v)| k == "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS" && v == "1")
+        );
+    }
+
+    #[test]
+    fn a_stand_in_replaces_the_tool_only_for_the_loop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stand_in = McpCommand {
+            program: PathBuf::from("/e2e/oxbot-fake-devtools"),
+            args: Vec::new(),
+            env: vec![("OXBOT_FAKE_SCRIPT".into(), "x.toml".into())],
+        };
+        let tools = Tools::new(ToolsConfig {
+            mcp_override: Some(stand_in.clone()),
+            ..ToolsConfig::in_home(tmp.path())
+        });
+        assert_eq!(tools.mcp_command(9333, Path::new("/w")), stand_in);
+        assert_eq!(
+            tools.mcp_server(9333, Path::new("/w"))["command"],
+            json!(
+                tmp.path()
+                    .join("tools/node_modules/.bin/chrome-devtools-mcp")
+            )
+        );
     }
 }

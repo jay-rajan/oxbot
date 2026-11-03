@@ -16,8 +16,8 @@ use super::team::team_label;
 use super::{Hub, HubError, Runtime, Shared, elements};
 use crate::bot::Bot;
 use crate::engine::{
-    Activity, BrowserSpec, EngineEvent, EngineKind, GateMode, HostTools, McpCommand, ModelChoice,
-    Privacy, Resume, Session, SessionSpec, Started, ToolUse,
+    Activity, BrowserSpec, EngineEvent, EngineKind, GateMode, HostTools, ModelChoice, Privacy,
+    Resume, Session, SessionSpec, Started, ToolUse,
 };
 use crate::id::BotId;
 use crate::prompt::{Capabilities, system_prompt};
@@ -184,10 +184,10 @@ impl Hub {
                 }
             });
         }
-        let mcp_json = tools.mcp_server(shared.browser.port(), work_dir);
+        let port = shared.browser.port();
         Some(BrowserSpec {
-            mcp: McpCommand::from_server_entry(&mcp_json).unwrap_or_default(),
-            mcp_json,
+            mcp: tools.mcp_command(port, work_dir),
+            mcp_json: tools.mcp_server(port, work_dir),
         })
     }
 

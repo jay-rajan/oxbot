@@ -6,6 +6,7 @@
 pub mod browser;
 pub mod control;
 pub mod files;
+pub mod mcp;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};

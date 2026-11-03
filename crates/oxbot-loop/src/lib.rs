@@ -43,6 +43,7 @@ pub use pacer::{Account, Lane, Pacer};
 pub use router::{CatalogCache, Router};
 pub use store::{LoopStore, LoopStoreError, StoredMessage, TurnRow, TurnStatus};
 pub use tools::browser::{BrowserFactory, BrowserOutput, BrowserTools};
+pub use tools::mcp::McpBrowserFactory;
 pub use tools::{ToolOutcome, ToolRegistry};
 
 /// Household settings for the loop, changed by the owner.
