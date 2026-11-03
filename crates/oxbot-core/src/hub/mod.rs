@@ -1226,7 +1226,8 @@ mod tests {
 
     #[test]
     fn activity_labels_read_like_the_terminal() {
-        assert_eq!(activity_label(&Activity::Requesting), "Clauding…");
+        // One word for every engine.
+        assert_eq!(activity_label(&Activity::Requesting), "Working…");
         assert_eq!(
             activity_label(&Activity::UsingTool("mcp__oxbot__find_in_page".into())),
             "Searching the page…"

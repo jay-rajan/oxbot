@@ -787,8 +787,8 @@ pub enum ServerMsg {
         /// The new text.
         text: String,
     },
-    /// What a bot is doing right now, like the terminal's "Clauding…"
-    /// spinner. Not stored; cleared by the turn's [`EventKind::TurnDone`].
+    /// What a bot is doing right now, for a live "Working…" line. Not
+    /// stored; cleared by the turn's [`EventKind::TurnDone`].
     Activity {
         /// Bot id.
         bot: String,

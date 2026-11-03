@@ -308,7 +308,9 @@ dialog.report-view[open] { display: flex; flex-direction: column; }
 /* dialog + toast */
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 0; width: min(460px, calc(100% - 32px)); }
 dialog::backdrop { background: rgb(0 0 0 / .35); }
-dialog form { display: grid; gap: 12px; padding: 20px; }
+dialog form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px; }
+dialog select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+dialog .row { flex-wrap: wrap; }
 dialog h2 { margin: 0 0 4px; font-size: 1.1rem; }
 label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
 label input, label textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
@@ -855,7 +857,7 @@ function follow(id, b) {
 }
 /** What a stored event says about the bot's state (no drawing). */
 function applyEvent(b, m) {
-  if (m.kind === "user_message") { b.busy = true; b.activity = "Clauding…"; if (m.files) filesSent(m.bot, m.files); }
+  if (m.kind === "user_message") { b.busy = true; b.activity = "Working…"; if (m.files) filesSent(m.bot, m.files); }
   if (m.kind === "turn_done") { b.busy = false; b.activity = null; }
   if (m.kind === "assistant_message") { b.stream = null; b.info.last_reply_seq = Math.max(b.info.last_reply_seq || 0, m.seq); if (viewing(m.bot)) markSeen(m.bot); }
 }
@@ -1549,7 +1551,7 @@ function select(id) {
 function updateStatus() {
   const b = current && bots.get(current);
   if (!b) return;
-  $("botStatus").textContent = b.busy ? (b.activity || "Clauding…") : b.info.central ? "leads your bots" : `${b.info.private ? "private · " : ""}@${b.info.id}`;
+  $("botStatus").textContent = b.busy ? (b.activity || "Working…") : b.info.central ? "leads your bots" : `${b.info.private ? "private · " : ""}@${b.info.id}`;
   // Anyone who may open the bot sees its reports there; only managers change it.
   $("botMore").hidden = isLocked(b);
   const moreLabel = canManage(b) ? "Bot settings" : "Reports";
@@ -2517,13 +2519,13 @@ $("signOutAll").onclick = () => {
   send({ type: "sign_out_all" });
 };
 
-// Live "Clauding…" line at the bottom of the chat while the bot works.
+// Live "Working…" line at the bottom of the chat while the bot works.
 function showTyping() {
   const log = $("log"); const b = bots.get(current);
   let t = log.querySelector(".typing");
   if (!b || !b.busy || b.stream) { if (t) t.remove(); return; }
   if (!t) t = div("typing");
-  t.textContent = (b.activity || "Clauding…").replace(/…$/, "");
+  t.textContent = (b.activity || "Working…").replace(/…$/, "");
   log.appendChild(t); // keep it last
   scrollDown();
 }
@@ -2793,6 +2795,9 @@ function rateRow(e) {
   return row;
 }
 
+/** "3 actions held back": what a practice run would have done but didn't; nothing when none. */
+function heldBack(n) { return n > 0 ? `${n} ${n === 1 ? "action" : "actions"} held back` : ""; }
+
 /** A shadow run's card under the live reply it ran next to. */
 function shadowCard(bot, liveSeq) {
   const run = shadowRuns.get(bot) && shadowRuns.get(bot).get(liveSeq);
@@ -2800,7 +2805,7 @@ function shadowCard(bot, liveSeq) {
   const d = document.createElement("details"); d.className = "shadow-card";
   const s = document.createElement("summary");
   const acting = run.intents > 0 ? " · acting task: shadow is a dry run" : "";
-  s.textContent = `Shadow · ${run.model} · ${run.status === "running" ? "running…" : `${run.steps} steps · ${run.intents} recorded`}${acting}`;
+  s.textContent = `Shadow · ${run.model} · ${run.status === "running" ? "running…" : [`${run.steps} steps`, heldBack(run.intents)].filter(Boolean).join(" · ")}${acting}`;
   const body = div("msg bot"); body.innerHTML = md(run.answer || (run.status === "running" ? "…" : "(no answer)"));
   const open = document.createElement("button"); open.type = "button"; open.className = "ghost"; open.textContent = "Open in Compare";
   open.onclick = () => { openCompare(bot, "cmpRuns"); send({ type: "open_run", run: run.id }); };
@@ -2815,7 +2820,7 @@ function renderShadowChip() {
   if (chip.hidden) return;
   chip.classList.toggle("on", !!r.shadow);
   chip.textContent = r.shadow ? `⇆ Shadow on ${r.shadow.model}` : "⇆ Shadow";
-  chip.title = r.shadow ? "Your messages also run on this model, recorded only. Click to change." : "Also run your messages on another engine or model, recorded only";
+  chip.title = r.shadow ? `Your messages also go to ${r.shadow.model} as a test, which does nothing on websites. Click to change.` : "Also send your messages to another engine or model as a test, which does nothing on websites";
 }
 $("shadowChip").onclick = () => {
   const sel = $("shadowTarget"); sel.textContent = "";
@@ -2956,7 +2961,7 @@ function renderCmpRuns() {
     const mid = document.createElement("div");
     const t = document.createElement("span"); t.textContent = `${r.case_title || (r.kind === "shadow" ? "Shadow" : "Run")} · ${targetName(r)}`;
     const small = document.createElement("small");
-    small.textContent = [r.kind === "original" ? "the original" : r.kind, r.status, `${r.steps} steps`, r.requests ? `${r.requests} requests` : "", `${r.intents} recorded`, r.net_blocked ? `${r.net_blocked} blocked` : "", r.started_ms ? new Date(r.started_ms).toLocaleString() : ""].filter(Boolean).join(" · ");
+    small.textContent = [r.kind === "original" ? "the original" : r.kind, r.status, `${r.steps} steps`, r.requests ? `${r.requests} requests` : "", heldBack(r.intents), r.net_blocked ? `${r.net_blocked} blocked` : "", r.started_ms ? new Date(r.started_ms).toLocaleString() : ""].filter(Boolean).join(" · ");
     mid.append(t, small);
     const v = document.createElement("span"); v.className = "pill"; v.textContent = r.verdict ? VERDICT[r.verdict] : r.status === "running" ? "running…" : "–";
     li.append(mid, v);
@@ -2983,7 +2988,7 @@ function runSide(title, run, events, isOriginal, match) {
   }
   if (ul.children.length) box.appendChild(ul);
   const nums = document.createElement("p"); nums.className = "hint";
-  nums.textContent = [run.status, `${run.steps} steps`, run.requests ? `${run.requests} requests` : "", run.input_tokens ? `${cmpNum(run.input_tokens)} in / ${cmpNum(run.output_tokens)} out` : "", run.cost_usd ? cmpMoney(run.cost_usd) : "", run.started_ms && run.ended_ms ? cmpSecs(run.ended_ms - run.started_ms) : "", `${run.intents} ${isOriginal ? "cards" : "recorded"}`, run.refusals ? `${run.refusals} refused` : "", run.errors ? `${run.errors} errors` : "", run.net_blocked ? `${run.net_blocked} blocked` : "", run.web_age_days != null ? `web ${run.web_age_days} days newer` : ""].filter(Boolean).join(" · ");
+  nums.textContent = [run.status, `${run.steps} steps`, run.requests ? `${run.requests} requests` : "", run.input_tokens ? `${cmpNum(run.input_tokens)} in / ${cmpNum(run.output_tokens)} out` : "", run.cost_usd ? cmpMoney(run.cost_usd) : "", run.started_ms && run.ended_ms ? cmpSecs(run.ended_ms - run.started_ms) : "", isOriginal ? (run.intents ? `${run.intents} cards` : "") : heldBack(run.intents), run.refusals ? `${run.refusals} refused` : "", run.errors ? `${run.errors} errors` : "", run.net_blocked ? `${run.net_blocked} blocked` : "", run.web_age_days != null ? `web ${run.web_age_days} days newer` : ""].filter(Boolean).join(" · ");
   box.appendChild(nums);
   const tr = div("transcript");
   for (const e of events || []) { const el = eventEl(e); if (el) tr.appendChild(el); }

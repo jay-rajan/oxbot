@@ -681,7 +681,8 @@ fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
 /// The status line for an activity, in the terminal's spirit.
 pub(super) fn activity_label(activity: &Activity) -> String {
     match activity {
-        Activity::Requesting => "Clauding…".to_owned(),
+        // The same word for every engine.
+        Activity::Requesting => "Working…".to_owned(),
         Activity::Thinking => "Thinking…".to_owned(),
         Activity::Writing => "Writing…".to_owned(),
         Activity::Retrying => "Waiting to retry…".to_owned(),
