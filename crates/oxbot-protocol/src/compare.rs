@@ -352,6 +352,30 @@ pub struct BatchEstimate {
     pub refused: Vec<String>,
 }
 
+/// Settings → Engines → Comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ComparePrefs {
+    /// Share of the day's free `OpenRouter` requests kept for live bots,
+    /// in percent (0 to 90).
+    pub reserve_pct: u32,
+    /// Batches wait when any Claude window is used this much, in percent
+    /// (10 to 100).
+    pub claude_pause_pct: u32,
+    /// Most shadow runs a day.
+    pub shadows_a_day: u32,
+}
+
+impl Default for ComparePrefs {
+    fn default() -> Self {
+        Self {
+            reserve_pct: 30,
+            claude_pause_pct: 80,
+            shadows_a_day: 20,
+        }
+    }
+}
+
 /// What the "Test case…" sheet starts with for a finished turn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaseDraft {

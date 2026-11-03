@@ -1070,9 +1070,9 @@ impl Hub {
             .pref(super::compare::PREF_CLAUDE_PAUSE)
             .ok()
             .flatten()
-            .and_then(|v| v.parse::<f64>().ok())
-            .filter(|v| (0.1..=1.0).contains(v))
-            .unwrap_or(0.8)
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| (10..=100).contains(v))
+            .map_or(0.8, |pct| f64::from(pct) / 100.0)
     }
 }
 

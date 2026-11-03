@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 mod compare;
 pub use compare::{
-    BatchEstimate, CaseDraft, CaseResult, IntentMatch, JudgeCheck, JudgeView, RunInfo, RunVerdict,
-    ScoreRow, Target, TestCaseInfo, TrialIntent, TrialNetwork, TrialReport,
+    BatchEstimate, CaseDraft, CaseResult, ComparePrefs, IntentMatch, JudgeCheck, JudgeView,
+    RunInfo, RunVerdict, ScoreRow, Target, TestCaseInfo, TrialIntent, TrialNetwork, TrialReport,
 };
 
 /// Version of the wire protocol. Bumped on any breaking change, so an old app
@@ -556,6 +556,10 @@ pub enum ClientMsg {
     },
     /// Deletes every practice run (test cases stay).
     DeleteAllRuns,
+    /// The comparison settings. Answered with [`ServerMsg::ComparePrefs`].
+    ListComparePrefs,
+    /// Changes the comparison settings.
+    SetComparePrefs(ComparePrefs),
 }
 
 fn one() -> u32 {
@@ -1023,6 +1027,8 @@ pub enum ServerMsg {
         /// One row per engine and model; Claude's first.
         rows: Vec<ScoreRow>,
     },
+    /// The comparison settings (the owner's).
+    ComparePrefs(ComparePrefs),
     /// A shadow run started next to a live turn (the owner's).
     ShadowPair {
         /// Bot id.

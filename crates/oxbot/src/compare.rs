@@ -38,6 +38,8 @@ pub fn is_compare(msg: &ClientMsg) -> bool {
             | ClientMsg::Scoreboard { .. }
             | ClientMsg::SetShadow { .. }
             | ClientMsg::DeleteAllRuns
+            | ClientMsg::ListComparePrefs
+            | ClientMsg::SetComparePrefs(_)
     )
 }
 
@@ -169,6 +171,14 @@ async fn runs(msg: ClientMsg, hub: &Arc<Hub>, viewer: &Viewer) -> Vec<ServerMsg>
         ClientMsg::SetShadow { bot, target } => {
             answer(hub.set_shadow(&bot, target, viewer).map(|m| vec![m]))
         }
+        ClientMsg::ListComparePrefs => answer(
+            hub.compare_prefs(viewer)
+                .map(|p| vec![ServerMsg::ComparePrefs(p)]),
+        ),
+        ClientMsg::SetComparePrefs(prefs) => answer(
+            hub.set_compare_prefs(prefs, viewer)
+                .map(|p| vec![ServerMsg::ComparePrefs(p)]),
+        ),
         ClientMsg::DeleteAllRuns => match hub.delete_all_runs(viewer) {
             Ok(n) => vec![ServerMsg::Notice {
                 message: format!("Deleted {n} test runs."),

@@ -276,6 +276,7 @@ impl View {
             | ServerMsg::RunDetail { .. }
             | ServerMsg::Scoreboard { .. }
             | ServerMsg::ShadowPair { .. }
+            | ServerMsg::ComparePrefs(_)
             | ServerMsg::Usage(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }

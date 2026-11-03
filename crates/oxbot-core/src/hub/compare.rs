@@ -12,8 +12,9 @@
 use std::sync::Arc;
 
 use oxbot_protocol::{
-    Attachment, BatchEstimate, BotEvent, CaseDraft, CaseResult, EngineKind as WireEngine,
-    EventKind, Outcome, RunVerdict, ScoreRow, ServerMsg, Target, TestCaseInfo, TrialNetwork,
+    Attachment, BatchEstimate, BotEvent, CaseDraft, CaseResult, ComparePrefs,
+    EngineKind as WireEngine, EventKind, Outcome, RunVerdict, ScoreRow, ServerMsg, Target,
+    TestCaseInfo, TrialNetwork,
 };
 use serde_json::{Value, json};
 
@@ -989,6 +990,49 @@ impl Hub {
         let runs = self.store.runs(&bot.id, None)?;
         let ratings = self.store.rating_counts(&bot.id)?;
         Ok(compare::scoreboard(&runs, &ratings))
+    }
+
+    /// The comparison settings.
+    ///
+    /// # Errors
+    /// Not the owner.
+    pub fn compare_prefs(&self, viewer: &Viewer) -> Result<ComparePrefs, HubError> {
+        self.owner_only(viewer)?;
+        let d = ComparePrefs::default();
+        let read = |key: &str, default: u32| {
+            self.store
+                .pref(key)
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(default)
+        };
+        Ok(ComparePrefs {
+            reserve_pct: read(PREF_RESERVE, d.reserve_pct),
+            claude_pause_pct: read(PREF_CLAUDE_PAUSE, d.claude_pause_pct),
+            shadows_a_day: read(PREF_SHADOWS_A_DAY, d.shadows_a_day),
+        })
+    }
+
+    /// Changes the comparison settings (each kept in its range).
+    ///
+    /// # Errors
+    /// Not the owner, or the database failed.
+    pub fn set_compare_prefs(
+        &self,
+        p: ComparePrefs,
+        viewer: &Viewer,
+    ) -> Result<ComparePrefs, HubError> {
+        self.owner_only(viewer)?;
+        self.store
+            .set_pref(PREF_RESERVE, &p.reserve_pct.min(90).to_string())?;
+        self.store.set_pref(
+            PREF_CLAUDE_PAUSE,
+            &p.claude_pause_pct.clamp(10, 100).to_string(),
+        )?;
+        self.store
+            .set_pref(PREF_SHADOWS_A_DAY, &p.shadows_a_day.min(500).to_string())?;
+        self.compare_prefs(viewer)
     }
 
     /// Deletes every practice run (cases stay).
