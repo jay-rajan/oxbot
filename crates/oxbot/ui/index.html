@@ -365,6 +365,39 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 }
 /* behind the open sidebar on a phone: a tap here closes it */
 .scrim { display: none; position: fixed; inset: 0; z-index: 4; background: rgb(0 0 0 / .25); }
+/* comparing engines and models (#21): the owner's only */
+.rate-row { align-self: flex-start; display: flex; gap: 4px; align-items: center; margin: -6px 0 0 2px; }
+.rate-row button { border: 0; background: none; color: var(--muted); font-size: .78rem; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
+.rate-row button:hover { background: var(--hover); color: var(--ink); }
+.rate-row button[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
+.dryline { align-self: flex-start; color: #A15C00; font-size: .85rem; padding-left: 6px; border-left: 3px solid #E0A030; overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) { .dryline { color: #F0B860; } }
+.shadow-chip { flex: none; height: 40px; border: 1px dashed var(--line); border-radius: 10px; background: none; color: var(--muted); padding: 0 10px; font-size: .8rem; white-space: nowrap; }
+.shadow-chip.on { border-style: solid; border-color: var(--rust); color: var(--rust); }
+.shadow-card { align-self: flex-start; max-width: min(680px, 85%); border: 1px dashed var(--line); border-radius: 12px; padding: 4px 12px; font-size: .9rem; }
+.shadow-card summary { cursor: pointer; color: var(--muted); font-size: .8rem; padding: 4px 0; }
+.cmp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.cmp-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: .88rem; min-width: 0; }
+.cmp-list li > div { min-width: 0; overflow-wrap: anywhere; }
+.cmp-list small { color: var(--muted); display: block; }
+.cmp-list li.run { grid-template-columns: 1fr auto; cursor: pointer; }
+.cmp-list li.run:hover { background: var(--hover); }
+.pill { font-size: .7rem; border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; color: var(--muted); white-space: nowrap; }
+.pill.acts { border-color: var(--rust); color: var(--rust); }
+.pill.good { border-color: var(--ok); color: var(--ok); }
+.vdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--line); margin-right: 3px; }
+.vdot.pass { background: var(--ok); } .vdot.partial { background: #E0A030; } .vdot.fail { background: var(--err); }
+.targets { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.cmp-progress { height: 6px; background: var(--hover); border-radius: 99px; overflow: hidden; }
+.cmp-progress i { display: block; height: 100%; background: var(--rust); width: 0; }
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; }
+.side-by-side > div { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.side-by-side h4 { margin: 0; font-size: .85rem; color: var(--muted); }
+.transcript { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.intents { list-style: none; margin: 0; padding: 0; font-size: .85rem; display: grid; gap: 3px; }
+.verdicts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.verdicts button[aria-pressed="true"] { background: var(--hover); border-color: var(--ink); }
+@media (max-width: 640px) { .side-by-side { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -396,6 +429,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <input type="file" id="fileInput" class="file-input" multiple tabindex="-1" aria-hidden="true">
       <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
       <button class="icon-btn" id="mic" type="button" aria-label="Dictate" aria-pressed="false" title="Dictate with this Mac's microphone (on-device: the audio stays on the Mac)" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+      <button class="shadow-chip" id="shadowChip" type="button" hidden></button>
       <button class="ghost" id="stop" type="button" hidden>Stop</button>
       <button class="primary" id="send" type="submit">Send</button>
     </form>
@@ -593,6 +627,16 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       </table></div>
       <p class="hint" id="orUsageNote">Since midnight UTC, when OpenRouter's free daily requests start again.</p>
     </section>
+    <section id="cmpPrefsSection" hidden>
+      <h3>Comparison</h3>
+      <form class="engine-prefs" id="cmpPrefsForm">
+        <label>Free requests kept for live bots, in percent<input type="number" id="cmpReserve" min="0" max="90" step="1" required></label>
+        <label>Test runs wait when Claude's limits are used, in percent<input type="number" id="cmpPause" min="10" max="100" step="1" required></label>
+        <label>Most shadow runs a day<input type="number" id="cmpShadows" min="0" max="500" step="1" required></label>
+        <div class="btns"><button class="primary" type="submit">Save</button><button class="ghost" type="button" id="cmpDeleteRuns">Delete all test runs</button></div>
+        <p class="hint">Test runs copy the sign-ins they need into their own browser, without history, and delete it when they end. A link that acts when opened (one-click unsubscribe, magic links) can't be told from a read, as in live runs.</p>
+      </form>
+    </section>
     <section id="reviewSection" hidden>
       <h3>Claude bots other people used</h3>
       <p class="hint">In the last 30 days, other people gave these bots tasks. They take tasks only from you now. Switch one to OpenRouter so others can use it again; its chat stays.</p>
@@ -615,6 +659,68 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <h2 id="ndTitle">Name</h2>
     <label>Name<input id="ndName" required autocomplete="off" spellcheck="false"></label>
     <div class="row"><button class="ghost" type="button" id="ndCancel">Cancel</button><button class="primary" type="submit" id="ndSave">Save</button></div>
+  </form>
+</dialog>
+<dialog id="caseDlg" aria-labelledby="caseTitleH">
+  <form id="caseForm">
+    <h2 id="caseTitleH">Keep as a test case</h2>
+    <label>Title<input id="caseTitle" required maxlength="120" autocomplete="off"></label>
+    <label>What a good result looks like (one check per line)<textarea id="caseRubric" rows="4" placeholder="Lists at least 3 jobs in Riverside"></textarea></label>
+    <label class="check"><input type="checkbox" id="caseSignIns"> Uses sign-ins (runs get a copy of the browser's sign-ins, without its history)</label>
+    <label>Network in test runs<select id="caseNetwork"><option value="strict">Strict: block every write (default)</option><option value="xhr">Allow reads sent as POST (sites that search with POST)</option></select></label>
+    <p class="hint" id="caseHint">Test runs replay this message on other engines and models. Anything that would send, post or change something is recorded, never done, and nothing reaches this chat.</p>
+    <div class="row"><button class="ghost" type="button" id="caseCancel">Cancel</button><button class="primary" type="submit" id="caseSave">Keep</button></div>
+  </form>
+</dialog>
+
+<dialog id="compareDlg" class="wide" aria-labelledby="cmpTitle">
+  <div class="settings">
+    <header class="settings-head"><h2 id="cmpTitle">Compare</h2><button class="ghost" id="cmpClose" type="button">Close</button></header>
+    <div class="tabs" role="tablist" aria-label="Compare"><button type="button" role="tab" data-cmp="cmpScore" aria-selected="true">Scoreboard</button><button type="button" role="tab" data-cmp="cmpCases" aria-selected="false">Test cases</button><button type="button" role="tab" data-cmp="cmpRuns" aria-selected="false">Runs</button></div>
+    <div id="cmpScore" role="tabpanel">
+    <section>
+      <div class="tbl"><table class="usage">
+        <thead><tr><th>Engine · model</th><th>Runs</th><th title="Your marks first, then Claude's">Pass</th><th>Steps</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th><th>Time</th><th title="Steps a live run would have asked you about">Cards</th><th title="Expected steps it did">Match</th><th title="Steps you had said no to">Said no</th><th>Refused</th><th>Errors</th><th title="Writes the test browser blocked">Blocked</th><th title="Your marks and Claude's agreeing">Agree</th><th>👍 👎</th></tr></thead>
+        <tbody id="cmpScoreRows"></tbody>
+      </table></div>
+      <p class="hint">Pass rate uses your marks first, then Claude's. Medians per run. "Good enough": at least 5 runs, within 10 points of Claude, and never a step you had said no to.</p>
+    </section>
+    </div>
+    <div id="cmpCases" role="tabpanel" hidden>
+    <section>
+      <ul class="cmp-list" id="cmpCaseList"></ul>
+      <p class="hint" id="cmpCasesEmpty">No test cases yet. Under one of this bot's replies, choose "Test case…".</p>
+    </section>
+    <section id="cmpRunBox">
+      <h3>Run selected on…</h3>
+      <div class="targets" id="cmpTargets"></div>
+      <label>Times each<select id="cmpRepeats"><option>1</option><option>2</option><option>3</option></select></label>
+      <p class="hint" id="cmpEstimate"></p>
+      <div class="btns"><button class="ghost" type="button" id="cmpEstimateBtn">Estimate</button><button class="primary" type="button" id="cmpStart" disabled>Start</button><button class="ghost" type="button" id="cmpStop" hidden>Stop</button></div>
+      <div class="cmp-progress" id="cmpProgress" hidden><i></i></div>
+      <p class="hint" id="cmpProgressText"></p>
+      <p class="hint">Test runs use their own browser with a copy of the sign-ins (no history) and block every request that would write. A link that acts when opened (one-click unsubscribe, magic links) can't be told from a read, as in live runs.</p>
+    </section>
+    </div>
+    <div id="cmpRuns" role="tabpanel" hidden>
+    <section id="cmpRunListBox">
+      <ul class="cmp-list" id="cmpRunList"></ul>
+      <p class="hint" id="cmpRunsEmpty">No runs yet.</p>
+    </section>
+    <section id="cmpRunDetail" hidden>
+      <div class="btns"><button class="ghost" type="button" id="cmpRunBack">← Runs</button></div>
+      <div class="side-by-side"><div id="cmpOrig"></div><div id="cmpThis"></div></div>
+    </section>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="shadowDlg" aria-labelledby="shadowTitle">
+  <form id="shadowForm">
+    <h2 id="shadowTitle">Shadow your messages</h2>
+    <p class="hint">Your own messages to this bot also run on another engine or model at the same time, in a test browser where nothing is sent or changed. Its answer shows next to the live one.</p>
+    <label>Shadow on<select id="shadowTarget"></select></label>
+    <div class="row"><button class="ghost" type="button" id="shadowOff">Turn off</button><span style="flex:1"></span><button class="ghost" type="button" id="shadowCancel">Cancel</button><button class="primary" type="submit">Shadow</button></div>
   </form>
 </dialog>
 <div class="pop-menu" id="botMenu" role="menu" hidden></div>
@@ -763,6 +869,7 @@ function queueRenderBots() {
 }
 
 function onMessage(m) {
+  if (onCompare(m)) return;
   switch (m.type) {
     case "hello":
       // The server restarted (e.g. dev mode rebuilt it): reload to get its page.
@@ -1346,6 +1453,7 @@ function menuItems() {
       items.push({ label: "Not in a section", indent: true, checked: !sections.some((s) => s.id === placed[id]), act: () => { closeMenu(true); if (placed[id]) send({ type: "move_bot", bot: id, section: null }); } });
       items.push({ label: "New section…", indent: true, act: () => { closeMenu(); askName("New section", "", 40, (n) => send({ type: "create_section", name: n, bot: id })); } });
     }
+    if (isOwner() && comparable(b)) items.push({ label: "Compare…", act: () => { closeMenu(); openCompare(id); } });
     if (canManage(b)) {
       items.push({ rule: true });
       items.push({ label: "Delete…", confirm: `Yes, delete ${name}`, danger: true, act: () => { closeMenu(); deleteBot(id); } });
@@ -1433,6 +1541,8 @@ function select(id) {
   $("botAvatar").innerHTML = avatar(id); $("botAvatar").hidden = false;
   stopDictation();
   renderLog(); renderBots(); updateStatus(); renderCards(true); renderChips(); $("input").focus();
+  if (isOwner() && comparable(b)) send({ type: "list_ratings", bot: id });
+  renderShadowChip();
 }
 
 function updateStatus() {
@@ -1626,9 +1736,9 @@ $("enginesReview").onclick = () => { send({ type: "engines_notice_seen" }); open
 $("enginesBannerClose").onclick = () => { send({ type: "engines_notice_seen" }); $("enginesBanner").hidden = true; };
 
 // ---------- Settings tabs: General and Activity
-for (const t of document.querySelectorAll(".settings .tabs button")) {
+for (const t of document.querySelectorAll("#appDlg .tabs button")) {
   t.onclick = () => {
-    for (const o of document.querySelectorAll(".settings .tabs button")) {
+    for (const o of document.querySelectorAll("#appDlg .tabs button")) {
       o.setAttribute("aria-selected", String(o === t));
       $(o.dataset.tab).hidden = o !== t;
     }
@@ -1702,6 +1812,7 @@ function eventEl(e) {
   let el;
   switch (e.kind) {
     case "user_message": {
+      turnStart.set(e.bot, e.seq);
       el = div("mine");
       if (e.from) {
         const who = div("who"); const dot = document.createElement("i");
@@ -1715,7 +1826,16 @@ function eventEl(e) {
     }
     case "assistant_message": el = div("msg bot"); el.innerHTML = md(e.text); break;
     case "tool_use": el = div("tool"); el.textContent = `${e.name} ${e.summary}`.trim(); break;
-    case "turn_done": el = div("done"); el.textContent = e.ok ? `done in ${(e.duration_ms / 1000).toFixed(1)}s` : "stopped"; break;
+    case "turn_done": {
+      el = div("done"); el.textContent = e.ok ? `done in ${(e.duration_ms / 1000).toFixed(1)}s` : "stopped";
+      const rate = e.seq && rateRow(e); if (rate) el.appendChild(rate);
+      const shadow = shadowCard(e.bot, turnStart.get(e.bot));
+      if (shadow) { const both = document.createDocumentFragment(); both.append(el, shadow); el.title = new Date(e.ts_ms).toLocaleString(); return both; }
+      break;
+    }
+    // Only a practice run's own transcript has these.
+    case "dry_run": el = div("dryline"); el.textContent = `would ${e.action} ${e.target} on ${e.site}`; break;
+    case "net_blocked": el = div("dryline"); el.textContent = `blocked a ${e.method} to ${e.host}`; break;
     case "error": el = div("err"); el.textContent = e.message; break;
     case "approval": {
       el = div("redline");
@@ -2568,6 +2688,342 @@ function renderLogs() {
   }
   list.scrollTop = list.scrollHeight;
 }
+
+// ---------- comparing engines and models (#21): the owner's only
+const rated = new Map();       // bot -> { ratings: {turn_done seq: up}, cases: Set(seq), shadow: target|null }
+const shadowRuns = new Map();  // bot -> Map(live user_message seq -> run)
+const turnStart = new Map();   // bot -> the user_message seq of the turn being drawn
+const cmp = { bot: null, cases: [], runs: [], rows: [], batch: null, detail: null, caseFor: null };
+let cmpPrefsAsked = false;
+const CLAUDE_MODELS = ["sonnet", "opus", "haiku"];
+function isOwner() { return !!(settings && settings.owner); }
+function comparable(b) { return !!(b && !b.info.central && !isLocked(b)); }
+function targetName(t) { return `${t.engine === "claude" ? "Claude" : "OpenRouter"} · ${t.model}`; }
+function targetChoices() {
+  const out = CLAUDE_MODELS.map((model) => ({ engine: "claude", model }));
+  if (settings && settings.openrouter_ready) for (const m of (engines && engines.models) || []) out.push({ engine: "openrouter", model: m.id });
+  return out;
+}
+function cmpMoney(x) { return x == null ? "–" : x === 0 ? "$0" : x < 0.01 ? "<$0.01" : `$${x.toFixed(2)}`; }
+function cmpNum(x, digits = 0) { return x == null ? "–" : Number(x).toLocaleString(undefined, { maximumFractionDigits: digits }); }
+function cmpPct(x) { return x == null ? "–" : `${Math.round(x * 100)}%`; }
+function cmpSecs(ms) { return ms == null ? "–" : `${(ms / 1000).toFixed(1)}s`; }
+const VERDICT = { pass: "✓ pass", partial: "½ partial", fail: "✗ fail" };
+
+/** Handles the comparison messages; true if it was one. */
+function onCompare(m) {
+  switch (m.type) {
+    case "engines":
+      // The model list for test runs and shadows, once it's here.
+      if ($("compareDlg").open) setTimeout(renderTargets);
+      return false;
+    case "settings":
+      if (m.owner && !cmpPrefsAsked) { cmpPrefsAsked = true; send({ type: "list_compare_prefs" }); if (current) send({ type: "list_ratings", bot: current }); }
+      return false;
+    case "ratings": {
+      rated.set(m.bot, { ratings: m.ratings || {}, cases: new Set(m.cases || []), shadow: m.shadow || null });
+      if (m.bot === current) { renderLog(); renderShadowChip(); }
+      return true;
+    }
+    case "case_draft": {
+      cmp.caseFor = { bot: m.bot, seq: m.seq };
+      $("caseTitle").value = m.title; $("caseRubric").value = m.rubric;
+      $("caseSignIns").checked = !!m.uses_sign_ins; $("caseNetwork").value = "strict";
+      $("caseHint").textContent = `${m.kind === "acts" ? "It changed something live: test runs record those steps instead of doing them." : "It only read."}${m.sites.length ? ` Sites: ${m.sites.join(", ")}.` : ""} Nothing a test run does reaches this chat.`;
+      if (!$("caseDlg").open) $("caseDlg").showModal();
+      return true;
+    }
+    case "test_cases": if (m.bot === cmp.bot) { cmp.cases = m.cases; renderCmpCases(); } return true;
+    case "batch_estimate": renderEstimate(m); return true;
+    case "batch_progress":
+      if (m.bot === cmp.bot) { cmp.batch = m; renderProgress(); if (m.status === "done" || m.status === "stopped") { send({ type: "scoreboard", bot: m.bot }); send({ type: "list_test_cases", bot: m.bot }); } }
+      return true;
+    case "trial_run": {
+      const i = cmp.runs.findIndex((r) => r.id === m.id);
+      if (m.bot === cmp.bot) { if (i >= 0) cmp.runs[i] = m; else cmp.runs.unshift(m); renderCmpRuns(); }
+      if (cmp.detail && cmp.detail.run.id === m.id) { cmp.detail.run = m; renderRunDetail(); }
+      if (m.kind === "shadow") { for (const runs of shadowRuns.values()) for (const [seq, r] of runs) if (r.id === m.id) runs.set(seq, m); if (m.bot === current) renderLog(); }
+      return true;
+    }
+    case "trial_event":
+      if (cmp.detail && cmp.detail.run.id === m.run) { cmp.detail.events.push(m.event); renderRunDetail(); }
+      return true;
+    case "runs": if (m.bot === cmp.bot) { cmp.runs = m.runs; renderCmpRuns(); } return true;
+    case "run_detail": cmp.detail = { run: m.run, events: m.events, original: m.original, original_events: m.original_events }; renderRunDetail(); return true;
+    case "scoreboard": if (m.bot === cmp.bot) { cmp.rows = m.rows; renderScore(); } return true;
+    case "shadow_pair": {
+      if (!shadowRuns.has(m.bot)) shadowRuns.set(m.bot, new Map());
+      shadowRuns.get(m.bot).set(m.live_seq, m.run);
+      if (m.bot === current) renderLog();
+      return true;
+    }
+    case "compare_prefs":
+      $("cmpReserve").value = m.reserve_pct; $("cmpPause").value = m.claude_pause_pct; $("cmpShadows").value = m.shadows_a_day;
+      $("cmpPrefsSection").hidden = false;
+      return true;
+    default: return false;
+  }
+}
+
+/** The owner's row under a finished reply: thumbs and "Test case…". */
+function rateRow(e) {
+  const b = bots.get(e.bot);
+  if (!isOwner() || !comparable(b)) return null;
+  const r = rated.get(e.bot) || { ratings: {}, cases: new Set() };
+  const row = document.createElement("span"); row.className = "rate-row";
+  const up = r.ratings[e.seq];
+  for (const [label, value, title] of [["👍", true, "Good reply"], ["👎", false, "Bad reply"]]) {
+    const btn = document.createElement("button"); btn.type = "button"; btn.textContent = label; btn.title = title;
+    btn.setAttribute("aria-pressed", String(up === value));
+    btn.onclick = () => send({ type: "rate_turn", bot: e.bot, seq: e.seq, up: up === value ? null : value });
+    row.appendChild(btn);
+  }
+  const kept = r.cases.has(e.seq);
+  const tc = document.createElement("button"); tc.type = "button";
+  tc.textContent = kept ? "✓ test case" : "Test case…";
+  tc.title = kept ? "Kept as a test case: see Compare in the bot's menu" : "Keep this task to replay on other engines and models";
+  if (!kept) tc.onclick = () => send({ type: "draft_test_case", bot: e.bot, seq: e.seq });
+  else tc.onclick = () => openCompare(e.bot, "cmpCases");
+  row.appendChild(tc);
+  return row;
+}
+
+/** A shadow run's card under the live reply it ran next to. */
+function shadowCard(bot, liveSeq) {
+  const run = shadowRuns.get(bot) && shadowRuns.get(bot).get(liveSeq);
+  if (!run) return null;
+  const d = document.createElement("details"); d.className = "shadow-card";
+  const s = document.createElement("summary");
+  const acting = run.intents > 0 ? " · acting task: shadow is a dry run" : "";
+  s.textContent = `Shadow · ${run.model} · ${run.status === "running" ? "running…" : `${run.steps} steps · ${run.intents} recorded`}${acting}`;
+  const body = div("msg bot"); body.innerHTML = md(run.answer || (run.status === "running" ? "…" : "(no answer)"));
+  const open = document.createElement("button"); open.type = "button"; open.className = "ghost"; open.textContent = "Open in Compare";
+  open.onclick = () => { openCompare(bot, "cmpRuns"); send({ type: "open_run", run: run.id }); };
+  d.append(s, body, open);
+  return d;
+}
+
+function renderShadowChip() {
+  const chip = $("shadowChip"), b = current && bots.get(current);
+  const r = current && rated.get(current);
+  chip.hidden = !(isOwner() && comparable(b) && r);
+  if (chip.hidden) return;
+  chip.classList.toggle("on", !!r.shadow);
+  chip.textContent = r.shadow ? `⇆ Shadow on ${r.shadow.model}` : "⇆ Shadow";
+  chip.title = r.shadow ? "Your messages also run on this model, recorded only. Click to change." : "Also run your messages on another engine or model, recorded only";
+}
+$("shadowChip").onclick = () => {
+  const sel = $("shadowTarget"); sel.textContent = "";
+  const r = rated.get(current) || {};
+  for (const t of targetChoices()) {
+    const o = document.createElement("option"); o.value = JSON.stringify(t); o.textContent = targetName(t);
+    if (r.shadow && r.shadow.engine === t.engine && r.shadow.model === t.model) o.selected = true;
+    sel.appendChild(o);
+  }
+  $("shadowOff").hidden = !r.shadow;
+  $("shadowDlg").showModal();
+};
+$("shadowForm").onsubmit = (ev) => { ev.preventDefault(); send({ type: "set_shadow", bot: current, target: JSON.parse($("shadowTarget").value) }); $("shadowDlg").close(); };
+$("shadowOff").onclick = () => { send({ type: "set_shadow", bot: current, target: null }); $("shadowDlg").close(); };
+$("shadowCancel").onclick = () => $("shadowDlg").close();
+
+$("caseForm").onsubmit = (ev) => {
+  ev.preventDefault();
+  if (!cmp.caseFor) return;
+  send({ type: "mark_test_case", bot: cmp.caseFor.bot, seq: cmp.caseFor.seq, title: $("caseTitle").value.trim(), rubric: $("caseRubric").value, network: $("caseNetwork").value, uses_sign_ins: $("caseSignIns").checked });
+  $("caseDlg").close(); toast("Kept as a test case. Run it from Compare in the bot's menu.");
+};
+$("caseCancel").onclick = () => $("caseDlg").close();
+
+function cmpTab(id) {
+  for (const t of document.querySelectorAll("#compareDlg .tabs button")) {
+    t.setAttribute("aria-selected", String(t.dataset.cmp === id));
+    $(t.dataset.cmp).hidden = t.dataset.cmp !== id;
+  }
+}
+for (const t of document.querySelectorAll("#compareDlg .tabs button")) {
+  t.onclick = () => {
+    cmpTab(t.dataset.cmp);
+    // Fresh numbers each time (marks and the judge change them).
+    if (t.dataset.cmp === "cmpScore") send({ type: "scoreboard", bot: cmp.bot });
+    if (t.dataset.cmp === "cmpCases") send({ type: "list_test_cases", bot: cmp.bot });
+  };
+}
+function openCompare(id, tab = "cmpScore") {
+  const b = bots.get(id); if (!b) return;
+  cmp.bot = id; cmp.cases = []; cmp.runs = []; cmp.rows = []; cmp.detail = null; cmp.batch = null;
+  $("cmpTitle").textContent = `Compare · ${b.info.name || id}`;
+  $("cmpEstimate").textContent = ""; $("cmpStart").disabled = true; $("cmpProgress").hidden = true; $("cmpProgressText").textContent = ""; $("cmpStop").hidden = true;
+  $("cmpRunDetail").hidden = true; $("cmpRunListBox").hidden = false;
+  renderTargets(); renderScore(); renderCmpCases(); renderCmpRuns();
+  if (!engines) send({ type: "list_engines" });
+  send({ type: "scoreboard", bot: id }); send({ type: "list_test_cases", bot: id }); send({ type: "list_runs", bot: id });
+  cmpTab(tab);
+  if (!$("compareDlg").open) $("compareDlg").showModal();
+}
+$("cmpClose").onclick = () => $("compareDlg").close();
+
+function renderScore() {
+  const body = $("cmpScoreRows"); body.textContent = "";
+  for (const r of cmp.rows) {
+    const tr = document.createElement("tr");
+    const name = document.createElement("td"); name.textContent = targetName(r);
+    if (r.good_enough) { const p = document.createElement("span"); p.className = "pill good"; p.textContent = "good enough"; name.append(" ", p); }
+    const left = [r.needs_sign_in && `${r.needs_sign_in} needed sign-in`, r.rate_limited && `${r.rate_limited} rate limited`, r.stopped && `${r.stopped} stopped`].filter(Boolean).join(", ");
+    if (left) name.title = `Left out: ${left}`;
+    tr.appendChild(name);
+    for (const v of [cmpNum(r.n), cmpPct(r.pass_rate), cmpNum(r.steps, 1), cmpNum(r.requests, 1), cmpNum(r.input_tokens), cmpNum(r.output_tokens), cmpMoney(r.cost_usd), cmpSecs(r.ms), cmpNum(r.intents, 1), cmpPct(r.intent_match), cmpNum(r.should_not), cmpNum(r.refusals), cmpNum(r.errors), cmpNum(r.net_blocked), cmpPct(r.agreement), `${r.thumbs_up} / ${r.thumbs_down}`]) {
+      const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+  if (!cmp.rows.length) { const tr = document.createElement("tr"); const td = document.createElement("td"); td.colSpan = 17; td.textContent = "No runs yet."; tr.appendChild(td); body.appendChild(tr); }
+}
+
+function renderTargets() {
+  const box = $("cmpTargets"); box.textContent = "";
+  for (const t of targetChoices()) {
+    const l = document.createElement("label"); l.className = "check";
+    const c = document.createElement("input"); c.type = "checkbox"; c.value = JSON.stringify(t); c.onchange = () => { $("cmpStart").disabled = true; $("cmpEstimate").textContent = ""; };
+    l.append(c, document.createTextNode(targetName(t))); box.appendChild(l);
+  }
+  if (!targetChoices().some((t) => t.engine === "openrouter")) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "OpenRouter models show here once OpenRouter is set up (Settings → Engines)."; box.appendChild(p); }
+}
+function picked() {
+  const cases = [...document.querySelectorAll("#cmpCaseList input[type=checkbox]:checked")].map((c) => c.value);
+  const targets = [...document.querySelectorAll("#cmpTargets input:checked")].map((c) => JSON.parse(c.value));
+  return { bot: cmp.bot, cases, targets, repeats: Number($("cmpRepeats").value) };
+}
+$("cmpEstimateBtn").onclick = () => {
+  const p = picked();
+  if (!p.cases.length || !p.targets.length) { $("cmpEstimate").textContent = "Pick at least one test case and one model."; return; }
+  send({ type: "estimate_batch", ...p });
+};
+$("cmpRepeats").onchange = () => { $("cmpStart").disabled = true; $("cmpEstimate").textContent = ""; };
+function renderEstimate(e) {
+  if (e.bot !== cmp.bot) return;
+  const parts = [`${e.runs} run${e.runs === 1 ? "" : "s"}`];
+  if (e.openrouter_requests) parts.push(`≈ ${e.openrouter_requests} OpenRouter requests${e.openrouter_left != null ? ` of ${e.openrouter_left} left today (${e.reserve} kept for live bots)` : ""}`);
+  if (e.claude_runs) parts.push(`${e.claude_runs} Claude run${e.claude_runs === 1 ? "" : "s"} on your plan`);
+  parts.push(e.paid ? "paid models count against your daily limit" : "0 paid");
+  let text = parts.join(" · ");
+  if (e.refused.length) text += `. Not run: ${e.refused.join("; ")}.`;
+  if (!e.fits && e.runs) text += " That doesn't fit what's left today: pick fewer cases or models.";
+  $("cmpEstimate").textContent = text;
+  $("cmpStart").disabled = !e.fits;
+}
+$("cmpStart").onclick = () => { send({ type: "start_batch", ...picked() }); $("cmpStart").disabled = true; cmpTab("cmpRuns"); };
+$("cmpStop").onclick = () => { if (cmp.batch) send({ type: "stop_batch", id: cmp.batch.batch }); };
+function renderProgress() {
+  const p = cmp.batch; if (!p) return;
+  const running = p.status === "running" || p.status === "paused" || p.status === "queued";
+  $("cmpProgress").hidden = !running; $("cmpStop").hidden = !running;
+  $("cmpProgress").firstElementChild.style.width = `${p.total ? Math.round((p.done / p.total) * 100) : 0}%`;
+  $("cmpProgressText").textContent = p.status === "paused" ? `Paused: ${p.paused_reason || "waiting"}` : `${p.done} of ${p.total}${running ? "" : ` · ${p.status}`}`;
+}
+
+function renderCmpCases() {
+  const list = $("cmpCaseList"); list.textContent = "";
+  $("cmpCasesEmpty").hidden = cmp.cases.length > 0;
+  for (const c of cmp.cases.filter((c) => !c.archived)) {
+    const li = document.createElement("li");
+    const box = document.createElement("input"); box.type = "checkbox"; box.value = c.id; box.setAttribute("aria-label", c.title);
+    box.onchange = () => { $("cmpStart").disabled = true; };
+    const mid = document.createElement("div");
+    const t = document.createElement("span"); t.textContent = c.title;
+    const pill = document.createElement("span"); pill.className = `pill ${c.kind}`; pill.textContent = c.kind;
+    const small = document.createElement("small");
+    small.textContent = [c.sites.join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : "", c.owner_started ? "" : "someone else's task: not on Claude"].filter(Boolean).join(" · ");
+    const dots = document.createElement("small");
+    for (const r of c.last) { const d = document.createElement("span"); d.className = `vdot ${r.verdict || ""}`; d.title = `${targetName(r)}: ${r.verdict || r.status}`; dots.appendChild(d); }
+    mid.append(t, " ", pill, small, dots);
+    const del = document.createElement("button"); del.type = "button"; del.className = "ghost"; del.textContent = "Delete";
+    del.onclick = () => { if (del.dataset.armed) send({ type: "delete_test_case", id: c.id }); else { del.dataset.armed = "1"; del.textContent = "Yes, delete"; } };
+    li.append(box, mid, del); list.appendChild(li);
+  }
+}
+
+function renderCmpRuns() {
+  const list = $("cmpRunList"); list.textContent = "";
+  $("cmpRunsEmpty").hidden = cmp.runs.length > 0;
+  for (const r of cmp.runs) {
+    const li = document.createElement("li"); li.className = "run"; li.tabIndex = 0;
+    const mid = document.createElement("div");
+    const t = document.createElement("span"); t.textContent = `${r.case_title || (r.kind === "shadow" ? "Shadow" : "Run")} · ${targetName(r)}`;
+    const small = document.createElement("small");
+    small.textContent = [r.kind === "original" ? "the original" : r.kind, r.status, `${r.steps} steps`, r.requests ? `${r.requests} requests` : "", `${r.intents} recorded`, r.net_blocked ? `${r.net_blocked} blocked` : "", r.started_ms ? new Date(r.started_ms).toLocaleString() : ""].filter(Boolean).join(" · ");
+    mid.append(t, small);
+    const v = document.createElement("span"); v.className = "pill"; v.textContent = r.verdict ? VERDICT[r.verdict] : r.status === "running" ? "running…" : "–";
+    li.append(mid, v);
+    const open = () => send({ type: "open_run", run: r.id });
+    li.onclick = open; li.onkeydown = (ev) => { if (ev.key === "Enter") open(); };
+    list.appendChild(li);
+  }
+}
+
+/** One side of a run's page: its answer, steps, numbers and transcript. */
+function runSide(title, run, events, isOriginal, match) {
+  const box = document.createElement("div");
+  const h = document.createElement("h4"); h.textContent = title; box.appendChild(h);
+  if (!run) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "Not kept."; box.appendChild(p); return box; }
+  const ans = div("msg bot"); ans.innerHTML = md(run.answer || "(no answer)"); box.appendChild(ans);
+  if (run.report) { const rp = div("tool"); rp.textContent = `would save a report: ${run.report.title}`; box.appendChild(rp); }
+  const ul = document.createElement("ul"); ul.className = "intents";
+  if (!isOriginal && match) {
+    for (const [list, mark] of [[match.matched, "✓ matched"], [match.missing, "✗ missing"], [match.extra, "＋ extra"], [match.should_not, "⚠ said no before"]]) {
+      for (const line of list) { const li = document.createElement("li"); li.textContent = `${mark}: ${line}`; ul.appendChild(li); }
+    }
+  } else {
+    for (const i of run.intent_list) { const li = document.createElement("li"); li.textContent = `would ${i.action} ${i.target} on ${i.site}`; ul.appendChild(li); }
+  }
+  if (ul.children.length) box.appendChild(ul);
+  const nums = document.createElement("p"); nums.className = "hint";
+  nums.textContent = [run.status, `${run.steps} steps`, run.requests ? `${run.requests} requests` : "", run.input_tokens ? `${cmpNum(run.input_tokens)} in / ${cmpNum(run.output_tokens)} out` : "", run.cost_usd ? cmpMoney(run.cost_usd) : "", run.started_ms && run.ended_ms ? cmpSecs(run.ended_ms - run.started_ms) : "", `${run.intents} ${isOriginal ? "cards" : "recorded"}`, run.refusals ? `${run.refusals} refused` : "", run.errors ? `${run.errors} errors` : "", run.net_blocked ? `${run.net_blocked} blocked` : "", run.web_age_days != null ? `web ${run.web_age_days} days newer` : ""].filter(Boolean).join(" · ");
+  box.appendChild(nums);
+  const tr = div("transcript");
+  for (const e of events || []) { const el = eventEl(e); if (el) tr.appendChild(el); }
+  if (tr.children.length) box.appendChild(tr);
+  return box;
+}
+function renderRunDetail() {
+  const d = cmp.detail; if (!d) return;
+  $("cmpRunListBox").hidden = true; $("cmpRunDetail").hidden = false;
+  const orig = $("cmpOrig"), mine = $("cmpThis");
+  orig.replaceWith(Object.assign(runSide("Original", d.original, d.original_events, true), { id: "cmpOrig" }));
+  const side = runSide(`This run · ${targetName(d.run)}`, d.run, d.events, d.run.kind === "original", d.run.intent_match);
+  side.id = "cmpThis";
+  const verdicts = div("verdicts");
+  for (const [v, label] of [["pass", "✓"], ["partial", "½"], ["fail", "✗"]]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "ghost"; b.textContent = label; b.title = VERDICT[v];
+    b.setAttribute("aria-pressed", String(d.run.owner_verdict === v));
+    b.onclick = () => send({ type: "set_run_verdict", run: d.run.id, verdict: d.run.owner_verdict === v ? null : v });
+    verdicts.appendChild(b);
+  }
+  if (d.run.kind !== "original") {
+    const j = document.createElement("button"); j.type = "button"; j.className = "ghost"; j.textContent = "Ask Claude to judge";
+    j.onclick = () => { send({ type: "judge_runs", runs: [d.run.id], local: false }); toast("Asked Claude to judge this run."); };
+    verdicts.appendChild(j);
+  }
+  if (d.run.judge) {
+    const p = document.createElement("p"); p.className = "hint";
+    p.textContent = d.run.judge.checks ? `Claude: ${VERDICT[d.run.judge.verdict]} (${d.run.judge.score}/100). ${d.run.judge.checks.map((c) => `${c.met === "yes" ? "✓" : c.met === "no" ? "✗" : "?"} ${c.check}`).join(" · ")} ${d.run.judge.notes || ""}` : "";
+    if (p.textContent) verdicts.appendChild(p);
+  }
+  side.insertBefore(verdicts, side.children[1]);
+  mine.replaceWith(side);
+}
+$("cmpRunBack").onclick = () => { cmp.detail = null; $("cmpRunDetail").hidden = true; $("cmpRunListBox").hidden = false; };
+
+$("cmpPrefsForm").onsubmit = (ev) => {
+  ev.preventDefault();
+  send({ type: "set_compare_prefs", reserve_pct: Number($("cmpReserve").value), claude_pause_pct: Number($("cmpPause").value), shadows_a_day: Number($("cmpShadows").value) });
+  toast("Saved.");
+};
+$("cmpDeleteRuns").onclick = () => {
+  const b = $("cmpDeleteRuns");
+  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Yes, delete all test runs"; return; }
+  delete b.dataset.armed; b.textContent = "Delete all test runs"; send({ type: "delete_all_runs" });
+};
 
 function toast(text, isError) {
   const t = $("toast"); t.textContent = text; t.className = "toast" + (isError ? " error" : ""); t.hidden = false;
