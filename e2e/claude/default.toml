@@ -106,6 +106,37 @@ args = { title = "Made up", summary = "No pages.", markdown = "Trust me [1].", s
 after = "Saved."
 
 [[reply]]
+when = "fill password"
+tool = "mcp__chrome-devtools__fill"
+args = { uid = "10_3", value = "not-a-real-password" }
+snapshot = "## Pages\n1: Sign in (https://jobs.example.com/login) [selected]\n## Latest page snapshot\nuid=10_1 RootWebArea \"Sign in\"\n  uid=10_2 textbox \"Email\"\n  uid=10_3 textbox \"Password\""
+after = "Typed it."
+denied = "Okay, I didn't type the password."
+
+[[reply]]
+when = "read outside"
+tool = "Read"
+args = { file_path = "/etc/hosts" }
+after = "Read it."
+denied = "Okay, I didn't read that file."
+
+# Waits a minute before its click (the stand-in OpenRouter), so a test can
+# restart oxbot in the middle of the task.
+[[reply]]
+when = "search slowly"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "11_4" }
+snapshot = "## Pages\n1: Jobs (https://jobs.example.com/slow) [selected]\n## Latest page snapshot\nuid=11_1 RootWebArea \"Jobs\"\n  uid=11_3 searchbox \"Search jobs\"\n  uid=11_4 button \"Search\""
+stall_at = 2
+after = "Searched the jobs, after a restart."
+denied = "Okay, I didn't search."
+
+[[reply]]
+when = "everyone's busy"
+say = "Answered by the backup."
+busy = ["e2e/tool-model:free"]
+
+[[reply]]
 when = "take your time"
 say = "Done, slowly."
 delay_ms = 3000

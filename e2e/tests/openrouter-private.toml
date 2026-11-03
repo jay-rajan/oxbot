@@ -1,0 +1,38 @@
+name = "Private bots ask providers not to keep data"
+about = "A shared bot's requests go to OpenRouter as they are; a private bot's ask for providers that don't collect data and keep nothing (data_collection deny, zdr)."
+covers = ["crates/oxbot-loop/src/runner.rs", "crates/oxbot-loop/src/router.rs", "crates/oxbot-llm/src/openrouter.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-core/src/hub/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in Claude."
+[[step]]
+expect_openrouter_not = "data_collection"
+note = "A shared bot: OpenRouter's defaults"
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Diary" }
+[[step]]
+click = "Private: only you"
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "private · @diary"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in Claude."
+[[step]]
+expect_openrouter_body = '"data_collection":"deny"'
+note = "The private bot's request asks providers not to keep data"
+[[step]]
+expect_openrouter_body = '"zdr":true'

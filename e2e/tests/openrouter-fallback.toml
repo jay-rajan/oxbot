@@ -1,0 +1,25 @@
+name = "A busy free model falls back to the next"
+about = "When the first free model is rate-limited (429), the request's next free model answers, and the chat says which model it was."
+covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/**", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "everyone's busy"
+[[step]]
+wait_for = "Answered by the backup."
+[[step]]
+expect = "backup:free · 1 request"
+note = "The footer names the model that answered"
+shot = "fallback"
+[[step]]
+expect_openrouter = '"models":["e2e/tool-model:free","e2e/backup:free"]'
+note = "oxbot sent the next free model along"
+[[step]]
+expect_openrouter = '"routed":"e2e/backup:free"'

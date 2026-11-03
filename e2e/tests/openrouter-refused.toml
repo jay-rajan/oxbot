@@ -1,0 +1,43 @@
+name = "A bot on OpenRouter can't type passwords or leave its folder"
+about = "oxbot's own loop refuses what Claude bots can't do either: typing into a password box, and reading a file outside the bot's folder; paying still asks, and never offers Always allow."
+covers = ["crates/oxbot-loop/src/gate.rs", "crates/oxbot-loop/src/tools/**", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "fill password"
+[[step]]
+wait_for = "Okay, I didn't type the password."
+note = "Refused without a card"
+[[step]]
+expect = "oxbot never lets bots type passwords"
+shot = "password-refused"
+[[step]]
+expect_not = "Allow once"
+[[step]]
+send = "read outside its folder"
+[[step]]
+wait_for = "Okay, I didn't read that file."
+[[step]]
+expect = "bots may only use files in their own folder"
+shot = "file-refused"
+[[step]]
+send = "pay it"
+[[step]]
+wait_for = "Allow once"
+note = "Paying asks"
+[[step]]
+expect = "Pay now"
+[[step]]
+expect_js = "![...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
+note = "…and never offers Always"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "Okay, I didn't pay."

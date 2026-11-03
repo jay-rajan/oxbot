@@ -1,0 +1,42 @@
+name = "A bot on OpenRouter saves a report with its sources"
+about = "Research on oxbot's own loop opens two pages and saves a report citing them: the chat gets a short answer and the report card, which opens with both numbered sources."
+covers = ["crates/oxbot-loop/**", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "research coffee near home"
+[[step]]
+wait_for = "Full comparison in the report."
+[[step]]
+expect = "browser navigate_page https://cafe-b.example.com/menu"
+note = "It opened both pages first"
+[[step]]
+expect = "Coffee near home"
+[[step]]
+expect = "2 sources"
+shot = "report-card"
+[[step]]
+click = "Coffee near home"
+[[step]]
+expect_js = "(() => { const h = document.getElementById('reportFrame').srcdoc; return document.getElementById('reportDlg').open && h.includes('id=\"src-1\"') && h.includes('id=\"src-2\"') && h.includes('href=\"https://cafe-b.example.com/menu\"'); })()"
+note = "The report opens with its numbered sources"
+shot = "report-open"
+[[step]]
+click = "← Back"
+[[step]]
+send = "research unopened"
+[[step]]
+expect_openrouter_body = "Not saved: these sources weren't opened in the browser"
+note = "A report citing a page the bot never opened isn't saved, and the model is told why"
+[[step]]
+wait_for = "2 requests"
+[[step]]
+expect_not = "Made up"
+note = "No card for it"

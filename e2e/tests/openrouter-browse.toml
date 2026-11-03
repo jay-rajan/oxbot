@@ -1,0 +1,36 @@
+name = "A bot on OpenRouter browses"
+about = "A new bot runs on OpenRouter by default; asked to search jobs, oxbot's own loop opens the page, reads it and clicks Search through the browser tool, each step shown in the chat, then answers with the model and request count under it."
+covers = ["crates/oxbot-loop/**", "crates/oxbot-llm/**", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot-browser/src/lib.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+expect_js = "document.getElementById('engineBadge').textContent === 'OpenRouter'"
+note = "New bots run on OpenRouter"
+[[step]]
+send = "search jobs"
+[[step]]
+wait_for = "Searched the jobs."
+[[step]]
+expect = "browser navigate_page https://jobs.example.com/"
+note = "Each step of the loop is a line in the chat"
+[[step]]
+expect = "browser take_snapshot"
+[[step]]
+expect = "browser click"
+[[step]]
+expect_not = "Allow once"
+note = "Search needs no OK, as on Claude"
+[[step]]
+expect = "tool-model:free · 4 requests"
+note = "The model it used and how many requests the task took"
+shot = "browsed"
+[[step]]
+expect_openrouter = '"called":"mcp__chrome-devtools__click"'
+note = "The click went through the stand-in OpenRouter's plan"

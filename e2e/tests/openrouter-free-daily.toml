@@ -1,0 +1,25 @@
+name = "OpenRouter's free requests for the day run out"
+about = "When the household's free model requests for the day are used up (OpenRouter's limit on the key), bots stop asking free models and say so plainly, instead of retrying."
+covers = ["crates/oxbot-loop/src/pacer.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/src/error.rs", "crates/oxbot-core/src/hub/looped.rs"]
+openrouter_daily = 1
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in Claude."
+[[step]]
+send = "hello again"
+[[step]]
+wait_for = "OpenRouter's free daily requests are used up; they reset at midnight UTC."
+[[step]]
+expect = "OpenRouter's free requests today at 100%"
+note = "The usage banner"
+shot = "used-up"
