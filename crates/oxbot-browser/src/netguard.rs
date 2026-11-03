@@ -16,9 +16,10 @@
 //! - Requests no tab owns (beacons sent as a page closes) go through
 //!   browser-wide interception, with the same rules.
 //!
-//! It fails closed: [`NetGuard::ready`] is true only while the connection
-//! is up and every tab has interception on, and the hub refuses browser
-//! tools until then.
+//! It fails closed: a target runs only once both are on in it; one that
+//! can't be armed is closed (and if even that fails, the guard stops being
+//! ready). [`NetGuard::ready`] is true only while the connection is up and
+//! every tab is armed, and the hub refuses browser tools until then.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -104,11 +105,14 @@ struct Shared {
     blocked: Vec<BlockedRequest>,
     /// How many it stopped in all (`blocked` keeps the first ones).
     blocked_count: usize,
+    /// A target that couldn't be armed couldn't be closed either.
+    broken: bool,
 }
 
 impl Shared {
     fn ready(&self) -> bool {
         self.connected
+            && !self.broken
             && self.browser_armed
             && !self.pages.is_empty()
             && self.pages.values().all(|on| *on)
@@ -216,6 +220,21 @@ enum Pending {
     Fetch { session: String },
     /// The socket block in a target's session.
     Sockets { session: String },
+    /// Closing a target that couldn't be armed.
+    Close { session: String },
+}
+
+/// A target being set up.
+#[derive(Debug, Clone, Default)]
+struct Arming {
+    /// Interception is on.
+    fetch: bool,
+    /// Sockets are off.
+    sockets: bool,
+    /// It waits for the guard before it runs.
+    waiting: bool,
+    /// Its id, to close it.
+    target_id: String,
 }
 
 /// The guard's side of the connection, without the socket (so it can be
@@ -224,8 +243,8 @@ struct Machine {
     mode: NetMode,
     next_id: u64,
     pending: HashMap<u64, Pending>,
-    /// Sessions still being set up: (interception on, sockets blocked).
-    arming: HashMap<String, (bool, bool)>,
+    /// Sessions still being set up.
+    arming: HashMap<String, Arming>,
     shared: Arc<Mutex<Shared>>,
 }
 
@@ -275,7 +294,7 @@ impl Machine {
         let mut out = Vec::new();
         if let Some(id) = msg.get("id").and_then(Value::as_u64) {
             if let Some(pending) = self.pending.remove(&id) {
-                self.answered(pending, msg.get("error").is_none());
+                self.answered(&mut out, pending, msg.get("error").is_none());
             }
             return out;
         }
@@ -305,70 +324,78 @@ impl Machine {
             .get("waitingForDebugger")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        if NETWORK_TARGETS.contains(&kind) {
-            if kind == "page" {
-                lock(&self.shared).pages.insert(session.clone(), false);
+        if !NETWORK_TARGETS.contains(&kind) {
+            // Nothing that can make requests: it just runs.
+            if waiting {
+                self.run(out, &session);
             }
-            self.arming.insert(session.clone(), (false, false));
-            let fetch = self.call(out, "Fetch.enable", &intercept_all(), Some(&session));
-            self.pending.insert(
-                fetch,
-                Pending::Fetch {
-                    session: session.clone(),
-                },
-            );
-            let sockets = if FRAME_TARGETS.contains(&kind) {
-                // Every document from now on, and the one there now.
-                self.call(out, "Page.enable", &json!({}), Some(&session));
-                self.call(
-                    out,
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    &json!({ "source": NO_SOCKETS, "runImmediately": true }),
-                    Some(&session),
-                );
-                self.call(
-                    out,
-                    "Network.setBypassServiceWorker",
-                    &json!({ "bypass": true }),
-                    Some(&session),
-                );
-                self.call(
-                    out,
-                    "Runtime.evaluate",
-                    &json!({ "expression": NO_SOCKETS }),
-                    Some(&session),
-                )
-            } else {
-                // A worker has one global scope, not yet running.
-                self.call(
-                    out,
-                    "Runtime.evaluate",
-                    &json!({ "expression": NO_SOCKETS }),
-                    Some(&session),
-                )
-            };
-            self.pending.insert(
-                sockets,
-                Pending::Sockets {
-                    session: session.clone(),
-                },
-            );
-            // Frames and workers this one starts are held the same way.
-            self.call(out, "Target.setAutoAttach", &auto_attach(), Some(&session));
+            return;
         }
-        // Commands run in order in a session: by the time it runs, the
-        // calls above are in place.
-        if waiting {
-            self.call(
+        if kind == "page" {
+            lock(&self.shared).pages.insert(session.clone(), false);
+        }
+        self.arming.insert(
+            session.clone(),
+            Arming {
+                waiting,
+                target_id: str_of(info, "targetId").to_owned(),
+                ..Arming::default()
+            },
+        );
+        let fetch = self.call(out, "Fetch.enable", &intercept_all(), Some(&session));
+        self.pending.insert(
+            fetch,
+            Pending::Fetch {
+                session: session.clone(),
+            },
+        );
+        let sockets = if FRAME_TARGETS.contains(&kind) {
+            // Every document from now on, and the one there now: this is
+            // what keeps sockets off, so it's the call that must work.
+            self.call(out, "Page.enable", &json!({}), Some(&session));
+            let id = self.call(
                 out,
-                "Runtime.runIfWaitingForDebugger",
-                &json!({}),
+                "Page.addScriptToEvaluateOnNewDocument",
+                &json!({ "source": NO_SOCKETS, "runImmediately": true }),
                 Some(&session),
             );
-        }
+            self.call(
+                out,
+                "Network.setBypassServiceWorker",
+                &json!({ "bypass": true }),
+                Some(&session),
+            );
+            id
+        } else {
+            // A worker has one global scope, not yet running.
+            self.call(
+                out,
+                "Runtime.evaluate",
+                &json!({ "expression": NO_SOCKETS }),
+                Some(&session),
+            )
+        };
+        self.pending.insert(
+            sockets,
+            Pending::Sockets {
+                session: session.clone(),
+            },
+        );
+        // Frames and workers this one starts are held the same way.
+        self.call(out, "Target.setAutoAttach", &auto_attach(), Some(&session));
+        // It runs once both answers came back fine (see `answered`).
     }
 
-    fn answered(&mut self, pending: Pending, ok: bool) {
+    fn run(&mut self, out: &mut Vec<String>, session: &str) {
+        self.call(
+            out,
+            "Runtime.runIfWaitingForDebugger",
+            &json!({}),
+            Some(session),
+        );
+    }
+
+    fn answered(&mut self, out: &mut Vec<String>, pending: Pending, ok: bool) {
         let (session, interception) = match pending {
             Pending::BrowserFetch => {
                 if ok {
@@ -378,29 +405,51 @@ impl Machine {
                 }
                 return;
             }
+            Pending::Close { session } => {
+                if !ok {
+                    // Unguarded and still there: nothing may run now.
+                    tracing::warn!(session, "the practice-run guard couldn't close a target");
+                    lock(&self.shared).broken = true;
+                }
+                return;
+            }
             Pending::Fetch { session } => (session, true),
             Pending::Sockets { session } => (session, false),
         };
-        if !ok {
-            tracing::warn!(
-                session,
-                interception,
-                "the practice-run guard couldn't arm a target"
-            );
-            return;
-        }
         let Some(state) = self.arming.get_mut(&session) else {
             return;
         };
-        if interception {
-            state.0 = true;
-        } else {
-            state.1 = true;
+        if !ok {
+            // Held, never run: closed so it can't load or send anything.
+            tracing::info!(
+                session,
+                interception,
+                "the practice-run guard couldn't arm a target; closing it"
+            );
+            let target_id = state.target_id.clone();
+            self.arming.remove(&session);
+            let id = self.call(
+                out,
+                "Target.closeTarget",
+                &json!({ "targetId": target_id }),
+                None,
+            );
+            self.pending.insert(id, Pending::Close { session });
+            return;
         }
-        if *state == (true, true) {
+        if interception {
+            state.fetch = true;
+        } else {
+            state.sockets = true;
+        }
+        if state.fetch && state.sockets {
+            let waiting = state.waiting;
             self.arming.remove(&session);
             if let Some(armed) = lock(&self.shared).pages.get_mut(&session) {
                 *armed = true;
+            }
+            if waiting {
+                self.run(out, &session);
             }
         }
     }
@@ -494,18 +543,28 @@ mod tests {
         })
     }
 
-    /// Attaches a target and answers every call it makes with `ok`.
+    /// Attaches a target and answers every call it makes with `ok`;
+    /// returns those calls, then what the answers led to (not answered).
     fn attach(m: &mut Machine, session: &str, kind: &str, ok: bool) -> Vec<Value> {
-        let out = parse(&m.on_message(&attached(session, kind)));
+        let mut out = parse(&m.on_message(&attached(session, kind)));
+        let mut after = Vec::new();
         for call in &out {
             let reply = if ok {
                 json!({"id": call["id"], "result": {}})
             } else {
                 json!({"id": call["id"], "error": {"message": "no"}})
             };
-            m.on_message(&reply);
+            after.extend(parse(&m.on_message(&reply)));
         }
+        out.extend(after);
         out
+    }
+
+    fn methods(calls: &[Value]) -> Vec<&str> {
+        calls
+            .iter()
+            .map(|c| c["method"].as_str().unwrap())
+            .collect()
     }
 
     #[test]
@@ -556,19 +615,22 @@ mod tests {
         assert!(start[1].get("sessionId").is_none(), "browser-wide");
 
         let out = parse(&m.on_message(&attached("s1", "page")));
-        let methods: Vec<&str> = out.iter().map(|c| c["method"].as_str().unwrap()).collect();
-        assert_eq!(methods.first(), Some(&"Fetch.enable"));
-        assert_eq!(
-            methods.last(),
-            Some(&"Runtime.runIfWaitingForDebugger"),
-            "resumed last"
+        let sent = methods(&out);
+        assert_eq!(sent.first(), Some(&"Fetch.enable"));
+        assert!(
+            !sent.contains(&"Runtime.runIfWaitingForDebugger"),
+            "held until it's armed"
         );
-        assert!(methods.contains(&"Page.addScriptToEvaluateOnNewDocument"));
-        assert!(methods.contains(&"Network.setBypassServiceWorker"));
+        assert!(sent.contains(&"Page.addScriptToEvaluateOnNewDocument"));
+        assert!(sent.contains(&"Network.setBypassServiceWorker"));
         assert!(out.iter().all(|c| c["sessionId"] == "s1"));
+        let mut resumed = Vec::new();
         for call in &out {
-            m.on_message(&json!({"id": call["id"], "result": {}}));
+            resumed.extend(parse(
+                &m.on_message(&json!({"id": call["id"], "result": {}})),
+            ));
         }
+        assert_eq!(methods(&resumed), ["Runtime.runIfWaitingForDebugger"]);
         assert!(!ready(&shared), "not until browser-wide interception is on");
         m.on_message(&json!({"id": start[1]["id"], "result": {}}));
         assert!(ready(&shared));
@@ -577,7 +639,7 @@ mod tests {
         let late = parse(&m.on_message(&attached("s2", "page")));
         assert!(!ready(&shared));
         for call in &late {
-            m.on_message(&json!({"id": call["id"], "result": {}}));
+            let _ = m.on_message(&json!({"id": call["id"], "result": {}}));
         }
         assert!(ready(&shared));
         m.on_message(
@@ -596,17 +658,49 @@ mod tests {
     }
 
     #[test]
+    fn a_target_that_cant_be_armed_never_runs_and_is_closed() {
+        let (mut m, shared) = machine(NetMode::Strict);
+        attach(&mut m, "p", "page", true);
+        // An iframe whose socket block fails, its interception fine.
+        let out = parse(&m.on_message(&attached("f", "iframe")));
+        let mut after = Vec::new();
+        for call in &out {
+            let failed = call["method"] == "Page.addScriptToEvaluateOnNewDocument";
+            let reply = if failed {
+                json!({"id": call["id"], "error": {"message": "no"}})
+            } else {
+                json!({"id": call["id"], "result": {}})
+            };
+            after.extend(parse(&m.on_message(&reply)));
+        }
+        assert_eq!(methods(&after), ["Target.closeTarget"]);
+        assert_eq!(after[0]["params"]["targetId"], "t-f");
+        assert!(
+            after[0].get("sessionId").is_none(),
+            "closed from the browser"
+        );
+        assert!(ready(&shared), "closed: the other tabs go on");
+        // A worker whose closing fails too: the guard stops being ready.
+        let worker = attach(&mut m, "w", "worker", false);
+        assert!(!methods(&worker).contains(&"Runtime.runIfWaitingForDebugger"));
+        let close = worker
+            .iter()
+            .find(|c| c["method"] == "Target.closeTarget")
+            .unwrap();
+        m.on_message(&json!({"id": close["id"], "error": {"message": "no"}}));
+        assert!(!ready(&shared), "fails closed");
+    }
+
+    #[test]
     fn workers_are_guarded_and_other_targets_just_run() {
         let (mut m, shared) = machine(NetMode::Strict);
         attach(&mut m, "p", "page", true);
         let worker = attach(&mut m, "w", "service_worker", true);
-        let methods: Vec<&str> = worker
-            .iter()
-            .map(|c| c["method"].as_str().unwrap())
-            .collect();
-        assert!(methods.contains(&"Fetch.enable"));
-        assert!(methods.contains(&"Runtime.evaluate"), "sockets off first");
-        assert!(!methods.contains(&"Page.addScriptToEvaluateOnNewDocument"));
+        let sent = methods(&worker);
+        assert!(sent.contains(&"Fetch.enable"));
+        assert!(sent.contains(&"Runtime.evaluate"), "sockets off first");
+        assert!(!sent.contains(&"Page.addScriptToEvaluateOnNewDocument"));
+        assert_eq!(sent.last(), Some(&"Runtime.runIfWaitingForDebugger"));
         let other = attach(&mut m, "o", "auction_worklet", true);
         assert_eq!(other.len(), 1);
         assert_eq!(other[0]["method"], "Runtime.runIfWaitingForDebugger");
