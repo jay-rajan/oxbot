@@ -79,6 +79,10 @@ tokio-util = { version = "=0.7.20", default-features = false }
 # Wipes the OpenRouter key from memory when it is dropped (already in the
 # build through rustls).
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+# The macOS Keychain, where the OpenRouter key is kept (version checked
+# 2026-11-02; released 2026-02-20; already in the build through
+# rustls-platform-verifier). Its safe password API only.
+security-framework = { version = "=3.7.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

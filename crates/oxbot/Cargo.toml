@@ -19,6 +19,7 @@ mdns-sd.workspace = true
 oxbot-browser.workspace = true
 oxbot-core.workspace = true
 oxbot-gate.workspace = true
+oxbot-llm.workspace = true
 oxbot-protocol.workspace = true
 qrcode.workspace = true
 rcgen.workspace = true
@@ -33,6 +34,10 @@ tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The Keychain, for the OpenRouter key.
+security-framework.workspace = true
 
 [dev-dependencies]
 # Tests name people (`Viewer::gate("Sam")`) without pairing them first.
