@@ -10,11 +10,16 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+# The stand-in OpenRouter's web server (already in the workspace).
+axum.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 # The seed makes a database as an older oxbot left it.
 oxbot-core = { workspace = true, features = ["test-support"] }
 png = "0.18.0"
+# SHA-256 (the stand-in OpenRouter checks PKCE) and random keys (already in
+# the workspace).
+ring.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
