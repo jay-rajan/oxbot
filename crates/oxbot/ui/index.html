@@ -551,7 +551,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <section>
       <h3>Who can use which bots</h3>
       <p class="notice-text" id="enginesNotice"></p>
-      <p class="hint">Every bot runs on an engine. OpenRouter bots (the default) run oxbot's own agent loop on OpenRouter's models, free ones first; anyone in the household can give them tasks. Claude bots run Claude Code on the Farm owner's own Claude plan. Herder (the owner's) runs on Claude; everyone else's Herder runs on OpenRouter.</p>
+      <p class="hint">Every bot runs on an engine. OpenRouter bots (the default) run oxbot's own agent loop on OpenRouter's models, free ones first; anyone in the household can give them tasks. Claude bots run Claude Code on the Farm owner's own Claude plan. Herder (the owner's) runs on Claude; everyone else's Herder runs on OpenRouter. Model calls go only to Anthropic (Claude bots), OpenRouter (OpenRouter bots), or a local model; nothing else.</p>
     </section>
     <section>
       <h3>Claude</h3>
@@ -2455,6 +2455,13 @@ function renderSettings() {
 
 // ---------- usage alert banner
 const ALERT_NAMES = { five_hour: "5-hour limit", seven_day: "Weekly limit" };
+const OR_ALERT_NAMES = { openrouter_free_daily: "OpenRouter's free requests today", openrouter_spend_daily: "Paid models' spending today", openrouter_credits: "OpenRouter's credit" };
+/** A limit's name in words: Claude's windows, OpenRouter's, or one bot's requests today. */
+function alertLabel(limit) {
+  const bot = limit.startsWith("openrouter_bot_daily:") ? limit.slice("openrouter_bot_daily:".length) : null;
+  if (bot !== null) return `${(bots.get(bot) || { info: { name: bot } }).info.name}'s requests today`;
+  return ALERT_NAMES[limit] || OR_ALERT_NAMES[limit] || limit.replace(/_/g, " ");
+}
 const alertKey = (a) => `${a.limit}:${a.resets_at_ms}:${a.level}`;
 // The alert to show: a live one not dismissed here, the highest level
 // first, then the soonest reset.
@@ -2472,10 +2479,11 @@ function renderAlert() {
   const a = shownAlert(), box = $("usageAlert");
   box.hidden = !a;
   if (!a) return;
-  const parts = [`${ALERT_NAMES[a.limit] || a.limit.replace(/_/g, " ")} at ${Math.round(a.used * 100)}%`];
+  const parts = [`${alertLabel(a.limit)} at ${Math.round(a.used * 100)}%`];
   const when = resetsIn(a.resets_at_ms);
   if (when) parts.push(when);
-  parts.push(a.models.length ? `your bots use ${a.models.join(", ")}` : "your bots use Claude's default model");
+  // Claude's plan windows say which models use them; OpenRouter's don't.
+  if (!a.limit.startsWith("openrouter_")) parts.push(a.models.length ? `your bots use ${a.models.join(", ")}` : "your bots use Claude's default model");
   const text = $("usageAlertText"); text.textContent = "";
   const b = document.createElement("b"); b.textContent = parts[0];
   text.append(b, document.createTextNode(" · " + parts.slice(1).join(" · ")));
