@@ -8,9 +8,14 @@
 //! sidebar sections, research reports with the pages each session
 //! opened, usage alerts and preferences, who started each turn, and
 //! oxbot's own loop (conversations, turns, model requests).
+//! comparisons of engines and models (test cases and practice runs).
 
 mod alerts;
 pub use alerts::{AlertChange, LimitAlert};
+mod compare;
+pub use compare::{
+    BatchRecord, MAX_TOOL_TEXT, RatingCount, TestCaseRecord, TrialRunRecord, TurnToolRecord,
+};
 mod events;
 pub use events::Replay;
 mod gates;

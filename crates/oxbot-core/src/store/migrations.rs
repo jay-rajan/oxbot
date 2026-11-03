@@ -283,7 +283,114 @@ pub(super) const MIGRATIONS: &[Step] = &[
         CREATE INDEX IF NOT EXISTS model_calls_person_day ON model_calls (day, person);
         CREATE INDEX IF NOT EXISTS model_calls_model ON model_calls (model, ts_ms);",
     ),
+    // 18: comparing engines and models (#21): test cases, practice runs and
+    // what they did, the oxbot-tool calls of every turn (a case's
+    // fixtures), and people's thumbs on replies.
+    Step::Rust(comparisons),
 ];
+
+/// Migration 18. Skips what is already there, as 15 does.
+pub(super) fn comparisons(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS turn_tools (
+            bot    TEXT    NOT NULL,
+            seq    INTEGER NOT NULL,  -- the turn's UserMessage event
+            n      INTEGER NOT NULL,  -- 1, 2… in the order they ran
+            tool   TEXT    NOT NULL,  -- oxbot's own tool, e.g. give_task
+            args   TEXT    NOT NULL,  -- JSON, at most 8 KB
+            result TEXT    NOT NULL,  -- what the bot was told, at most 8 KB
+            ok     INTEGER NOT NULL,
+            PRIMARY KEY (bot, seq, n)
+        );
+        CREATE TABLE IF NOT EXISTS test_cases (
+            id            TEXT    PRIMARY KEY,
+            bot           TEXT    NOT NULL,
+            created_ms    INTEGER NOT NULL,
+            created_by    TEXT,                          -- person id
+            seq_from      INTEGER NOT NULL,              -- the original turn's UserMessage
+            seq_to        INTEGER NOT NULL,              -- and its TurnDone
+            title         TEXT    NOT NULL,
+            prompt        TEXT    NOT NULL,
+            files         TEXT    NOT NULL DEFAULT '[]', -- JSON [Attachment], copied under cases/<id>/files
+            instructions  TEXT    NOT NULL,              -- the bot's instructions then
+            knowledge     TEXT,                          -- what the bot knew then (JSON), once there is knowledge
+            kind          TEXT    NOT NULL CHECK (kind IN ('reads', 'acts')),
+            rubric        TEXT    NOT NULL DEFAULT '',   -- the owner's checks, one per line
+            expected      TEXT    NOT NULL DEFAULT '[]', -- JSON [{intent, expect}]
+            fixtures      TEXT    NOT NULL DEFAULT '{}', -- JSON {give_task: [...], read_reply: [...], ask_user: [...]}
+            sites         TEXT    NOT NULL DEFAULT '[]', -- JSON [host]
+            uses_sign_ins INTEGER NOT NULL DEFAULT 0,
+            browser_owner TEXT    NOT NULL DEFAULT '',   -- '' home, else the owner's person id
+            network       TEXT    NOT NULL DEFAULT 'strict' CHECK (network IN ('strict', 'xhr')),
+            local_only    INTEGER NOT NULL DEFAULT 0,
+            origin        TEXT    NOT NULL DEFAULT '{}', -- JSON {person, on_farm, tainted_by} of the original turn
+            archived      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS test_cases_by_bot ON test_cases (bot, created_ms);
+        CREATE TABLE IF NOT EXISTS trial_batches (
+            id           TEXT    PRIMARY KEY,
+            bot          TEXT    NOT NULL,
+            kind         TEXT    NOT NULL CHECK (kind IN ('replay', 'shadow')),
+            created_ms   INTEGER NOT NULL,
+            targets      TEXT    NOT NULL,                -- JSON [{engine, model}]
+            cases        TEXT    NOT NULL,                -- JSON [case id]
+            repeats      INTEGER NOT NULL DEFAULT 1,
+            est_requests INTEGER NOT NULL DEFAULT 0,
+            status       TEXT    NOT NULL                 -- queued | running | paused | done | stopped
+        );
+        CREATE TABLE IF NOT EXISTS trial_runs (
+            id            TEXT    PRIMARY KEY,
+            batch         TEXT,
+            case_id       TEXT,
+            bot           TEXT    NOT NULL,
+            kind          TEXT    NOT NULL CHECK (kind IN ('original', 'replay', 'shadow')),
+            engine        TEXT    NOT NULL,
+            provider      TEXT    NOT NULL,
+            model         TEXT    NOT NULL,
+            started_ms    INTEGER,
+            ended_ms      INTEGER,
+            status        TEXT    NOT NULL,  -- queued | running | done | failed | stopped | needs_sign_in | over_budget | rate_limited | judge_error
+            steps         INTEGER NOT NULL DEFAULT 0,
+            requests      INTEGER NOT NULL DEFAULT 0,
+            input_tokens  INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cached_tokens INTEGER NOT NULL DEFAULT 0,
+            cost_usd      REAL    NOT NULL DEFAULT 0,
+            intents       INTEGER NOT NULL DEFAULT 0,  -- cards a live run would have raised
+            refusals      INTEGER NOT NULL DEFAULT 0,
+            errors        INTEGER NOT NULL DEFAULT 0,
+            net_blocked   INTEGER NOT NULL DEFAULT 0,
+            answer        TEXT    NOT NULL DEFAULT '',
+            report        TEXT,                        -- JSON: a report it would have saved
+            intent_list   TEXT    NOT NULL DEFAULT '[]', -- JSON [Intent]
+            intent_match  TEXT,                        -- JSON {matched, missing, extra, should_not}
+            verdict       TEXT    CHECK (verdict IN ('pass', 'partial', 'fail')),
+            verdict_by    TEXT    CHECK (verdict_by IN ('owner', 'judge', 'local_judge')),
+            judge         TEXT,                        -- JSON {checks, verdict, score, notes, model}
+            owner_verdict TEXT    CHECK (owner_verdict IN ('pass', 'partial', 'fail')),
+            web_age_days  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS trial_runs_by_bot ON trial_runs (bot, engine, model, started_ms);
+        CREATE INDEX IF NOT EXISTS trial_runs_by_case ON trial_runs (case_id);
+        CREATE TABLE IF NOT EXISTS trial_events (
+            run   TEXT    NOT NULL,
+            seq   INTEGER NOT NULL,
+            ts_ms INTEGER NOT NULL,
+            body  TEXT    NOT NULL,  -- EventKind as JSON, as in events
+            PRIMARY KEY (run, seq)
+        );
+        CREATE TABLE IF NOT EXISTS turn_ratings (
+            bot    TEXT    NOT NULL,
+            seq    INTEGER NOT NULL,  -- the reply's TurnDone event
+            up     INTEGER NOT NULL,
+            engine TEXT    NOT NULL,
+            model  TEXT    NOT NULL,
+            ms     INTEGER NOT NULL,
+            PRIMARY KEY (bot, seq)
+        );",
+    )?;
+    Ok(())
+}
 
 /// Migration 16. Skips what is already there, as 15 does.
 pub(super) fn engines_and_origins(tx: &Transaction<'_>) -> Result<(), StoreError> {

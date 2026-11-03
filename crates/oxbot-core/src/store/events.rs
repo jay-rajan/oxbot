@@ -101,7 +101,8 @@ pub(super) fn from_sql(n: i64) -> u64 {
 impl Store {
     /// Forgets everything about a deleted bot: its history, session, usage,
     /// "Always allow" rules, reports, the pages its session opened, who
-    /// started its turns, its loop conversations and turns, and
+    /// started its turns, its loop conversations and turns, its test cases,
+    /// practice runs, oxbot-tool calls and thumbs, and
     /// where anyone filed it in their sections (a new bot can get its id).
     /// Returns the people whose sections it was in.
     ///
@@ -121,6 +122,10 @@ impl Store {
             let rows = stmt.query_map([bot.as_str()], |r| r.get(0))?;
             rows.collect::<Result<_, _>>()?
         };
+        tx.execute(
+            "DELETE FROM trial_events WHERE run IN (SELECT id FROM trial_runs WHERE bot = ?1)",
+            [bot.as_str()],
+        )?;
         for table in [
             "events",
             "sessions",
@@ -131,6 +136,11 @@ impl Store {
             "session_pages",
             "turn_origins",
             "loop_turns",
+            "turn_tools",
+            "test_cases",
+            "trial_batches",
+            "trial_runs",
+            "turn_ratings",
         ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),
