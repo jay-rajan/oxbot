@@ -33,8 +33,10 @@ pub struct ProviderPrefs {
     /// Whether OpenRouter may try other providers of the same model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_fallbacks: Option<bool>,
-    /// Only providers that honor every parameter sent (tools,
-    /// `parallel_tool_calls`).
+    /// Only providers that honor every parameter sent. Requests then send
+    /// only the parameters the model lists (see
+    /// [`ModelInfo::supported_parameters`]), so this rules out providers
+    /// without tools, not every provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub require_parameters: Option<bool>,
     /// Providers to try first, in order.
@@ -115,6 +117,11 @@ pub struct ModelInfo {
     pub text_io: bool,
     /// A free variant: id ends with `:free` and both prices are 0.
     pub free: bool,
+    /// Request parameters its providers take, by OpenRouter's names (e.g.
+    /// `tools`, `tool_choice`, `seed`). Empty: unknown (an older kept list,
+    /// or a local server's).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_parameters: Vec<String>,
 }
 
 impl ModelInfo {
@@ -123,6 +130,13 @@ impl ModelInfo {
     #[must_use]
     pub fn fits_loop(&self) -> bool {
         self.tools && self.text_io && self.context_length >= MIN_CONTEXT
+    }
+
+    /// Whether it takes the request parameter `name`. `false` when the
+    /// list doesn't say.
+    #[must_use]
+    pub fn supports(&self, name: &str) -> bool {
+        self.supported_parameters.iter().any(|p| p == name)
     }
 
     /// The longest answer to ask for: the model's own limit, at most
@@ -166,6 +180,15 @@ impl Catalog {
         Ok(Self {
             models: data.iter().filter_map(model_info).collect(),
         })
+    }
+
+    /// Whether it was kept by an older oxbot that didn't keep each model's
+    /// parameters: a model with tools but no parameter list. Read it again.
+    #[must_use]
+    pub fn lacks_parameters(&self) -> bool {
+        self.models
+            .iter()
+            .any(|m| m.tools && m.supported_parameters.is_empty())
     }
 
     /// A model by id.
@@ -241,6 +264,12 @@ fn model_info(m: &Value) -> Option<ModelInfo> {
         tools: params.contains(&"tools"),
         images_in: inputs.contains(&"image"),
         text_io,
+        supported_parameters: params
+            .iter()
+            .filter(|p| valid_param(p))
+            .take(MAX_PARAMS)
+            .map(|p| (*p).to_owned())
+            .collect(),
         id,
     })
 }
@@ -249,6 +278,17 @@ fn strings(v: Option<&Value>) -> Vec<&str> {
     v.and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default()
+}
+
+/// Most parameters kept per model (OpenRouter lists about 20).
+const MAX_PARAMS: usize = 64;
+
+/// Parameter names are short snake-case words.
+fn valid_param(p: &str) -> bool {
+    !p.is_empty()
+        && p.len() <= 64
+        && p.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Model ids go into requests and the page: plain characters only.
@@ -431,6 +471,35 @@ mod tests {
         assert!(c.get("bad id <script>").is_none());
         assert!(!c.get("f/fake:free").unwrap().free);
         assert!(!c.get("g/image-out:free").unwrap().fits_loop());
+        assert_eq!(
+            a.supported_parameters,
+            ["tools", "tool_choice", "max_tokens"]
+        );
+        assert!(a.supports("tool_choice") && !a.supports("seed"));
+    }
+
+    #[test]
+    fn odd_parameter_names_are_left_out() {
+        let c = Catalog::parse(
+            json!({"data": [{"id": "a/m:free", "pricing": {"prompt": "0", "completion": "0"},
+                "supported_parameters": ["tools", "Bad Name", "<x>", 7, "top_k"]}]})
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(c.models[0].supported_parameters, ["tools", "top_k"]);
+    }
+
+    #[test]
+    fn a_list_kept_without_parameters_reads_and_asks_to_be_read_again() {
+        let fresh = Catalog::parse(catalog_json().as_bytes()).unwrap();
+        assert!(!fresh.lacks_parameters());
+        let old = r#"{"models":[{"id":"a/tools:free","name":"A","context_length":131072,
+            "max_completion":null,"prompt_usd_per_token":0.0,"completion_usd_per_token":0.0,
+            "tools":true,"images_in":false,"text_io":true,"free":true}]}"#;
+        let old: Catalog = serde_json::from_str(old).unwrap();
+        assert_eq!(old.models[0].supported_parameters, Vec::<String>::new());
+        assert!(old.lacks_parameters());
     }
 
     #[test]

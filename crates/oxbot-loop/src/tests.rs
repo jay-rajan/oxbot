@@ -32,6 +32,9 @@ fn free_model(id: &str) -> ModelInfo {
         images_in: false,
         text_io: true,
         free: true,
+        supported_parameters: ["tools", "tool_choice", "parallel_tool_calls", "max_tokens"]
+            .map(str::to_owned)
+            .to_vec(),
     }
 }
 
@@ -224,6 +227,11 @@ async fn a_plain_answer() {
     let req = &h.model.requests()[0];
     assert_eq!(req.provider.as_ref().unwrap().data_collection, None);
     assert_eq!(req.fallbacks, ["b:free"]);
+    assert_eq!(
+        req.supported.as_deref().unwrap(),
+        ["tools", "tool_choice", "parallel_tool_calls", "max_tokens"],
+        "only what the models take, so require_parameters keeps them"
+    );
     assert_eq!(req.messages[0].role, Role::System);
     let names: Vec<&str> = req.tools.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(

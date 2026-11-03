@@ -90,6 +90,9 @@ pub struct Route {
     pub window: u64,
     /// The longest answer to ask for.
     pub max_tokens: u32,
+    /// Request parameters all of them take (none known for a model the
+    /// list doesn't describe).
+    pub supported: Vec<String>,
 }
 
 /// What the router found.
@@ -342,11 +345,24 @@ impl Router {
             .unwrap_or(u64::from(MIN_CONTEXT));
         let cap = self.prefs().max_tokens;
         let max_tokens = primary.info.as_ref().map_or(cap, |m| m.max_tokens(cap));
+        let supported = primary
+            .info
+            .as_ref()
+            .map(|m| m.supported_parameters.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| {
+                fallbacks
+                    .iter()
+                    .all(|c| c.info.as_ref().is_some_and(|m| m.supports(p)))
+            })
+            .collect();
         Pick::Route(Route {
             primary: primary.clone(),
             fallbacks: fallbacks.into_iter().map(|c| c.id.clone()).collect(),
             window,
             max_tokens,
+            supported,
         })
     }
 
@@ -394,6 +410,9 @@ mod tests {
             images_in: false,
             text_io: true,
             free,
+            supported_parameters: ["tools", "tool_choice", "max_tokens", "seed"]
+                .map(str::to_owned)
+                .to_vec(),
         }
     }
 
@@ -525,5 +544,49 @@ mod tests {
         assert_eq!(route.primary.id, "a:free");
         assert_eq!(route.fallbacks, Vec::<String>::new());
         assert_eq!(route.window, 128_000);
+    }
+
+    #[test]
+    fn a_route_sends_only_parameters_every_model_takes() {
+        let mut c = model("c:free", 200_000, true);
+        c.supported_parameters = vec!["tools".into(), "max_tokens".into()];
+        let catalog = Catalog {
+            models: vec![c, model("a:free", 128_000, true)],
+        };
+        let r = Router::new(
+            Arc::new(CatalogCache::new(catalog)),
+            Arc::new(MemoryLoopStore::new()),
+            Arc::new(RwLock::new(LoopPrefs::default())),
+        );
+        let Pick::Route(route) = r.pick(&TurnRouting::default(), true) else {
+            panic!()
+        };
+        assert_eq!(route.fallbacks, ["a:free"]);
+        assert_eq!(route.supported, ["tools", "max_tokens"]);
+
+        let only_a = TurnRouting {
+            choice: ModelChoice::Only("a:free".into()),
+            ..TurnRouting::default()
+        };
+        let Pick::Route(route) = r.pick(&only_a, true) else {
+            panic!()
+        };
+        assert_eq!(
+            route.supported,
+            ["tools", "tool_choice", "max_tokens", "seed"]
+        );
+
+        let unknown = TurnRouting {
+            choice: ModelChoice::Only("x/unlisted".into()),
+            ..TurnRouting::default()
+        };
+        let Pick::Route(route) = r.pick(&unknown, true) else {
+            panic!()
+        };
+        assert_eq!(
+            route.supported,
+            Vec::<String>::new(),
+            "nothing optional for an unknown model"
+        );
     }
 }

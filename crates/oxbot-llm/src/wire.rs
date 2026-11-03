@@ -13,6 +13,12 @@ use crate::types::{
 /// The JSON body of a streaming chat request.
 #[must_use]
 pub fn request_body(req: &ChatRequest, provider: Provider) -> Value {
+    // Optional parameters go only where the model takes them (OpenRouter
+    // with a known list); local servers get them all.
+    let takes = |name: &str| match (&req.supported, provider) {
+        (Some(names), Provider::OpenRouter) => names.iter().any(|n| n == name),
+        _ => true,
+    };
     let mut body = Map::new();
     body.insert("model".into(), Value::String(req.model.clone()));
     body.insert(
@@ -36,18 +42,23 @@ pub fn request_body(req: &ChatRequest, provider: Provider) -> Value {
             ToolChoice::Required => json!("required"),
             ToolChoice::Tool(name) => json!({"type": "function", "function": {"name": name}}),
         };
-        body.insert("tool_choice".into(), choice);
-        if let Some(parallel) = req.parallel_tool_calls {
+        if takes("tool_choice") {
+            body.insert("tool_choice".into(), choice);
+        }
+        if let Some(parallel) = req
+            .parallel_tool_calls
+            .filter(|_| takes("parallel_tool_calls"))
+        {
             body.insert("parallel_tool_calls".into(), Value::Bool(parallel));
         }
     }
-    if let Some(max) = req.max_tokens {
+    if let Some(max) = req.max_tokens.filter(|_| takes("max_tokens")) {
         body.insert("max_tokens".into(), json!(max));
     }
-    if let Some(t) = req.temperature {
+    if let Some(t) = req.temperature.filter(|_| takes("temperature")) {
         body.insert("temperature".into(), json!(t));
     }
-    if let Some(seed) = req.seed {
+    if let Some(seed) = req.seed.filter(|_| takes("seed")) {
         body.insert("seed".into(), json!(seed));
     }
     body.insert("stream".into(), Value::Bool(true));
@@ -421,6 +432,32 @@ mod tests {
         );
         assert_eq!(body["temperature"], 0.5);
         assert_eq!(body["seed"], 7);
+    }
+
+    #[test]
+    fn only_parameters_the_model_takes_are_sent() {
+        let mut req = request();
+        req.temperature = Some(0.2);
+        req.seed = Some(7);
+        req.supported = Some(vec!["tools".into(), "max_tokens".into(), "seed".into()]);
+        let body = request_body(&req, Provider::OpenRouter);
+        assert_eq!(body["tools"][0]["function"]["name"], "Read");
+        assert_eq!(body["max_tokens"], 4096);
+        assert_eq!(body["seed"], 7);
+        for left_out in ["tool_choice", "parallel_tool_calls", "temperature"] {
+            assert!(body.get(left_out).is_none(), "{left_out}");
+        }
+        assert_eq!(body["provider"]["require_parameters"], true);
+
+        req.supported = Some(Vec::new());
+        let body = request_body(&req, Provider::OpenRouter);
+        assert!(body.get("tools").is_some(), "tools are always sent");
+        assert!(body.get("max_tokens").is_none());
+        assert_eq!(body["stream"], true);
+
+        let local = request_body(&req, Provider::Local);
+        assert_eq!(local["parallel_tool_calls"], false, "local servers get all");
+        assert_eq!(local["max_tokens"], 4096);
     }
 
     #[test]

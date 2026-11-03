@@ -289,6 +289,7 @@ impl Caller<'_> {
             tools,
             max_tokens: Some(route.max_tokens),
             provider,
+            supported: Some(route.supported.clone()),
             ..ChatRequest::new(route.primary.id.clone(), messages)
         };
         let ts_ms = now_ms();

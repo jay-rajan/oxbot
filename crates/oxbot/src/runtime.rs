@@ -273,8 +273,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
 const MODELS_EVERY: std::time::Duration = std::time::Duration::from_hours(6);
 
 /// Reads the key's limits at start, and `OpenRouter`'s model list (no key
-/// needed) at start if the kept one is older than [`MODELS_EVERY`], then
-/// every [`MODELS_EVERY`]. Not in this crate's tests, which never reach
+/// needed) at start if the kept one is older than [`MODELS_EVERY`] or lacks
+/// the models' parameters, then every [`MODELS_EVERY`]. Not in this crate's tests, which never reach
 /// the network.
 fn refresh_models_now_and_then(state: &AppState) {
     if cfg!(test) {
@@ -288,7 +288,13 @@ fn refresh_models_now_and_then(state: &AppState) {
             state.openrouter_changed();
         }
         let every_ms = i64::try_from(MODELS_EVERY.as_millis()).unwrap_or(i64::MAX);
-        let fetched = state.hub.model_catalog().map_or(0, |(_, ms)| ms);
+        // A list kept by an older oxbot lacks each model's parameters:
+        // read it again now.
+        let fetched = state.hub.model_catalog().map_or(0, |(json, ms)| {
+            let old = serde_json::from_str::<oxbot_llm::Catalog>(&json)
+                .is_ok_and(|c| c.lacks_parameters());
+            if old { 0 } else { ms }
+        });
         let mut wait = std::time::Duration::from_millis(
             u64::try_from((fetched + every_ms - now_ms()).max(0)).unwrap_or(0),
         );

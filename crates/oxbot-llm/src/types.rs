@@ -334,6 +334,12 @@ pub struct ChatRequest {
     pub seed: Option<u64>,
     /// OpenRouter's provider routing (privacy, order). `None` for local.
     pub provider: Option<ProviderPrefs>,
+    /// OpenRouter only: the optional parameters (`tool_choice`,
+    /// `parallel_tool_calls`, `max_tokens`, `temperature`, `seed`) every
+    /// model asked for takes, by OpenRouter's names. Others are left out:
+    /// with `require_parameters`, one unsupported parameter rules out every
+    /// provider of a model. `tools` is always sent. `None`: send them all.
+    pub supported: Option<Vec<String>>,
 }
 
 impl ChatRequest {
@@ -352,6 +358,7 @@ impl ChatRequest {
             temperature: None,
             seed: None,
             provider: None,
+            supported: None,
         }
     }
 }
