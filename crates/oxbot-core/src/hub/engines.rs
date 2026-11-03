@@ -139,12 +139,15 @@ impl Hub {
     pub(super) fn engine(&self, kind: EngineKind) -> Result<Arc<dyn Engine>, HubError> {
         let engine = match kind {
             EngineKind::Claude => Arc::clone(&self.claude),
-            EngineKind::OpenRouter => {
-                return Err(HubError::EngineNotReady(format!(
-                    "OpenRouter isn't set up on this Mac yet; ask {}.",
-                    self.owner_name()
-                )));
-            }
+            EngineKind::OpenRouter => match &self.loop_engine {
+                Some(engine) if engine.ready().is_ok() => Arc::clone(engine) as Arc<dyn Engine>,
+                _ => {
+                    return Err(HubError::EngineNotReady(format!(
+                        "OpenRouter isn't set up on this Mac yet; ask {}.",
+                        self.owner_name()
+                    )));
+                }
+            },
         };
         engine
             .ready()

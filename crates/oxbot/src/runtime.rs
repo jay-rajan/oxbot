@@ -141,6 +141,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             env: path_env.clone(),
             built_in: built_in.clone(),
             hidden_windows: e2e,
+            mcp_override: fake_devtools(e2e),
             ..ToolsConfig::in_home(home.root())
         })
     });
@@ -170,6 +171,11 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         extra_env: path_env,
         mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
+        // oxbot's own loop for bots on OpenRouter, with the household's key.
+        openrouter: Some(oxbot_core::LoopParts::openrouter(
+            openrouter.client(),
+            openrouter.key_cell(),
+        )),
         ..HubConfig::for_app(home.bots_dir())
     };
     let hub = Hub::new(bots, store, config);
@@ -201,6 +207,12 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     if let Err(err) = hub.farm_person_from(&local_person, from_account) {
         tracing::warn!(%err, "couldn't choose the Farm's person yet");
     }
+    // Loop turns that were running when oxbot stopped go on (the owner-only
+    // rule needs the Farm's person, so after it is known).
+    tokio::spawn({
+        let hub = Arc::clone(&hub);
+        async move { hub.resume_loop_turns().await }
+    });
     let state = AppState {
         hub: Arc::clone(&hub),
         server_name: device.clone(),
@@ -280,6 +292,25 @@ fn refresh_models_now_and_then(state: &AppState) {
             wait = MODELS_EVERY;
         }
     });
+}
+
+/// End-to-end tests only (`OXBOT_E2E=1`): the stand-in browser tool for
+/// bots on oxbot's own loop (`OXBOT_FAKE_DEVTOOLS`), with the reply script
+/// and log it reads.
+fn fake_devtools(e2e: bool) -> Option<oxbot_browser::McpCommand> {
+    if !e2e {
+        return None;
+    }
+    let program = std::env::var_os("OXBOT_FAKE_DEVTOOLS")?;
+    let env = ["OXBOT_FAKE_SCRIPT", "OXBOT_FAKE_DT_LOG"]
+        .into_iter()
+        .filter_map(|k| Some((k.to_owned(), std::env::var(k).ok()?)))
+        .collect();
+    Some(oxbot_browser::McpCommand {
+        program: PathBuf::from(program),
+        args: Vec::new(),
+        env,
+    })
 }
 
 /// The browser tool shipped inside oxbot.app, logged.

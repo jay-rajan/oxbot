@@ -29,6 +29,7 @@ mod claude;
 mod elements;
 mod engine_prefs;
 mod engines;
+mod looped;
 mod people;
 mod reports;
 mod rules;
@@ -44,6 +45,7 @@ pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
 pub use engine_prefs::ENGINES_NOTICE;
 pub use engines::{ChainOrigin, Entry};
+pub use looped::LoopParts;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -104,6 +106,12 @@ pub struct HubConfig {
     /// [`Hub::person_named`]) and a name alone gets nobody new.
     #[cfg(any(test, feature = "test-people"))]
     pub enrol_named_viewers: bool,
+    /// oxbot's own loop for `OpenRouter` bots: its model client and key.
+    /// `None`: bots on `OpenRouter` can't run here.
+    pub openrouter: Option<LoopParts>,
+    /// Most loop turns that may run at the same time (they wait for the
+    /// model pacer, so they don't hold Claude's slots).
+    pub max_loop_turns: usize,
     /// Tests only (`test-people`): tests written before engines run every
     /// bot on Claude and anyone may give it tasks. Never in a normal build:
     /// there the field doesn't exist and the owner-only rule always holds.
@@ -129,6 +137,8 @@ impl HubConfig {
             mac: crate::attach::MacTools::default(),
             keep_unsent: crate::attach::KEEP_UNSENT,
             e2e: false,
+            openrouter: None,
+            max_loop_turns: 4,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
             #[cfg(any(test, feature = "test-people"))]
@@ -236,6 +246,12 @@ struct Runtime {
     /// title and when), kept with the session: a report may cite only
     /// these (see [`reports`]).
     visited: BTreeMap<String, crate::report::Visit>,
+    /// A turn that was running when oxbot stopped, which this session can
+    /// go on with (loop engine).
+    resumed: Option<crate::engine::ResumedTurn>,
+    /// This turn's model requests so far (loop engine): count, money, and
+    /// the last model that answered.
+    meter: looped::TurnMeter,
 }
 
 /// Cards waiting for the user, with who to tell.
@@ -268,10 +284,14 @@ struct Shared {
 /// Runs the bots. Share it as `Arc<Hub>`.
 pub struct Hub {
     bots: RwLock<BTreeMap<BotId, Bot>>,
-    store: Store,
+    store: Arc<Store>,
     config: HubConfig,
     /// Runs bots on Claude Code.
     claude: Arc<dyn Engine>,
+    /// oxbot's own loop, for bots on `OpenRouter` (if set up).
+    loop_engine: Option<Arc<oxbot_loop::LoopEngine>>,
+    /// Turns the loop may run at once.
+    loop_turns: Arc<Semaphore>,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
     /// Each owner's browser, made when first needed.
     browsers: std::sync::Mutex<HashMap<BrowserOwner, Arc<Shared>>>,
@@ -332,8 +352,18 @@ impl Hub {
         // Nobody is listening yet: no need to tell anyone who's new.
         let (bots, _) = people::adopt_bots(bots, &store, farm.as_ref());
         let seqs = seqs::LatestSeqs::load(&store);
+        let store = Arc::new(store);
+        // Old loop history goes (kept long enough for replays).
+        if let Err(err) = store.prune_loop(crate::store::now_ms()) {
+            tracing::warn!(%err, "couldn't prune old loop history");
+        }
         let hub = Arc::new_cyclic(|me| Self {
             bots: RwLock::new(bots.into_iter().map(|b| (b.id.clone(), b)).collect()),
+            loop_engine: config
+                .openrouter
+                .as_ref()
+                .map(|parts| looped::build_engine(parts, &store, &config, me.clone())),
+            loop_turns: Arc::new(Semaphore::new(config.max_loop_turns.max(1))),
             store,
             turns: Arc::new(Semaphore::new(config.max_concurrent_turns)),
             claude: Arc::new(ClaudeEngine::new(&config.claude_program)),

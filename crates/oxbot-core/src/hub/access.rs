@@ -532,8 +532,10 @@ impl Hub {
         )?;
         if private && owner.is_some() {
             bot.private = true;
-            bot.save()?;
         }
+        // New bots run on OpenRouter; the owner may switch one to Claude.
+        bot.engine = crate::engine::EngineKind::OpenRouter;
+        bot.save()?;
         self.bots
             .write()
             .unwrap_or_else(PoisonError::into_inner)

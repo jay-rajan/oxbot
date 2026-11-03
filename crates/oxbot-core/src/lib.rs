@@ -29,7 +29,7 @@ pub mod tools;
 pub use bot::{Bot, BotError, Viewer};
 pub use engine::text::data_block;
 pub use home::Home;
-pub use hub::{Hub, HubConfig, HubError};
+pub use hub::{Hub, HubConfig, HubError, LoopParts};
 pub use id::{BotId, BotIdError, MAX_BOT_ID_LEN};
 pub use prompt::{Capabilities, system_prompt};
 pub use store::{SavedSession, Store, StoreError};

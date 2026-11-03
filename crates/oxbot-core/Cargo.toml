@@ -46,6 +46,9 @@ test-support = []
 [dev-dependencies]
 # This crate's own tests use the test-only feature.
 oxbot-core = { path = ".", features = ["test-people", "test-support"] }
+# Scripted model and browser for the loop engine's hub tests.
+oxbot-llm = { workspace = true, features = ["test-model"] }
+oxbot-loop = { workspace = true, features = ["test-tools"] }
 tempfile.workspace = true
 
 [lints]

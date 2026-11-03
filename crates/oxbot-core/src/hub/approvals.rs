@@ -99,7 +99,26 @@ impl Hub {
             .map_or(GateMode::Live, |r| r.gate_mode);
         // In a practice run oxbot's own tools run (the hub answers them
         // with what it records), so both engines get a normal result.
-        let decision = if mode == GateMode::DryRun && request.tool.starts_with(HOST_TOOL_PREFIX) {
+        // Claude Code's acceptEdits rule, shared: file tools inside the
+        // bot's own folder run. (Claude's CLI never asks for those, so this
+        // only answers the loop.)
+        let inside = self
+            .bot(bot.as_str())
+            .is_ok_and(|b| policy::file_call_inside(&request.tool, &request.input, &b.work_dir()));
+        let changes_files = matches!(request.tool.as_str(), "Write" | "Edit");
+        let decision = if inside && mode == GateMode::DryRun && changes_files {
+            // A practice run changes no files.
+            Decision::Simulate(format!(
+                "(practice run) would {} {}",
+                request.tool.to_lowercase(),
+                request
+                    .input
+                    .get("file_path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            ))
+        } else if inside || (mode == GateMode::DryRun && request.tool.starts_with(HOST_TOOL_PREFIX))
+        {
             Decision::Allow
         } else {
             match self.decide_permission(&bot, &request, mode).await {

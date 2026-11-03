@@ -74,7 +74,10 @@ impl Hub {
         let caps = Capabilities {
             browser: shared.is_some(),
         };
-        let prompt = system_prompt(bot, caps);
+        let mut prompt = system_prompt(bot, caps);
+        if kind == EngineKind::OpenRouter {
+            prompt.push_str(&crate::prompt::loop_rules(caps));
+        }
         let resume = self.resume_for(bot, kind, &prompt, overrides.ephemeral)?;
         // A resumed session still remembers what it read and opened.
         let (taint, visited) = match &resume {
@@ -88,10 +91,23 @@ impl Hub {
 
         // The bot takes turns on this browser even if Chrome didn't start now.
         let browser = shared.clone();
-        let browser_spec = match &shared {
+        let mut browser_spec = match &shared {
             Some(shared) => self.start_browser(bot, shared, &work_dir).await,
             None => None,
         };
+        // A browser tool handed to the loop (tests) needs no Chrome.
+        let injected = self
+            .config
+            .openrouter
+            .as_ref()
+            .is_some_and(|p| p.browser.is_some());
+        if browser_spec.is_none() && shared.is_some() && kind == EngineKind::OpenRouter && injected
+        {
+            browser_spec = Some(BrowserSpec {
+                mcp: crate::engine::McpCommand::default(),
+                mcp_json: serde_json::Value::Null,
+            });
+        }
         // As the prompt says: Herder gets its team tools, a bot given a
         // browser can save reports.
         let host_tools = HostTools {
@@ -127,7 +143,9 @@ impl Hub {
         };
 
         let Started {
-            session, events, ..
+            session,
+            events,
+            resumed_turn,
         } = engine.start(spec).await?;
         if !overrides.ephemeral {
             self.store.save_session(
@@ -143,6 +161,7 @@ impl Hub {
         let mut runtime = new_runtime(session, browser, &resume, taint, visited);
         runtime.engine = kind;
         runtime.gate_mode = gate_mode;
+        runtime.resumed = resumed_turn;
         Ok(runtime)
     }
 
@@ -271,7 +290,16 @@ impl Hub {
         match event {
             EngineEvent::Started { model } => {
                 *started = true;
-                self.note_model(bot, &model);
+                // The models Claude's usage alerts name are Claude's.
+                let claude = self
+                    .runtimes
+                    .lock()
+                    .await
+                    .get(bot)
+                    .is_none_or(|r| r.engine == EngineKind::Claude);
+                if claude {
+                    self.note_model(bot, &model);
+                }
             }
             EngineEvent::TextDelta(text) => {
                 let _ = self.updates.send(ServerMsg::Delta {
@@ -308,8 +336,8 @@ impl Hub {
                 self.check_limit_alerts(&windows);
                 self.announce_usage();
             }
-            // Only oxbot's own loop reports model requests; the meter comes with it.
-            EngineEvent::ModelCall(_) => {}
+            // Only oxbot's own loop reports model requests.
+            EngineEvent::ModelCall(record) => self.note_model_call(bot, &record).await,
             EngineEvent::TurnDone {
                 ok,
                 text,
@@ -325,11 +353,18 @@ impl Hub {
                     self.record(bot, EventKind::Error { message: text })?;
                 }
                 self.record(bot, EventKind::TurnDone { ok, duration_ms })?;
-                if let Some(runtime) = self.runtimes.lock().await.get_mut(bot) {
+                let meter = if let Some(runtime) = self.runtimes.lock().await.get_mut(bot) {
                     runtime.busy = false;
                     runtime.permit = None;
                     runtime.last_active = Instant::now();
                     Self::release_browser(bot, runtime);
+                    (runtime.engine == EngineKind::OpenRouter)
+                        .then(|| std::mem::take(&mut runtime.meter))
+                } else {
+                    None
+                };
+                if let Some(meter) = meter {
+                    self.announce_meter(bot, &meter.model, meter.requests, meter.cost_usd);
                 }
                 self.announce_bots().await;
                 self.announce_usage();
@@ -468,6 +503,8 @@ fn new_runtime(
         taint: None,
         question: None,
         visited,
+        resumed: None,
+        meter: super::looped::TurnMeter::default(),
     };
     match (resume, taint) {
         (Resume::Resume(_), Some(why)) => {

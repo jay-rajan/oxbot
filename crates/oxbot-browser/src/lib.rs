@@ -17,7 +17,7 @@ mod web;
 
 use std::path::{Path, PathBuf};
 
-use oxbot_engine::McpCommand;
+pub use oxbot_engine::McpCommand;
 use serde_json::json;
 use tokio::process::Command;
 use tokio::sync::Mutex;

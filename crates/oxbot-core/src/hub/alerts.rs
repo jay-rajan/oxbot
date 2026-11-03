@@ -14,8 +14,27 @@ use super::{Hub, HubError};
 use crate::id::BotId;
 use crate::store::{AlertChange, LimitAlert, now_ms};
 
-/// The windows that alert.
+/// Claude's windows that alert.
 const ALERTED: [&str; 2] = ["five_hour", "seven_day"];
+/// `OpenRouter`'s windows that alert (the meter makes them): free requests
+/// today, paid spending today, the key's credit, and each bot's requests
+/// today (`openrouter_bot_daily:<bot>`).
+const OPENROUTER_ALERTED: [&str; 3] = [
+    "openrouter_free_daily",
+    "openrouter_spend_daily",
+    "openrouter_credits",
+];
+const BOT_DAILY: &str = "openrouter_bot_daily:";
+
+/// Whether window `name` alerts.
+fn alerted(name: &str) -> bool {
+    ALERTED.contains(&name) || is_openrouter(name)
+}
+
+/// Whether window `name` is one of `OpenRouter`'s.
+fn is_openrouter(name: &str) -> bool {
+    OPENROUTER_ALERTED.contains(&name) || name.starts_with(BOT_DAILY)
+}
 /// Reset times this close are the same window: the reported time can
 /// shift a little between reports.
 const SAME_WINDOW_MS: i64 = 30 * 60 * 1000;
@@ -28,9 +47,12 @@ pub const PREF_USAGE_ALERTS: &str = "usage_alerts";
 /// oxbot's window is hidden (`1` or `0`).
 pub const PREF_NOTIFY_WHEN_HIDDEN: &str = "notify_when_hidden";
 
-/// The level `used` (0 to 1) has passed, if any.
-fn level_of(used: f64) -> Option<u8> {
-    if used >= 0.8 {
+/// The level `used` (0 to 1) of window `name` has passed, if any:
+/// `OpenRouter`'s windows also alert when used up.
+fn level_of(name: &str, used: f64) -> Option<u8> {
+    if used >= 1.0 && is_openrouter(name) {
+        Some(100)
+    } else if used >= 0.8 {
         Some(80)
     } else if used >= 0.5 {
         Some(50)
@@ -45,7 +67,7 @@ fn level_of(used: f64) -> Option<u8> {
 /// over; an earlier one is an old report and is ignored. With no reset
 /// time to go by, the alert re-arms once usage drops below 50%.
 pub(crate) fn decide(prev: Option<&LimitAlert>, w: &LimitWindow, now_ms: i64) -> AlertChange {
-    if !ALERTED.contains(&w.name.as_str()) {
+    if !alerted(&w.name) {
         return AlertChange::Keep;
     }
     let resets = w.resets_at.saturating_mul(1000);
@@ -53,7 +75,7 @@ pub(crate) fn decide(prev: Option<&LimitAlert>, w: &LimitWindow, now_ms: i64) ->
         // That window is over already.
         return AlertChange::Keep;
     }
-    let level = level_of(w.used);
+    let level = level_of(&w.name, w.used);
     let record = |level: u8, resets_at_ms: i64| {
         AlertChange::Record(LimitAlert {
             name: w.name.clone(),
@@ -149,7 +171,12 @@ fn and_list(items: &[String]) -> String {
 }
 
 /// The alert as shown in the banner, the notification and `oxbot chat`.
-fn usage_alert(a: &LimitAlert, models: Vec<String>, now_ms: i64) -> UsageAlert {
+fn usage_alert(
+    a: &LimitAlert,
+    models: Vec<String>,
+    now_ms: i64,
+    bot_name: &dyn Fn(&str) -> String,
+) -> UsageAlert {
     let pct = (a.used * 100.0).round();
     let reset = resets_in(a.resets_at_ms, now_ms)
         .map(|when| format!(" Resets {when}."))
@@ -159,10 +186,26 @@ fn usage_alert(a: &LimitAlert, models: Vec<String>, now_ms: i64) -> UsageAlert {
     } else {
         and_list(&models)
     };
-    let message = format!(
-        "Claude's {} is at {pct}%.{reset} Your bots use {uses}.",
-        limit_label(&a.name)
-    );
+    let message = if let Some(bot) = a.name.strip_prefix(BOT_DAILY) {
+        format!(
+            "{}'s requests for today are at {pct}%.{reset}",
+            bot_name(bot)
+        )
+    } else {
+        match a.name.as_str() {
+            "openrouter_free_daily" => {
+                format!("OpenRouter's free daily requests are at {pct}%.{reset}")
+            }
+            "openrouter_spend_daily" => {
+                format!("Paid models have used {pct}% of today's spending limit.{reset}")
+            }
+            "openrouter_credits" => format!("OpenRouter's credit is {pct}% used."),
+            _ => format!(
+                "Claude's {} is at {pct}%.{reset} Your bots use {uses}.",
+                limit_label(&a.name)
+            ),
+        }
+    };
     UsageAlert {
         limit: a.name.clone(),
         level: a.level,
@@ -204,11 +247,19 @@ impl Hub {
                 a.level
             );
             if on {
-                let _ =
-                    self.updates
-                        .send(ServerMsg::UsageAlert(usage_alert(&a, models.clone(), now)));
+                let _ = self.updates.send(ServerMsg::UsageAlert(usage_alert(
+                    &a,
+                    models.clone(),
+                    now,
+                    &|id| self.bot_name_of(id),
+                )));
             }
         }
+    }
+
+    /// A bot's name by id, or the id if it's gone.
+    fn bot_name_of(&self, id: &str) -> String {
+        self.bot(id).map_or_else(|_| id.to_owned(), |b| b.name)
     }
 
     /// The alerts still live (their window hasn't reset), for a client
@@ -225,7 +276,7 @@ impl Hub {
         });
         let live: Vec<_> = alerts
             .into_iter()
-            .filter(|a| ALERTED.contains(&a.name.as_str()))
+            .filter(|a| alerted(&a.name))
             // With no reset time, a 5-hour window's alert lasts 5 hours.
             .filter(|a| {
                 a.resets_at_ms > now
@@ -237,7 +288,7 @@ impl Hub {
         }
         let models = self.models_in_use();
         live.iter()
-            .map(|a| usage_alert(a, models.clone(), now))
+            .map(|a| usage_alert(a, models.clone(), now, &|id| self.bot_name_of(id)))
             .collect()
     }
 
@@ -386,6 +437,41 @@ mod tests {
     }
 
     #[test]
+    fn openrouter_windows_also_alert_when_used_up() {
+        let mut row: Option<LimitAlert> = None;
+        let mut levels = Vec::new();
+        for used in [0.5, 0.8, 1.0, 1.0] {
+            let w = window("openrouter_bot_daily:scout", used, IN_3H);
+            if let AlertChange::Record(a) = decide(row.as_ref(), &w, NOW) {
+                levels.push(a.level);
+                row = Some(a);
+            }
+        }
+        assert_eq!(levels, [50, 80, 100]);
+        let a = row.unwrap();
+        let alert = usage_alert(&a, Vec::new(), NOW, &|_| "Scout".to_owned());
+        assert_eq!(
+            alert.message,
+            "Scout's requests for today are at 100%. Resets in 3 h 0 min."
+        );
+        // Claude's windows stop at 80; unknown names never alert.
+        assert_eq!(level_of("five_hour", 1.0), Some(80));
+        assert!(matches!(
+            decide(None, &window("openrouter_other", 0.9, IN_3H), NOW),
+            AlertChange::Keep
+        ));
+        let free = LimitAlert {
+            name: "openrouter_free_daily".into(),
+            ..a
+        };
+        assert!(
+            usage_alert(&free, Vec::new(), NOW, &|id| id.to_owned())
+                .message
+                .starts_with("OpenRouter's free daily requests are at 100%.")
+        );
+    }
+
+    #[test]
     fn a_jump_past_both_levels_alerts_once() {
         assert_eq!(run(&[(0.3, IN_3H), (0.85, IN_3H), (0.9, IN_3H)]), [80]);
     }
@@ -452,7 +538,12 @@ mod tests {
             used: 0.523,
             alerted_ms: NOW,
         };
-        let alert = usage_alert(&a, vec!["Haiku 4.5".into(), "Sonnet 4.5".into()], NOW);
+        let alert = usage_alert(
+            &a,
+            vec!["Haiku 4.5".into(), "Sonnet 4.5".into()],
+            NOW,
+            &|id| id.to_owned(),
+        );
         assert_eq!(
             alert.message,
             "Claude's 5-hour limit is at 52%. Resets in 2 h 10 min. Your bots use Haiku 4.5 and Sonnet 4.5."
@@ -465,7 +556,7 @@ mod tests {
             alerted_ms: NOW,
         };
         assert_eq!(
-            usage_alert(&week, Vec::new(), NOW).message,
+            usage_alert(&week, Vec::new(), NOW, &|id| id.to_owned()).message,
             "Claude's weekly limit is at 81%. Resets in 3 days 4 h. Your bots use Claude's default model."
         );
     }

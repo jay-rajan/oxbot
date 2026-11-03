@@ -292,6 +292,66 @@ impl PageFacts {
     }
 }
 
+/// The loop's own question tool (`mcp__oxbot__ask_user`): it only ends the
+/// turn with a question for the person.
+pub const ASK_USER_TOOL: &str = "ask_user";
+
+/// The browser tools oxbot's own loop offers models (their own names). None
+/// is one [`decide`] always refuses; scripts, network and console tools
+/// are left out, and fewer tools help small models.
+pub const LOOP_BROWSER_TOOLS: [&str; 17] = [
+    "navigate_page",
+    "new_page",
+    "list_pages",
+    "select_page",
+    "close_page",
+    "take_snapshot",
+    "take_screenshot",
+    "wait_for",
+    "hover",
+    "click",
+    "fill",
+    "fill_form",
+    "type_text",
+    "press_key",
+    "drag",
+    "upload_file",
+    "handle_dialog",
+];
+
+/// The file tools, as Claude Code names them.
+const FILE_TOOLS: [&str; 5] = ["Read", "Write", "Edit", "Glob", "Grep"];
+
+/// Claude Code's `acceptEdits` rule, shared by both engines: a file tool
+/// whose every path (`file_path`, `path`; no `path` means the folder
+/// itself; relative paths are inside `work_dir`) is inside `work_dir`,
+/// as written and after following links, runs without asking. Anything
+/// else goes to [`decide`], which refuses files outside the folder.
+#[must_use]
+pub fn file_call_inside(tool: &str, input: &Value, work_dir: &Path) -> bool {
+    if !FILE_TOOLS.contains(&tool) {
+        return false;
+    }
+    let inside = |given: &str| {
+        let path = Path::new(given);
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            work_dir.join(path)
+        };
+        let written = lexical(&path);
+        (written.starts_with(lexical(work_dir)) || written.starts_with(real(work_dir)))
+            && real(&written).starts_with(real(work_dir))
+    };
+    ["file_path", "path"]
+        .iter()
+        .all(|key| match input.get(*key) {
+            None | Some(Value::Null) => *key == "path" || tool == "Glob" || tool == "Grep",
+            Some(Value::String(p)) => inside(p),
+            Some(_) => false,
+        })
+}
+
 /// What the bot is told when it tries to type a password or code.
 const NO_SECRETS: &str = "oxbot never lets bots type passwords, codes or card numbers. If this site needs \
     signing in, call request_sign_in so the user can sign in themselves.";
@@ -313,6 +373,7 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         LIST_BOTS_TOOL,
         GIVE_TASK_TOOL,
         READ_REPLY_TOOL,
+        ASK_USER_TOOL,
     ];
     if runs.iter().any(|t| tool == tools::full_name(t)) {
         return Some(Verdict::Allow);
@@ -936,6 +997,59 @@ mod tests {
     use serde_json::json;
 
     const WORK: &str = "/bots/news/work";
+
+    #[test]
+    fn the_loop_never_lists_a_tool_policy_always_refuses() {
+        for tool in LOOP_BROWSER_TOOLS {
+            let input = json!({"uid": "9", "url": "https://example.com/", "type": "url",
+                "key": "a", "value": "x", "text": "x", "elements": []});
+            let verdict = decide(
+                &format!("mcp__chrome-devtools__{tool}"),
+                &input,
+                ctx(),
+                |_| None,
+            );
+            assert!(!matches!(verdict, Verdict::Deny(_)), "{tool}: {verdict:?}");
+        }
+        assert!(matches!(
+            decide(
+                "mcp__oxbot__ask_user",
+                &json!({"question": "?"}),
+                ctx(),
+                |_| None
+            ),
+            Verdict::Allow
+        ));
+    }
+
+    #[test]
+    fn file_calls_inside_the_folder_run_as_with_accept_edits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("bot/work");
+        std::fs::create_dir_all(work.join("notes")).unwrap();
+        let w = work.display().to_string();
+        for (tool, input) in [
+            ("Read", json!({"file_path": format!("{w}/notes/a.md")})),
+            ("Read", json!({"file_path": "notes/a.md"})),
+            ("Write", json!({"file_path": "new/b.md", "content": "x"})),
+            ("Glob", json!({"pattern": "*.md"})),
+            ("Grep", json!({"pattern": "x", "path": "notes"})),
+        ] {
+            assert!(file_call_inside(tool, &input, &work), "{tool} {input}");
+        }
+        std::os::unix::fs::symlink(tmp.path().join("bot"), work.join("up")).unwrap();
+        for (tool, input) in [
+            ("Read", json!({"file_path": "../bot.toml"})),
+            ("Read", json!({"file_path": "/etc/hosts"})),
+            ("Read", json!({"file_path": "up/bot.toml"})),
+            ("Read", json!({})),
+            ("Glob", json!({"pattern": "*", "path": ".."})),
+            ("Write", json!({"file_path": 3})),
+            ("Bash", json!({"command": "ls"})),
+        ] {
+            assert!(!file_call_inside(tool, &input, &work), "{tool} {input}");
+        }
+    }
 
     fn ctx() -> Context<'static> {
         Context {

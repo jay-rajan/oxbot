@@ -109,17 +109,7 @@ impl Hub {
     /// The household's engine settings (defaults until changed).
     #[must_use]
     pub fn engine_prefs(&self) -> EnginePrefs {
-        match self.store.pref(PREF_ENGINE_PREFS) {
-            Ok(Some(json)) => serde_json::from_str(&json).unwrap_or_else(|err| {
-                tracing::warn!(%err, "engine settings unreadable; using the defaults");
-                EnginePrefs::default()
-            }),
-            Ok(None) => EnginePrefs::default(),
-            Err(err) => {
-                tracing::warn!(%err, "couldn't read the engine settings");
-                EnginePrefs::default()
-            }
-        }
+        engine_prefs_in(&self.store)
     }
 
     /// Changes the household's engine settings.
@@ -132,6 +122,7 @@ impl Hub {
         let json =
             serde_json::to_string(&prefs).map_err(|e| HubError::NotAllowed(e.to_string()))?;
         self.store.set_pref(PREF_ENGINE_PREFS, &json)?;
+        self.loop_prefs_changed(&prefs);
         tracing::info!(paid = prefs.paid_fallback, "changed the engine settings");
         Ok(prefs)
     }
@@ -159,6 +150,7 @@ impl Hub {
         self.store.set_pref(PREF_CATALOG, json)?;
         self.store
             .set_pref(PREF_CATALOG_MS, &fetched_ms.to_string())?;
+        self.loop_catalog_changed(json, fetched_ms);
         Ok(())
     }
 
@@ -167,9 +159,42 @@ impl Hub {
     /// until bots run on `OpenRouter`.
     #[must_use]
     pub fn openrouter_usage_today(&self) -> Vec<RouterUsage> {
-        // The loop's meter (model_calls) fills this; nothing is recorded
-        // before it runs.
-        Vec::new()
+        let day = oxbot_loop::meter::utc_day(crate::store::now_ms());
+        let usage = match self.store.day_usage(&day) {
+            Ok(usage) => usage,
+            Err(err) => {
+                tracing::warn!(%err, "couldn't read today's OpenRouter use");
+                return Vec::new();
+            }
+        };
+        let row = |t: &crate::store::CallTotals| RouterUsage {
+            bot: None,
+            person: None,
+            requests: t.requests,
+            prompt_tokens: t.prompt_tokens,
+            completion_tokens: t.completion_tokens,
+            cost_usd: t.cost_usd,
+            model: t.main_model.clone(),
+        };
+        let mut rows: Vec<RouterUsage> = usage
+            .bots
+            .iter()
+            .map(|(bot, t)| RouterUsage {
+                bot: Some(bot.clone()),
+                ..row(t)
+            })
+            .chain(usage.people.iter().filter_map(|(id, t)| {
+                let name = crate::id::PersonId::new(id.clone())
+                    .ok()
+                    .and_then(|id| self.person_name(&id))?;
+                Some(RouterUsage {
+                    person: Some(name),
+                    ..row(t)
+                })
+            }))
+            .collect();
+        rows.sort_by_key(|r| std::cmp::Reverse(r.requests));
+        rows
     }
 
     /// Sets an `OpenRouter` bot's own cap on model requests a day (`None`:
@@ -295,6 +320,21 @@ impl Hub {
             before = Some(page.first_seq);
         }
         names
+    }
+}
+
+/// The household's engine settings in `store` (defaults until changed).
+pub(super) fn engine_prefs_in(store: &crate::store::Store) -> EnginePrefs {
+    match store.pref(PREF_ENGINE_PREFS) {
+        Ok(Some(json)) => serde_json::from_str(&json).unwrap_or_else(|err| {
+            tracing::warn!(%err, "engine settings unreadable; using the defaults");
+            EnginePrefs::default()
+        }),
+        Ok(None) => EnginePrefs::default(),
+        Err(err) => {
+            tracing::warn!(%err, "couldn't read the engine settings");
+            EnginePrefs::default()
+        }
     }
 }
 
