@@ -145,6 +145,9 @@ pub(super) fn build_engine(
         loop_prefs(&engine_prefs_in(store));
     setup.browser = Some(browser);
     setup.browser_allow = LOOP_BROWSER_TOOLS.iter().map(|t| (*t).to_owned()).collect();
+    // A page naming one uid twice keeps the label the gate is strictest
+    // about, as the element book does.
+    setup.strictness = Arc::new(super::elements::strictness);
     setup.key.clone_from(&parts.key);
     let engine = Arc::new(LoopEngine::new(setup));
     if parts.account.is_some() {
@@ -223,7 +226,69 @@ fn share(used: f64, of: f64) -> f64 {
     if of <= 0.0 { 0.0 } else { used / of }
 }
 
+/// How often stored loop results are swept.
+const SWEEP_CONTEXT_MS: i64 = 6 * 3_600_000;
+
 impl Hub {
+    /// Deletes stored loop results (page snapshots, big tool results) of
+    /// sessions whose last turn is more than 14 days old, then the oldest
+    /// while a bot keeps more than 200 MB. A bot's current session is kept.
+    /// At most every 6 hours.
+    pub fn sweep_context(&self) {
+        use std::sync::atomic::Ordering;
+        let now = now_ms();
+        let last = self.context_swept.load(Ordering::Relaxed);
+        if now - last < SWEEP_CONTEXT_MS {
+            return;
+        }
+        self.context_swept.store(now, Ordering::Relaxed);
+        let bots: Vec<(BotId, std::path::PathBuf)> = self
+            .bots
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .map(|b| (b.id.clone(), b.dir.join("context")))
+            .collect();
+        for (bot, dir) in bots {
+            let keep: Vec<String> = self
+                .store
+                .session(&bot)
+                .ok()
+                .flatten()
+                .map(|s| s.id)
+                .into_iter()
+                .collect();
+            let last = |session: &str| self.store.loop_session_last_ms(session).ok().flatten();
+            let gone = oxbot_loop::results::sweep(
+                &dir,
+                &last,
+                &keep,
+                now,
+                oxbot_loop::results::MAX_BOT_BYTES,
+            );
+            if !gone.is_empty() {
+                tracing::info!(%bot, sessions = gone.len(), "deleted old stored results");
+                if let Err(err) = self.store.forget_loop_results(bot.as_str(), &gone) {
+                    tracing::warn!(%err, "couldn't forget old stored results");
+                }
+            }
+            // The current session keeps going, but not its old results.
+            // Their rows stay, so handles are never given out twice and a
+            // read-back says the result is gone.
+            for session in &keep {
+                let folder = dir.join(oxbot_loop::results::folder_name(session));
+                let handles = oxbot_loop::results::sweep_session(
+                    &folder,
+                    now,
+                    oxbot_loop::results::MAX_BOT_BYTES,
+                );
+                if !handles.is_empty() {
+                    tracing::info!(%bot, results = handles.len(), "deleted old stored results");
+                }
+            }
+        }
+    }
+
     /// The owner changed the engine settings: the loop follows.
     pub(super) fn loop_prefs_changed(&self, prefs: &EnginePrefs) {
         if let Some(engine) = &self.loop_engine {

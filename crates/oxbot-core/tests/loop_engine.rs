@@ -282,3 +282,39 @@ async fn someone_elses_claude_bot_turn_isnt_picked_up() {
         ]
     );
 }
+
+#[tokio::test]
+async fn what_a_loop_bot_reads_taints_its_session_as_on_claude() {
+    let tmp = tempfile::tempdir().unwrap();
+    let model = Arc::new(
+        ScriptedModel::new()
+            .then(Step::tool("Read", json!({"file_path": "notes.md"})))
+            .then(Step::tool(
+                "mcp__oxbot__update_todo",
+                json!({"items": [
+                {"id": "t1", "text": "Read the notes", "state": "done"}]}),
+            ))
+            .then(Step::text("Read them.")),
+    );
+    let hub = hub(tmp.path(), &["scout"], &model);
+    std::fs::write(tmp.path().join("bots/scout/work/notes.md"), "Buy a lamp.").unwrap();
+    let mut updates = hub.subscribe();
+    hub.send_as("scout", "read my notes", &Viewer::farm("Jay"))
+        .await
+        .unwrap();
+    assert_eq!(done(&mut updates, "scout").await.0, "Read them.");
+    // The hub marks the session from the same tool names as on Claude: the
+    // file taints it, the loop's to-do list doesn't change that.
+    let store = Store::open(&tmp.path().join("oxbot.db")).unwrap();
+    let taint = store.session_taint(&BotId::new("scout").unwrap()).unwrap();
+    assert_eq!(taint.as_deref(), Some("a file or tool result (Read)"));
+    // The loop ran its own tool after the gate said yes.
+    let req = &model.requests()[2];
+    let todo = req
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == oxbot_llm::Role::Tool)
+        .unwrap();
+    assert_eq!(todo.text(), "<todo>\n[x] t1 Read the notes\n</todo>");
+}

@@ -643,6 +643,9 @@ pub(super) fn tool_label(name: &str) -> String {
     if let Some(label) = team_label(name) {
         return label.to_owned();
     }
+    if let Some((label, _)) = loop_label(name) {
+        return label.to_owned();
+    }
     match name.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")) {
         Some(action) => format!("browser {action}"),
         None => name.to_owned(),
@@ -655,6 +658,21 @@ fn capitalized(text: &str) -> String {
         .next()
         .map(|c| c.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
+}
+
+/// The chat's words for one of the loop's own tools: (the line for the
+/// call, the status while it runs).
+fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
+    let tool = name.strip_prefix(&format!("mcp__{TOOL_SERVER_NAME}__"))?;
+    Some(match tool {
+        "find_in_page" => ("page search", "Searching the page…"),
+        "read_section" => ("page section", "Reading part of the page…"),
+        "ask_page" => ("page question", "Asking about the page…"),
+        "read_result" => ("saved result", "Reading a saved result…"),
+        "update_todo" => ("to-do list", "Updating its to-do list…"),
+        "note_progress" => ("progress note", "Noting where it is…"),
+        _ => return None,
+    })
 }
 
 /// The status line for an activity, in the terminal's spirit.
@@ -675,6 +693,9 @@ pub(super) fn activity_label(activity: &Activity) -> String {
         Activity::UsingTool(name) if team_label(name).is_some() => {
             format!("{}…", capitalized(team_label(name).unwrap_or_default()))
         }
+        Activity::UsingTool(name) if loop_label(name).is_some() => loop_label(name)
+            .map(|(_, status)| status.to_owned())
+            .unwrap_or_default(),
         Activity::UsingTool(name) => {
             match name.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")) {
                 Some(action) => format!("Using browser: {action}…"),

@@ -309,6 +309,19 @@ impl PageFacts {
 /// turn with a question for the person.
 pub const ASK_USER_TOOL: &str = "ask_user";
 
+/// The loop's own tools over its context (`mcp__oxbot__…`): the model's
+/// to-do list and progress notes, stored results read back, and the page
+/// tools over stored snapshots. They change nothing outside oxbot, so they
+/// run; the gate still sees every call.
+pub const LOOP_CONTEXT_TOOLS: [&str; 6] = [
+    "update_todo",
+    "note_progress",
+    "read_result",
+    "find_in_page",
+    "read_section",
+    "ask_page",
+];
+
 /// The browser tools oxbot's own loop offers models (their own names). None
 /// is one [`decide`] always refuses; scripts, network and console tools
 /// are left out, and fewer tools help small models.
@@ -388,7 +401,11 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         READ_REPLY_TOOL,
         ASK_USER_TOOL,
     ];
-    if runs.iter().any(|t| tool == tools::full_name(t)) {
+    if runs
+        .iter()
+        .chain(LOOP_CONTEXT_TOOLS.iter())
+        .any(|t| tool == tools::full_name(t))
+    {
         return Some(Verdict::Allow);
     }
     (tool == tools::full_name(CREATE_BOT_TOOL)).then(|| {
@@ -1221,6 +1238,20 @@ mod tests {
             ),
             Verdict::Allow
         ));
+        // Every tool of the loop's own (to-do list, notes, stored results,
+        // page tools) runs.
+        let browser = vec![oxbot_llm::ToolSpec {
+            name: "mcp__chrome-devtools__take_snapshot".into(),
+            description: String::new(),
+            parameters: json!({}),
+        }];
+        let own = oxbot_loop::ToolRegistry::new(Vec::new(), browser);
+        for spec in own.specs() {
+            if let Some(name) = spec.name.strip_prefix("mcp__oxbot__") {
+                let verdict = decide(&spec.name, &json!({}), ctx(), |_| None);
+                assert!(matches!(verdict, Verdict::Allow), "{name}: {verdict:?}");
+            }
+        }
     }
 
     #[test]

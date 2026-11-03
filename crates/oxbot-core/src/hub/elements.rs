@@ -126,7 +126,7 @@ impl ElementBook {
     }
 }
 
-fn strictness(label: &str) -> u8 {
+pub(super) fn strictness(label: &str) -> u8 {
     policy::classify(Some(label.trim()), None).strictness()
 }
 

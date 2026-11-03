@@ -337,6 +337,7 @@ impl Hub {
             self.stop_claude(&id).await;
         }
         self.sweep_uploads();
+        self.sweep_context();
         if !waiting.is_empty() {
             return;
         }

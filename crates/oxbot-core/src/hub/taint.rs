@@ -53,7 +53,11 @@ pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Opt
     if is_trusted_tool(name) {
         return None;
     }
-    if name.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")) {
+    // The loop's page tools hand back the stored page's text.
+    let page_tool = name
+        .strip_prefix(crate::engine::trust::HOST_TOOL_PREFIX)
+        .is_some_and(|t| matches!(t, "find_in_page" | "read_section" | "ask_page"));
+    if page_tool || name.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")) {
         return Some(match page {
             Some((_, url)) if !url.is_empty() => format!("a web page ({url})"),
             _ => "a web page".to_owned(),
@@ -141,6 +145,16 @@ mod tests {
         );
         for t in ["Read", "Grep", "Glob", "Edit", "Bash", "mcp__other__x"] {
             assert!(untrusted_tool(t, None).is_some(), "{t}");
+        }
+        // The loop's page tools hand back web text; its notes and list don't.
+        for t in ["find_in_page", "read_section", "ask_page"] {
+            assert_eq!(
+                untrusted_tool(&tools::full_name(t), Some(&page)).as_deref(),
+                Some("a web page (https://jobs.example.com)")
+            );
+        }
+        for t in ["update_todo", "note_progress", "read_result"] {
+            assert_eq!(untrusted_tool(&tools::full_name(t), None), None, "{t}");
         }
     }
 

@@ -316,6 +316,8 @@ pub struct Hub {
     /// Whether the page was last told the `OpenRouter` account's privacy
     /// settings rule out the free models.
     data_policy_shown: std::sync::atomic::AtomicBool,
+    /// When stored loop results were last swept (ms since the epoch).
+    context_swept: std::sync::atomic::AtomicI64,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
     /// Each owner's browser, made when first needed.
     browsers: std::sync::Mutex<HashMap<BrowserOwner, Arc<Shared>>>,
@@ -393,6 +395,7 @@ impl Hub {
                 .map(|parts| looped::build_engine(parts, &store, &config, me.clone())),
             loop_turns: Arc::new(Semaphore::new(config.max_loop_turns.max(1))),
             data_policy_shown: std::sync::atomic::AtomicBool::new(false),
+            context_swept: std::sync::atomic::AtomicI64::new(0),
             store,
             turns: Arc::new(Semaphore::new(config.max_concurrent_turns)),
             claude: Arc::new(ClaudeEngine::new(&config.claude_program)),
@@ -1224,6 +1227,12 @@ mod tests {
     #[test]
     fn activity_labels_read_like_the_terminal() {
         assert_eq!(activity_label(&Activity::Requesting), "Clauding…");
+        assert_eq!(
+            activity_label(&Activity::UsingTool("mcp__oxbot__find_in_page".into())),
+            "Searching the page…"
+        );
+        assert_eq!(tool_label("mcp__oxbot__ask_page"), "page question");
+        assert_eq!(tool_label("mcp__oxbot__read_result"), "saved result");
         assert_eq!(
             activity_label(&Activity::UsingTool(
                 "mcp__chrome-devtools__navigate_page".into()
