@@ -143,6 +143,7 @@ chat), in its own browser with a copy of the sign-ins it needs (no history, dele
 that blocks every request but reads, and WebSockets. **Shadow** in the message box runs your own
 messages on another model at the same time, the same way. Comparisons the owner starts may send a
 test case to any engine the owner picks; Claude runs and judges only tasks the owner started.
+Herder's tasks can't be test cases yet (they pass work on to other bots).
 
 OpenRouter: the Farm signs in once in Settings → Engines (**Sign in with OpenRouter**: OpenRouter
 opens in your browser and comes back to oxbot on this Mac, PKCE with a one-time state). The key

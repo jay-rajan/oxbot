@@ -699,6 +699,18 @@
         "Sign in with OpenRouter (OAuth PKCE, state, callback on oxbot's own port); the key only in the macOS Keychain and memory, never in files, logs or the database",
         "e2e: stand-in OpenRouter and browser tool reading the same scripts as the stand-in Claude; a key canary checked after every test; a restart step for tests"
       ]
+    },
+    {
+      "m": "Step 5",
+      "date": "2026-11-02",
+      "title": "Compare engines and models per bot (#21)",
+      "items": [
+        "policy::trial_overlay: one practice-run overlay on the gate's verdict for both engines: cards recorded (never shown, Always-allow rules unused), refusals kept",
+        "Trial sandbox (oxbot-browser::trial, netguard): profile copy without history, fail-closed network guard (reads only, browser-wide too, WebSockets off by script), startup sweep",
+        "hub/trials.rs and hub/compare.rs: test cases, batches with an estimate and a reserve for live bots, runs under t-- keys with their own history, Claude as judge (oxbot_claude::one_shot), scoreboard, shadows; owner only, Claude only for owner-started tasks",
+        "Migration 18: turn_tools, test_cases, trial_batches, trial_runs, trial_events, turn_ratings",
+        "Page: thumbs and Test case\u2026 under replies, Compare\u2026 (scoreboard, cases, runs side by side), Shadow chip; e2e test site proves replays write nothing"
+      ]
     }
   ],
   "next": {
@@ -1100,7 +1112,7 @@
             "h": 150,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people, sites, usage, gates, rules, sections, reports, alerts, turn origins, loop steps, model calls. Migrations 1\u201317."
+            "desc": "events, sessions, people, sites, usage, gates, rules, sections, reports, alerts, turn origins, loop steps, model calls, test cases and practice runs. Migrations 1\u201318."
           },
           {
             "id": "server",
@@ -1639,8 +1651,8 @@
         "id": "components",
         "title": "Level 3 \u00b7 Components of the oxbot server",
         "intro": "Inside the server process: the crates and modules, and who calls whom. The Hub and Store are folders of files split by job; the Hub sits in the middle with its advisers on either side.",
-        "caption": "Components. The Hub is the center: the web server and the Gate door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book, the allow rules and the owner-only rule decide what a bot is told, which tools run, ask or are refused, and who may give a bot tasks: Claude bots only take tasks from chains the Farm owner started, checked at every entry and again before the turn starts. Below it, Engines is the interface both engines plug into: the Claude engine wraps the unchanged Claude runner; the Loop runs OpenRouter bots step by step, asks the Hub's gate before every tool (the same policy code, so both engines get the same cards and refusals), picks free models with fallbacks on 429, paces to 20 requests a minute, meters each request and saves each step. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. OpenRouter sign-in (PKCE, state, a callback on this Mac only) gives the key. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a Gate, never the Farm. Gray boxes are other containers; dashed ones are planned.",
-        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the Gate door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks, the allow rules for Always allow and the owner-only rule whether a task chain may reach a bot. It starts sessions through Engines: the Claude engine drives the Claude runner and the Claude Code CLI; the Loop runs OpenRouter bots, asking the Hub's gate before every tool, and calls OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier.",
+        "caption": "Components. The Hub is the center: the web server and the Gate door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book, the allow rules and the owner-only rule decide what a bot is told, which tools run, ask or are refused, and who may give a bot tasks: Claude bots only take tasks from chains the Farm owner started, checked at every entry and again before the turn starts. Below it, Engines is the interface both engines plug into: the Claude engine wraps the unchanged Claude runner; the Loop runs OpenRouter bots step by step, asks the Hub's gate before every tool (the same policy code, so both engines get the same cards and refusals), picks free models with fallbacks on 429, paces to 20 requests a minute, meters each request and saves each step. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. OpenRouter sign-in (PKCE, state, a callback on this Mac only) gives the key. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a Gate, never the Farm. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on another engine or model in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step a card would ask about, and feeds the scoreboard.",
+        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the Gate door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks, the allow rules for Always allow and the owner-only rule whether a task chain may reach a bot. It starts sessions through Engines: the Claude engine drives the Claude runner and the Claude Code CLI; the Loop runs OpenRouter bots, asking the Hub's gate before every tool, and calls OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
         "size": [
           1430,
           1545
@@ -1775,7 +1787,7 @@
             "h": 640,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, claude, taint, seqs; elements, rules, sections, reports, alerts, uploads; new in Step 5: engines, looped, engine_prefs. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Cards: change and final clicks ask; an Always allow rule skips the card only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened, read from the browser's real page list. Alerts: Claude usage past 50% and 80% of the 5-hour and weekly windows, once per level per window. Uploads: files wait per person and bot until sent, swept after an hour; Claude gets their paths in oxbot's note after the escaped words. Engines: each bot's engine from bot.toml (main Herder Claude, other Herders OpenRouter); a gate() answers every loop tool with the same policy as Claude's hooks; loop turns get their own slots, limits per bot and person a day, and pick up after a restart.",
+            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, claude, taint, seqs; elements, rules, sections, reports, alerts, uploads; new in Step 5: engines, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Cards: change and final clicks ask; an Always allow rule skips the card only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened, read from the browser's real page list. Alerts: Claude usage past 50% and 80% of the 5-hour and weekly windows, once per level per window. Uploads: files wait per person and bot until sent, swept after an hour; Claude gets their paths in oxbot's note after the escaped words. Engines: each bot's engine from bot.toml (main Herder Claude, other Herders OpenRouter); a gate() answers every loop tool with the same policy as Claude's hooks; loop turns get their own slots, limits per bot and person a day, and pick up after a restart. Comparisons (owner only): test cases from finished turns, practice runs through the same gate with every card recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
             "x": 286,
             "w": 610
           },
@@ -1798,7 +1810,7 @@
             "h": 130,
             "name": "Policy",
             "tech": "oxbot-core::policy",
-            "desc": "Every tool, both engines. Change and final clicks, and Enter: a red card. Passwords, scripts, outside files: refused.",
+            "desc": "Every tool, both engines. Change, final and Enter: a red card (recorded in practice runs). Passwords, scripts: refused.",
             "y": 560
           },
           {
@@ -1875,7 +1887,7 @@
             "h": 160,
             "name": "Store",
             "tech": "oxbot-core::store",
-            "desc": "store/: migrations 1\u201317 (refuses a newer DB): events, sessions, people, sites, gates, usage, rules, sections, reports, alerts, turn origins, loop steps, model calls."
+            "desc": "store/: migrations 1\u201318 (refuses a newer DB): events, sessions, people, sites, gates, usage, rules, sections, reports, alerts, origins, loop steps, model calls, comparisons."
           },
           {
             "id": "bots",
@@ -1927,7 +1939,7 @@
             "h": 90,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "migrations 1\u201317"
+            "desc": "migrations 1\u201318"
           },
           {
             "id": "folders",
@@ -2043,6 +2055,39 @@
             "name": "OpenRouter",
             "tech": "openrouter.ai",
             "desc": "chat, models, key"
+          },
+          {
+            "id": "trials",
+            "type": "component",
+            "col": 5,
+            "row": 2,
+            "y": 935,
+            "h": 140,
+            "name": "Comparison runner",
+            "tech": "oxbot-core::hub::trials, compare",
+            "desc": "Test cases replayed one at a time on Claude or OpenRouter; steps a card would ask about are recorded."
+          },
+          {
+            "id": "scoreboard",
+            "type": "component",
+            "col": 5,
+            "row": 2,
+            "y": 790,
+            "h": 120,
+            "name": "Scoreboard",
+            "tech": "oxbot-core::compare",
+            "desc": "Pass rate (your marks, then Claude's), steps, requests, tokens, $, time, thumbs."
+          },
+          {
+            "id": "sandbox",
+            "type": "component",
+            "col": 5,
+            "row": 2,
+            "y": 600,
+            "h": 165,
+            "name": "Trial sandbox",
+            "tech": "oxbot-browser::trial, netguard",
+            "desc": "A copy of the sign-ins, no history, deleted after. Network guard: reads only, no WebSockets; browser tools wait for it."
           }
         ],
         "edges": [
@@ -2798,6 +2843,84 @@
               800,
               "start"
             ]
+          },
+          {
+            "from": "hub",
+            "to": "trials",
+            "label": "practice runs",
+            "from_pt": [
+              896,
+              1050
+            ],
+            "via": [
+              [
+                936,
+                1050
+              ],
+              [
+                936,
+                1110
+              ],
+              [
+                1311,
+                1110
+              ]
+            ],
+            "to_pt": [
+              1311,
+              1070
+            ],
+            "label_at": [
+              1100,
+              1104,
+              "middle"
+            ]
+          },
+          {
+            "from": "trials",
+            "to": "scoreboard",
+            "label": "runs",
+            "from_pt": [
+              1311,
+              935
+            ],
+            "to_pt": [
+              1311,
+              910
+            ],
+            "label_at": [
+              1319,
+              927,
+              "start"
+            ]
+          },
+          {
+            "from": "trials",
+            "to": "sandbox",
+            "label": "Chrome",
+            "from_pt": [
+              1406,
+              1005
+            ],
+            "via": [
+              [
+                1414,
+                1005
+              ],
+              [
+                1414,
+                680
+              ]
+            ],
+            "to_pt": [
+              1406,
+              680
+            ],
+            "label_at": [
+              1408,
+              927,
+              "end"
+            ]
           }
         ]
       }
@@ -2817,6 +2940,10 @@
       {
         "title": "OpenRouter and the key (#18)",
         "text": "oxbot-llm speaks the OpenAI-style chat API to OpenRouter. Sign in with OpenRouter (PKCE) comes back to oxbot on this Mac; the key goes only into the macOS Keychain (keychain.rs) and one in-memory KeyCell. Private bots ask providers not to keep data."
+      },
+      {
+        "title": "Comparing engines (#21)",
+        "text": "The owner keeps finished turns as test cases and replays them on Claude and OpenRouter models in a sandbox: every step a card would ask about is recorded instead, the test browser lets pages only read, and nothing reaches the chat. The scoreboard compares pass rate, steps, requests, tokens, dollars and time (migration 18)."
       }
     ]
   }
