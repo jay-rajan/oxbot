@@ -1,0 +1,42 @@
+## Pages
+1: Apply: Data engineer - Jobs (https://jobs.example.com/apply/42) [selected]
+## Latest page snapshot
+uid=9_0 RootWebArea "Apply: Data engineer - Jobs" url="https://jobs.example.com/apply/42"
+  uid=9_1 banner
+    uid=9_2 link "Jobs" url="https://jobs.example.com/"
+  uid=9_3 main
+    uid=9_4 heading "Apply for Data engineer" level="1"
+    uid=9_5 alert
+      uid=9_6 StaticText "Please fix 1 field: Email is not valid."
+    uid=9_7 form "Application"
+      uid=9_8 heading "About you" level="2"
+      uid=9_9 textbox "Full name" focusable required value="Jay"
+      uid=9_10 textbox "Email" focusable focused invalid="true" required value="jay@"
+      uid=9_11 textbox "Phone" focusable
+      uid=9_12 combobox "Country" expandable expanded focusable haspopup="listbox" value="Canada"
+      uid=9_13 listbox "Country"
+        uid=9_14 option "Canada" focusable selectable selected value="Canada"
+        uid=9_15 option "Mexico" focusable selectable value="Mexico"
+        uid=9_16 option "United States" focusable selectable value="United States"
+      uid=9_17 heading "Experience" level="2"
+      uid=9_18 spinbutton "Years of experience" focusable value="7" valuemax="50" valuemin="0"
+      uid=9_19 slider "Expected salary" focusable orientation="horizontal" value="120" valuemax="300" valuemin="40" valuetext="$120k"
+      uid=9_20 radiogroup "Work style"
+        uid=9_21 radio "On site" focusable
+        uid=9_22 radio "Hybrid" checked focusable
+        uid=9_23 radio "Remote" focusable
+      uid=9_24 group "Skills"
+        uid=9_25 checkbox "Python" focusable
+        uid=9_26 checkbox "SQL" checked focusable
+        uid=9_27 checkbox "Spark" focusable
+        uid=9_28 checkbox "Airflow" checked focusable
+        uid=9_29 checkbox "dbt" focusable
+        uid=9_30 checkbox "Kafka" focusable
+        uid=9_31 checkbox "Rust" focusable
+        uid=9_32 checkbox "Go" focusable
+      uid=9_33 textbox "Cover letter" focusable multiline value="I build data pipelines and I like
+to know why the numbers hold."
+      uid=9_34 switch "Email me about similar jobs" checked focusable
+      uid=9_35 button "Submit application" disableable disabled focusable
+  uid=9_36 contentinfo
+    uid=9_37 link "Privacy" url="https://jobs.example.com/privacy"

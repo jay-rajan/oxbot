@@ -1,0 +1,12 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "Sales report 2026 - Data" https://data.example.com/reports/sales?year=2026
+Elements: 3,623 (2,017 lines when trimmed)
+Pages (pageId: title):
+  1: Sales report 2026 - Data (https://data.example.com/reports/sales?year=2026) [selected]
+Headings:
+  h1 uid=12_6 "Sales by region, 2026"
+Landmarks (what each holds):
+  navigation "Reports" uid=12_1: 3 links
+  main uid=12_5: 1 heading, 1 button, 1 table, 401 rows
+    navigation "Table pages" uid=12_3620: 2 buttons
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

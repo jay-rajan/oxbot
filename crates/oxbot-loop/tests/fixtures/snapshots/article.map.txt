@@ -1,0 +1,18 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "How teams use AI at work - News" https://news.example.com/2026/10/ai-at-work
+Elements: 65 (44 lines when trimmed)
+Pages (pageId: title):
+  1: How teams use AI at work - News (https://news.example.com/2026/10/ai-at-work) [selected]
+Headings:
+  h1 uid=8_13 "How teams use AI at work, one year in"
+    h2 uid=8_25 "What the fast teams did"
+    h2 uid=8_40 "Where it went wrong"
+    h2 uid=8_48 "What comes next"
+    h2 uid=8_53 "Related"
+Landmarks (what each holds):
+  banner uid=8_1: 1 link, 1 button
+    navigation "Sections" uid=8_3: 6 links
+  main uid=8_11: 4 headings, 1 link, 3 list items, 1 article, 1 image, 8 text blocks
+  complementary "Related" uid=8_52: 1 heading, 3 links, 3 list items
+  contentinfo uid=8_61: 3 links
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

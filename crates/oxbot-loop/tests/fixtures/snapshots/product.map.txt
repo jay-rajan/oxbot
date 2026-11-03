@@ -1,0 +1,23 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "Arc floor lamp - Shop" https://shop.example.com/p/7
+Elements: 136 (80 lines when trimmed)
+Pages (pageId: title):
+  1: Arc floor lamp - Shop (https://shop.example.com/p/7) [selected]
+Headings:
+  h1 uid=5_9 "Arc floor lamp, brushed steel, 190 cm"
+    h2 uid=5_26 "Description"
+    h2 uid=5_33 "Specifications"
+    h2 uid=5_70 "Reviews"
+Landmarks (what each holds):
+  banner uid=5_1: 1 link, 1 searchbox
+  navigation "Breadcrumb" uid=5_4: 3 links
+  main uid=5_8: 3 headings, 1 link, 10 buttons, 1 combobox, 3 radio buttons, 1 table, 5 rows, 8 list items, 1 image, 20 text blocks
+    region "Description" uid=5_25: 1 heading, 2 text blocks
+  contentinfo uid=5_132: 1 link, 1 text block
+Form controls (5):
+  uid=5_3 searchbox "Search"
+  uid=5_19 radio "Steel" checked
+  uid=5_20 radio "Black"
+  uid=5_21 radio "Brass"
+  uid=5_22 combobox "Quantity" value="1"
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

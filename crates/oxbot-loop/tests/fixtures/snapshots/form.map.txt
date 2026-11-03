@@ -1,0 +1,40 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "Apply: Data engineer - Jobs" https://jobs.example.com/apply/42
+Elements: 38 (38 lines when trimmed)
+Pages (pageId: title):
+  1: Apply: Data engineer - Jobs (https://jobs.example.com/apply/42) [selected]
+On top:
+  uid=9_5 alert
+    uid=9_6 text "Please fix 1 field: Email is not valid."
+Focused: uid=9_10 textbox "Email" focused invalid required value="jay@"
+Headings:
+  h1 uid=9_4 "Apply for Data engineer"
+    h2 uid=9_8 "About you"
+    h2 uid=9_17 "Experience"
+Landmarks (what each holds):
+  banner uid=9_1: 1 link
+  main uid=9_3: 1 heading
+    form "Application" uid=9_7: 2 headings, 1 button, 4 textboxes, 1 combobox, 8 checkboxes, 3 radio buttons, 1 switch, 1 slider, 1 spinbutton, 1 listbox, 3 options, 2 text blocks
+  contentinfo uid=9_36: 1 link
+Form controls (20):
+  uid=9_9 textbox "Full name" required value="Jay"
+  uid=9_10 textbox "Email" focused invalid required value="jay@"
+  uid=9_11 textbox "Phone"
+  uid=9_12 combobox "Country" expanded value="Canada"
+  uid=9_13 listbox "Country"
+  uid=9_18 spinbutton "Years of experience" value="7"
+  uid=9_19 slider "Expected salary" value="$120k"
+  uid=9_21 radio "On site"
+  uid=9_22 radio "Hybrid" checked
+  uid=9_23 radio "Remote"
+  uid=9_25 checkbox "Python"
+  uid=9_26 checkbox "SQL" checked
+  uid=9_27 checkbox "Spark"
+  uid=9_28 checkbox "Airflow" checked
+  uid=9_29 checkbox "dbt"
+  uid=9_30 checkbox "Kafka"
+  uid=9_31 checkbox "Rust"
+  uid=9_32 checkbox "Go"
+  uid=9_33 textbox "Cover letter" value="I build data pipelines and I like to know why the numbers hold."
+  uid=9_34 switch "Email me about similar jobs" checked
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

@@ -1,0 +1,14 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "Home - Social" https://social.example.com/home
+Elements: 1,095 (975 lines when trimmed)
+Pages (pageId: title):
+  1: Home - Social (https://social.example.com/home) [selected]
+Headings:
+  h1 uid=20_7 "Home"
+Landmarks (what each holds):
+  navigation "Main menu" uid=20_1: 4 links
+  main uid=20_6: 1 heading, 240 links, 361 buttons, 1 textbox, 120 articles, 241 text blocks
+  complementary "Who to follow" uid=20_1091: 3 links
+Form controls (1):
+  uid=20_8 textbox "What's new?"
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

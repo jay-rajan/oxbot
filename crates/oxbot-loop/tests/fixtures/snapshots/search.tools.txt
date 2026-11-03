@@ -1,0 +1,62 @@
+### find Some("model 250") [] near None limit 20
+2 matches in r12 for "model 250"
+uid=3_3052 link "Desk lamp model 250, adjustable arm, warm white LED" url="/p/250?ref=search&q=lamp&pos=250&sid=a1b2c3d4e5…"  — main › "Results for "lamp"" › list "Search results" › listitem
+uid=3_3374 listitem (text: "Desk lamp model 277, adjustable arm, warm white LED · $59.01 3.5 out of 5 stars (250) · Add to cart")  — main › "Results for "lamp"" › list "Search results"
+
+### find Some("lamp $24") [] near None limit 5
+4 matches in r12 for "lamp $24"
+uid=3_74 listitem (text: "Desk lamp model 2, adjustable arm, warm white LED · $24.26 4.0 out of 5 stars (75) · Add to cart")  — main › "Results for "lamp"" › list "Search results"
+uid=3_1154 listitem (text: "Desk lamp model 92, adjustable arm, warm white LED · $24.96 4.0 out of 5 stars (1,405) · Add to cart")  — main › "Results for "lamp"" › list "Search results"
+uid=3_2234 listitem (text: "Desk lamp model 182, adjustable arm, warm white LED · $24.66 4.0 out of 5 stars (735) · Add to cart")  — main › "Results for "lamp"" › list "Search results"
+uid=3_3314 listitem (text: "Desk lamp model 272, adjustable arm, warm white LED · $24.36 4.0 out of 5 stars (65) · Add to cart")  — main › "Results for "lamp"" › list "Search results"
+
+### find None ["checkbox"] near None limit 20
+4 matches in r12 for role checkbox
+uid=3_55 checkbox "Under $25"  — main › "Results for "lamp"" › form "Filters"
+uid=3_56 checkbox "$25 to $50" checked  — main › "Results for "lamp"" › form "Filters"
+uid=3_57 checkbox "$50 to $100"  — main › "Results for "lamp"" › form "Filters"
+uid=3_58 checkbox "$100 & above"  — main › "Results for "lamp"" › form "Filters"
+
+### find None ["link"] near Some("Pagination") limit 20
+8 matches in r12 for role link, near "Pagination" (navigation uid=3_3662)
+uid=3_3663 link "Page 1" url="/search?q=lamp&page=1"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3664 link "Page 2" url="/search?q=lamp&page=2"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3665 link "Page 3" url="/search?q=lamp&page=3"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3666 link "Page 4" url="/search?q=lamp&page=4"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3667 link "Page 5" url="/search?q=lamp&page=5"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3668 link "Page 6" url="/search?q=lamp&page=6"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3669 link "Page 7" url="/search?q=lamp&page=7"  — main › "Results for "lamp"" › navigation "Pagination"
+uid=3_3670 link "Next" url="/search?q=lamp&page=2"  — main › "Results for "lamp"" › navigation "Pagination"
+
+### find Some("next") ["link", "button"] near None limit 20
+1 match in r12 for "next", role link, button
+uid=3_3670 link "Next" url="/search?q=lamp&page=2"  — main › "Results for "lamp"" › navigation "Pagination"
+
+### read_section 3_61 (the results list), 30 lines
+Section uid=3_61 (list) in r12: 26 lines
+ 1  uid=3_61 list "Search results"
+ 2    uid=3_62 listitem
+ 3      uid=3_64 link "Desk lamp model 1, adjustable arm, warm white LED" url="/p/1?ref=search&q=lamp&pos=1&sid=a1b2c3d4e5f6"
+ 4      uid=3_68 text "$17.13 3.5 out of 5 stars (38)"
+ 5      uid=3_73 button "Add to cart"
+ 6    uid=3_74 listitem
+ 7      uid=3_76 link "Desk lamp model 2, adjustable arm, warm white LED" url="/p/2?ref=search&q=lamp&pos=2&sid=a1b2c3d4e5f6"
+ 8      uid=3_80 text "$24.26 4.0 out of 5 stars (75)"
+ 9      uid=3_85 button "Add to cart"
+10    uid=3_86 listitem
+11      uid=3_88 link "Desk lamp model 3, adjustable arm, warm white LED" url="/p/3?ref=search&q=lamp&pos=3&sid=a1b2c3d4e5f6"
+12      uid=3_92 text "$31.39 3.0 out of 5 stars (112)"
+13      uid=3_97 button "Add to cart"
+14    uid=3_98 listitem
+15      uid=3_100 link "Desk lamp model 4, adjustable arm, warm white LED" url="/p/4?ref=search&q=lamp&pos=4&sid=a1b2c3d4e5f6"
+16      uid=3_104 text "$38.52 3.5 out of 5 stars (149)"
+17      uid=3_109 button "Add to cart"
+18    uid=3_110 listitem
+19      uid=3_112 link "Desk lamp model 5, adjustable arm, warm white LED" url="/p/5?ref=search&q=lamp&pos=5&sid=a1b2c3d4e5f6"
+20      uid=3_116 text "$45.65 4.0 out of 5 stars (186)"
+21      uid=3_121 button "Add to cart"
+22    … 294 more like the above (uids 3_122 … 3_3638); find_in_page(page: "r12", …) to search them
+23    uid=3_3650 listitem
+24      uid=3_3652 link "Desk lamp model 300, adjustable arm, warm white LED" url="/p/300?ref=search&q=lamp&pos=300&sid=a1b2c3d4e5…"
+25      uid=3_3656 text "$40.00 3.0 out of 5 stars (1,101)"
+26      uid=3_3661 button "Add to cart"

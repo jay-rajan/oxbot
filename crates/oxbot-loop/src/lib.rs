@@ -21,6 +21,7 @@ pub mod context;
 pub mod gate;
 pub mod meter;
 pub mod pacer;
+pub mod page;
 pub mod router;
 mod runner;
 mod session;

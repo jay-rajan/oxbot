@@ -1,0 +1,44 @@
+uid=4_0 RootWebArea "Shop"
+  uid=4_1 banner
+    uid=4_2 link "Shop home" url="/"
+    uid=4_3 navigation "Departments"
+      uid=4_4 link "Department 1" url="/d/1"
+      uid=4_5 link "Department 2" url="/d/2"
+      uid=4_6 link "Department 3" url="/d/3"
+      uid=4_7 link "Department 4" url="/d/4"
+      uid=4_8 link "Department 5" url="/d/5"
+      … 24 more like the above (uids 4_9 … 4_32); find_in_page(page: "r12", …) to search them
+      uid=4_33 link "Department 30" url="/d/30"
+  uid=4_34 main
+    uid=4_35 heading "Autumn sale" level="1"
+    uid=4_36 link "Shop the sale" url="/sale?from=hero"
+    uid=4_37 list "Featured"
+      uid=4_38 listitem
+        uid=4_39 link "Featured item 1" url="/p/100"
+        uid=4_41 text "$20.00"
+      uid=4_42 listitem
+        uid=4_43 link "Featured item 2" url="/p/101"
+        uid=4_45 text "$21.00"
+      uid=4_46 listitem
+        uid=4_47 link "Featured item 3" url="/p/102"
+        uid=4_49 text "$22.00"
+      uid=4_50 listitem
+        uid=4_51 link "Featured item 4" url="/p/103"
+        uid=4_53 text "$23.00"
+      uid=4_54 listitem
+        uid=4_55 link "Featured item 5" url="/p/104"
+        uid=4_57 text "$24.00"
+      … 6 more like the above (uids 4_58 … 4_78); find_in_page(page: "r12", …) to search them
+      uid=4_82 listitem
+        uid=4_83 link "Featured item 12" url="/p/111"
+        uid=4_85 text "$31.00"
+  uid=4_86 alert
+    uid=4_87 text "Your cart was saved."
+  uid=4_88 dialog "Sign in to continue"
+    uid=4_89 heading "Sign in to continue" level="2"
+    uid=4_90 textbox "Email" focused required
+    uid=4_91 textbox "Password" required
+    uid=4_92 checkbox "Keep me signed in"
+    uid=4_93 button "Sign in"
+    uid=4_94 link "Forgot password?" url="/account/reset"
+    uid=4_95 button "Close"

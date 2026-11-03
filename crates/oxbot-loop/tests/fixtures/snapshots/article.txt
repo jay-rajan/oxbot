@@ -1,0 +1,68 @@
+## Pages
+1: How teams use AI at work - News (https://news.example.com/2026/10/ai-at-work) [selected]
+## Latest page snapshot
+uid=8_0 RootWebArea "How teams use AI at work - News" url="https://news.example.com/2026/10/ai-at-work"
+  uid=8_1 banner
+    uid=8_2 link "News" url="https://news.example.com/"
+    uid=8_3 navigation "Sections"
+      uid=8_4 link "World" url="https://news.example.com/world/"
+      uid=8_5 link "Business" url="https://news.example.com/business/"
+      uid=8_6 link "Tech" url="https://news.example.com/tech/"
+      uid=8_7 link "Science" url="https://news.example.com/science/"
+      uid=8_8 link "Culture" url="https://news.example.com/culture/"
+      uid=8_9 link "Opinion" url="https://news.example.com/opinion/"
+    uid=8_10 button "Subscribe" focusable
+  uid=8_11 main
+    uid=8_12 article
+      uid=8_13 heading "How teams use AI at work, one year in" level="1"
+      uid=8_14 generic
+        uid=8_15 StaticText "By Sam, Tech desk"
+        uid=8_16 time
+          uid=8_17 StaticText "Oct 30, 2026"
+      uid=8_18 paragraph
+        uid=8_19 StaticText "A year after the first wave of AI tools reached ordinary offices, the picture is less about replacing jobs and more about who learns to use them well. Teams that set clear rules for checking the output moved faster than teams that banned or ignored the tools."
+          uid=8_20 InlineTextBox "A year after the first wave of AI tools reached ordinary offices, the picture is less about replacing jobs and more about who learns to use them well. Teams that set clear rules for checking the output moved faster than teams that banned or ignored the tools."
+      uid=8_21 paragraph
+        uid=8_22 StaticText "The pattern repeats across sectors, says"
+        uid=8_23 link "a study from last spring" focusable url="https://research.example.org/papers/ai-office-2026#results"
+        uid=8_24 StaticText ". A small accounting firm cut its month-end close by two days, a design studio drafts three times as many concepts, and a city office answers routine letters in hours instead of weeks."
+      uid=8_25 heading "What the fast teams did" level="2"
+      uid=8_26 list
+        uid=8_27 listitem
+          uid=8_28 ListMarker "•"
+          uid=8_29 StaticText "They wrote down what a good answer looks like."
+        uid=8_30 listitem
+          uid=8_31 ListMarker "•"
+          uid=8_32 StaticText "They checked every number against a source."
+        uid=8_33 listitem
+          uid=8_34 ListMarker "•"
+          uid=8_35 StaticText "They kept a log of prompts that worked."
+      uid=8_36 figure
+        uid=8_37 image "Chart: hours saved per week by team size"
+        uid=8_38 Figcaption
+          uid=8_39 StaticText "Hours saved per week, by team size. Source: News survey."
+      uid=8_40 heading "Where it went wrong" level="2"
+      uid=8_41 paragraph
+        uid=8_42 StaticText "Not every story is a success. Some teams shipped work they could not explain, and had to redo it when a client asked how a number was found."
+          uid=8_43 InlineTextBox "Not every story is a success. Some teams shipped work they could not explain, and had to redo it when a client asked how a number was found."
+      uid=8_44 blockquote
+        uid=8_45 paragraph
+          uid=8_46 StaticText "“We saved time and then spent it again explaining ourselves,” said Ann, a team lead."
+            uid=8_47 InlineTextBox "“We saved time and then spent it again explaining ourselves,” said Ann, a team lead."
+      uid=8_48 heading "What comes next" level="2"
+      uid=8_49 paragraph
+        uid=8_50 StaticText "Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. "
+          uid=8_51 InlineTextBox "Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. "
+  uid=8_52 complementary "Related"
+    uid=8_53 heading "Related" level="2"
+    uid=8_54 list
+      uid=8_55 listitem
+        uid=8_56 link "Five habits of teams that check their AI" url="https://news.example.com/2026/10/related-1"
+      uid=8_57 listitem
+        uid=8_58 link "The quiet rise of the AI-literate manager" url="https://news.example.com/2026/10/related-2"
+      uid=8_59 listitem
+        uid=8_60 link "Why small firms adopt faster" url="https://news.example.com/2026/10/related-3"
+  uid=8_61 contentinfo
+    uid=8_62 link "Contact" url="https://news.example.com/contact"
+    uid=8_63 link "Corrections" url="https://news.example.com/corrections"
+    uid=8_64 link "Privacy" url="https://news.example.com/privacy"

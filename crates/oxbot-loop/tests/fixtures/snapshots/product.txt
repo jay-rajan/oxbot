@@ -1,0 +1,140 @@
+## Pages
+1: Arc floor lamp - Shop (https://shop.example.com/p/7) [selected]
+## Latest page snapshot
+uid=5_0 RootWebArea "Arc floor lamp - Shop" url="https://shop.example.com/p/7"
+  uid=5_1 banner
+    uid=5_2 link "Shop home" url="https://shop.example.com/"
+    uid=5_3 searchbox "Search" focusable
+  uid=5_4 navigation "Breadcrumb"
+    uid=5_5 link "Home" url="https://shop.example.com/"
+    uid=5_6 link "Lighting" url="https://shop.example.com/d/lighting"
+    uid=5_7 link "Floor lamps" url="https://shop.example.com/d/lighting/floor"
+  uid=5_8 main
+    uid=5_9 heading "Arc floor lamp, brushed steel, 190 cm" level="1"
+    uid=5_10 image "Arc floor lamp in a living room"
+    uid=5_11 generic
+      uid=5_12 StaticText "$129.00"
+        uid=5_13 InlineTextBox "$129.00"
+      uid=5_14 StaticText "Free delivery by Friday"
+        uid=5_15 InlineTextBox "Free delivery by Friday"
+    uid=5_16 paragraph
+      uid=5_17 StaticText "Rated "best value" by
+Home Weekly"
+    uid=5_18 radiogroup "Colour"
+      uid=5_19 radio "Steel" checked focusable
+      uid=5_20 radio "Black" focusable
+      uid=5_21 radio "Brass" focusable
+    uid=5_22 combobox "Quantity" expandable focusable haspopup="listbox" value="1"
+    uid=5_23 button "Add to cart" focusable
+    uid=5_24 button "Buy now" focusable
+    uid=5_25 region "Description"
+      uid=5_26 heading "Description" level="2"
+      uid=5_27 paragraph
+        uid=5_28 StaticText "A tall arc lamp that reaches over a sofa or a reading chair. The steel arm bends in one smooth curve, the marble base keeps it steady, and the shade turns so the light falls where you need it. The foot switch has three levels of brightness and the bulb is a warm white LED that lasts years."
+          uid=5_29 InlineTextBox "A tall arc lamp that reaches over a sofa or a reading chair. The steel arm bends in one smooth curve, the marble base keeps it steady, and the shade turns so the light falls where you need it. The foot switch has three levels of brightness and the bulb is a warm white LED that lasts years."
+      uid=5_30 paragraph
+        uid=5_31 StaticText "Ships in one box. Assembly takes about ten minutes, no tools needed."
+          uid=5_32 InlineTextBox "Ships in one box. Assembly takes about ten minutes, no tools needed."
+    uid=5_33 heading "Specifications" level="2"
+    uid=5_34 table "Specifications"
+      uid=5_35 row "Height 190 cm"
+        uid=5_36 rowheader "Height"
+          uid=5_37 StaticText "Height"
+            uid=5_38 InlineTextBox "Height"
+        uid=5_39 cell "190 cm"
+          uid=5_40 StaticText "190 cm"
+            uid=5_41 InlineTextBox "190 cm"
+      uid=5_42 row "Base Marble, 30 cm"
+        uid=5_43 rowheader "Base"
+          uid=5_44 StaticText "Base"
+            uid=5_45 InlineTextBox "Base"
+        uid=5_46 cell "Marble, 30 cm"
+          uid=5_47 StaticText "Marble, 30 cm"
+            uid=5_48 InlineTextBox "Marble, 30 cm"
+      uid=5_49 row "Bulb E27 LED, 9 W"
+        uid=5_50 rowheader "Bulb"
+          uid=5_51 StaticText "Bulb"
+            uid=5_52 InlineTextBox "Bulb"
+        uid=5_53 cell "E27 LED, 9 W"
+          uid=5_54 StaticText "E27 LED, 9 W"
+            uid=5_55 InlineTextBox "E27 LED, 9 W"
+      uid=5_56 row "Cable 2 m, foot switch"
+        uid=5_57 rowheader "Cable"
+          uid=5_58 StaticText "Cable"
+            uid=5_59 InlineTextBox "Cable"
+        uid=5_60 cell "2 m, foot switch"
+          uid=5_61 StaticText "2 m, foot switch"
+            uid=5_62 InlineTextBox "2 m, foot switch"
+      uid=5_63 row "Weight 14 kg"
+        uid=5_64 rowheader "Weight"
+          uid=5_65 StaticText "Weight"
+            uid=5_66 InlineTextBox "Weight"
+        uid=5_67 cell "14 kg"
+          uid=5_68 StaticText "14 kg"
+            uid=5_69 InlineTextBox "14 kg"
+    uid=5_70 heading "Reviews" level="2"
+    uid=5_71 generic
+      uid=5_72 StaticText "4.6 out of 5 (212 reviews)"
+        uid=5_73 InlineTextBox "4.6 out of 5 (212 reviews)"
+    uid=5_74 list "Reviews"
+      uid=5_75 listitem
+        uid=5_76 generic
+          uid=5_77 StaticText "5 out of 5 stars"
+        uid=5_78 paragraph
+          uid=5_79 StaticText "Bright and steady, worth it."
+            uid=5_80 InlineTextBox "Bright and steady, worth it."
+        uid=5_81 button "Helpful" focusable
+      uid=5_82 listitem
+        uid=5_83 generic
+          uid=5_84 StaticText "4 out of 5 stars"
+        uid=5_85 paragraph
+          uid=5_86 StaticText "The base is heavy, as it should be."
+            uid=5_87 InlineTextBox "The base is heavy, as it should be."
+        uid=5_88 button "Helpful" focusable
+      uid=5_89 listitem
+        uid=5_90 generic
+          uid=5_91 StaticText "5 out of 5 stars"
+        uid=5_92 paragraph
+          uid=5_93 StaticText "Took five minutes to set up."
+            uid=5_94 InlineTextBox "Took five minutes to set up."
+        uid=5_95 button "Helpful" focusable
+      uid=5_96 listitem
+        uid=5_97 generic
+          uid=5_98 StaticText "4 out of 5 stars"
+        uid=5_99 paragraph
+          uid=5_100 StaticText "Light is warm, not yellow."
+            uid=5_101 InlineTextBox "Light is warm, not yellow."
+        uid=5_102 button "Helpful" focusable
+      uid=5_103 listitem
+        uid=5_104 generic
+          uid=5_105 StaticText "5 out of 5 stars"
+        uid=5_106 paragraph
+          uid=5_107 StaticText "Arm could be a bit longer."
+            uid=5_108 InlineTextBox "Arm could be a bit longer."
+        uid=5_109 button "Helpful" focusable
+      uid=5_110 listitem
+        uid=5_111 generic
+          uid=5_112 StaticText "4 out of 5 stars"
+        uid=5_113 paragraph
+          uid=5_114 StaticText "Great over my reading chair."
+            uid=5_115 InlineTextBox "Great over my reading chair."
+        uid=5_116 button "Helpful" focusable
+      uid=5_117 listitem
+        uid=5_118 generic
+          uid=5_119 StaticText "5 out of 5 stars"
+        uid=5_120 paragraph
+          uid=5_121 StaticText "Arrived with a scratch, support sent a new shade."
+            uid=5_122 InlineTextBox "Arrived with a scratch, support sent a new shade."
+        uid=5_123 button "Helpful" focusable
+      uid=5_124 listitem
+        uid=5_125 generic
+          uid=5_126 StaticText "4 out of 5 stars"
+        uid=5_127 paragraph
+          uid=5_128 StaticText "Looks better than the photos."
+            uid=5_129 InlineTextBox "Looks better than the photos."
+        uid=5_130 button "Helpful" focusable
+    uid=5_131 link "See all 212 reviews" url="https://shop.example.com/p/7/reviews?sort=recent"
+  uid=5_132 contentinfo
+    uid=5_133 link "Help" url="https://help.example.com/shop"
+    uid=5_134 StaticText "© 2026 Shop"
+      uid=5_135 InlineTextBox "© 2026 Shop"

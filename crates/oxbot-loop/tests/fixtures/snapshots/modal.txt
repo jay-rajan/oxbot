@@ -1,0 +1,100 @@
+## Pages
+1: https://shop.example.com/ [selected]
+2: News (https://news.example.com/)
+## Latest page snapshot
+uid=4_0 RootWebArea "Shop" url="https://shop.example.com/"
+  uid=4_1 banner
+    uid=4_2 link "Shop home" url="https://shop.example.com/"
+    uid=4_3 navigation "Departments"
+      uid=4_4 link "Department 1" url="https://shop.example.com/d/1"
+      uid=4_5 link "Department 2" url="https://shop.example.com/d/2"
+      uid=4_6 link "Department 3" url="https://shop.example.com/d/3"
+      uid=4_7 link "Department 4" url="https://shop.example.com/d/4"
+      uid=4_8 link "Department 5" url="https://shop.example.com/d/5"
+      uid=4_9 link "Department 6" url="https://shop.example.com/d/6"
+      uid=4_10 link "Department 7" url="https://shop.example.com/d/7"
+      uid=4_11 link "Department 8" url="https://shop.example.com/d/8"
+      uid=4_12 link "Department 9" url="https://shop.example.com/d/9"
+      uid=4_13 link "Department 10" url="https://shop.example.com/d/10"
+      uid=4_14 link "Department 11" url="https://shop.example.com/d/11"
+      uid=4_15 link "Department 12" url="https://shop.example.com/d/12"
+      uid=4_16 link "Department 13" url="https://shop.example.com/d/13"
+      uid=4_17 link "Department 14" url="https://shop.example.com/d/14"
+      uid=4_18 link "Department 15" url="https://shop.example.com/d/15"
+      uid=4_19 link "Department 16" url="https://shop.example.com/d/16"
+      uid=4_20 link "Department 17" url="https://shop.example.com/d/17"
+      uid=4_21 link "Department 18" url="https://shop.example.com/d/18"
+      uid=4_22 link "Department 19" url="https://shop.example.com/d/19"
+      uid=4_23 link "Department 20" url="https://shop.example.com/d/20"
+      uid=4_24 link "Department 21" url="https://shop.example.com/d/21"
+      uid=4_25 link "Department 22" url="https://shop.example.com/d/22"
+      uid=4_26 link "Department 23" url="https://shop.example.com/d/23"
+      uid=4_27 link "Department 24" url="https://shop.example.com/d/24"
+      uid=4_28 link "Department 25" url="https://shop.example.com/d/25"
+      uid=4_29 link "Department 26" url="https://shop.example.com/d/26"
+      uid=4_30 link "Department 27" url="https://shop.example.com/d/27"
+      uid=4_31 link "Department 28" url="https://shop.example.com/d/28"
+      uid=4_32 link "Department 29" url="https://shop.example.com/d/29"
+      uid=4_33 link "Department 30" url="https://shop.example.com/d/30"
+  uid=4_34 main
+    uid=4_35 heading "Autumn sale" level="1"
+    uid=4_36 link "Shop the sale" url="https://shop.example.com/sale?from=hero"
+    uid=4_37 list "Featured"
+      uid=4_38 listitem
+        uid=4_39 link "Featured item 1" url="https://shop.example.com/p/100"
+        uid=4_40 generic
+          uid=4_41 StaticText "$20.00"
+      uid=4_42 listitem
+        uid=4_43 link "Featured item 2" url="https://shop.example.com/p/101"
+        uid=4_44 generic
+          uid=4_45 StaticText "$21.00"
+      uid=4_46 listitem
+        uid=4_47 link "Featured item 3" url="https://shop.example.com/p/102"
+        uid=4_48 generic
+          uid=4_49 StaticText "$22.00"
+      uid=4_50 listitem
+        uid=4_51 link "Featured item 4" url="https://shop.example.com/p/103"
+        uid=4_52 generic
+          uid=4_53 StaticText "$23.00"
+      uid=4_54 listitem
+        uid=4_55 link "Featured item 5" url="https://shop.example.com/p/104"
+        uid=4_56 generic
+          uid=4_57 StaticText "$24.00"
+      uid=4_58 listitem
+        uid=4_59 link "Featured item 6" url="https://shop.example.com/p/105"
+        uid=4_60 generic
+          uid=4_61 StaticText "$25.00"
+      uid=4_62 listitem
+        uid=4_63 link "Featured item 7" url="https://shop.example.com/p/106"
+        uid=4_64 generic
+          uid=4_65 StaticText "$26.00"
+      uid=4_66 listitem
+        uid=4_67 link "Featured item 8" url="https://shop.example.com/p/107"
+        uid=4_68 generic
+          uid=4_69 StaticText "$27.00"
+      uid=4_70 listitem
+        uid=4_71 link "Featured item 9" url="https://shop.example.com/p/108"
+        uid=4_72 generic
+          uid=4_73 StaticText "$28.00"
+      uid=4_74 listitem
+        uid=4_75 link "Featured item 10" url="https://shop.example.com/p/109"
+        uid=4_76 generic
+          uid=4_77 StaticText "$29.00"
+      uid=4_78 listitem
+        uid=4_79 link "Featured item 11" url="https://shop.example.com/p/110"
+        uid=4_80 generic
+          uid=4_81 StaticText "$30.00"
+      uid=4_82 listitem
+        uid=4_83 link "Featured item 12" url="https://shop.example.com/p/111"
+        uid=4_84 generic
+          uid=4_85 StaticText "$31.00"
+  uid=4_86 alert
+    uid=4_87 StaticText "Your cart was saved."
+  uid=4_88 dialog "Sign in to continue" modal
+    uid=4_89 heading "Sign in to continue" level="2"
+    uid=4_90 textbox "Email" focusable focused required
+    uid=4_91 textbox "Password" focusable required
+    uid=4_92 checkbox "Keep me signed in" focusable
+    uid=4_93 button "Sign in" focusable
+    uid=4_94 link "Forgot password?" url="https://shop.example.com/account/reset"
+    uid=4_95 button "Close" focusable

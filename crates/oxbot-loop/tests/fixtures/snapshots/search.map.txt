@@ -1,0 +1,24 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "lamp - Shop" https://shop.example.com/search?q=lamp
+Elements: 3,678 (1,260 lines when trimmed)
+Pages (pageId: title):
+  1: lamp - Shop (https://shop.example.com/search?q=lamp) [selected]
+  2: https://news.example.com/
+Focused: uid=3_5 searchbox "Search" focused value="lamp"
+Headings:
+  h1 uid=3_47 "Results for "lamp""
+Landmarks (what each holds):
+  banner uid=3_1: 2 links, 1 button, 1 searchbox, 1 image
+  navigation "Departments" uid=3_8: 12 links, 12 list items
+  main uid=3_46: 1 heading, 300 links, 300 buttons, 300 list items, 301 text blocks
+    form "Filters" uid=3_53: 1 button, 1 combobox, 4 checkboxes, 1 text block
+    navigation "Pagination" uid=3_3662: 8 links
+  contentinfo uid=3_3671: 4 links, 1 text block
+Form controls (6):
+  uid=3_5 searchbox "Search" focused value="lamp"
+  uid=3_55 checkbox "Under $25"
+  uid=3_56 checkbox "$25 to $50" checked
+  uid=3_57 checkbox "$50 to $100"
+  uid=3_58 checkbox "$100 & above"
+  uid=3_59 combobox "Sort by" value="Featured"
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

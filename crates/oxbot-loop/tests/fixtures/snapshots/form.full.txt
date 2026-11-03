@@ -1,0 +1,38 @@
+uid=9_0 RootWebArea "Apply: Data engineer - Jobs"
+  uid=9_1 banner
+    uid=9_2 link "Jobs" url="/"
+  uid=9_3 main
+    uid=9_4 heading "Apply for Data engineer" level="1"
+    uid=9_5 alert
+      uid=9_6 text "Please fix 1 field: Email is not valid."
+    uid=9_7 form "Application"
+      uid=9_8 heading "About you" level="2"
+      uid=9_9 textbox "Full name" required value="Jay"
+      uid=9_10 textbox "Email" focused invalid required value="jay@"
+      uid=9_11 textbox "Phone"
+      uid=9_12 combobox "Country" expanded value="Canada"
+      uid=9_13 listbox "Country"
+        uid=9_14 option "Canada" selected
+        uid=9_15 option "Mexico"
+        uid=9_16 option "United States"
+      uid=9_17 heading "Experience" level="2"
+      uid=9_18 spinbutton "Years of experience" value="7"
+      uid=9_19 slider "Expected salary" value="$120k"
+      uid=9_20 text "Work style"
+      uid=9_21 radio "On site"
+      uid=9_22 radio "Hybrid" checked
+      uid=9_23 radio "Remote"
+      uid=9_24 text "Skills"
+      uid=9_25 checkbox "Python"
+      uid=9_26 checkbox "SQL" checked
+      uid=9_27 checkbox "Spark"
+      uid=9_28 checkbox "Airflow" checked
+      uid=9_29 checkbox "dbt"
+      uid=9_30 checkbox "Kafka"
+      uid=9_31 checkbox "Rust"
+      uid=9_32 checkbox "Go"
+      uid=9_33 textbox "Cover letter" value="I build data pipelines and I like to know why the numbers hold."
+      uid=9_34 switch "Email me about similar jobs" checked
+      uid=9_35 button "Submit application" disabled
+  uid=9_36 contentinfo
+    uid=9_37 link "Privacy" url="/privacy"

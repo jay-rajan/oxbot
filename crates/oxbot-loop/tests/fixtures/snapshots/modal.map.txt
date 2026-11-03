@@ -1,0 +1,30 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "Shop" https://shop.example.com/
+Elements: 96 (84 lines when trimmed)
+Pages (pageId: title):
+  1: https://shop.example.com/ [selected]
+  2: News (https://news.example.com/)
+On top:
+  uid=4_86 alert
+    uid=4_87 text "Your cart was saved."
+  uid=4_88 dialog "Sign in to continue"
+    uid=4_89 heading "Sign in to continue" level="2"
+    uid=4_90 textbox "Email" focused required
+    uid=4_91 textbox "Password" required
+    uid=4_92 checkbox "Keep me signed in"
+    uid=4_93 button "Sign in"
+    uid=4_94 link "Forgot password?" url="/account/reset"
+    uid=4_95 button "Close"
+Focused: uid=4_90 textbox "Email" focused required
+Headings:
+  h1 uid=4_35 "Autumn sale"
+    h2 uid=4_89 "Sign in to continue"
+Landmarks (what each holds):
+  banner uid=4_1: 1 link
+    navigation "Departments" uid=4_3: 30 links
+  main uid=4_34: 1 heading, 13 links, 12 list items, 12 text blocks
+Form controls (3):
+  uid=4_90 textbox "Email" focused required
+  uid=4_91 textbox "Password" required
+  uid=4_92 checkbox "Keep me signed in"
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

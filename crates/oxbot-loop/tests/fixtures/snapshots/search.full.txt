@@ -1,0 +1,74 @@
+uid=3_0 RootWebArea "lamp - Shop"
+  uid=3_1 banner
+    uid=3_2 link "Shop home" url="/"
+      uid=3_3 image "Shop"
+    uid=3_5 searchbox "Search" focused value="lamp"
+    uid=3_6 button "Search"
+    uid=3_7 link "Cart (2 items)" url="/cart"
+  uid=3_8 navigation "Departments"
+    uid=3_9 list
+      uid=3_10 listitem
+        uid=3_12 link "Home" url="/d/home"
+      uid=3_13 listitem
+        uid=3_15 link "Kitchen" url="/d/kitchen"
+      uid=3_16 listitem
+        uid=3_18 link "Garden" url="/d/garden"
+      uid=3_19 listitem
+        uid=3_21 link "Office" url="/d/office"
+      uid=3_22 listitem
+        uid=3_24 link "Lighting" url="/d/lighting"
+      … 6 more like the above (uids 3_25 … 3_40); find_in_page(page: "r12", …) to search them
+      uid=3_43 listitem
+        uid=3_45 link "Deals" url="/d/deals"
+  uid=3_46 main
+    uid=3_47 heading "Results for "lamp"" level="1"
+    uid=3_51 text "1-300 of over 2,000 results"
+    uid=3_53 form "Filters"
+      uid=3_54 text "Price"
+      uid=3_55 checkbox "Under $25"
+      uid=3_56 checkbox "$25 to $50" checked
+      uid=3_57 checkbox "$50 to $100"
+      uid=3_58 checkbox "$100 & above"
+      uid=3_59 combobox "Sort by" value="Featured"
+      uid=3_60 button "Apply filters"
+    uid=3_61 list "Search results"
+      uid=3_62 listitem
+        uid=3_64 link "Desk lamp model 1, adjustable arm, warm white LED" url="/p/1?ref=search&q=lamp&pos=1&sid=a1b2c3d4e5f6"
+        uid=3_68 text "$17.13 3.5 out of 5 stars (38)"
+        uid=3_73 button "Add to cart"
+      uid=3_74 listitem
+        uid=3_76 link "Desk lamp model 2, adjustable arm, warm white LED" url="/p/2?ref=search&q=lamp&pos=2&sid=a1b2c3d4e5f6"
+        uid=3_80 text "$24.26 4.0 out of 5 stars (75)"
+        uid=3_85 button "Add to cart"
+      uid=3_86 listitem
+        uid=3_88 link "Desk lamp model 3, adjustable arm, warm white LED" url="/p/3?ref=search&q=lamp&pos=3&sid=a1b2c3d4e5f6"
+        uid=3_92 text "$31.39 3.0 out of 5 stars (112)"
+        uid=3_97 button "Add to cart"
+      uid=3_98 listitem
+        uid=3_100 link "Desk lamp model 4, adjustable arm, warm white LED" url="/p/4?ref=search&q=lamp&pos=4&sid=a1b2c3d4e5f6"
+        uid=3_104 text "$38.52 3.5 out of 5 stars (149)"
+        uid=3_109 button "Add to cart"
+      uid=3_110 listitem
+        uid=3_112 link "Desk lamp model 5, adjustable arm, warm white LED" url="/p/5?ref=search&q=lamp&pos=5&sid=a1b2c3d4e5f6"
+        uid=3_116 text "$45.65 4.0 out of 5 stars (186)"
+        uid=3_121 button "Add to cart"
+      … 294 more like the above (uids 3_122 … 3_3638); find_in_page(page: "r12", …) to search them
+      uid=3_3650 listitem
+        uid=3_3652 link "Desk lamp model 300, adjustable arm, warm white LED" url="/p/300?ref=search&q=lamp&pos=300&sid=a1b2c3d4e5…"
+        uid=3_3656 text "$40.00 3.0 out of 5 stars (1,101)"
+        uid=3_3661 button "Add to cart"
+    uid=3_3662 navigation "Pagination"
+      uid=3_3663 link "Page 1" url="/search?q=lamp&page=1"
+      uid=3_3664 link "Page 2" url="/search?q=lamp&page=2"
+      uid=3_3665 link "Page 3" url="/search?q=lamp&page=3"
+      uid=3_3666 link "Page 4" url="/search?q=lamp&page=4"
+      uid=3_3667 link "Page 5" url="/search?q=lamp&page=5"
+      uid=3_3668 link "Page 6" url="/search?q=lamp&page=6"
+      uid=3_3669 link "Page 7" url="/search?q=lamp&page=7"
+      uid=3_3670 link "Next" url="/search?q=lamp&page=2"
+  uid=3_3671 contentinfo
+    uid=3_3672 link "About" url="/about"
+    uid=3_3673 link "Help" url="/help"
+    uid=3_3674 link "Privacy" url="/privacy"
+    uid=3_3675 link "Terms" url="/terms"
+    uid=3_3676 text "© 2026 Shop"

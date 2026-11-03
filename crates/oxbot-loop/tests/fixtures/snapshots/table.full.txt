@@ -1,0 +1,48 @@
+uid=12_0 RootWebArea "Sales report 2026 - Data"
+  uid=12_1 navigation "Reports"
+    uid=12_2 link "Sales" url="/reports/sales"
+    uid=12_3 link "Stock" url="/reports/stock"
+    uid=12_4 link "Returns" url="/reports/returns"
+  uid=12_5 main
+    uid=12_6 heading "Sales by region, 2026" level="1"
+    uid=12_7 button "Download CSV"
+    uid=12_8 table "Sales by region"
+      uid=12_10 row
+        uid=12_11 columnheader "Region"
+        uid=12_13 columnheader "Month"
+        uid=12_15 columnheader "Units"
+        uid=12_17 columnheader "Revenue"
+      uid=12_20 row
+        uid=12_21 cell "North"
+        uid=12_23 cell "Jan"
+        uid=12_25 cell "100"
+        uid=12_27 cell "$1,200"
+      uid=12_29 row
+        uid=12_30 cell "South"
+        uid=12_32 cell "Jan"
+        uid=12_34 cell "153"
+        uid=12_36 cell "$1,836"
+      uid=12_38 row
+        uid=12_39 cell "East"
+        uid=12_41 cell "Jan"
+        uid=12_43 cell "206"
+        uid=12_45 cell "$2,472"
+      uid=12_47 row
+        uid=12_48 cell "West"
+        uid=12_50 cell "Jan"
+        uid=12_52 cell "259"
+        uid=12_54 cell "$3,108"
+      uid=12_56 row
+        uid=12_57 cell "Central"
+        uid=12_59 cell "Jan"
+        uid=12_61 cell "312"
+        uid=12_63 cell "$3,744"
+      … 394 more like the above (uids 12_65 … 12_3602); find_in_page(page: "r12", …) to search them
+      uid=12_3611 row
+        uid=12_3612 cell "Central"
+        uid=12_3614 cell "Oct"
+        uid=12_3616 cell "547"
+        uid=12_3618 cell "$6,564"
+    uid=12_3620 navigation "Table pages"
+      uid=12_3621 button "Previous" disabled
+      uid=12_3622 button "Next"

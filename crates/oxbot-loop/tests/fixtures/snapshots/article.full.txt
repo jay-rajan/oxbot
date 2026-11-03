@@ -1,0 +1,44 @@
+uid=8_0 RootWebArea "How teams use AI at work - News"
+  uid=8_1 banner
+    uid=8_2 link "News" url="/"
+    uid=8_3 navigation "Sections"
+      uid=8_4 link "World" url="/world/"
+      uid=8_5 link "Business" url="/business/"
+      uid=8_6 link "Tech" url="/tech/"
+      uid=8_7 link "Science" url="/science/"
+      uid=8_8 link "Culture" url="/culture/"
+      uid=8_9 link "Opinion" url="/opinion/"
+    uid=8_10 button "Subscribe"
+  uid=8_11 main
+    uid=8_12 article
+      uid=8_13 heading "How teams use AI at work, one year in" level="1"
+      uid=8_15 text "By Sam, Tech desk Oct 30, 2026"
+      uid=8_19 text "A year after the first wave of AI tools reached ordinary offices, the picture is less about replacing jobs and more about who learns to use them well. Teams that set clear rules for checking the outpu…" (+59 chars)
+      uid=8_22 text "The pattern repeats across sectors, says"
+      uid=8_23 link "a study from last spring" url="research.example.org/papers/ai-office-2026"
+      uid=8_24 text ". A small accounting firm cut its month-end close by two days, a design studio drafts three times as many concepts, and a city office answers routine letters in hours instead of weeks."
+      uid=8_25 heading "What the fast teams did" level="2"
+      uid=8_26 list
+        uid=8_27 listitem "They wrote down what a good answer looks like."
+        uid=8_30 listitem "They checked every number against a source."
+        uid=8_33 listitem "They kept a log of prompts that worked."
+      uid=8_37 image "Chart: hours saved per week by team size"
+      uid=8_39 text "Hours saved per week, by team size. Source: News survey."
+      uid=8_40 heading "Where it went wrong" level="2"
+      uid=8_42 text "Not every story is a success. Some teams shipped work they could not explain, and had to redo it when a client asked how a number was found."
+      uid=8_46 text "“We saved time and then spent it again explaining ourselves,” said Ann, a team lead."
+      uid=8_48 heading "What comes next" level="2"
+      uid=8_50 text "Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more training. Expect fewer new tools and more …" (+51 chars)
+  uid=8_52 complementary "Related"
+    uid=8_53 heading "Related" level="2"
+    uid=8_54 list
+      uid=8_55 listitem
+        uid=8_56 link "Five habits of teams that check their AI" url="/2026/10/related-1"
+      uid=8_57 listitem
+        uid=8_58 link "The quiet rise of the AI-literate manager" url="/2026/10/related-2"
+      uid=8_59 listitem
+        uid=8_60 link "Why small firms adopt faster" url="/2026/10/related-3"
+  uid=8_61 contentinfo
+    uid=8_62 link "Contact" url="/contact"
+    uid=8_63 link "Corrections" url="/corrections"
+    uid=8_64 link "Privacy" url="/privacy"
