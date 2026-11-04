@@ -1,11 +1,15 @@
-//! Where the household's `OpenRouter` key is kept: the macOS Keychain, and
-//! nowhere else on disk.
+//! Where the household's `OpenRouter` key is kept: the macOS Keychain.
 //!
 //! [`secret_store`] picks the store. The app and `oxbot serve` use the
 //! [`Keychain`] (one item per data folder, so a dev `OXBOT_HOME` never
-//! shares the app's key). End-to-end tests (`OXBOT_E2E=1`) never touch
-//! the Keychain: they get the stand-in's canary key from the file named
-//! by `OXBOT_E2E_OPENROUTER_KEY_FILE` ([`TestKeyFile`]), or nothing. Unit
+//! shares the app's key). A dev or test copy started with
+//! `OXBOT_KEY_STORE=file` and its own `OXBOT_HOME` keeps its key in a file
+//! only the person can read ([`KeyFile`]) instead: an unsigned dev build
+//! is a new app to the Keychain after every rebuild, so it would ask
+//! again each time. The app's own data folder always uses the Keychain.
+//! End-to-end tests (`OXBOT_E2E=1`) never touch the Keychain: they get the
+//! stand-in's canary key from the file named by
+//! `OXBOT_E2E_OPENROUTER_KEY_FILE` ([`TestKeyFile`]), or nothing. Unit
 //! tests always get [`MemorySecrets`].
 
 use std::path::{Path, PathBuf};
@@ -20,6 +24,9 @@ pub const E2E_KEY_FILE: &str = "OXBOT_E2E_OPENROUTER_KEY_FILE";
 /// Test mode only: how long the first read of the test key takes, in ms,
 /// as a Keychain waiting for the person's OK would.
 pub const E2E_KEYCHAIN_DELAY: &str = "OXBOT_E2E_KEYCHAIN_DELAY_MS";
+
+/// Set to `file` for a dev or test copy's key file ([`KeyFile`]).
+pub const KEY_STORE: &str = "OXBOT_KEY_STORE";
 
 /// The store for the data folder `data_dir`. `e2e`: test mode, which
 /// never uses the Keychain.
@@ -41,7 +48,143 @@ pub fn secret_store(data_dir: &Path, e2e: bool) -> Arc<dyn SecretStore> {
             None => Arc::new(MemorySecrets::new()),
         };
     }
-    Arc::new(Keychain::for_data_dir(data_dir))
+    let app_dir = dirs::data_dir().map(|d| d.join("oxbot"));
+    let wanted = std::env::var(KEY_STORE).ok();
+    match pick(data_dir, wanted.as_deref(), app_dir.as_deref()) {
+        Pick::File => {
+            tracing::info!(
+                "the OpenRouter key is kept in this data folder's key file (OXBOT_KEY_STORE=file)"
+            );
+            Arc::new(KeyFile::in_data_dir(data_dir))
+        }
+        Pick::KeychainAppFolder => {
+            tracing::warn!(
+                "OXBOT_KEY_STORE=file is ignored for the app's own data folder; using the Keychain"
+            );
+            Arc::new(Keychain::for_data_dir(data_dir))
+        }
+        Pick::Keychain => Arc::new(Keychain::for_data_dir(data_dir)),
+    }
+}
+
+/// Which store a non-test run gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pick {
+    Keychain,
+    /// A key file was asked for, but this is the app's own folder.
+    KeychainAppFolder,
+    File,
+}
+
+/// `wanted`: `OXBOT_KEY_STORE`. `app_dir`: the app's default data folder.
+/// A key file only for a folder that isn't the app's (or when the app's
+/// folder is unknown, never).
+fn pick(data_dir: &Path, wanted: Option<&str>, app_dir: Option<&Path>) -> Pick {
+    if wanted != Some("file") {
+        return Pick::Keychain;
+    }
+    let same = |a: &Path, b: &Path| {
+        a == b
+            || std::fs::canonicalize(a)
+                .ok()
+                .zip(std::fs::canonicalize(b).ok())
+                .is_some_and(|(a, b)| a == b)
+    };
+    match app_dir {
+        Some(app) if !same(data_dir, app) => Pick::File,
+        _ => Pick::KeychainAppFolder,
+    }
+}
+
+/// A dev or test copy's key: `secrets/openrouter-key` in its data folder,
+/// readable by the person only (folder 0700, file 0600), written whole
+/// through a temporary file. Bots' work folders are elsewhere.
+#[derive(Clone, PartialEq, Eq)]
+pub struct KeyFile {
+    path: PathBuf,
+}
+
+impl KeyFile {
+    /// The file for `data_dir`.
+    #[must_use]
+    pub fn in_data_dir(data_dir: &Path) -> Self {
+        Self {
+            path: data_dir.join("secrets").join("openrouter-key"),
+        }
+    }
+
+    /// Where it is.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl std::fmt::Debug for KeyFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("KeyFile")
+    }
+}
+
+fn io_failed(what: &str, err: &std::io::Error) -> SecretError {
+    // The error names what failed, never the key.
+    SecretError(format!(
+        "The key file couldn't {what} the OpenRouter key ({}).",
+        err.kind()
+    ))
+}
+
+impl SecretStore for KeyFile {
+    fn load(&self) -> Result<Option<ApiKey>, SecretError> {
+        match std::fs::read(&self.path) {
+            Ok(mut bytes) => {
+                while bytes.last().is_some_and(u8::is_ascii_whitespace) {
+                    bytes.pop();
+                }
+                ApiKey::from_bytes(bytes)
+                    .map(Some)
+                    .map_err(|e| SecretError(format!("The kept OpenRouter key is unusable: {e}.")))
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(io_failed("read", &err)),
+        }
+    }
+
+    fn save(&self, key: &ApiKey) -> Result<(), SecretError> {
+        use std::io::Write as _;
+        let dir = self
+            .path
+            .parent()
+            .ok_or_else(|| SecretError("The key file has no folder.".to_owned()))?;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(dir).map_err(|e| io_failed("save", &e))?;
+        let tmp = dir.join(".openrouter-key.tmp");
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let written = options.open(&tmp).and_then(|mut file| {
+            file.write_all(key.expose_for_storage())?;
+            file.sync_all()
+        });
+        if let Err(err) = written.and_then(|()| std::fs::rename(&tmp, &self.path)) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(io_failed("save", &err));
+        }
+        Ok(())
+    }
+
+    fn delete(&self) -> Result<(), SecretError> {
+        match std::fs::remove_file(&self.path) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
+                Err(io_failed("delete", &err))
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// The Keychain item for one data folder: service [`SERVICE`], account
@@ -238,6 +381,64 @@ mod tests {
     fn tests_never_get_the_keychain() {
         let store = secret_store(Path::new("/tmp/x"), false);
         assert_eq!(format!("{store:?}"), "MemorySecrets");
+    }
+
+    #[test]
+    fn a_key_file_only_when_asked_and_never_for_the_app_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("app");
+        let dev = tmp.path().join("dev");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::create_dir_all(&dev).unwrap();
+        assert_eq!(pick(&dev, None, Some(&app)), Pick::Keychain);
+        assert_eq!(pick(&dev, Some("keychain"), Some(&app)), Pick::Keychain);
+        assert_eq!(pick(&dev, Some("file"), Some(&app)), Pick::File);
+        assert_eq!(
+            pick(&app, Some("file"), Some(&app)),
+            Pick::KeychainAppFolder
+        );
+        // The same folder spelled differently is still the app's.
+        let odd = dev.join("..").join("app");
+        assert_eq!(
+            pick(&odd, Some("file"), Some(&app)),
+            Pick::KeychainAppFolder
+        );
+        // App folder unknown: never a file.
+        assert_eq!(pick(&dev, Some("file"), None), Pick::KeychainAppFolder);
+    }
+
+    #[test]
+    fn the_key_file_round_trips_privately() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = KeyFile::in_data_dir(tmp.path());
+        assert!(!format!("{store:?}").contains("secrets"));
+        assert!(store.load().unwrap().is_none());
+        store.save(&ApiKey::new(FAKE.to_owned()).unwrap()).unwrap();
+        assert_eq!(std::fs::read_to_string(store.path()).unwrap(), FAKE);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(store.path()), 0o600);
+            assert_eq!(mode(store.path().parent().unwrap()), 0o700);
+        }
+        assert!(store.load().unwrap().is_some());
+        store
+            .save(&ApiKey::new(format!("{FAKE}-2")).unwrap())
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(store.path()).unwrap(),
+            format!("{FAKE}-2")
+        );
+        assert!(!store.path().with_file_name(".openrouter-key.tmp").exists());
+        store.delete().unwrap();
+        assert!(store.load().unwrap().is_none());
+        store.delete().unwrap();
+        let err = SecretStore::load(&KeyFile {
+            path: tmp.path().to_owned(),
+        })
+        .unwrap_err();
+        assert!(!err.0.contains(FAKE));
     }
 
     #[test]
