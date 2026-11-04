@@ -1,0 +1,58 @@
+# Written by oxbot each time it starts this Codex process; changes are
+# overwritten. Only oxbot's relay is contacted.
+model_provider = "oxbot"
+check_for_update_on_startup = false
+web_search = "disabled"
+approval_policy = "never"
+sandbox_mode = "read-only"
+project_doc_max_bytes = 0
+include_environment_context = false
+include_permissions_instructions = false
+include_apps_instructions = false
+include_collaboration_mode_instructions = false
+
+[model_providers.oxbot]
+name = "oxbot relay"
+base_url = "http://127.0.0.1:41234/v1"
+env_key = "OXBOT_RELAY_TOKEN"
+wire_api = "responses"
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
+
+[otel]
+metrics_exporter = "none"
+
+[history]
+persistence = "none"
+
+[skills]
+include_instructions = false
+
+[skills.bundled]
+enabled = false
+
+[tools.update_plan]
+enabled = false
+
+[tools.experimental_request_user_input]
+enabled = false
+
+[sandbox_workspace_write]
+network_access = false
+
+[features]
+plugins = false
+apps = false
+memories = false
+multi_agent = false
+image_generation = false
+shell_tool = false
+view_image = false
+goals = false
+shell_snapshot = false
+hooks = false
+tool_suggest = false

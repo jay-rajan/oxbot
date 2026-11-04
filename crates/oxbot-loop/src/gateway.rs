@@ -186,11 +186,11 @@ impl Gateway {
         Self { shared }
     }
 
-    /// The window a session on `choice` may count on: the smallest of the
-    /// models the router would ask now (the first and its fallbacks).
-    /// `None` when no model can be picked.
+    /// The model the router would ask first now for `choice`, the window a
+    /// session may count on (the smallest of it and its fallbacks) and the
+    /// longest answer. `None` when no model can be picked.
     #[must_use]
-    pub fn window_for(&self, choice: &ModelChoice, central: bool) -> Option<(u64, u32)> {
+    pub fn window_for(&self, choice: &ModelChoice, central: bool) -> Option<(String, u64, u32)> {
         let routing = TurnRouting {
             choice: choice.clone(),
             central,
@@ -198,7 +198,7 @@ impl Gateway {
         };
         let free_ok = !self.shared.setup.pacer.free_used_up();
         match self.shared.router.pick(&routing, free_ok) {
-            Pick::Route(route) => Some((route.window, route.max_tokens)),
+            Pick::Route(route) => Some((route.primary.id, route.window, route.max_tokens)),
             _ => None,
         }
     }
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(opened.value.model, "a/big:free");
         assert_eq!(opened.value.fallbacks, Vec::<String>::new());
         assert_eq!(
-            gateway.window_for(&ModelChoice::Auto, false).map(|w| w.0),
+            gateway.window_for(&ModelChoice::Auto, false).map(|w| w.1),
             Some(70_000)
         );
     }

@@ -655,8 +655,9 @@ async fn send_assistant(core: &Core, text: &str, calls: &[ToolCall]) {
 /// Share of the step budget after which the model is told to wrap up.
 const WRAP_UP_PERCENT: u32 = 70;
 
-/// The wrap-up note once `step` reaches 70% of `max_steps`.
-fn wrap_up_note(step: u32, max_steps: u32, nudged: &mut bool) -> Option<String> {
+/// The wrap-up note once `step` reaches 70% of `max_steps` (once:
+/// `nudged` says it was given).
+pub fn wrap_up_note(step: u32, max_steps: u32, nudged: &mut bool) -> Option<String> {
     let at = (max_steps * WRAP_UP_PERCENT).div_ceil(100);
     if *nudged || step < at || step >= max_steps {
         return None;

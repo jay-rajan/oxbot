@@ -61,7 +61,7 @@ pub use tools::browser::{BrowserFactory, BrowserOutput, BrowserTools};
 pub use tools::mcp::McpBrowserFactory;
 pub use tools::page::ASK_PAGE_V1;
 pub use tools::{ToolOutcome, ToolRegistry};
-pub use turn::{CHECK_AFTER_CALLS, MAX_NAMED, check_note};
+pub use turn::{CHECK_AFTER_CALLS, MAX_NAMED, check_note, wrap_up_note};
 
 /// Household settings for the loop, changed by the owner.
 #[derive(Debug, Clone, PartialEq)]
@@ -307,6 +307,15 @@ impl LoopEngine {
         own: OwnTools,
     ) -> ToolService {
         ToolService::open(Arc::clone(&self.shared), spec, events, own).await
+    }
+
+    /// Records how a turn's final answer was checked (`loop_checks`), for
+    /// engines that check answers the loop's way.
+    ///
+    /// # Errors
+    /// The store failed.
+    pub fn record_check(&self, row: &store::CheckRow) -> Result<(), LoopStoreError> {
+        self.shared.setup.store.record_check(row)
     }
 
     /// The household settings (to change them).

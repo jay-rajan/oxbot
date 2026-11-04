@@ -3197,6 +3197,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxbot-codex"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "oxbot-engine",
+ "oxbot-llm",
+ "oxbot-loop",
+ "oxbot-relay",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "oxbot-core"
 version = "0.1.0"
 dependencies = [
