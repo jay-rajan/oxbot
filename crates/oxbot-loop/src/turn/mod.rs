@@ -522,12 +522,11 @@ impl Turn {
                     core, conv, budget, ratio, &answering, caller, cancel, squeezed,
                 )
                 .await?;
+            let mut messages = built.messages.clone();
+            with_tail(&mut messages, core.browser.is_some());
             let estimated: u64 =
-                built.messages.iter().map(est_message).sum::<u64>() + est_tools(&core.specs);
-            match caller
-                .send(&route, built.messages.clone(), core.specs.clone())
-                .await
-            {
+                messages.iter().map(est_message).sum::<u64>() + est_tools(&core.specs);
+            match caller.send(&route, messages, core.specs.clone()).await {
                 Ok(resp) => {
                     let answered = if resp.model.is_empty() {
                         route.primary.id.clone()
@@ -578,6 +577,32 @@ impl Turn {
                 },
             }
         }
+    }
+}
+
+/// The rules again at the very end of every request (models follow what
+/// they read last), after everything a provider can cache, and never
+/// saved: the same bytes every time.
+pub(crate) const TAIL: &str = "[oxbot] Answer only from what you read. Use query_rows for \
+    counting. Check every part of the task before your final answer.";
+/// The same for a bot without a browser (no query_rows).
+pub(crate) const TAIL_NO_BROWSER: &str = "[oxbot] Answer only from what you read. Check every part of the task before your final answer.";
+
+/// Adds the tail to the end of the last message of a request.
+fn with_tail(messages: &mut [Message], browser: bool) {
+    let tail = if browser { TAIL } else { TAIL_NO_BROWSER };
+    let Some(last) = messages.last_mut() else {
+        return;
+    };
+    match last.parts.iter_mut().rev().find_map(|p| match p {
+        oxbot_llm::Part::Text(t) => Some(t),
+        oxbot_llm::Part::Image { .. } => None,
+    }) {
+        Some(text) => {
+            text.push_str("\n\n");
+            text.push_str(tail);
+        }
+        None => last.parts.push(oxbot_llm::Part::Text(tail.to_owned())),
     }
 }
 

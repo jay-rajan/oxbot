@@ -65,7 +65,7 @@ async fn a_big_page_comes_as_a_map_and_the_page_tools_look_inside() {
     }
     // The hub got the whole page.
     assert!(seen.contains(&Seen::ToolResult(big_page(400, false))));
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     let map = &tool_texts(&reqs[1])[0];
     assert!(map.contains("Page map of r1"), "{map}");
     // Before, the model got a 12,000-character preview of it.
@@ -130,7 +130,7 @@ async fn ask_page_asks_a_helper_with_the_bots_privacy() {
         .turn(spec, "[Jay] cheapest lamp", HubScript::default())
         .await;
     assert_eq!(seen.last().unwrap(), &Seen::Done(true, "Lamp 0.".into()));
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     // The helper: the fixed prompt, the page and the question, no tools,
     // a short answer, and the private bot's provider rules.
     let helper = &reqs[2];
@@ -207,7 +207,7 @@ async fn the_todo_list_notes_and_stored_results() {
         )
         .await;
     assert_eq!(seen.last().unwrap(), &Seen::Done(true, "Done.".into()));
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     let texts = tool_texts(&reqs[5]);
     assert_eq!(texts[0], "<todo>\n[>] t1 Read the notes\n</todo>");
     assert!(texts[1].starts_with("[stored as r1: Read,"), "{}", texts[1]);
@@ -273,7 +273,7 @@ async fn the_same_failure_three_times_gets_a_nudge() {
         HubScript::default(),
     )
     .await;
-    let texts = tool_texts(&h.model.requests()[3]);
+    let texts = tool_texts(&h.requests()[3]);
     assert_eq!(texts[0], "[tool error] No element with uid 9_9.");
     assert_eq!(texts[1], "[tool error] No element with uid 9_9.");
     assert_eq!(
@@ -410,7 +410,7 @@ async fn a_message_hours_later_starts_a_fresh_window_with_the_last_chats() {
     let (mut session, mut events) = (started.session, started.events);
     one_turn(&mut session, &mut events, "[Jay] hi", 2).await;
     session.shutdown().await;
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     assert_eq!(reqs.len(), 3);
     assert_eq!(reqs[1].messages[0].text(), crate::COMPACT_V2);
     let last = &reqs[2];
@@ -457,7 +457,7 @@ async fn sixty_steps_in_one_window_start_a_fresh_one() {
     one_turn(&mut session, &mut events, "[Jay] glob a lot", 1).await;
     one_turn(&mut session, &mut events, "[Jay] go on", 2).await;
     session.shutdown().await;
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     let compaction = reqs
         .iter()
         .position(|r| r.messages[0].text() == crate::COMPACT_V2)
@@ -552,7 +552,7 @@ async fn an_empty_helper_answer_tries_the_next_model_then_is_an_error() {
     );
     h.turn(h.spec(new_session()), "[Jay] lamps", HubScript::default())
         .await;
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     // The second helper request went to the other model.
     assert_eq!(reqs[2].model, "a:free");
     assert_eq!(reqs[3].model, "b:free");
@@ -605,7 +605,7 @@ async fn a_repeat_is_caught_with_other_line_counts_or_limits() {
     );
     h.turn(h.spec(new_session()), "[Jay] lamps", HubScript::default())
         .await;
-    let texts = tool_texts(&h.model.requests()[7]);
+    let texts = tool_texts(&h.requests()[7]);
     let again = "You already did this at step 2; the result is above.";
     assert_eq!(texts[2], again);
     assert!(texts[3].contains("Section uid=1_3"), "{}", texts[3]);
@@ -635,7 +635,7 @@ async fn a_long_turn_is_told_to_wrap_up_and_ends_clearly_at_the_cap() {
     one_turn_any(&mut session, &mut events, "[Jay] glob a lot", 1).await;
     one_turn_any(&mut session, &mut events, "[Jay] something new", 2).await;
     session.shutdown().await;
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     // At 7 of 10 steps: 3 left.
     let texts = tool_texts(&reqs[7]);
     assert!(
@@ -684,7 +684,7 @@ async fn one_turn_any(
 
 /// The last user message of request `n`.
 fn last_user(h: &Harness, n: usize) -> String {
-    h.model.requests()[n]
+    h.requests()[n]
         .messages
         .iter()
         .rev()
@@ -736,7 +736,7 @@ async fn a_final_answer_is_checked_once_against_what_was_read() {
          asked for (every filter, the number of items, each field). Then give your final answer."
     );
     // One bounce: four requests in all.
-    assert_eq!(h.model.requests().len(), 4);
+    assert_eq!(h.requests().len(), 4);
     let checks = h.store.checks();
     assert_eq!(checks.len(), 1);
     assert!(checks[0].bounced);
@@ -799,6 +799,6 @@ async fn one_tool_call_or_a_refusal_isnt_checked() {
         seen.last().unwrap(),
         &Seen::Done(true, "The shop lists 4040 lamps.".into())
     );
-    assert_eq!(h.model.requests().len(), 2);
+    assert_eq!(h.requests().len(), 2);
     assert_eq!(h.store.checks(), Vec::new());
 }

@@ -142,6 +142,48 @@ impl Harness {
         }
     }
 
+    /// The model's requests as the conversation had them: each chat
+    /// request (one with tools) must end with the rules' tail, which is
+    /// taken off here; helper requests never have it.
+    fn requests(&self) -> Vec<oxbot_llm::ChatRequest> {
+        self.model
+            .requests()
+            .into_iter()
+            .map(|mut req| {
+                let tail = if req.tools.iter().any(|t| t.name.ends_with("take_snapshot")) {
+                    crate::turn::TAIL
+                } else {
+                    crate::turn::TAIL_NO_BROWSER
+                };
+                let last = req.messages.last_mut().unwrap();
+                let text = last.text();
+                if req.tools.is_empty() {
+                    assert!(
+                        !text.contains("[oxbot] Answer only"),
+                        "a helper request: {text}"
+                    );
+                    return req;
+                }
+                let kept = text
+                    .strip_suffix(tail)
+                    .unwrap_or_else(|| panic!("no tail: {text}"))
+                    .strip_suffix("\n\n")
+                    .unwrap_or_default()
+                    .to_owned();
+                if let Some(oxbot_llm::Part::Text(t)) = last
+                    .parts
+                    .iter_mut()
+                    .rev()
+                    .find(|p| matches!(p, oxbot_llm::Part::Text(_)))
+                {
+                    let cut = t.len() - (text.len() - kept.len());
+                    t.truncate(cut);
+                }
+                req
+            })
+            .collect()
+    }
+
     /// Runs one turn on a new session and returns what the hub saw.
     async fn turn(&self, spec: SessionSpec, text: &str, hub: HubScript) -> Vec<Seen> {
         let started = self.engine.start(spec).await.unwrap();
@@ -226,7 +268,7 @@ async fn a_plain_answer() {
     assert_eq!(calls[0].person.as_deref(), Some("p1"));
     assert_eq!(calls[0].bot, "scout");
     // Shared bots ask only for providers that honor the tools.
-    let req = &h.model.requests()[0];
+    let req = &h.requests()[0];
     assert_eq!(req.provider.as_ref().unwrap().data_collection, None);
     assert_eq!(req.fallbacks, ["b:free"]);
     assert_eq!(
@@ -299,7 +341,7 @@ async fn browsing_runs_each_tool_after_the_gate() {
             Seen::Done(true, "Searched the jobs; one search button.".into()),
         ]
     );
-    let check = h.model.requests()[3].messages.last().unwrap().clone();
+    let check = h.requests()[3].messages.last().unwrap().clone();
     assert_eq!(check.role, Role::User);
     assert_eq!(
         check.text(),
@@ -321,7 +363,7 @@ async fn browsing_runs_each_tool_after_the_gate() {
     let calls: Vec<String> = h.browser.calls().into_iter().map(|c| c.0).collect();
     assert_eq!(calls, ["take_snapshot", "click"]);
     // The model got the page as data.
-    let req = &h.model.requests()[1];
+    let req = &h.requests()[1];
     let last = req.messages.last().unwrap();
     assert_eq!(last.role, Role::Tool);
     // Stored whole, shown whole (it's small), as data.
@@ -375,9 +417,9 @@ async fn a_refusal_reaches_the_model_and_skips_the_rest() {
     );
     assert_eq!(h.browser.calls(), Vec::new(), "nothing ran");
     // A refused turn ends as the model says: no answer check.
-    assert_eq!(h.model.requests().len(), 2);
+    assert_eq!(h.requests().len(), 2);
     assert_eq!(h.store.checks(), Vec::new());
-    let req = &h.model.requests()[1];
+    let req = &h.requests()[1];
     let n = req.messages.len();
     assert_eq!(
         req.messages[n - 2].text(),
@@ -438,7 +480,7 @@ async fn broken_calls_are_shown_back_then_stop() {
             "The model kept making tool calls oxbot couldn't run, so the task stopped.".into()
         )
     );
-    let req = &h.model.requests()[1];
+    let req = &h.requests()[1];
     let last = req.messages.last().unwrap().text();
     assert!(
         last.starts_with("[tool error] Your call to mcp__chrome-devtools__click couldn't be read"),
@@ -553,7 +595,7 @@ async fn a_busy_model_cools_down_and_the_next_answers() {
         .turn(h.spec(new_session()), "hi", HubScript::default())
         .await;
     assert_eq!(seen.last().unwrap(), &Seen::Done(true, "Hi.".into()));
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     assert_eq!(reqs[0].model, "a:free");
     assert_eq!(reqs[1].model, "b:free");
     let outcomes: Vec<String> = h.store.calls().into_iter().map(|c| c.outcome).collect();
@@ -600,7 +642,7 @@ async fn private_bots_never_drop_deny() {
     let mut spec = h.spec(new_session());
     spec.privacy = Privacy::Private;
     let seen = h.turn(spec, "read my mail", HubScript::default()).await;
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     for r in &reqs {
         let p = r.provider.as_ref().unwrap();
         assert_eq!(p.data_collection, Some(DataCollection::Deny));
@@ -648,11 +690,7 @@ async fn the_accounts_data_policy_is_explained_with_openrouters_words() {
         text.ends_with(&format!("(OpenRouter said: \u{201c}{said}\u{201d})")),
         "{text}"
     );
-    assert_eq!(
-        h.model.requests().len(),
-        1,
-        "both models were ruled out at once"
-    );
+    assert_eq!(h.requests().len(), 1, "both models were ruled out at once");
     assert_eq!(h.store.calls()[0].outcome, "error:data_policy");
     assert!(h.engine.data_policy_blocked());
 
@@ -725,7 +763,7 @@ async fn limits_stop_a_turn() {
         seen.last().unwrap(),
         &Seen::Done(false, "scout has used its 2 requests for today.".into())
     );
-    assert_eq!(h.model.requests().len(), 2);
+    assert_eq!(h.requests().len(), 2);
 }
 
 #[tokio::test]
@@ -786,7 +824,7 @@ async fn a_restart_goes_on_without_repeating_a_click() {
     let turn = h.store.turn("s1", 0).unwrap();
     assert_eq!((turn.status, turn.resumes), (TurnStatus::Done, 1));
     // The model saw the whole turn again, with the restart note.
-    let req = h.model.requests().last().unwrap().clone();
+    let req = h.requests().last().unwrap().clone();
     assert_eq!(
         req.messages.len(),
         4,
@@ -830,7 +868,7 @@ async fn a_long_conversation_is_summarized_into_a_new_window() {
         }
     }
     session.shutdown().await;
-    let reqs = h.model.requests();
+    let reqs = h.requests();
     assert_eq!(reqs.len(), 3);
     // The summary: the fixed prompt, no tools, the private-bot rules of
     // the bot (a shared one here), metered as a compaction.
@@ -918,9 +956,49 @@ async fn one_shot_uses_the_same_privacy() {
         .await
         .unwrap();
     assert_eq!(text, "A lesson.");
-    let req = &h.model.requests()[0];
+    let req = &h.requests()[0];
     assert!(req.provider.as_ref().unwrap().denies_data_collection());
     assert_eq!(req.max_tokens, Some(500));
     assert_eq!(req.tools, Vec::new());
     assert_eq!(h.store.calls()[0].kind, oxbot_engine::CallKind::Reflection);
+}
+
+#[tokio::test]
+async fn the_rules_tail_ends_every_request_and_is_never_saved() {
+    let h = Harness::new(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::text("Done.")),
+    );
+    h.turn(h.spec(new_session()), "look", HubScript::default())
+        .await;
+    let reqs = h.model.requests();
+    let tail = crate::turn::TAIL;
+    // Short, at the very end, after the question and after a tool result.
+    assert!(tail.len() / 4 <= 40, "{}", tail.len());
+    assert!(
+        reqs[0]
+            .messages
+            .last()
+            .unwrap()
+            .text()
+            .ends_with(&format!("look\n\n{tail}"))
+    );
+    assert_eq!(reqs[1].messages.last().unwrap().role, Role::Tool);
+    assert!(
+        reqs[1]
+            .messages
+            .last()
+            .unwrap()
+            .text()
+            .ends_with(&format!("\n\n{tail}"))
+    );
+    // The stable prefix is untouched, and the tail of request 1 is gone
+    // from request 2's copy of that message.
+    assert_eq!(reqs[0].messages[0], reqs[1].messages[0]);
+    assert!(reqs[1].messages[1].text().ends_with("\n\nlook"));
+    // Never saved.
+    for m in h.store.messages("s1").unwrap() {
+        assert!(!m.message.text().contains(tail), "{:?}", m.message);
+    }
 }

@@ -318,5 +318,11 @@ async fn what_a_loop_bot_reads_taints_its_session_as_on_claude() {
         .rev()
         .find(|m| m.role == oxbot_llm::Role::Tool)
         .unwrap();
-    assert_eq!(todo.text(), "<todo>\n[x] t1 Read the notes\n</todo>");
+    // The newest message ends with the loop's rules (never saved).
+    assert!(
+        todo.text()
+            .starts_with("<todo>\n[x] t1 Read the notes\n</todo>\n\n[oxbot] Answer only"),
+        "{}",
+        todo.text()
+    );
 }
