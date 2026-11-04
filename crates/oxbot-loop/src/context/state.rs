@@ -177,10 +177,15 @@ impl EntryMeta {
         serde_json::to_value(self).unwrap_or_else(|_| Value::Object(serde_json::Map::new()))
     }
 
-    /// Whether clearing may never touch it.
+    /// Whether clearing may never touch it: errors, refusals, the to-do
+    /// list, and rows (small, exact, and what answers are counted from).
     #[must_use]
     pub fn kept(&self) -> bool {
         self.kind != EntryKind::Normal
+            || self
+                .tool
+                .as_deref()
+                .is_some_and(|t| crate::tools::page::ROWS_TOOLS.contains(&t))
     }
 }
 

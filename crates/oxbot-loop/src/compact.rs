@@ -5,11 +5,12 @@
 //!
 //! The summary is a model call like any other (routed, paced, metered,
 //! with the session's privacy) through a [`ModelCaller`], with a fixed
-//! prompt ([`COMPACT_V1`]). The goal, who asked, the person's later
+//! prompt ([`COMPACT_V2`]). The goal, who asked, the person's later
 //! messages, the pages, the to-do list and the taint are set by oxbot
-//! afterwards, so a poisoned summary can't change them. If the model's
-//! answer can't be read twice, a mechanical summary is used: a turn never
-//! fails for lack of one.
+//! afterwards, so a poisoned summary can't change them. A fact whose
+//! numbers aren't in what was summarized is dropped (the model made it up
+//! or misread it). If the model's answer can't be read twice, a mechanical
+//! summary is used: a turn never fails for lack of one.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -26,6 +27,7 @@ use crate::context::state::{
     WindowState,
 };
 use crate::context::window::{NewWindow, begin_window, short_tool};
+use crate::numbers::{self, Evidence};
 use crate::store::StoredMessage;
 
 /// Makes model requests on a session's behalf.
@@ -66,11 +68,13 @@ pub trait Compactor: Send + Sync + std::fmt::Debug {
     ) -> BoxFuture<'a, Result<Compaction, LlmError>>;
 }
 
-/// The compaction prompt, version 1. Fixed bytes, so it caches too.
-pub const COMPACT_V1: &str = "You are compressing an agent's working memory so it can keep going in a fresh context.
+/// The compaction prompt, version 2 (version 1 plus: copy values exactly).
+/// Fixed bytes, so it caches too.
+pub const COMPACT_V2: &str = "You are compressing an agent's working memory so it can keep going in a fresh context.
 Return ONLY a JSON object with the keys shown in the schema. Be complete before being short:
 - Keep every exact URL, page title, element label in quotes, handle (like r12), number, price,
   date, name and error message that later steps might need.
+- Copy values exactly as read (names, numbers, dates, URLs); never round or convert.
 - \"done\": what has been finished, one line each, oldest first, with the step number.
 - \"open\": what is left to do for the goal.
 - \"facts\": things learned that the goal needs, each with \"source\": a handle, \"user\", or \"bot\".
@@ -114,7 +118,7 @@ impl Compactor for SummaryCompactor {
             let room = budget
                 .usable()
                 .saturating_sub(u64::from(budget.compact_output()))
-                .saturating_sub(est(COMPACT_V1) + est(&prev.to_json(false)) + 200);
+                .saturating_sub(est(COMPACT_V2) + est(&prev.to_json(false)) + 200);
             // An earlier summary that read outside text is data here too.
             let earlier = if prev.taint.untrusted {
                 oxbot_engine::text::data_block(
@@ -129,7 +133,12 @@ impl Compactor for SummaryCompactor {
                 "Task state so far:\n{earlier}\n\nWhat happened since, oldest first:\n{}",
                 transcript(&window, &state, room)
             );
-            let mut messages = vec![Message::system(COMPACT_V1), Message::user(input)];
+            let mut read = Evidence::new();
+            read.add(&input);
+            for m in &window {
+                read.add(&m.message.text());
+            }
+            let mut messages = vec![Message::system(COMPACT_V2), Message::user(input)];
             let max = budget.compact_output();
             let mut fallback = false;
             let mut drafted = None;
@@ -162,6 +171,7 @@ impl Compactor for SummaryCompactor {
                 fallback = true;
                 mechanical(&prev, &window)
             });
+            drop_unread_facts(&mut task, &read);
             own_fields(
                 &mut task,
                 &prev,
@@ -197,6 +207,21 @@ impl Compactor for SummaryCompactor {
                 fallback,
             })
         })
+    }
+}
+
+/// Drops facts whose numbers aren't in what was summarized: the model made
+/// them up or misread them. Logged by count, never by content.
+fn drop_unread_facts(task: &mut TaskState, read: &Evidence) {
+    let before = task.facts.len();
+    task.facts
+        .retain(|f| read.missing(&numbers::claims(&f.text), 1).is_empty());
+    let dropped = before - task.facts.len();
+    if dropped > 0 {
+        tracing::info!(
+            dropped,
+            "a summary's facts had numbers that weren't in what it summarized"
+        );
     }
 }
 

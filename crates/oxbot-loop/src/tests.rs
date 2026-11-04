@@ -809,7 +809,7 @@ async fn a_long_conversation_is_summarized_into_a_new_window() {
     assert_eq!(reqs.len(), 3);
     // The summary: the fixed prompt, no tools, the private-bot rules of
     // the bot (a shared one here), metered as a compaction.
-    assert_eq!(reqs[1].messages[0].text(), crate::COMPACT_V1);
+    assert_eq!(reqs[1].messages[0].text(), crate::COMPACT_V2);
     assert_eq!(reqs[1].tools, Vec::new());
     let kinds: Vec<_> = h.store.calls().iter().map(|c| c.kind).collect();
     assert_eq!(

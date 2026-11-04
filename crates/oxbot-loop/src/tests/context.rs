@@ -407,7 +407,7 @@ async fn a_message_hours_later_starts_a_fresh_window_with_the_last_chats() {
     session.shutdown().await;
     let reqs = h.model.requests();
     assert_eq!(reqs.len(), 3);
-    assert_eq!(reqs[1].messages[0].text(), crate::COMPACT_V1);
+    assert_eq!(reqs[1].messages[0].text(), crate::COMPACT_V2);
     let last = &reqs[2];
     assert_eq!(last.messages.len(), 2, "no old turns");
     let text = last.messages[1].text();
@@ -451,7 +451,7 @@ async fn sixty_steps_in_one_window_start_a_fresh_one() {
     let reqs = h.model.requests();
     let compaction = reqs
         .iter()
-        .position(|r| r.messages[0].text() == crate::COMPACT_V1)
+        .position(|r| r.messages[0].text() == crate::COMPACT_V2)
         .unwrap();
     // After 61 steps in the window (36 + 25).
     assert_eq!(compaction, 61);

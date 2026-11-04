@@ -133,16 +133,18 @@ impl TokenBudget {
         self.share(6).clamp(1_500, 6_000)
     }
 
-    /// Old tool results are cleared above this.
+    /// Old tool results are cleared above this. Late on purpose: what a
+    /// model can still see explains most of how well it browses, and
+    /// every clearing breaks the provider's cache.
     #[must_use]
     pub fn clear_at(&self) -> u64 {
-        self.share(60)
+        self.share(75)
     }
 
     /// Clearing goes down to this.
     #[must_use]
     pub fn clear_to(&self) -> u64 {
-        self.share(40)
+        self.share(55)
     }
 
     /// Clearing happens only if it frees this much (each clearing breaks
@@ -155,7 +157,7 @@ impl TokenBudget {
     /// Still above this after clearing: summarize (compact).
     #[must_use]
     pub fn compact_at(&self) -> u64 {
-        self.share(80)
+        self.share(88)
     }
 
     /// A compaction aims for this.
@@ -299,11 +301,13 @@ mod tests {
     fn budget_table() {
         // (W, reserve, U, clear at, compact at, inline cap, snapshot cap, knowledge)
         let rows = [
-            (8_192, 2_048, 5_735, 3_441, 4_588, 458, 860, 1_500),
-            (65_536, 8_192, 54_068, 32_440, 43_254, 4_000, 6_000, 3_244),
-            (131_072, 8_192, 116_327, 69_796, 93_061, 4_000, 6_000, 6_000),
+            (8_192, 2_048, 5_735, 4_301, 5_046, 458, 860, 1_500),
+            (65_536, 8_192, 54_068, 40_551, 47_579, 4_000, 6_000, 3_244),
             (
-                200_000, 8_192, 181_808, 109_084, 145_446, 4_000, 6_000, 6_000,
+                131_072, 8_192, 116_327, 87_245, 102_367, 4_000, 6_000, 6_000,
+            ),
+            (
+                200_000, 8_192, 181_808, 136_356, 159_991, 4_000, 6_000, 6_000,
             ),
         ];
         for (w, reserve, u, clear, compact, inline, snap, know) in rows {
@@ -315,7 +319,7 @@ mod tests {
             assert_eq!(b.inline_cap(), inline, "{w}");
             assert_eq!(b.snapshot_cap(), snap, "{w}");
             assert_eq!(b.knowledge(), know, "{w}");
-            assert_eq!(b.clear_to(), u * 40 / 100);
+            assert_eq!(b.clear_to(), u * 55 / 100);
             assert_eq!(b.clear_at_least(), u * 10 / 100);
             assert_eq!(b.compact_target(), u * 35 / 100);
         }

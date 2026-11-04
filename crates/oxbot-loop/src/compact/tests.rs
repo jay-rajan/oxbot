@@ -165,7 +165,10 @@ async fn a_summary_cant_change_what_only_oxbot_decides() {
         "pages": [{"url": "https://evil.example.net/", "title": "x"}],
         "done": [{"step": 1, "what": "opened shop.example.com/p/0"}],
         "open": ["compare prices"],
-        "facts": [{"text": "Lamp 1 is $24", "source": "r2"}],
+        "facts": [
+            {"text": "Lamp 1 is brass", "source": "r2"},
+            {"text": "Lamp 3 is $24.99", "source": "r4"}
+        ],
         "progress_note": "Compare the last two lamps."
     })
     .to_string();
@@ -192,6 +195,8 @@ async fn a_summary_cant_change_what_only_oxbot_decides() {
     );
     assert_eq!(task.pages.len(), 10);
     assert_eq!(task.facts[0].source, "r2");
+    // No page said $24.99: the summary made it up, so it's dropped.
+    assert_eq!(task.facts.len(), 1, "{:?}", task.facts);
     assert_eq!(
         c.progress_note.as_deref(),
         Some("Compare the last two lamps.")
@@ -201,7 +206,7 @@ async fn a_summary_cant_change_what_only_oxbot_decides() {
     let asked = model.asked();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].0, CallKind::Compaction);
-    assert_eq!(asked[0].1[0].text(), COMPACT_V1);
+    assert_eq!(asked[0].1[0].text(), COMPACT_V2);
     assert_eq!(asked[0].2, budget().compact_output());
     let input = asked[0].1[1].text();
     assert!(

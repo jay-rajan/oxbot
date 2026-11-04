@@ -2,13 +2,15 @@
 //! front, old tool results cleared to stubs when the context gets long
 //! (lightest touch first), and the to-do list recited when it's due.
 //!
-//! Clearing (Anthropic's context editing): above 60% of the usable window,
-//! the oldest tool results become one-line stubs until 40% is reached, but
+//! Clearing (Anthropic's context editing): above 75% of the usable window,
+//! the oldest tool results become one-line stubs until 55% is reached, but
 //! only if that frees at least 10% (each clearing breaks the provider's
 //! cache from that point). The last 3 results stay, unless a later
-//! snapshot of the same tab replaced one. Errors, refusals and the to-do
-//! list's own results are never cleared, nor are the model's own calls.
-//! Every stub names the stored handle, so nothing is lost for good.
+//! snapshot of the same tab replaced one. Errors, refusals, the to-do
+//! list's own results, rows (`extract_rows`, `query_rows`: small and
+//! exact) and the latest `read_section` and `ask_page` of each page (the
+//! evidence an answer rests on) are never cleared, nor are the model's own
+//! calls. Every stub names the stored handle, so nothing is lost for good.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -21,6 +23,7 @@ use crate::KnowledgeBlock;
 use crate::budget::{TokenBudget, est, est_message, est_tools, scaled};
 use crate::meter::utc_day;
 use crate::store::{ProgressNote, StoredMessage};
+use crate::tools::page::{ASK_PAGE, READ_SECTION};
 
 /// Tool results kept whole however long the context gets.
 pub const KEEP_LAST: usize = 3;
@@ -245,6 +248,21 @@ impl WindowedContext {
                 }
             }
         }
+        // The latest reading of each page stays: what the answer rests on.
+        let mut read_pages: BTreeSet<&str> = BTreeSet::new();
+        let mut latest_reading: BTreeSet<u32> = BTreeSet::new();
+        for m in tools.iter().rev() {
+            let reading = metas
+                .get(&m.idx)
+                .and_then(|meta| meta.tool.as_deref())
+                .is_some_and(|t| [READ_SECTION, ASK_PAGE].contains(&t));
+            if reading
+                && let Some(h) = m.handle.as_deref()
+                && read_pages.insert(h)
+            {
+                latest_reading.insert(m.idx);
+            }
+        }
         let newest_recital = state.recitations.keys().max().copied();
         let mut plan: Vec<(u32, Option<String>)> = Vec::new();
         let mut freed = 0u64;
@@ -261,6 +279,7 @@ impl WindowedContext {
                     .as_deref()
                     .is_some_and(crate::results::valid_handle)
                 && !meta.kept()
+                && !latest_reading.contains(&m.idx)
                 && (!last.contains(&m.idx) || superseded.contains(&m.idx));
             if eligible && let Some(handle) = &m.handle {
                 let size = sizes.get(&m.idx).copied().unwrap_or(0);

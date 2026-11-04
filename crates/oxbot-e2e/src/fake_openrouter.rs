@@ -28,7 +28,7 @@
 //!   `notes` are said with each call. The usage it reports counts the
 //!   request at a token per 3 bytes.
 //!   oxbot's helper requests are known by their fixed prompts: a summary
-//!   (`COMPACT_V1`) gets a task state as JSON, a page question
+//!   (`COMPACT_V2`) gets a task state as JSON, a page question
 //!   (`ASK_PAGE_V1`) the script's `ask_answer`; the log says which
 //!   (`"helper"`).
 //!   Free requests count against a daily limit (`OXBOT_FAKE_OR_DAILY`,
@@ -103,7 +103,7 @@ const DEFAULT_USAGE: Usage = Usage {
     cost: 0.0,
 };
 
-/// How oxbot's summary prompt starts (`COMPACT_V1`).
+/// How oxbot's summary prompt starts (`COMPACT_V2`).
 const COMPACT_PROMPT: &str = "You are compressing an agent's working memory";
 /// How oxbot's page-question prompt starts (`ASK_PAGE_V1`).
 const ASK_PAGE_PROMPT: &str = "You answer one question about one web page";

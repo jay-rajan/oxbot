@@ -12,8 +12,8 @@ const DAY: i64 = 86_400_000;
 const NOW: i64 = 1_793_664_000_000 + 3_600_000;
 
 fn budget() -> TokenBudget {
-    // U = 7,452: clear at 4,471 down to 2,980 (at least 745), compact at
-    // 5,961.
+    // U = 7,452: clear at 5,589 down to 4,098 (at least 745), compact at
+    // 6,557.
     TokenBudget::for_model(10_000, Some(2_048))
 }
 
@@ -277,6 +277,10 @@ fn a_replaced_snapshot_goes_even_when_recent() {
     for (i, idx) in [(3u32, 8u32), (4, 10)] {
         msgs[idx as usize] = page(idx, 0, &format!("c{i}"), &format!("r{}", i + 1), url, 3_000);
     }
+    // The two oldest are errors (never cleared), so clearing reaches 8.
+    for (i, idx) in [(0u32, 2u32), (1, 4)] {
+        msgs[idx as usize] = kept(idx, 0, &format!("c{i}"), EntryKind::Error);
+    }
     msgs.push(call(11, 0, "c5", ""));
     msgs.push(kept(12, 0, "c5", EntryKind::Normal));
     let mut v = View::new(msgs);
@@ -328,7 +332,7 @@ fn errors_refusals_and_the_todo_list_are_never_cleared() {
 #[test]
 fn nothing_is_cleared_when_it_would_free_too_little() {
     // Over the line, but the only old result is small.
-    let mut msgs = vec![user(0, 0, &"y".repeat(13_000))];
+    let mut msgs = vec![user(0, 0, &"y".repeat(17_000))];
     msgs.push(call(1, 0, "c0", ""));
     let mut small = page(2, 0, "c0", "r1", "https://shop.example.com/", 900);
     small.message = Message::tool("c0", vec![Part::Text("s".repeat(900))]);
@@ -349,6 +353,38 @@ fn nothing_is_cleared_when_it_would_free_too_little() {
     let built = v.step();
     assert!(built.est_tokens > budget().clear_at());
     assert!(v.state().cleared.is_empty());
+}
+
+#[test]
+fn rows_and_the_latest_reading_of_each_page_are_never_cleared() {
+    let mut msgs = browsing(8, 3_000);
+    let reading = |idx: usize, tool: &str, handle: &str| {
+        let mut meta = EntryMeta::from_value(&msgs[idx].meta);
+        meta.tool = Some(tool.into());
+        meta.page_key = None;
+        (meta, handle.to_owned())
+    };
+    // 2: rows; 4 and 6: two sections of page r9 (6 is the latest); 8: a
+    // question about page r8; 10: an older section of r8.
+    let marks = [
+        (2usize, reading(2, crate::tools::page::QUERY_ROWS, "d1")),
+        (4, reading(4, crate::tools::page::READ_SECTION, "r9")),
+        (6, reading(6, crate::tools::page::READ_SECTION, "r9")),
+        (8, reading(8, crate::tools::page::READ_SECTION, "r8")),
+        (10, reading(10, crate::tools::page::ASK_PAGE, "r8")),
+    ];
+    for (idx, (meta, handle)) in marks {
+        msgs[idx].meta = meta.to_value();
+        msgs[idx].handle = Some(handle);
+    }
+    let mut v = View::new(msgs);
+    v.step();
+    let cleared: Vec<u32> = v.state().cleared.keys().copied().collect();
+    assert!(!cleared.contains(&2), "rows stay: {cleared:?}");
+    assert!(cleared.contains(&4), "an older section goes: {cleared:?}");
+    assert!(!cleared.contains(&6), "the latest section of r9 stays");
+    assert!(cleared.contains(&8), "r8's section was read again later");
+    assert!(!cleared.contains(&10), "the latest reading of r8 stays");
 }
 
 #[test]

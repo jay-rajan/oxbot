@@ -24,6 +24,7 @@ pub mod compact;
 pub mod context;
 pub mod gate;
 pub mod meter;
+pub mod numbers;
 pub mod pacer;
 pub mod page;
 pub mod results;
@@ -44,7 +45,7 @@ use oxbot_engine::{
 };
 use oxbot_llm::{ChatModel, KeyCell, Message};
 
-pub use compact::{COMPACT_V1, Compaction, Compactor, ModelCaller, SummaryCompactor};
+pub use compact::{COMPACT_V2, Compaction, Compactor, ModelCaller, SummaryCompactor};
 pub use context::{
     Built, ContextBuilder, LastCall, Pressure, TaskView, TokenBudget, WindowedContext,
 };
