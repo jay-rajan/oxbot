@@ -300,6 +300,20 @@ async fn loop_steps(driver: &mut Driver, server: &Server, step: &Step) -> anyhow
             bail!("a request body sent to the stand-in OpenRouter has {text}");
         }
     }
+    if let Some(check) = &step.expect_db {
+        let db = server.home.join("oxbot.db");
+        let start = Instant::now();
+        loop {
+            let got = first_value(&db, &check.query)?;
+            if got.as_deref() == Some(check.equals.as_str()) {
+                break;
+            }
+            if start.elapsed() > Duration::from_secs(5) {
+                bail!("{} gave {got:?}, not {:?}", check.query, check.equals);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
     if let Some(text) = &step.expect_openrouter_body {
         let fake = stand_in(server)?;
         let start = Instant::now();
@@ -311,6 +325,31 @@ async fn loop_steps(driver: &mut Driver, server: &Server, step: &Step) -> anyhow
         }
     }
     Ok(())
+}
+
+/// The first value `query` gives on database `db` (opened read-only), as
+/// text; `None` when there's no row.
+fn first_value(db: &Path, query: &str) -> anyhow::Result<Option<String>> {
+    let trimmed = query.trim_start().to_ascii_lowercase();
+    if !trimmed.starts_with("select") {
+        bail!("expect_db takes a SELECT");
+    }
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .with_context(|| format!("couldn't open {}", db.display()))?;
+    let mut stmt = conn.prepare(query).context("expect_db's query")?;
+    let mut rows = stmt.query([])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    let value: rusqlite::types::Value = row.get(0)?;
+    Ok(Some(match value {
+        rusqlite::types::Value::Null => "null".to_owned(),
+        rusqlite::types::Value::Integer(n) => n.to_string(),
+        rusqlite::types::Value::Real(x) => x.to_string(),
+        rusqlite::types::Value::Text(t) => t,
+        rusqlite::types::Value::Blob(b) => format!("{} bytes", b.len()),
+    }))
 }
 
 /// The test's stand-in `OpenRouter`.

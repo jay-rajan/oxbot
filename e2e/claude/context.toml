@@ -23,4 +23,14 @@ ask_answer = "Lamp 1000 at $10.00 is the cheapest (uid=2_9)."
 after = "Lamp 1000 is the cheapest, at $10.00."
 
 [[reply]]
+when = "tallest finished tower"
+# Two tables under different headings: the rows say which is finished;
+# the first answer has a year no page had, so it's sent back once.
+snapshot = "## Pages\n1: Tall buildings (https://wiki.example.com/towers) [selected]\n## Latest page snapshot\nuid=5_0 RootWebArea \"Tall buildings\" url=\"https://wiki.example.com/towers\"\n  uid=5_1 main\n    uid=5_2 heading \"Completed\" level=\"2\"\n    uid=5_3 table\n      uid=5_4 row \"Name Height m Year\"\n        uid=5_5 columnheader \"Name\"\n        uid=5_6 columnheader \"Height m\"\n        uid=5_7 columnheader \"Year\"\n      uid=5_8 row \"First Place 298.3 1975\"\n        uid=5_9 cell \"First Place\"\n        uid=5_10 cell \"298.3\"\n        uid=5_11 cell \"1975\"\n      uid=5_12 row \"Harbour Tower 276.9 2009\"\n        uid=5_13 cell \"Harbour Tower\"\n        uid=5_14 cell \"276.9\"\n        uid=5_15 cell \"2009\"\n    uid=5_16 heading \"Under construction\" level=\"2\"\n    uid=5_17 table\n      uid=5_18 row \"Name Height m Expected\"\n        uid=5_19 columnheader \"Name\"\n        uid=5_20 columnheader \"Height m\"\n        uid=5_21 columnheader \"Expected\"\n      uid=5_22 row \"Sky Spire 351.8 2027\"\n        uid=5_23 cell \"Sky Spire\"\n        uid=5_24 cell \"351.8\"\n        uid=5_25 cell \"2027\""
+tool = "mcp__oxbot__extract_rows"
+then = [{ tool = "mcp__oxbot__query_rows", args = { data = "d1", sort = [{ col = "Height m", desc = true }], limit = 1 } }]
+after = "The tallest finished tower is First Place, 298.3 m, finished in 1976."
+checked = "The tallest finished tower is First Place, 298.3 m (1975)."
+
+[[reply]]
 say = "Hello from the stand-in."

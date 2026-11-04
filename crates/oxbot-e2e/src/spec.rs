@@ -208,6 +208,10 @@ pub struct Step {
     pub expect_site_writes: Option<u32>,
     /// The test site's job page was loaded at least this many times.
     pub expect_site_pages: Option<u32>,
+    /// A read-only query of oxbot's database gives this (the first
+    /// column of the first row, as text), within 5 seconds: for what the
+    /// page doesn't show, e.g. how a loop turn's answer was checked.
+    pub expect_db: Option<DbCheck>,
     /// A name for the screenshot after this step.
     pub shot: Option<String>,
     /// Why this step is here.
@@ -215,6 +219,15 @@ pub struct Step {
     /// How long `wait_for` waits (ms; default 10 000), or `expect_js`
     /// (default 2 000).
     pub timeout_ms: Option<u64>,
+}
+
+/// `expect_db = { query = "SELECT bounced FROM loop_checks", equals = "1" }`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DbCheck {
+    /// A SELECT.
+    pub query: String,
+    /// What its first value should read.
+    pub equals: String,
 }
 
 /// `type = { into = "Name", text = "Recipes" }`.
@@ -336,6 +349,7 @@ impl Step {
             self.restart.is_some(),
             self.expect_site_writes.is_some(),
             self.expect_site_pages.is_some(),
+            self.expect_db.is_some(),
         ]
         .iter()
         .filter(|a| **a)

@@ -30,7 +30,11 @@
 //!   oxbot's helper requests are known by their fixed prompts: a summary
 //!   (`COMPACT_V2`) gets a task state as JSON, a page question
 //!   (`ASK_PAGE_V1`) the script's `ask_answer`; the log says which
-//!   (`"helper"`).
+//!   (`"helper"`). oxbot's own `[oxbot] …` notes in a user's role are not
+//!   the person's message, and the rules line oxbot adds to the end of
+//!   each request is taken off before reading it; when oxbot sends an
+//!   answer back to be checked, the reply's `checked` (or the same answer)
+//!   is given, and the log says `"checked": true`.
 //!   Free requests count against a daily limit (`OXBOT_FAKE_OR_DAILY`,
 //!   default 1000); past it, 429 "free-models-per-day".
 //! - `GET /key`: the key's limits, with the free daily count.
@@ -107,6 +111,40 @@ const DEFAULT_USAGE: Usage = Usage {
 const COMPACT_PROMPT: &str = "You are compressing an agent's working memory";
 /// How oxbot's page-question prompt starts (`ASK_PAGE_V1`).
 const ASK_PAGE_PROMPT: &str = "You answer one question about one web page";
+/// How the rules line oxbot adds to the end of each request starts.
+const TAIL: &str = "\n\n[oxbot] Answer only from what you read.";
+/// How oxbot's own notes in a user's role start.
+const NOTE: &str = "[oxbot] ";
+/// How oxbot's note sending an answer back to be checked starts.
+const CHECK_NOTE: &str = "[oxbot] Before you answer, check it.";
+
+/// The request without the rules line at the end of its last message.
+fn without_tail(mut req: Value) -> Value {
+    let cut = |s: &mut String| {
+        if let Some(at) = s.find(TAIL) {
+            s.truncate(at);
+        }
+    };
+    for m in req["messages"].as_array_mut().into_iter().flatten() {
+        match &mut m["content"] {
+            Value::String(s) => cut(s),
+            Value::Array(parts) => {
+                for p in parts {
+                    if let Some(Value::String(s)) = p.get_mut("text") {
+                        cut(s);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    req
+}
+
+/// Whether `m` is one of oxbot's own notes in a user's role.
+fn is_note(m: &Value) -> bool {
+    m["role"] == "user" && content_text(&m["content"]).starts_with(NOTE)
+}
 
 /// How the stand-in is set up.
 #[derive(Debug, Clone)]
@@ -554,6 +592,8 @@ struct Answer {
     stall: bool,
     /// One of oxbot's helper requests: `compact` or `ask_page`.
     helper: Option<&'static str>,
+    /// It answers oxbot's note sending an answer back to be checked.
+    checked: bool,
 }
 
 async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Response {
@@ -586,6 +626,7 @@ async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) ->
         return unauthorized(bearer);
     }
     fake.record_body(&req);
+    let req = without_tail(req);
     let answer = match fake.answer(&req, body.len()) {
         Ok(a) => a,
         Err(err) => {
@@ -602,6 +643,7 @@ async fn chat(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) ->
     entry["called"] = json!(answer.call.as_ref().map(|c| &c.1));
     entry["stalled"] = json!(answer.stall);
     entry["helper"] = json!(answer.helper);
+    entry["checked"] = json!(answer.checked);
     entry["tokens"] = json!(body.len() / 4);
     fake.log(entry);
     if let Ok(mut c) = fake.counts.lock() {
@@ -747,7 +789,12 @@ impl Fake {
         if system.starts_with(COMPACT_PROMPT) || system.starts_with(ASK_PAGE_PROMPT) {
             return self.helper(req, &candidates, &system, body_len);
         }
-        let last_user = messages.iter().rposition(|m| m["role"] == "user");
+        let last_user = messages
+            .iter()
+            .rposition(|m| m["role"] == "user" && !is_note(m));
+        let checking = messages
+            .last()
+            .is_some_and(|m| is_note(m) && content_text(&m["content"]).starts_with(CHECK_NOTE));
         let text = last_user
             .map(|i| user_text(&messages[i]["content"]))
             .unwrap_or_default();
@@ -787,6 +834,7 @@ impl Fake {
             step,
             stall: reply.stall_at == Some(step) && self.first_stall(&text, step),
             helper: None,
+            checked: checking,
         };
         let last = results.last().map_or("", String::as_str);
         let refused = last.strip_prefix("[oxbot said no]");
@@ -806,25 +854,40 @@ impl Fake {
             }
             return Ok(answer);
         }
-        answer.text = Some(if reply.read {
-            crate::script::read_answer(reply.say.as_deref(), &crate::script::attached(&text))
-        } else if calls.is_empty() {
-            reply.say.clone().unwrap_or_default()
-        } else if let Some(why) = refused {
-            reply
-                .denied
-                .clone()
-                .unwrap_or_else(|| format!("I didn't: {}", why.trim()))
-        } else if let Some(what) = broke {
-            format!("That didn't work: {}", what.trim())
-        } else {
-            reply
-                .after
-                .as_deref()
-                .unwrap_or("Done.")
-                .replace("{result}", &unwrap_data_block(last))
-        });
+        answer.text = Some(
+            if let Some(checked) = reply.checked.clone().filter(|_| checking) {
+                checked
+            } else {
+                final_text(&reply, &text, calls.is_empty(), last)
+            },
+        );
         Ok(answer)
+    }
+}
+
+/// What a reply says when its calls are done: what the files hold (with
+/// `read`), its words (no calls), what it couldn't do after a refusal or a
+/// failed call (the last result `last`), else `after`.
+fn final_text(reply: &crate::script::Reply, text: &str, no_calls: bool, last: &str) -> String {
+    let refused = last.strip_prefix("[oxbot said no]");
+    let broke = last.strip_prefix("[tool error]");
+    if reply.read {
+        crate::script::read_answer(reply.say.as_deref(), &crate::script::attached(text))
+    } else if no_calls {
+        reply.say.clone().unwrap_or_default()
+    } else if let Some(why) = refused {
+        reply
+            .denied
+            .clone()
+            .unwrap_or_else(|| format!("I didn't: {}", why.trim()))
+    } else if let Some(what) = broke {
+        format!("That didn't work: {}", what.trim())
+    } else {
+        reply
+            .after
+            .as_deref()
+            .unwrap_or("Done.")
+            .replace("{result}", &unwrap_data_block(last))
     }
 }
 
@@ -915,6 +978,7 @@ impl Fake {
             step: 0,
             stall: false,
             helper: Some(helper),
+            checked: false,
         })
     }
 }
@@ -1399,6 +1463,19 @@ mod tests {
     }
 
     #[test]
+    fn oxbots_notes_and_rules_line_are_not_the_persons_words() {
+        let req = without_tail(json!({"messages": [
+            {"role": "user", "content": "find lamps\n\n[oxbot] Answer only from what you read. Check."},
+            {"role": "tool", "tool_call_id": "c", "content": [{"type": "text", "text": "page\n\n[oxbot] Answer only from what you read."}]},
+            {"role": "user", "content": "[oxbot] Before you answer, check it. The task was: «find lamps»."}
+        ]}));
+        let m = req["messages"].as_array().unwrap();
+        assert_eq!(content_text(&m[0]["content"]), "find lamps");
+        assert_eq!(content_text(&m[1]["content"]), "page");
+        assert!(!is_note(&m[0]) && is_note(&m[2]));
+    }
+
+    #[test]
     fn stream_pieces_rebuild_the_answer() {
         let answer = Answer {
             model: "e2e/tool-model:free".into(),
@@ -1410,6 +1487,7 @@ mod tests {
             step: 0,
             stall: false,
             helper: None,
+            checked: false,
         };
         let events = stream_events("gen-1", &answer);
         assert_eq!(events[0], ": OPENROUTER PROCESSING\n\n");

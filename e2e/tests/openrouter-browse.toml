@@ -28,8 +28,8 @@ expect = "browser click"
 expect_not = "Allow once"
 note = "Search needs no OK, as on Claude"
 [[step]]
-expect = "tool-model:free · 4 requests"
-note = "The model it used and how many requests the task took"
+expect = "tool-model:free · 5 requests"
+note = "The model it used and how many requests the task took (the last one answers oxbot's check of the answer)"
 shot = "browsed"
 [[step]]
 expect_openrouter = '"called":"mcp__chrome-devtools__click"'

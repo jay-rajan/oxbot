@@ -37,6 +37,7 @@
 //! then = [{ tool = "mcp__oxbot__find_in_page", args = { query = "lamp" } }] # more calls after it
 //! notes = 7800                              # each call step also says this many characters of notes (OpenRouter)
 //! ask_answer = "Lamp 1003 (uid=2_14)."      # what the helper says to ask_page (OpenRouter)
+//! checked = "Lamp 1003, checked."           # the answer after oxbot sends one back to be checked (OpenRouter)
 //!
 //! [[reply]]
 //! when = "what's in"
@@ -130,6 +131,9 @@ pub struct Reply {
     pub notes: Option<usize>,
     /// What the stand-in `OpenRouter`'s helper answers to `ask_page`.
     pub ask_answer: Option<String>,
+    /// What the stand-in `OpenRouter` answers when oxbot sends its answer
+    /// back to be checked (default: the same answer again).
+    pub checked: Option<String>,
 }
 
 /// One more tool call of a reply.

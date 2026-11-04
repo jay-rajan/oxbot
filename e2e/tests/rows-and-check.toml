@@ -1,0 +1,43 @@
+name = "Tables as rows, and a final answer checked once"
+about = "A bot on OpenRouter reads a page with two tables (finished and unfinished towers): extract_rows turns them into rows and query_rows sorts them, with no model call. Its first answer names a year no page had, so oxbot sends it back once with the task and that value; the checked answer is the only one the chat shows, and the check is recorded."
+covers = ["crates/oxbot-loop/src/rows.rs", "crates/oxbot-loop/src/page/rows.rs", "crates/oxbot-loop/src/numbers.rs", "crates/oxbot-loop/src/turn/**", "crates/oxbot-loop/src/tools/page.rs", "crates/oxbot-core/src/store/**", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot-e2e/src/fake_openrouter.rs", "crates/oxbot/ui/**"]
+openrouter = "context.toml"
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+send = "which is the tallest finished tower?"
+[[step]]
+wait_for = "The tallest finished tower is First Place, 298.3 m (1975)."
+timeout_ms = 60000
+[[step]]
+expect = "page tables"
+note = "extract_rows and query_rows are lines in the chat"
+[[step]]
+expect = "table query"
+shot = "checked"
+[[step]]
+expect_not = "finished in 1976"
+note = "The answer sent back never reached the chat"
+[[step]]
+expect_openrouter_body = "d1 · table · 2 rows · columns: Name | Height m | Year · section: main › \\\"Completed\\\""
+note = "The rows know which table they came from"
+[[step]]
+expect_openrouter_body = "2 of 2 rows of d1 match (sorted by Height m desc, first 1)."
+[[step]]
+expect_openrouter_body = "These values aren't in anything you read in this task: 1976."
+note = "The answer was sent back with the value no page had"
+[[step]]
+expect_openrouter_body = "[oxbot] Answer only from what you read."
+note = "Every request ends with the rules"
+[[step]]
+expect_openrouter = '"checked":true'
+[[step]]
+expect_db = { query = "SELECT bounced || ' ' || ungrounded_before || ' ' || ungrounded_after FROM loop_checks", equals = '1 ["1976"] []' }
+note = "The check is recorded for the benchmark"
