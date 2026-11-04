@@ -13,8 +13,11 @@ publish.workspace = true
 bytes = { workspace = true, optional = true }
 # Files sent with messages (see `attach`).
 calamine.workspace = true
+# Schedules: next runs in the Mac's time zone (see `schedule`).
+chrono.workspace = true
 dirs.workspace = true
 futures-util = { workspace = true, optional = true }
+iana-time-zone.workspace = true
 infer.workspace = true
 oxbot-browser.workspace = true
 oxbot-codex.workspace = true
