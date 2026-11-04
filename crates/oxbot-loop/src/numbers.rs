@@ -61,7 +61,10 @@ fn url_ranges(text: &str) -> Vec<Range<usize>> {
 /// Every number token in normalized `text`. `glued`: also digits right
 /// after a letter (`v2026`, `B12`), for what was read.
 fn tokens(text: &str, glued: bool) -> Vec<Token> {
-    let urls = url_ranges(text);
+    // Only answers skip numbers in addresses; what was read keeps them
+    // all (and a big page has many addresses).
+    let urls = if glued { Vec::new() } else { url_ranges(text) };
+    let mut next_url = 0;
     let b = text.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -118,7 +121,12 @@ fn tokens(text: &str, glued: bool) -> Vec<Token> {
                 && text[j..].starts_with(['.', ')'])
                 && text[j + 1..].chars().next().is_none_or(char::is_whitespace)
                 && starts_line(text, start));
-        let sort = if marker || ordinal || urls.iter().any(|r| r.contains(&start)) {
+        // Tokens come in order, so the addresses are walked once.
+        while urls.get(next_url).is_some_and(|r| r.end <= start) {
+            next_url += 1;
+        }
+        let in_url = urls.get(next_url).is_some_and(|r| r.contains(&start));
+        let sort = if marker || ordinal || in_url {
             Sort::Skip
         } else if money || unit {
             Sort::Marked
@@ -233,6 +241,25 @@ mod tests {
         assert_eq!(claims("Low 13°, high 9"), ["13"]);
         assert_eq!(claims("14-15 Nov"), ["14", "15"]);
         assert_eq!(claims("1) one\n2) two"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_big_page_is_read_quickly() {
+        let line =
+            "uid=1_2 link \"Lamp 1234 at $56.78\" url=\"https://shop.example.com/p/1234?x=9\"\n";
+        let page = line.repeat(100_000);
+        let started = std::time::Instant::now();
+        let mut e = Evidence::new();
+        e.add(&page);
+        assert!(e.has("56.78") && e.has("1234"));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        let answer =
+            "See https://shop.example.com/p/99 and https://x.example/1 for 4321. ".repeat(2_000);
+        assert_eq!(claims(&answer), ["4321"]);
     }
 
     #[test]
