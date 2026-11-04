@@ -1,6 +1,6 @@
 //! A stand-in for `OpenRouter` in end-to-end tests: the parts of its API
-//! oxbot uses, answering from the same reply scripts as the stand-in Claude
-//! so tests are free, fast and give the same result every time. Shapes
+//! oxbot uses, answering from the reply scripts (`e2e/scripts/`) so tests
+//! are free, fast and give the same result every time. Shapes
 //! follow `OpenRouter`'s (`OpenAI`-style) API docs.
 //!
 //! Under `/api/v1` (oxbot's `OXBOT_OPENROUTER_URL`):

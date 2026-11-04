@@ -130,7 +130,7 @@ pub fn plan(
         .iter()
         .filter(|f| {
             f.starts_with("e2e/tests/")
-                || f.starts_with("e2e/claude/")
+                || f.starts_with("e2e/scripts/")
                 || f.starts_with("e2e/seed/")
         })
         .cloned()

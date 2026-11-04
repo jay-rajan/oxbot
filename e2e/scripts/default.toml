@@ -1,9 +1,9 @@
-# The stand-in Claude's replies. The first `when` found in the message
-# (any case) wins; the one without `when` is the fallback.
+# The stand-in bots' replies (the stand-in OpenRouter and browser tool).
+# The first `when` found in the message (any case) wins; the one without `when` is the fallback.
 
 [[reply]]
 when = "hello"
-say = "Hello! I'm the stand-in Claude."
+say = "Hello! I'm the stand-in bot."
 
 [[reply]]
 when = "make a bot"

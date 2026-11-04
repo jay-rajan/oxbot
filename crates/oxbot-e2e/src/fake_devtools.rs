@@ -1,7 +1,8 @@
 //! A stand-in for the browser tool (`chrome-devtools-mcp` 1.10.1) for bots
-//! on oxbot's own loop: an MCP server over stdio (one JSON-RPC message per
-//! line) that offers the browser tools the loop lists, with the real tool's
-//! schemas, and answers from the same reply scripts as the stand-in Claude.
+//! on either engine (both run it through the loop's tool service): an MCP
+//! server over stdio (one JSON-RPC message per line) that offers the
+//! browser tools oxbot lists, with the real tool's schemas, and answers
+//! from the same reply scripts as the stand-in `OpenRouter`.
 //!
 //! - `navigate_page` / `new_page` open a page (remembered per process);
 //! - `take_snapshot` gives the script's snapshot whose selected page is the
@@ -9,8 +10,8 @@
 //! - `list_pages` lists the open page; `take_screenshot` gives a tiny PNG;
 //! - every input tool (`click`, `fill`, …) says "done".
 //!
-//! Real Chrome still runs hidden for leases, screenshots and page facts, as
-//! with the stand-in Claude. A page on the test site (a `.test` host) is
+//! Real Chrome still runs hidden for leases, screenshots and page facts. A
+//! page on the test site (a `.test` host) is
 //! also opened in that Chrome, in a new tab (the real tool's
 //! `--browserUrl` says which Chrome), so its network can be checked; no
 //! other page is ever loaded. Each call is logged (tool and arguments) to

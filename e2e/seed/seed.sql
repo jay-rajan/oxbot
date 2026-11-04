@@ -17,6 +17,6 @@ INSERT INTO events (bot, seq, ts_ms, body) VALUES
 -- Signed-in sites: one at home (shared bots), one in Sam's own browser.
 INSERT INTO sites (owner, site, signed_in_ms) VALUES ('', 'wikipedia.org', NOW_MS - 86400000), ('Sam', 'bank.example', NOW_MS - 86400000);
 
--- Claude usage so Settings shows numbers.
+-- Claude usage from before Claude left oxbot: kept, never shown.
 INSERT INTO usage (bot, turns, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd) VALUES
   ('recipes', 1, 1200, 340, 9000, 2000, 0.02);

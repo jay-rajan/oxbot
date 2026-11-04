@@ -227,7 +227,7 @@ async fn run(
             .unwrap_or("asked for")
             .to_owned();
         eprintln!("▶ {} ({})", test.name, engine.name());
-        let run = match missing(&test, scratch.path()).await {
+        let run = match missing(&config, &test, scratch.path()).await {
             Some(why) => skipped(repo, &config, engine, &test, why),
             None => run_one(repo, &config, out, engine, &mut driver, &test, reason).await?,
         };
@@ -254,8 +254,8 @@ async fn run(
 
 /// Why `test` can't run on this Mac (a program it needs is missing), if
 /// it can't.
-async fn missing(test: &Test, scratch: &Path) -> Option<String> {
-    for need in &test.needs {
+async fn missing(config: &Config, test: &Test, scratch: &Path) -> Option<String> {
+    for need in config.needs.iter().chain(&test.needs) {
         match need.as_str() {
             "codex" => {
                 let configured = std::env::var_os("OXBOT_CODEX").map(PathBuf::from);
@@ -321,10 +321,8 @@ async fn run_one(
     let started = Instant::now();
     let home = tempfile::tempdir()?;
     seed::make_home(repo, home.path())?;
-    let scripts = repo.join("e2e/claude");
     let launch = Launch {
-        script: scripts.join(&test.claude),
-        openrouter_script: scripts.join(test.openrouter_script()),
+        script: repo.join("e2e/scripts").join(&test.script),
         signed_in: test.openrouter_signed_in,
         openrouter_daily: test.openrouter_daily,
         openrouter_context: test.openrouter_context.clone(),

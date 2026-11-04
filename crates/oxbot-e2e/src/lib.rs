@@ -2,13 +2,13 @@
 //!
 //! - [`spec`]: the test files in `e2e/tests/` and the repo's `e2e/pr_test.toml`.
 //! - [`pick`]: which tests a change needs, and why.
-//! - [`script`]: the stand-ins' reply scripts (`e2e/claude/`).
+//! - [`script`]: the stand-ins' reply scripts (`e2e/scripts/`).
 //! - [`fake_openrouter`], [`fake_devtools`]: stand-ins for `OpenRouter` and
 //!   the browser tool, for bots on oxbot's own loop.
 //! - [`pages`]: big fake pages for the scripts.
 //! - [`canary`]: checks a run never wrote the stand-in's key anywhere.
 //! - [`seed`]: a throwaway oxbot home made from `e2e/seed/`.
-//! - [`serve`]: starts oxbot on it in test mode with the stand-in Claude.
+//! - [`serve`]: starts oxbot on it in test mode with the stand-ins.
 //! - [`driver`]: Chrome (`DevTools`) and Safari (`WebDriver`), behind one API.
 //! - [`steps`]: runs a test's steps, a screenshot per step.
 //! - [`compare`]: screenshots against approved baselines.

@@ -14,8 +14,10 @@ pub struct Config {
     pub build: Vec<String>,
     /// The server program, relative to the repo root.
     pub server: PathBuf,
-    /// The stand-in Claude, relative to the repo root.
-    pub fake_claude: PathBuf,
+    /// Programs every test needs on this Mac (`codex`: bots run on it),
+    /// besides a test's own [`Test::needs`].
+    #[serde(default)]
+    pub needs: Vec<String>,
     /// The browser tool built into the app, if built (relative path).
     pub tools: Option<PathBuf>,
     /// The Farm's person in tests.
@@ -82,13 +84,10 @@ pub struct Test {
     /// none means the desktop size ([`crate::driver::WIDTH`] × `HEIGHT`).
     #[serde(default)]
     pub viewport: Option<Viewport>,
-    /// The stand-in Claude's script, in `e2e/claude/`.
-    #[serde(default = "default_claude")]
-    pub claude: String,
-    /// The stand-in `OpenRouter`'s script, in `e2e/claude/` (default: the
-    /// stand-in Claude's).
-    #[serde(default)]
-    pub openrouter: Option<String>,
+    /// The stand-ins' reply script (the stand-in `OpenRouter` and browser
+    /// tool), in `e2e/scripts/`.
+    #[serde(default = "default_script")]
+    pub script: String,
     /// oxbot starts signed in to the stand-in `OpenRouter` (default yes);
     /// no means the test signs in itself.
     #[serde(default = "yes")]
@@ -120,16 +119,8 @@ pub struct Test {
     pub file: PathBuf,
 }
 
-fn default_claude() -> String {
+fn default_script() -> String {
     "default.toml".to_owned()
-}
-
-impl Test {
-    /// The stand-in `OpenRouter`'s script file name.
-    #[must_use]
-    pub fn openrouter_script(&self) -> &str {
-        self.openrouter.as_deref().unwrap_or(&self.claude)
-    }
 }
 
 /// A page size in CSS pixels. Narrower than 720 is the phone layout, and
@@ -492,19 +483,16 @@ mod tests {
     }
 
     #[test]
-    fn the_openrouter_stand_in_defaults_to_claudes_script_signed_in() {
-        let test: Test = toml::from_str(
-            "name = \"x\"\nclaude = \"usage-alerts.toml\"\n[[step]]\nexpect = \"y\"",
-        )
-        .unwrap();
-        assert_eq!(test.openrouter_script(), "usage-alerts.toml");
+    fn a_test_runs_on_the_default_script_signed_in() {
+        let test: Test = toml::from_str("name = \"x\"\n[[step]]\nexpect = \"y\"").unwrap();
+        assert_eq!(test.script, "default.toml");
         assert!(test.openrouter_signed_in);
         assert_eq!(test.openrouter_daily, None);
         let test: Test = toml::from_str(
-            "name = \"x\"\nopenrouter = \"o.toml\"\nopenrouter_signed_in = false\nopenrouter_daily = 2\n[[step]]\nexpect = \"y\"",
+            "name = \"x\"\nscript = \"o.toml\"\nopenrouter_signed_in = false\nopenrouter_daily = 2\n[[step]]\nexpect = \"y\"",
         )
         .unwrap();
-        assert_eq!(test.openrouter_script(), "o.toml");
+        assert_eq!(test.script, "o.toml");
         assert!(!test.openrouter_signed_in);
         assert_eq!(test.openrouter_daily, Some(2));
     }

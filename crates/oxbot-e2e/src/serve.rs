@@ -229,10 +229,8 @@ impl Drop for TestSite {
 /// How to start oxbot for one test.
 #[derive(Debug, Clone)]
 pub struct Launch {
-    /// The stand-in Claude's script.
+    /// The stand-ins' reply script.
     pub script: PathBuf,
-    /// The stand-in `OpenRouter`'s script.
-    pub openrouter_script: PathBuf,
     /// oxbot starts signed in to the stand-in `OpenRouter`.
     pub signed_in: bool,
     /// The stand-in `OpenRouter`'s free requests per day.
@@ -298,9 +296,8 @@ pub fn openrouter_env(
 }
 
 impl Server {
-    /// Starts `oxbot serve` on `home` with the stand-ins (Claude,
-    /// `OpenRouter`, the browser tool, the Mac helper), and waits until it
-    /// answers.
+    /// Starts `oxbot serve` on `home` with the stand-ins (`OpenRouter`, the
+    /// browser tool, the Mac helper), and waits until it answers.
     ///
     /// # Errors
     /// Fails if a stand-in or oxbot doesn't start within 20 seconds.
@@ -314,7 +311,7 @@ impl Server {
             Some(program) => Some(
                 FakeOpenRouter::start(
                     &repo.join(program),
-                    &launch.openrouter_script,
+                    &launch.script,
                     launch.openrouter_daily,
                     launch.openrouter_context.as_deref(),
                 )
@@ -458,11 +455,10 @@ fn spawn_oxbot(
         // real oxbot (or each other) on 7879.
         .env("OXBOT_GATE_PORT", "0")
         .env("OXBOT_PERSON", &config.person)
-        .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
+        // The stand-in browser tool reads the same script as the stand-in
+        // OpenRouter.
         .env("OXBOT_FAKE_SCRIPT", &launch.script)
-        // The stand-in browser tool serves bots on oxbot's own loop: it
-        // reads the stand-in OpenRouter's script.
-        .env("OXBOT_FAKE_DT_SCRIPT", &launch.openrouter_script)
+        .env("OXBOT_FAKE_DT_SCRIPT", &launch.script)
         .env(
             "OXBOT_E2E_KEYCHAIN_DELAY_MS",
             launch.keychain_delay_ms.unwrap_or(0).to_string(),

@@ -1,7 +1,6 @@
 //! The stand-ins, run as the e2e runner runs them: the stand-in
-//! `OpenRouter` (its API, streaming, routing, limits, sign-in, log), the
-//! stand-in browser tool over stdio, and the stand-in Claude (unchanged by
-//! the shared script code).
+//! `OpenRouter` (its API, streaming, routing, limits, sign-in, log) and the
+//! stand-in browser tool over stdio.
 
 #![allow(clippy::unwrap_used, reason = "test helpers may panic")]
 
@@ -519,17 +518,6 @@ impl Stdio2 {
         self.output.read_line(&mut line).unwrap();
         serde_json::from_str(&line).unwrap()
     }
-
-    /// The next line that isn't a stream event (the stand-in Claude
-    /// streams each model request's start and usage first).
-    fn message(&mut self) -> Value {
-        loop {
-            let v = self.read();
-            if v["type"] != "stream_event" {
-                return v;
-            }
-        }
-    }
 }
 
 impl Drop for Stdio2 {
@@ -567,65 +555,4 @@ fn the_browser_stand_in_speaks_mcp_over_stdio() {
     let calls = std::fs::read_to_string(&log).unwrap();
     assert_eq!(calls.lines().count(), 2);
     assert!(calls.contains("\"tool\":\"take_snapshot\""));
-}
-
-#[test]
-fn the_claude_stand_in_acts_as_before() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut claude = Stdio2::start(
-        env!("CARGO_BIN_EXE_oxbot-fake-claude"),
-        &script_file(dir.path()),
-        &[],
-    );
-    claude.send(&json!({"type":"user","message":{"role":"user","content":"[Jay] post it"}}));
-    assert_eq!(claude.message()["subtype"], "init");
-    // Each model request: its start, then its usage, as Claude streams them.
-    let start = claude.read();
-    assert_eq!(start["event"]["type"], "message_start");
-    let done = claude.read();
-    assert_eq!(done["event"]["type"], "message_delta");
-    assert_eq!(done["api_message_id"], start["event"]["message"]["id"]);
-    assert_eq!(done["event"]["usage"]["output_tokens"], 7);
-    let snap = claude.message();
-    assert_eq!(
-        snap["message"]["content"][0]["name"],
-        "mcp__chrome-devtools__take_snapshot"
-    );
-    assert!(
-        claude.message()["message"]["content"][0]["content"]
-            .as_str()
-            .unwrap()
-            .contains("Post")
-    );
-    let click = claude.message();
-    assert_eq!(
-        click["message"]["content"][0]["name"],
-        "mcp__chrome-devtools__click"
-    );
-    assert_eq!(
-        click["message"]["content"][0]["input"],
-        json!({"uid":"1_3"})
-    );
-    let ask = claude.message();
-    assert_eq!(ask["request"]["subtype"], "can_use_tool");
-    claude.send(&json!({"type":"control_response","response":{"response":{"behavior":"allow"}}}));
-    assert_eq!(claude.message()["message"]["content"][0]["content"], "done");
-    assert_eq!(claude.message()["message"]["content"][0]["text"], "Posted.");
-    assert_eq!(claude.message()["result"], "Posted.");
-
-    let notes = dir.path().join("notes.txt");
-    std::fs::write(&notes, "Buy milk\n").unwrap();
-    let text = format!("[Jay] files attached:\n- {} (text)", notes.display());
-    claude.send(&json!({"type":"user","message":{"role":"user","content":text}}));
-    assert_eq!(claude.message()["subtype"], "init");
-    let read = claude.message();
-    assert_eq!(read["message"]["content"][0]["name"], "Read");
-    assert_eq!(
-        claude.message()["message"]["content"][0]["content"],
-        "notes.txt: Buy milk"
-    );
-    assert_eq!(
-        claude.message()["message"]["content"][0]["text"],
-        "Here's what I found.\nRead notes.txt: Buy milk"
-    );
 }

@@ -1,6 +1,7 @@
-//! The stand-ins' reply scripts (`e2e/claude/*.toml`), shared by the
-//! stand-in Claude, the stand-in `OpenRouter` and the stand-in browser tool,
-//! so one script drives a test on either engine.
+//! The stand-ins' reply scripts (`e2e/scripts/*.toml`), shared by the
+//! stand-in `OpenRouter` and the stand-in browser tool, so one script
+//! drives a test on either engine (Codex, through oxbot's relay, or oxbot's
+//! own loop).
 //!
 //! A script is a list of replies; the first whose `when` appears in the
 //! message (any case) is used, and one without `when` is the fallback:
@@ -16,10 +17,8 @@
 //! denied = "Okay, I won't."                 # said if the user said no
 //!
 //! [[reply]]
-//! when = "half"
-//! say = "About half."
-//! limits = { five_hour = 0.55, seven_day = 0.2 } # plan usage reported first (Claude)
-//! model = "claude-sonnet-4-5-20250929"           # the model it says it is (Claude)
+//! when = "hello"
+//! say = "Hello!"
 //!
 //! [[reply]]
 //! when = "busy"
@@ -47,15 +46,11 @@
 //! say = "Hello from the stand-in."
 //! ```
 //!
-//! With `read`, it opens every file oxbot's note lists, as Claude would with
-//! Read, and says what it found in each: the first line of a text file or of
+//! With `read`, it opens every file oxbot's note lists with Read, and says
+//! what it found in each: the first line of a text file or of
 //! the text oxbot made of it, how many still frames a video became, or the
 //! kind of a picture or PDF. That shows what oxbot made of a file without a
 //! real model.
-//!
-//! Knobs one stand-in doesn't use are ignored by it: the stand-in Claude
-//! ignores `busy`, `data_policy`, `usage` and `stall_at`, the stand-in `OpenRouter` ignores `limits`
-//! and `model` (it says which model it routed to).
 
 use std::path::Path;
 
@@ -98,10 +93,6 @@ pub struct Reply {
     /// Open the attached files and say what's in them.
     #[serde(default)]
     pub read: bool,
-    /// Plan usage to report before answering, as Claude's `rate_limit_event`.
-    pub limits: Option<Limits>,
-    /// The model the stand-in Claude says it is (default `fake`).
-    pub model: Option<String>,
     /// Models the stand-in `OpenRouter` says are busy (429) for this reply.
     #[serde(default)]
     pub busy: Vec<String>,
@@ -118,8 +109,8 @@ pub struct Reply {
     /// Reserved for knowledge tests: text the bot is expected to know
     /// (from its notes or the request). No stand-in acts on it yet.
     pub knows: Option<String>,
-    /// Said after a practice run's `[test run]` answer (the stand-in
-    /// Claude gets it as a refusal) instead of `denied`.
+    /// Said after a practice run's `[test run]` answer instead of
+    /// `denied`.
     pub dry: Option<String>,
     /// Big fake pages to read first (after `snapshots`).
     pub big: Option<crate::pages::BigPages>,
@@ -147,19 +138,6 @@ pub struct Then {
     pub args: toml::Table,
 }
 
-/// The plan's windows, from 0 to 1. The 5-hour one resets in
-/// `resets_in_min` (default 3 hours), the weekly one in 3 days.
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Limits {
-    /// The 5-hour window's use.
-    pub five_hour: Option<f64>,
-    /// The weekly window's use.
-    pub seven_day: Option<f64>,
-    /// When the 5-hour window resets, in minutes.
-    pub resets_in_min: Option<i64>,
-}
-
 /// Tokens and cost reported for one model request.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,7 +155,7 @@ pub struct Usage {
 
 impl Script {
     /// Reads a script; a missing or broken one is empty (every message
-    /// gets the built-in echo), as the stand-in Claude always did.
+    /// gets the built-in echo).
     #[must_use]
     pub fn load(path: &Path) -> Self {
         let mut script: Self = std::fs::read_to_string(path)
@@ -423,8 +401,8 @@ pub struct PlannedCall {
     pub args: Value,
 }
 
-/// The tool calls a model would make for `reply`, one per step, as the
-/// stand-in Claude acts them out in one go: each attached file is Read
+/// The tool calls a model would make for `reply`, one per step: each
+/// attached file is Read
 /// (with `read`); otherwise each snapshot's page is opened and
 /// snapshotted, then the scripted tool runs. `needs_page` says whether a
 /// browser tool requires `pageId` (from the request's tool list); the id is

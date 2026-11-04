@@ -82,7 +82,7 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
     let home = tempfile::tempdir()?;
     crate::seed::make_home(repo, home.path())?;
     let port = crate::serve::free_port()?;
-    let script = repo.join("e2e/claude/default.toml");
+    let script = repo.join("e2e/scripts/default.toml");
     let mut checks = Vec::new();
     // The stand-in OpenRouter too, so the app never reaches the real one.
     let openrouter = match &config.fake_openrouter {
@@ -100,7 +100,6 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
         .env("OXBOT_PORT", port.to_string())
         .env("OXBOT_E2E", "1")
         .env("OXBOT_PERSON", &config.person)
-        .env("OXBOT_CLAUDE", repo.join(&config.fake_claude))
         .env("OXBOT_FAKE_SCRIPT", &script)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
