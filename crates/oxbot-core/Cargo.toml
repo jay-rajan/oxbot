@@ -9,12 +9,14 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Test helpers only (feature `test-support`): the stand-in model's answers.
+bytes = { workspace = true, optional = true }
 # Files sent with messages (see `attach`).
 calamine.workspace = true
 dirs.workspace = true
+futures-util = { workspace = true, optional = true }
 infer.workspace = true
 oxbot-browser.workspace = true
-oxbot-claude.workspace = true
 oxbot-codex.workspace = true
 oxbot-engine.workspace = true
 oxbot-llm.workspace = true
@@ -31,6 +33,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util = { workspace = true, optional = true }
 toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
@@ -44,10 +47,21 @@ test-people = []
 # Tests and the end-to-end seed only: `Store::open_at_version` makes a
 # database as an older oxbot left it.
 test-support = []
+# Tests only (never the end-to-end seed, whose build is the app's): the
+# `testing` module's stand-in bots on either engine (a scripted model and
+# browser), with `test-people`.
+test-bots = [
+    "test-people",
+    "dep:bytes",
+    "dep:futures-util",
+    "dep:tokio-util",
+    "oxbot-llm/test-model",
+    "oxbot-loop/test-tools",
+]
 
 [dev-dependencies]
 # This crate's own tests use the test-only feature.
-oxbot-core = { path = ".", features = ["test-people", "test-support"] }
+oxbot-core = { path = ".", features = ["test-bots", "test-support"] }
 # Scripted model and browser for the loop engine's hub tests.
 oxbot-llm = { workspace = true, features = ["test-model"] }
 oxbot-loop = { workspace = true, features = ["test-tools"] }

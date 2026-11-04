@@ -343,6 +343,22 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // provider for each request (the body is a file in the bot's context
     // folder); and which engine made each model request.
     Step::Rust(codex_engine),
+    // 22: Claude leaves oxbot (step 6, part 2). Bots that ran on Claude run
+    // on Codex now: each is noted once when it moves (so its chat is told
+    // once, however often oxbot starts), and what only Claude used stops
+    // showing: its plan windows' alerts and limits, and its settings.
+    // History stays (chats, sessions, Claude's own usage rows).
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS engine_upgrades (
+            bot         TEXT    PRIMARY KEY,
+            from_engine TEXT    NOT NULL,   -- `claude`
+            to_engine   TEXT    NOT NULL,   -- `codex`
+            upgraded_ms INTEGER NOT NULL
+        );
+        DELETE FROM limit_alerts WHERE name NOT LIKE 'openrouter\\_%' ESCAPE '\\';
+        DELETE FROM limits;
+        DELETE FROM prefs WHERE key IN ('engines_notice_seen', 'compare.claude_pause');",
+    ),
 ];
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each

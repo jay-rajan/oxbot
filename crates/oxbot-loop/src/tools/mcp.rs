@@ -303,7 +303,6 @@ done
                 args: vec!["-c".into(), SERVER.into()],
                 env: Vec::new(),
             },
-            mcp_json: json!({}),
         }
     }
 
@@ -343,7 +342,6 @@ done
                 program: "/nonexistent/tool".into(),
                 ..McpCommand::default()
             },
-            mcp_json: json!({}),
         };
         let browser = factory.open(&broken, &[]);
         assert_eq!(browser.specs().await.unwrap()[0].name, "take_snapshot");

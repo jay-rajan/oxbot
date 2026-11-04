@@ -33,7 +33,6 @@ pub fn is_compare(msg: &ClientMsg) -> bool {
             | ClientMsg::StopBatch { .. }
             | ClientMsg::ListRuns { .. }
             | ClientMsg::OpenRun { .. }
-            | ClientMsg::JudgeRuns { .. }
             | ClientMsg::SetRunVerdict { .. }
             | ClientMsg::Scoreboard { .. }
             | ClientMsg::SetShadow { .. }
@@ -156,10 +155,6 @@ async fn runs(msg: ClientMsg, hub: &Arc<Hub>, viewer: &Viewer) -> Vec<ServerMsg>
                 .map(|runs| vec![ServerMsg::Runs { bot, runs }]),
         ),
         ClientMsg::OpenRun { run } => answer(hub.run_detail(&run, viewer).map(|m| vec![m])),
-        ClientMsg::JudgeRuns { runs, local } => match hub.judge_runs(&runs, local, viewer) {
-            Ok(()) => Vec::new(),
-            Err(e) => error(&e),
-        },
         ClientMsg::SetRunVerdict { run, verdict } => answer(
             hub.set_run_verdict(&run, verdict, viewer)
                 .map(|r| vec![ServerMsg::TrialRun(Box::new(r))]),

@@ -3,7 +3,7 @@
 //! Sections are a person's view, not bot data: filing a bot changes nothing
 //! about it (its name, privacy or who sees it), so it needs no right to
 //! manage the bot, and nobody else (the Farm included) gets someone's
-//! sections. They never reach Claude either.
+//! sections. They never reach a model either.
 
 use oxbot_protocol::{SectionInfo, ServerMsg};
 

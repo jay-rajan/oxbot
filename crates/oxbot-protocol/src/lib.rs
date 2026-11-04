@@ -153,27 +153,21 @@ pub enum ClientMsg {
         /// Only its creator (and the Farm) can see and use it.
         #[serde(default)]
         private: bool,
-        /// The engine it runs on; `None` for the server's default. Only the
-        /// Farm's owner may pick Claude.
+        /// The engine it runs on; `None` for the server's default (Codex).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         engine: Option<EngineKind>,
     },
-    /// Switch a bot to another engine. Its maker or the Farm; only the
-    /// Farm's owner may switch one to Claude, and a bot others use only
-    /// with `confirm_owner_only` (it then takes tasks only from the owner).
-    /// Herders' engines are fixed.
+    /// Switch a bot to another engine. Its maker or the Farm. Herders'
+    /// engines are fixed.
     SetEngine {
         /// Bot id.
         bot: String,
         /// The engine.
         engine: EngineKind,
-        /// Its model: a Claude alias, or an `OpenRouter` model id; empty for
-        /// the default (Auto). `None` keeps the one it has.
+        /// Its model: an `OpenRouter` model id; empty for the default
+        /// (Auto). `None` keeps the one it has.
         #[serde(default)]
         model: Option<String>,
-        /// The person was told the bot becomes owner-only, and said yes.
-        #[serde(default)]
-        confirm_owner_only: bool,
     },
     /// Ask for Settings → Engines ([`ServerMsg::Engines`]).
     ListEngines,
@@ -207,9 +201,6 @@ pub enum ClientMsg {
         #[serde(default)]
         daily_requests: Option<u32>,
     },
-    /// The Farm's owner has seen the one-time notice that Claude bots take
-    /// tasks only from them. The Farm only.
-    EnginesNoticeSeen,
     /// Make a bot private (only its creator and the Farm see it, and it
     /// uses its creator's own browser) or shared. Its creator or the Farm
     /// only.
@@ -287,8 +278,9 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
-    /// Farm only: turn the 50% and 80% Claude usage alerts on or off. The
-    /// asker gets the new [`ServerMsg::Settings`].
+    /// Farm only: turn the alerts at 50% and 80% of the household's
+    /// `OpenRouter` limits on or off. The asker gets the new
+    /// [`ServerMsg::Settings`].
     SetUsageAlerts {
         /// On or off.
         on: bool,
@@ -347,13 +339,6 @@ pub enum ClientMsg {
         /// Your own browser instead of the home one.
         #[serde(default)]
         mine: bool,
-    },
-    /// Do a setup step for the user (install Claude Code, sign in to
-    /// Claude). Progress comes as [`ServerMsg::SetupProgress`], then a new
-    /// [`ServerMsg::Setup`].
-    RunSetup {
-        /// Which step.
-        action: SetupAction,
     },
     /// Farm only: show a pairing code (and QR code) for a new Gate that
     /// will belong to `person`. Replaces any code still showing. The answer
@@ -531,14 +516,6 @@ pub enum ClientMsg {
         /// The run's id.
         run: String,
     },
-    /// Asks Claude (or, `local`, a local model) to judge runs.
-    JudgeRuns {
-        /// Run ids.
-        runs: Vec<String>,
-        /// Judge on this Mac instead of Claude.
-        #[serde(default)]
-        local: bool,
-    },
     /// The owner's own verdict on a run (`None` clears it).
     SetRunVerdict {
         /// The run's id.
@@ -573,40 +550,31 @@ fn one() -> u32 {
     1
 }
 
-/// Which engine runs a bot.
+/// Which engine runs a bot. Both run on `OpenRouter`'s models with the
+/// household's account: anyone in the household may give their bots
+/// tasks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineKind {
-    /// Claude Code on the Farm owner's own Claude plan: only the owner
-    /// gives it tasks.
+    /// Codex CLI's agent loop, through oxbot's relay (new bots and every
+    /// Herder).
     #[default]
-    Claude,
-    /// oxbot's own agent loop on `OpenRouter`'s models: anyone in the
-    /// household may give it tasks.
+    Codex,
+    /// oxbot's own agent loop.
     #[serde(rename = "openrouter")]
     OpenRouter,
-    /// Codex CLI's agent loop on `OpenRouter`'s models, through oxbot's
-    /// relay: anyone in the household may give it tasks.
-    Codex,
 }
 
-/// Settings → Engines: which engine does what, and who may use it.
+/// Settings → Engines: which engine does what, and whether it can run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnginesView {
-    /// The notice everyone sees: Claude bots run on the owner's own plan.
+    /// The notice everyone sees: where bots' model calls go.
     pub notice: String,
     /// The Farm owner's name.
     pub owner: String,
     /// Whether `OpenRouter` bots can run on this Mac now.
     #[serde(default)]
     pub openrouter_ready: bool,
-    /// The Farm only: show the one-time notice as a banner.
-    #[serde(default)]
-    pub banner: bool,
-    /// The Farm only: Claude bots other people used lately, which now take
-    /// tasks only from the owner.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub review: Vec<ReviewBot>,
     /// Free models `OpenRouter` bots can use (tools, a big enough window),
     /// for picking one for a bot.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -769,17 +737,6 @@ impl Default for EnginePrefs {
     }
 }
 
-/// A Claude bot other people used, for the owner to review.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReviewBot {
-    /// Bot id.
-    pub bot: String,
-    /// Its name.
-    pub name: String,
-    /// Who else sent it messages in the last 30 days.
-    pub used_by: Vec<String>,
-}
-
 /// A message from the server to a client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -789,9 +746,6 @@ pub enum ServerMsg {
     /// The app's settings. Sent after [`ServerMsg::Hello`] and whenever they
     /// change.
     Settings(AppSettings),
-    /// How much Claude has been used: the plan's limits and each bot's
-    /// tokens. Sent after [`ServerMsg::Hello`] and after every turn.
-    Usage(Usage),
     /// Reply to [`ClientMsg::ListBots`], and sent to everyone when the list
     /// changes.
     Bots {
@@ -859,7 +813,7 @@ pub enum ServerMsg {
         /// The request's id.
         id: u64,
     },
-    /// What's installed and what's missing (Claude Code, Chrome, Node.js).
+    /// What's installed and what's missing (Codex, Chrome, Node.js).
     /// Sent after [`ServerMsg::Hello`] and after [`ClientMsg::CheckSetup`].
     Setup(SetupReport),
     /// The sites a browser is signed in to: the home browser (shared bots)
@@ -892,15 +846,6 @@ pub enum ServerMsg {
     /// use, and the name it shows. Sent with [`ServerMsg::Gates`] and when
     /// any of it changes.
     Door(DoorState),
-    /// A setup step oxbot is doing for the user, as it goes.
-    SetupProgress {
-        /// Which step.
-        action: SetupAction,
-        /// The latest line of output, in plain words.
-        text: String,
-        /// Whether it's still going.
-        running: bool,
-    },
     /// The people who have sent messages, each with their own color. Sent
     /// after [`ServerMsg::Hello`] and when someone new appears.
     People {
@@ -954,9 +899,10 @@ pub enum ServerMsg {
         /// Newest first.
         reports: Vec<ReportInfo>,
     },
-    /// Claude usage passed 50% or 80% of a plan window. Sent to everyone
-    /// once per level per window, and on connect for a window's latest
-    /// alert until the window resets. Never sent while alerts are off.
+    /// Use passed 50% or 80% (or all) of one of the household's
+    /// `OpenRouter` limits. Sent to everyone once per level per window, and
+    /// on connect for a window's latest alert until the window resets.
+    /// Never sent while alerts are off.
     UsageAlert(UsageAlert),
     /// What the Mac heard so far while dictating ([`ClientMsg::Dictate`]),
     /// for the connection that asked only. Each one replaces the last;
@@ -1065,7 +1011,7 @@ pub enum ServerMsg {
     Scoreboard {
         /// Bot id.
         bot: String,
-        /// One row per engine and model; Claude's first.
+        /// One row per engine and model; Codex's first.
         rows: Vec<ScoreRow>,
     },
     /// The comparison settings (the owner's).
@@ -1086,21 +1032,20 @@ pub enum ServerMsg {
     },
 }
 
-/// Claude usage passed a level of one of the plan's windows.
+/// Use passed a level of one of the household's `OpenRouter` limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UsageAlert {
-    /// Claude's name for the window: `five_hour` or `seven_day`.
+    /// oxbot's name for the window, e.g. `openrouter_free_daily` or
+    /// `openrouter_bot_daily:<bot>`.
     pub limit: String,
-    /// The level passed: 50 or 80.
+    /// The level passed: 50, 80 or 100.
     pub level: u8,
     /// How much was used when it passed it, from 0 to 1.
     pub used: f64,
     /// When the window resets (ms since the Unix epoch; 0 if unknown).
     pub resets_at_ms: i64,
-    /// The models the bots use, as shown, e.g. `Sonnet 4.5`.
-    pub models: Vec<String>,
-    /// Ready to show, e.g. `Claude's 5-hour limit is at 52%. Resets in 2 h
-    /// 10 min. Your bots use Sonnet 4.5.`
+    /// Ready to show, e.g. `Free requests today are at 52%. Resets in 2 h
+    /// 10 min.`
     pub message: String,
 }
 
@@ -1125,7 +1070,8 @@ pub struct AppSettings {
     /// delete every bot, private ones included.
     #[serde(default)]
     pub farm: bool,
-    /// Whether oxbot tells the user when Claude usage passes 50% and 80%.
+    /// Whether oxbot tells the user when use passes 50% and 80% of the
+    /// household's `OpenRouter` limits.
     #[serde(default = "yes")]
     pub usage_alerts: bool,
     /// Whether oxbot posts a Mac notification when a bot waits for an OK
@@ -1138,7 +1084,7 @@ pub struct AppSettings {
     #[serde(default)]
     pub dictation: bool,
     /// Whether this client is the Farm's owner (the Farm, or the Farm's
-    /// person on a Gate): the only one who may give Claude bots tasks.
+    /// person on a Gate): the only one who compares engines.
     #[serde(default)]
     pub owner: bool,
     /// The Farm owner's name, e.g. `Jay`.
@@ -1226,22 +1172,12 @@ pub struct SiteInfo {
     pub icon: Option<String>,
 }
 
-/// A setup step oxbot can do for the user.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SetupAction {
-    /// Install Claude Code with Anthropic's installer.
-    InstallClaude,
-    /// Sign in to Claude: `claude auth login` opens the sign-in page.
-    SignInClaude,
-}
-
 /// One thing oxbot needs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetupCheck {
-    /// Stable id, e.g. `claude`, `claude_login`, `chrome`, `node`.
+    /// Stable id, e.g. `codex`, `chrome`, `node`.
     pub id: String,
-    /// What it is, e.g. `Claude Code`.
+    /// What it is, e.g. `Codex`.
     pub name: String,
     /// Whether it's there.
     pub ok: bool,
@@ -1250,12 +1186,9 @@ pub struct SetupCheck {
     /// What to do about it, if it's missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<String>,
-    /// Nice to have, not needed (e.g. Codex, before oxbot can use it).
+    /// Nice to have, not needed (e.g. video and dictation).
     #[serde(default)]
     pub optional: bool,
-    /// A step oxbot can do for the user, offered as a button.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub action: Option<SetupAction>,
 }
 
 /// A code that pairs one Gate with the Farm.
@@ -1355,57 +1288,12 @@ pub struct Person {
     pub color: String,
 }
 
-/// How much Claude has been used.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Usage {
-    /// The plan's limits as Claude last reported them (empty until the
-    /// first reply), e.g. the 5-hour and weekly windows.
-    pub limits: Vec<PlanLimit>,
-    /// When Claude reported them (ms since the Unix epoch; 0 if never).
-    pub limits_seen_ms: i64,
-    /// Each bot's totals, most used first.
-    pub bots: Vec<BotUsage>,
-}
-
-/// One of the plan's limits.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PlanLimit {
-    /// Claude's name for it, e.g. `five_hour` or `seven_day`.
-    pub name: String,
-    /// How much is used, from 0 to 1.
-    pub used: f64,
-    /// When it resets (ms since the Unix epoch; 0 if unknown).
-    pub resets_at_ms: i64,
-    /// `allowed`, `allowed_warning` or `rejected`.
-    pub status: String,
-}
-
-/// One bot's Claude usage since it was created.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BotUsage {
-    /// Bot id.
-    pub bot: String,
-    /// Replies finished.
-    pub turns: u64,
-    /// New input tokens.
-    pub input_tokens: u64,
-    /// Output tokens.
-    pub output_tokens: u64,
-    /// Input tokens read from the prompt cache.
-    pub cache_read_tokens: u64,
-    /// Input tokens written to the prompt cache.
-    pub cache_write_tokens: u64,
-    /// Claude's cost estimate in US dollars (API prices; a subscription
-    /// counts against its limits instead).
-    pub cost_usd: f64,
-}
-
 /// One line from the server's log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogLine {
     /// `info`, `warn` or `error`.
     pub level: String,
-    /// Where it came from, e.g. `oxbot_browser` or `claude_stderr`.
+    /// Where it came from, e.g. `oxbot_browser` or `codex_stderr`.
     pub target: String,
     /// The message, with any fields appended as `key=value`.
     pub message: String,
@@ -1546,7 +1434,7 @@ pub struct ReportInfo {
 }
 
 /// A file sent with a message. It's saved in the bot's folder under
-/// `inbox/`, and Claude opens it with its own Read tool.
+/// `inbox/`, and the bot opens it with its Read tool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
     /// Its upload id (random hex).
@@ -1560,7 +1448,7 @@ pub struct Attachment {
     /// Where it's saved, relative to the bot's work folder, e.g.
     /// `inbox/2026-11-02/1-bill.pdf`.
     pub path: String,
-    /// What Claude reads instead, relative to the work folder: a text copy
+    /// What the bot reads instead, relative to the work folder: a text copy
     /// of a Word file, a smaller copy of a photo, or a video's folder of
     /// still frames.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1675,22 +1563,16 @@ pub struct BotInfo {
     /// The engine it runs on.
     #[serde(default)]
     pub engine: EngineKind,
-    /// Its model as shown, if it has one set (a Claude alias, or a pinned
-    /// `OpenRouter` model).
+    /// Its model as shown, if one is pinned (an `OpenRouter` model id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Whether the client's person may give it tasks. Decided by the
-    /// server for each client (Claude bots: only the Farm's owner).
+    /// Whether the client's person may give it tasks (not someone else's
+    /// private bot). Decided by the server for each client.
     #[serde(default = "yes")]
     pub can_task: bool,
-    /// An `OpenRouter` bot's own cap on model requests a day, if it has one.
+    /// The bot's own cap on model requests a day, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,
-    /// Who alone may give it tasks: the Farm's person's id for a Claude
-    /// bot (empty: only the Farm connection), `None` for anyone who sees
-    /// it. For the server's checks. Never sent.
-    #[serde(skip)]
-    pub task_owner: Option<String>,
 }
 
 /// One stored event in a bot's history.
@@ -1786,6 +1668,12 @@ pub enum EventKind {
         /// How long it took.
         duration_ms: u64,
     },
+    /// A plain line from oxbot about the bot (shown as a quiet line, not
+    /// the bot's words), e.g. that it moved to another engine.
+    Note {
+        /// The line.
+        text: String,
+    },
     /// The turn failed or the bot stopped.
     Error {
         /// What went wrong, for the user.
@@ -1843,30 +1731,35 @@ mod tests {
         )
         .unwrap();
         assert!(old.can_task, "an older server let everyone task");
-        assert_eq!(old.engine, EngineKind::Claude);
+        assert_eq!(old.engine, EngineKind::Codex);
         let info = BotInfo {
             id: "a".into(),
             engine: EngineKind::OpenRouter,
-            task_owner: Some("p_0123456789abcdef".into()),
             ..BotInfo::default()
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains(r#""engine":"openrouter""#), "{json}");
-        assert!(
-            !json.contains("p_0123") && !json.contains("task_owner"),
-            "{json}"
-        );
 
-        let msg: ClientMsg =
-            serde_json::from_str(r#"{"type":"set_engine","bot":"a","engine":"claude"}"#).unwrap();
+        // An older page's switch (it said who may task it): the extra field
+        // is ignored.
+        let msg: ClientMsg = serde_json::from_str(
+            r#"{"type":"set_engine","bot":"a","engine":"codex","confirm_owner_only":true}"#,
+        )
+        .unwrap();
         assert_eq!(
             msg,
             ClientMsg::SetEngine {
                 bot: "a".into(),
-                engine: EngineKind::Claude,
+                engine: EngineKind::Codex,
                 model: None,
-                confirm_owner_only: false,
             }
+        );
+        assert!(
+            serde_json::from_str::<ClientMsg>(
+                r#"{"type":"set_engine","bot":"a","engine":"claude"}"#
+            )
+            .is_err(),
+            "Claude is no longer an engine"
         );
         let msg: ClientMsg = serde_json::from_str(
             r#"{"type":"create_bot","name":"X","instructions":"","engine":"openrouter"}"#,
@@ -1879,30 +1772,23 @@ mod tests {
                 ..
             }
         ));
-        for (msg, tag) in [
-            (ClientMsg::ListEngines, "list_engines"),
-            (ClientMsg::EnginesNoticeSeen, "engines_notice_seen"),
-        ] {
-            assert_eq!(
-                serde_json::to_string(&msg).unwrap(),
-                format!(r#"{{"type":"{tag}"}}"#)
-            );
-        }
+        assert_eq!(
+            serde_json::to_string(&ClientMsg::ListEngines).unwrap(),
+            r#"{"type":"list_engines"}"#
+        );
         let view = ServerMsg::Engines(EnginesView {
             codex: None,
             codex_ready: false,
             notice: "n".into(),
             owner: "Jay".into(),
             openrouter_ready: false,
-            banner: false,
-            review: Vec::new(),
             models: Vec::new(),
             openrouter: None,
         });
         let json = serde_json::to_string(&view).unwrap();
         assert!(json.starts_with(r#"{"type":"engines","#), "{json}");
         assert!(
-            !json.contains("review") && !json.contains("openrouter\""),
+            !json.contains("models") && !json.contains("openrouter\""),
             "{json}"
         );
     }
@@ -2293,18 +2179,23 @@ mod tests {
     #[test]
     fn a_usage_alert_is_tagged_and_flat() {
         let json = serde_json::to_string(&ServerMsg::UsageAlert(UsageAlert {
-            limit: "five_hour".into(),
+            limit: "openrouter_free_daily".into(),
             level: 50,
             used: 0.52,
             resets_at_ms: 1000,
-            models: vec!["Sonnet 4.5".into()],
-            message: "Claude's 5-hour limit is at 52%.".into(),
+            message: "Free requests today are at 52%.".into(),
         }))
         .unwrap();
         assert_eq!(
             json,
-            r#"{"type":"usage_alert","limit":"five_hour","level":50,"used":0.52,"resets_at_ms":1000,"models":["Sonnet 4.5"],"message":"Claude's 5-hour limit is at 52%."}"#
+            r#"{"type":"usage_alert","limit":"openrouter_free_daily","level":50,"used":0.52,"resets_at_ms":1000,"message":"Free requests today are at 52%."}"#
         );
+        // An older server's alert still reads (its models are ignored).
+        let old: ServerMsg = serde_json::from_str(
+            r#"{"type":"usage_alert","limit":"five_hour","level":80,"used":0.8,"resets_at_ms":1,"models":["Sonnet 4.5"],"message":"m"}"#,
+        )
+        .unwrap();
+        assert!(matches!(old, ServerMsg::UsageAlert(a) if a.level == 80));
         let msg: ClientMsg =
             serde_json::from_str(r#"{"type":"set_usage_alerts","on":false}"#).unwrap();
         assert_eq!(msg, ClientMsg::SetUsageAlerts { on: false });
@@ -2479,14 +2370,6 @@ mod tests {
         assert_eq!(msg, ClientMsg::SignInDone { id: 2 });
         let msg: ClientMsg = serde_json::from_str(r#"{"type":"sign_out_all"}"#).unwrap();
         assert_eq!(msg, ClientMsg::SignOutAll { mine: false });
-        let msg: ClientMsg =
-            serde_json::from_str(r#"{"type":"run_setup","action":"install_claude"}"#).unwrap();
-        assert_eq!(
-            msg,
-            ClientMsg::RunSetup {
-                action: SetupAction::InstallClaude
-            }
-        );
         let json = serde_json::to_string(&ServerMsg::Browser {
             bot: "x".into(),
             state: BrowserState::SigningIn,
@@ -2504,7 +2387,6 @@ mod tests {
             detail: String::new(),
             fix: None,
             optional: false,
-            action: None,
         };
         assert!(
             SetupReport {

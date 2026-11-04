@@ -99,9 +99,8 @@ impl Hub {
             .map_or(GateMode::Live, |r| r.gate_mode);
         // In a practice run oxbot's own tools run (the hub answers them
         // with what it records), so both engines get a normal result.
-        // Claude Code's acceptEdits rule, shared: file tools inside the
-        // bot's own folder run. (Claude's CLI never asks for those, so this
-        // only answers the loop.) A practice run's folder is its own copy,
+        // File tools inside the bot's own folder run, on every engine. A
+        // practice run's folder is its own copy,
         // deleted when it ends, so its files are written as live.
         let inside = self
             .run_bot(bot.as_str())
@@ -230,7 +229,7 @@ impl Hub {
         }
     }
 
-    /// Shows the user a card for `ask` and turns their answer into Claude's.
+    /// Shows the user a card for `ask` and turns their answer into the engine's.
     async fn ask_user(
         &self,
         bot: &Bot,

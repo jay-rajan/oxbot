@@ -119,7 +119,7 @@ impl Hub {
     }
 
     /// Whether a blank tab may count as on a rule's site: only in the
-    /// end-to-end test mode (`OXBOT_E2E`), whose stand-in Claude never opens
+    /// end-to-end test mode (`OXBOT_E2E`), whose stand-in browser tool never opens
     /// real pages. Never otherwise: an `about:blank` page can inherit its
     /// opener's origin and hold content a site wrote into it.
     fn blank_tab_counts_for_rules(&self) -> bool {

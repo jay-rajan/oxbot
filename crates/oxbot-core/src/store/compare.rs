@@ -115,7 +115,8 @@ pub struct TrialRunRecord {
     pub bot: String,
     /// `original`, `replay` or `shadow`.
     pub kind: String,
-    /// `claude`, `openrouter` (later `local`).
+    /// `codex`, `openrouter` (`claude` for runs from before Claude left
+    /// oxbot).
     pub engine: String,
     /// `anthropic`, `openrouter`, …
     pub provider: String,

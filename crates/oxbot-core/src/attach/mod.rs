@@ -1,16 +1,16 @@
 //! Files sent with messages: what they are, where they're kept, and what
-//! Claude reads.
+//! the bot reads.
 //!
 //! A file is saved in the bot's own folder, under `work/inbox/<date>/`,
-//! and Claude opens it with its own Read tool (which reads pictures and
-//! PDFs, and may read only inside the bot's folder). What Read can't take
-//! is turned into something it can, here on the Mac and with no network:
+//! and the bot opens it with its Read tool (which may read only inside the
+//! bot's folder). What Read can't take is turned into something it can,
+//! here on the Mac and with no network:
 //! Word, Excel and `PowerPoint` into text (in Rust), old Word, RTF and
 //! `OpenDocument` text with `textutil`, iPhone photos and very large pictures
 //! with `sips`, and videos into still frames with oxbot's Mac helper.
 //! Anything else is refused at upload, with a plain message.
 //!
-//! What a file says is never an instruction: the note Claude gets says so,
+//! What a file says is never an instruction: the note the bot gets says so,
 //! and reading it marks the session as having read untrusted text (see
 //! `hub::taint`).
 
@@ -33,7 +33,7 @@ const MB: u64 = 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * MB;
 /// The biggest video oxbot takes.
 pub const MAX_VIDEO: u64 = 200 * MB;
-/// The biggest plain-text file (Claude reads it whole).
+/// The biggest plain-text file (the bot reads it whole).
 pub const MAX_TEXT_FILE: u64 = 2 * MB;
 /// The most files one message may carry.
 pub const MAX_FILES: usize = 10;
@@ -43,9 +43,9 @@ pub const MAX_FRAMES: u32 = 8;
 pub const FRAME_SIZE: u32 = 1024;
 /// How long an uploaded file waits to be sent before it's deleted.
 pub const KEEP_UNSENT: Duration = Duration::from_hours(1);
-/// Pictures bigger than this on either side get a smaller copy for Claude.
+/// Pictures bigger than this on either side get a smaller copy for the bot.
 const MAX_IMAGE_PX: u32 = 2000;
-/// Pictures bigger than this get a smaller copy too (Claude takes pictures
+/// Pictures bigger than this get a smaller copy too (models take pictures
 /// up to 5 MB once encoded for sending).
 const MAX_IMAGE_BYTES: u64 = 3_750_000;
 /// The longest name kept on disk, in characters.
@@ -151,7 +151,7 @@ pub struct Accepted {
 
 /// Takes the upload at `incoming` (called `name` by whoever sent it): finds
 /// out what it is, refuses what oxbot can't read, moves it into the inbox
-/// and makes what Claude reads. On any failure nothing is left behind.
+/// and makes what the bot reads. On any failure nothing is left behind.
 ///
 /// # Errors
 /// Says why the file wasn't taken.
@@ -199,7 +199,7 @@ async fn take(
     };
     check_size(&found, &shown, size)?;
 
-    // Its own name, with the extension Claude's Read tool goes by.
+    // Its own name, with the extension the Read tool goes by.
     let stored = stored_name(&shown, found.extension());
     let final_path = reserve(&inbox.dir().join(today()), &stored)?;
     saved.push(final_path.clone());
@@ -223,10 +223,10 @@ async fn take(
     })
 }
 
-/// What oxbot made of a file for Claude.
+/// What oxbot made of a file for the bot.
 #[derive(Default)]
 struct Made {
-    /// What Claude reads instead of the file itself.
+    /// What the bot reads instead of the file itself.
     path: Option<PathBuf>,
     /// Still frames taken (videos).
     frames: u32,
@@ -234,7 +234,7 @@ struct Made {
     note: Option<String>,
 }
 
-/// Makes what Claude reads of the file at `file` (shown as `shown`), next
+/// Makes what the bot reads of the file at `file` (shown as `shown`), next
 /// to it, adding what it saves to `saved`.
 async fn readable(
     found: Found,
@@ -262,11 +262,11 @@ async fn readable(
             let small = next_to(".small.jpg");
             saved.push(small.clone());
             if tools.to_jpeg(file, &small, MAX_IMAGE_PX).await.is_err() {
-                // Claude still gets the picture as it is.
+                // The bot still gets the picture as it is.
                 saved.pop();
                 return Ok(Made::default());
             }
-            made(small, "resized for Claude".to_owned())
+            made(small, "resized for the bot".to_owned())
         }
         Found::Convertible { what } => {
             let jpeg = next_to(".jpg");
@@ -285,7 +285,7 @@ async fn readable(
             let path = file.to_owned();
             if blocking(move || sniff::pdf_is_locked(&path)).await? {
                 return Err(AttachError::Unsupported(format!(
-                    "“{shown}” is locked with a password, so Claude can't read it. Open it, print it to a new PDF, and attach that."
+                    "“{shown}” is locked with a password, so the bot can't read it. Open it, print it to a new PDF, and attach that."
                 )));
             }
             Made::default()
@@ -509,7 +509,7 @@ fn same_type(a: &str, b: &str) -> bool {
     norm(a) == norm(&b.to_ascii_lowercase())
 }
 
-/// What Claude is told about the files sent with a message, after the
+/// What the bot is told about the files sent with a message, after the
 /// person's own words. oxbot writes it, so it starts with `(oxbot:` (not
 /// `[`, so it can't pass for a sender); paths are absolute, in the bot's
 /// folder, and names are cleaned ([`stored_name`]).
@@ -537,7 +537,7 @@ pub fn note(from: Option<&str>, files: &[Attachment], work_dir: &Path) -> String
                 let last = f.frames.max(1);
                 let _ = write!(
                     out,
-                    "video, {}: Claude can't watch video, so oxbot saved {last} still frame{}: {dir}/01.jpg",
+                    "video, {}: bots can't watch video, so oxbot saved {last} still frame{}: {dir}/01.jpg",
                     f.note.as_deref().unwrap_or("a video"),
                     if last == 1 { "" } else { "s" },
                 );

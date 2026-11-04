@@ -16,7 +16,7 @@ use oxbot_loop::{
 use oxbot_protocol::{EnginePrefs, EnginesView, ServerMsg};
 
 use super::engine_prefs::{PREF_CATALOG, PREF_CATALOG_MS, engine_prefs_in};
-use super::engines::ChainOrigin;
+use super::engines::{ChainOrigin, may_task};
 use super::{Hub, HubConfig, lock};
 use crate::engine::EngineKind;
 use crate::id::{BotId, PersonId};
@@ -313,22 +313,6 @@ impl Hub {
         }
     }
 
-    /// One model request of a Claude bot (or a practice run on Claude):
-    /// saved for comparing engines, never counted against `OpenRouter`'s
-    /// limits (those count `openrouter` rows only). Owner-only data; it
-    /// stays on the Mac.
-    pub(super) async fn note_claude_call(&self, bot: &BotId, mut record: CallRecord) {
-        if let Some(r) = self.runtimes.lock().await.get(bot) {
-            record.person = r.origin.asker().map(ToString::to_string);
-        }
-        if let Err(err) = oxbot_loop::LoopStore::record_call(self.store.as_ref(), &record) {
-            tracing::warn!(%err, "couldn't save a Claude request");
-        }
-        if super::trials::is_trial(bot) {
-            self.trial_model_call(bot, &record);
-        }
-    }
-
     /// One model request of `bot`'s turn: the turn's meter, and the
     /// `OpenRouter` alerts.
     pub(super) async fn note_model_call(&self, bot: &BotId, record: &CallRecord) {
@@ -355,8 +339,6 @@ impl Hub {
                 notice: super::ENGINES_NOTICE.to_owned(),
                 owner: self.owner_display_name(),
                 openrouter_ready: self.engine_ready(EngineKind::OpenRouter).is_ok(),
-                banner: false,
-                review: Vec::new(),
                 models: Vec::new(),
                 openrouter: None,
             }));
@@ -485,18 +467,18 @@ impl Hub {
             .bot(&row.bot)
             .map_err(|_| "the bot is gone".to_owned())?;
         if self.engine_of(&bot) != EngineKind::OpenRouter {
-            return Err("the bot runs on Claude now".to_owned());
+            return Err("the bot runs on another engine now".to_owned());
         }
         let origin: ChainOrigin = serde_json::from_value(row.origin.clone())
             .map_err(|_| "who asked couldn't be read".to_owned())?;
-        self.may_task(&bot, &origin).map_err(|e| e.to_string())?;
+        may_task(&origin).map_err(|e| e.to_string())?;
         self.engine(EngineKind::OpenRouter)
             .map_err(|e| e.to_string())?;
         let saved = self.store.session(&bot.id).map_err(|e| e.to_string())?;
         if saved.map(|s| s.id).as_deref() != Some(row.session.as_str()) {
             return Err("its conversation was replaced".to_owned());
         }
-        let permit = Arc::clone(&self.loop_turns)
+        let permit = Arc::clone(&self.turns)
             .acquire_owned()
             .await
             .map_err(|_| "oxbot is stopping".to_owned())?;

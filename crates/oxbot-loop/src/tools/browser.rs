@@ -1,7 +1,7 @@
 //! The browser tool, as the loop uses it: `chrome-devtools-mcp` (or a
 //! stand-in) behind [`BrowserTools`], one per session, on the bot's
 //! owner's Chrome. The model sees its tools as
-//! `mcp__chrome-devtools__<name>`, the same names as on Claude.
+//! `mcp__chrome-devtools__<name>`, the names the hub's rules use.
 
 use std::fmt;
 use std::sync::Arc;

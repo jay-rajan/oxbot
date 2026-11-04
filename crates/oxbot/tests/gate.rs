@@ -2,13 +2,13 @@
 //! as its person: the same path the Android app takes.
 #![allow(clippy::unwrap_used, reason = "test helpers may panic")]
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use oxbot::door::{Door, Probe};
 use oxbot::server::{self, AppState};
+use oxbot_core::testing::{self, FakeBots, On, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, Store};
 use oxbot_gate::{GateError, PairLink, Paired};
 use oxbot_protocol::{ClientMsg, DoorNetwork, EventKind, ServerMsg};
@@ -47,22 +47,19 @@ async fn farm_with(allow: bool, port: u16) -> Farm {
     private.created_by = Some("Sam".into());
     private.private = true;
     private.save().unwrap();
-    let claude = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxbot-claude/tests");
+    let fake = Arc::new(FakeBots {
+        no_page: true,
+        ..FakeBots::new(dir.path(), Tool::None)
+    });
     let hub = Hub::new(
         vec![herder, shared, private],
         Store::open_in_memory().unwrap(),
         HubConfig {
-            claude_program: claude.join("fake-claude.sh"),
-            extra_env: vec![(
-                "FAKE_CLAUDE_FIXTURE".into(),
-                claude
-                    .join("fixtures/streaming.jsonl")
-                    .display()
-                    .to_string(),
-            )],
-            ..HubConfig::new(dir.path())
+            browser: None,
+            ..testing::config(dir.path(), &dir.path().join(".home"), &fake, &On::Loop)
         },
     );
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     let on: Network = Arc::new(Mutex::new(network("home")));
     let probe: Probe = {
         let on = Arc::clone(&on);

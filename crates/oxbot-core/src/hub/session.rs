@@ -1,5 +1,5 @@
-//! A bot's engine session (its `claude` child): starting it and turning
-//! its events into stored events, cards and tool results.
+//! A bot's engine session: starting it on its engine and turning its
+//! events into stored events, cards and tool results.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -75,12 +75,11 @@ impl Hub {
             browser: shared.is_some(),
         };
         let mut prompt = system_prompt(bot, caps);
-        // Codex runs oxbot's tools too: the loop's rules, not Codex's own.
-        match kind {
-            EngineKind::OpenRouter => prompt.push_str(&crate::prompt::loop_rules(caps)),
-            EngineKind::Codex => prompt.push_str(&crate::prompt::codex_rules(caps)),
-            EngineKind::Claude => {}
-        }
+        // Codex runs oxbot's tools too: oxbot's rules, not Codex's own.
+        prompt.push_str(&match kind {
+            EngineKind::OpenRouter => crate::prompt::loop_rules(caps),
+            EngineKind::Codex => crate::prompt::codex_rules(caps),
+        });
         let resume = self.resume_for(bot, kind, &prompt, overrides.ephemeral)?;
         // A resumed session still remembers what it read and opened.
         let (taint, visited) = match &resume {
@@ -98,16 +97,15 @@ impl Hub {
             Some(shared) => self.start_browser(bot, shared, &work_dir).await,
             None => None,
         };
-        // A browser tool handed to the loop (tests) needs no Chrome.
+        // A browser tool handed to the engines (tests) needs no Chrome.
         let injected = self
             .config
             .openrouter
             .as_ref()
             .is_some_and(|p| p.browser.is_some());
-        if browser_spec.is_none() && shared.is_some() && kind.uses_openrouter() && injected {
+        if browser_spec.is_none() && shared.is_some() && injected {
             browser_spec = Some(BrowserSpec {
                 mcp: crate::engine::McpCommand::default(),
-                mcp_json: serde_json::Value::Null,
             });
         }
         // As the prompt says: Herder gets its team tools, a bot given a
@@ -126,7 +124,7 @@ impl Hub {
             knowledge_dir: overrides.knowledge_dir,
             system_prompt: prompt.clone(),
             resume: resume.clone(),
-            model: overrides.model.unwrap_or_else(|| model_of(bot, kind)),
+            model: overrides.model.unwrap_or_else(|| model_of(bot)),
             browser: browser_spec,
             host_tools,
             host_tool_specs: tools::specs(host_tools.into()),
@@ -208,10 +206,8 @@ impl Hub {
                 }
             });
         }
-        let port = shared.browser.port();
         Some(BrowserSpec {
-            mcp: tools.mcp_command(port, work_dir),
-            mcp_json: tools.mcp_server(port, work_dir),
+            mcp: tools.mcp_command(shared.browser.port(), work_dir),
         })
     }
 
@@ -246,7 +242,7 @@ impl Hub {
             }
             saved => {
                 if saved.is_some() {
-                    tracing::info!(bot = %bot.id, "system prompt changed; starting a new Claude session");
+                    tracing::info!(bot = %bot.id, "system prompt changed; starting a new session");
                 }
                 Resume::New(uuid::Uuid::new_v4().to_string())
             }
@@ -259,27 +255,26 @@ impl Hub {
         let mut started = false;
         while let Some(event) = events.recv().await {
             if let Err(err) = self.handle(&bot, event, &mut started).await {
-                tracing::error!(%bot, %err, "couldn't record claude output");
+                tracing::error!(%bot, %err, "couldn't record the engine's output");
             }
         }
 
-        // The session ended (the child exited).
+        // The session ended (its engine stopped it).
         self.deny_open_approvals(&bot);
         self.cancel_sign_ins(&bot);
         let removed = self.runtimes.lock().await.remove(&bot);
-        let engine = removed.as_ref().map_or(EngineKind::Claude, |r| r.engine);
+        let engine = removed.as_ref().map_or(EngineKind::Codex, |r| r.engine);
         let was_busy = removed.is_some_and(|mut r| {
             Self::release_browser(&bot, &mut r);
             r.busy
         });
         if !started && was_busy {
             // It never got going (e.g. its saved session is gone): start fresh next time.
-            tracing::warn!(%bot, "claude exited before starting; forgetting its session");
+            tracing::warn!(%bot, "the session ended before starting; forgetting it");
             let _ = self.store.set_session(&bot, None);
         }
         if was_busy {
             let message = match engine {
-                EngineKind::Claude => "Claude stopped unexpectedly.",
                 EngineKind::OpenRouter => "The bot's session stopped unexpectedly.",
                 EngineKind::Codex => "Codex stopped unexpectedly.",
             };
@@ -294,19 +289,7 @@ impl Hub {
         started: &mut bool,
     ) -> Result<(), HubError> {
         match event {
-            EngineEvent::Started { model } => {
-                *started = true;
-                // The models Claude's usage alerts name are Claude's.
-                let claude = self
-                    .runtimes
-                    .lock()
-                    .await
-                    .get(bot)
-                    .is_none_or(|r| r.engine == EngineKind::Claude);
-                if claude && !super::trials::is_trial(bot) {
-                    self.note_model(bot, &model);
-                }
-            }
+            EngineEvent::Started { .. } => *started = true,
             EngineEvent::TextDelta(text) => {
                 let _ = self.updates.send(ServerMsg::Delta {
                     bot: bot.to_string(),
@@ -337,15 +320,6 @@ impl Hub {
             EngineEvent::HostTool(call) => {
                 tokio::spawn(Arc::clone(self).host_tool(bot.clone(), call));
             }
-            EngineEvent::Limits(windows) => {
-                self.store.set_limits(&windows)?;
-                self.check_limit_alerts(&windows);
-                self.announce_usage();
-            }
-            // Claude reports each of its requests too, for comparisons.
-            EngineEvent::ModelCall(record) if record.provider == crate::engine::CLAUDE_PROVIDER => {
-                self.note_claude_call(bot, record).await;
-            }
             EngineEvent::ModelCall(record) if super::trials::is_trial(bot) => {
                 self.trial_model_call(bot, &record);
             }
@@ -354,16 +328,9 @@ impl Hub {
                 ok,
                 text,
                 duration_ms,
-                usage,
             } => {
                 self.deny_open_approvals(bot);
                 self.cancel_sign_ins(bot);
-                // A practice run's usage goes to its run, never the bot's.
-                match usage {
-                    Some(usage) if super::trials::is_trial(bot) => self.trial_usage(bot, &usage),
-                    Some(usage) => self.store.add_usage(bot, &usage)?,
-                    None => {}
-                }
                 if !ok {
                     self.record(bot, EventKind::Error { message: text })?;
                 }
@@ -373,10 +340,7 @@ impl Hub {
                     runtime.permit = None;
                     runtime.last_active = Instant::now();
                     Self::release_browser(bot, runtime);
-                    runtime
-                        .engine
-                        .uses_openrouter()
-                        .then(|| std::mem::take(&mut runtime.meter))
+                    Some(std::mem::take(&mut runtime.meter))
                 } else {
                     None
                 };
@@ -384,7 +348,6 @@ impl Hub {
                     self.announce_meter(bot, &meter.model, meter.requests, meter.cost_usd);
                 }
                 self.announce_bots().await;
-                self.announce_usage();
             }
             EngineEvent::Activity(activity) => {
                 let _ = self.updates.send(ServerMsg::Activity {
@@ -398,7 +361,7 @@ impl Hub {
 }
 
 impl Hub {
-    /// Notes the tools Claude just called, so their results can be read,
+    /// Notes the tools the bot just called, so their results can be read,
     /// and marks the session for an untrusted one as soon as it's called,
     /// so a team tool called meanwhile sees it.
     async fn tools_called(&self, bot: &BotId, tool_uses: &[ToolUse]) {
@@ -448,49 +411,40 @@ impl Hub {
         }
     }
 
-    /// Reads the snapshot files a browser result points to (off the async
-    /// threads) into `bot`'s element book.
-    async fn learn_files(&self, bot: &BotId, files: Vec<elements::SnapshotFile>) {
+    /// Reads the snapshot files the bot saved, as a browser result says
+    /// (off the async threads), into `bot`'s element book.
+    async fn learn_files(&self, bot: &BotId, files: Vec<PathBuf>) {
         let Ok(work_dir) = self.run_bot(bot.as_str()).map(|b| b.work_dir()) else {
-            return;
-        };
-        let Some(claude_home) = elements::claude_home() else {
             return;
         };
         let read = tokio::task::spawn_blocking(move || {
             files
                 .into_iter()
                 .filter_map(|file| {
-                    let path = elements::allowed_path(&file, &claude_home, &work_dir);
+                    let path = elements::allowed_path(&file, &work_dir);
                     if path.is_none() {
-                        tracing::debug!(path = %file.path.display(), "not reading a snapshot file outside the allowed folders");
+                        tracing::debug!(path = %file.display(), "not reading a snapshot file outside the bot's folder");
                     }
-                    Some((elements::read_file(&path?)?, file.saved_snapshot))
+                    elements::read_file(&path?)
                 })
                 .collect::<Vec<_>>()
         })
         .await
         .unwrap_or_default();
         if let Some(r) = self.runtimes.lock().await.get_mut(bot) {
-            for (contents, saved_snapshot) in read {
-                let learned = r.elements.learn_file(&contents, saved_snapshot);
+            for contents in read {
+                let learned = r.elements.learn_file(&contents);
                 tracing::debug!(%bot, learned, "read elements from a snapshot file");
             }
         }
     }
 }
 
-/// The model a bot's settings name for `engine`.
-fn model_of(bot: &Bot, engine: EngineKind) -> ModelChoice {
-    match engine {
-        EngineKind::Claude => bot
-            .model
-            .clone()
-            .map_or(ModelChoice::Auto, ModelChoice::Claude),
-        EngineKind::OpenRouter | EngineKind::Codex => match bot.loop_settings.model.as_deref() {
-            None | Some("" | "auto") => ModelChoice::Auto,
-            Some(id) => ModelChoice::Pin(id.to_owned()),
-        },
+/// The model a bot's settings name (both engines use the same models).
+fn model_of(bot: &Bot) -> ModelChoice {
+    match bot.loop_settings.model.as_deref() {
+        None | Some("" | "auto") => ModelChoice::Auto,
+        Some(id) => ModelChoice::Pin(id.to_owned()),
     }
 }
 
@@ -506,7 +460,7 @@ fn new_runtime(
 ) -> Runtime {
     let mut runtime = Runtime {
         session,
-        engine: EngineKind::Claude,
+        engine: EngineKind::Codex,
         gate_mode: GateMode::Live,
         busy: false,
         permit: None,

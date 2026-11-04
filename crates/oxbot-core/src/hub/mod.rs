@@ -1,7 +1,8 @@
 //! [`Hub`]: runs the bots.
 //!
-//! It keeps one `claude` child per bot that has been talked to, and a
-//! Chrome per owner: the home Chrome every shared bot uses, and each
+//! It keeps one engine session per bot that has been talked to (Codex's
+//! thread in the bot's `codex` process, or oxbot's own loop), and a Chrome
+//! per owner: the home Chrome every shared bot uses, and each
 //! person's own Chrome for their private bots. A Chrome keeps its owner's
 //! sign-ins, so the bots on it take turns: a bot holds its browser from its
 //! first browser action until its reply ends, and another bot that needs the
@@ -11,21 +12,19 @@
 //! sees everything, anyone else sees shared bots and their own private ones.
 //! People are told apart by their [`PersonId`]; names are only shown.
 //!
-//! The hub turns Claude's output into stored [`EventKind`]s, answers
-//! Claude's permission requests by the rules in [`crate::policy`] (asking
-//! the user with an [`Approval`] card before a change or an upload), serves
+//! The hub turns the engines' output into stored [`EventKind`]s, answers
+//! their permission requests by the rules in [`crate::policy`] (asking the
+//! user with an [`Approval`] card before a change or an upload), serves
 //! oxbot's own `request_sign_in` tool (a [`SignInRequest`] card and a
 //! visible Chrome window) and `save_report` (research reports, see
-//! [`crate::report`]), keeps Claude's usage (alerting at 50% and 80% of
-//! the plan's windows) and the people who send messages, and broadcasts
-//! every change to connected clients as
-//! [`ServerMsg`]s.
+//! [`crate::report`]), keeps the meter (alerting at 50% and 80% of the
+//! household's `OpenRouter` limits) and the people who send messages, and
+//! broadcasts every change to connected clients as [`ServerMsg`]s.
 
 mod access;
 mod alerts;
 mod approvals;
 mod browsers;
-mod claude;
 mod codex;
 mod compare;
 mod elements;
@@ -37,6 +36,7 @@ mod reports;
 mod rules;
 mod sections;
 mod seqs;
+mod session;
 mod sign_ins;
 mod taint;
 mod team;
@@ -44,12 +44,12 @@ mod trials;
 mod turns;
 mod uploads;
 
-pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
+pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS};
 pub use approvals::answers;
 pub use codex::CodexParts;
 pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::ENGINES_NOTICE;
-pub use engines::{ChainOrigin, Entry};
+pub use engines::{ChainOrigin, Entry, MOVED_TO_CODEX};
 pub use looped::LoopParts;
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
@@ -61,29 +61,22 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use oxbot_browser::{Browser, BrowserError, Tools};
-use oxbot_claude::ClaudeError;
-use oxbot_protocol::{Answer, Approval, BotEvent, EventKind, ServerMsg, SignInRequest, Usage};
+use oxbot_protocol::{Answer, Approval, BotEvent, EventKind, ServerMsg, SignInRequest};
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, broadcast, oneshot};
 
 use crate::bot::{Bot, BotError};
-use crate::engine::claude::ClaudeEngine;
-use crate::engine::{Engine, EngineError, EngineKind, GateMode, Session};
+use crate::engine::{EngineError, EngineKind, GateMode, Session};
 use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
 use crate::store::{Seqs, Store, StoreError};
 use turns::stop_idle_bots;
 
 /// Settings for the [`Hub`].
 #[derive(Debug, Clone)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "independent switches, three of them for tests only"
-)]
 pub struct HubConfig {
-    /// The `claude` program.
-    pub claude_program: PathBuf,
     /// Where bot folders live; new bots are created here.
     pub bots_dir: PathBuf,
-    /// Most turns that may run at the same time, across all bots.
+    /// Most turns that may run at the same time, across all bots (they
+    /// also wait for the model pacer).
     pub max_concurrent_turns: usize,
     /// Chrome and the browser tool, if bots may browse.
     pub browser: Option<Arc<Tools>>,
@@ -96,8 +89,8 @@ pub struct HubConfig {
     /// Bots idle this long are stopped (and the browser, once nobody has
     /// used it this long); they resume on the next message.
     pub idle_stop: Duration,
-    /// Extra environment for every `claude` child (tests use this; the app
-    /// passes a `PATH` that finds Node.js).
+    /// Extra environment for the engines' child processes (the app passes
+    /// a `PATH` that finds Node.js).
     pub extra_env: Vec<(String, String)>,
     /// The Mac's tools for files sent with messages (see
     /// [`crate::attach`]).
@@ -105,9 +98,9 @@ pub struct HubConfig {
     /// How long an uploaded file waits to be sent before it's deleted
     /// ([`crate::attach::KEEP_UNSENT`]).
     pub keep_unsent: Duration,
-    /// End-to-end test mode (`OXBOT_E2E`): its stand-in Claude never opens
-    /// real pages, so a blank tab may count for an "Always allow" rule
-    /// (see `Hub::blank_tab_counts_for_rules`). Off everywhere else.
+    /// End-to-end test mode (`OXBOT_E2E`): its stand-in browser tool never
+    /// opens real pages, so a blank tab may count for an "Always allow"
+    /// rule (see `Hub::blank_tab_counts_for_rules`). Off everywhere else.
     pub e2e: bool,
     /// Tests only (the `test-people` feature): a viewer known only by name
     /// becomes the person called that, made if new, the first time the hub
@@ -117,11 +110,9 @@ pub struct HubConfig {
     #[cfg(any(test, feature = "test-people"))]
     pub enrol_named_viewers: bool,
     /// oxbot's own loop for `OpenRouter` bots: its model client and key.
-    /// `None`: bots on `OpenRouter` can't run here.
+    /// Codex bots need it too (its tools, routing, limits and meter).
+    /// `None`: no bot can run here.
     pub openrouter: Option<LoopParts>,
-    /// Most loop turns that may run at the same time (they wait for the
-    /// model pacer, so they don't hold Claude's slots).
-    pub max_loop_turns: usize,
     /// The Codex engine's parts (needs `openrouter` too). `None`: bots on
     /// Codex can't run here.
     pub codex: Option<CodexParts>,
@@ -129,11 +120,12 @@ pub struct HubConfig {
     /// files (`cases/`) live here. Defaults to a folder inside `bots_dir`
     /// that isn't a bot; the app gives its data folder.
     pub data_dir: PathBuf,
-    /// Tests only (`test-people`): tests written before engines run every
-    /// bot on Claude and anyone may give it tasks. Never in a normal build:
-    /// there the field doesn't exist and the owner-only rule always holds.
+    /// Tests only (`test-people`): every bot runs on this engine, whatever
+    /// its file says (Herders too), so the hub's rules can be tested on
+    /// oxbot's loop without the `codex` program. Never in a normal build:
+    /// there the field doesn't exist, and Herders and new bots run on Codex.
     #[cfg(any(test, feature = "test-people"))]
-    pub pre_engine_tests: bool,
+    pub engines_on: Option<EngineKind>,
     /// Tests only (`test-people`): practice runs may use browser tools
     /// without a guarded Chrome (tests have no Chrome). Never in a normal
     /// build: there a practice run browses only behind its network guard.
@@ -142,16 +134,15 @@ pub struct HubConfig {
 }
 
 impl HubConfig {
-    /// Defaults: `claude` from `PATH`, 3 turns at once, no browser, 10
-    /// minutes to answer a card or sign in, idle bots stop after 15 minutes.
+    /// Defaults: 4 turns at once, no browser, no engine set up, 10 minutes
+    /// to answer a card or sign in, idle bots stop after 15 minutes.
     #[must_use]
     pub fn new(bots_dir: impl Into<PathBuf>) -> Self {
         let bots_dir = bots_dir.into();
         Self {
-            claude_program: PathBuf::from("claude"),
             data_dir: bots_dir.join(".oxbot"),
             bots_dir,
-            max_concurrent_turns: 3,
+            max_concurrent_turns: 4,
             browser: None,
             approval_timeout: Duration::from_mins(10),
             sign_in_timeout: Duration::from_mins(10),
@@ -162,25 +153,13 @@ impl HubConfig {
             keep_unsent: crate::attach::KEEP_UNSENT,
             e2e: false,
             openrouter: None,
-            max_loop_turns: 4,
             codex: None,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
             #[cfg(any(test, feature = "test-people"))]
-            pre_engine_tests: true,
+            engines_on: None,
             #[cfg(any(test, feature = "test-people"))]
             trials_without_guard: false,
-        }
-    }
-
-    /// The app's settings: as [`HubConfig::new`], with every rule on even
-    /// in a build with test features.
-    #[must_use]
-    pub fn for_app(bots_dir: impl Into<PathBuf>) -> Self {
-        Self {
-            #[cfg(any(test, feature = "test-people"))]
-            pre_engine_tests: false,
-            ..Self::new(bots_dir)
         }
     }
 }
@@ -218,27 +197,15 @@ pub enum HubError {
     /// The history database failed.
     #[error(transparent)]
     Store(#[from] StoreError),
-    /// Claude couldn't be started or stopped responding.
-    #[error(transparent)]
-    Claude(#[from] ClaudeError),
     /// A bot's engine couldn't start a session or stopped responding.
     #[error(transparent)]
     Engine(#[from] EngineError),
     /// The bot's engine can't run right now (not set up on this Mac yet).
     #[error("{0}")]
     EngineNotReady(String),
-    /// The bot runs on the owner's own Claude plan: only they give it tasks.
-    #[error("Only {owner} can give {bot} tasks: it runs on {owner}'s own Claude plan.")]
-    OwnerOnly {
-        /// The bot's name.
-        bot: String,
-        /// The owner's name.
-        owner: String,
-    },
 }
 
-/// A bot's running engine session (a `claude` child), and what oxbot
-/// knows about its turn.
+/// A bot's running engine session, and what oxbot knows about its turn.
 struct Runtime {
     session: Box<dyn Session>,
     /// The engine running it.
@@ -248,7 +215,7 @@ struct Runtime {
     busy: bool,
     /// Held while a turn runs, so at most `max_concurrent_turns` run at once.
     permit: Option<OwnedSemaphorePermit>,
-    /// The browser this bot's Claude was started with.
+    /// The browser this bot's session was started with.
     browser: Option<Arc<Shared>>,
     /// Held while this bot uses its browser (until its turn ends).
     lease: Option<OwnedMutexGuard<()>>,
@@ -263,21 +230,21 @@ struct Runtime {
     /// person Herder passed a task on for (its `asker`). Herder's tools act
     /// for them, and only they (and the Farm) answer the turn's cards.
     origin: engines::ChainOrigin,
-    /// What this Claude session has read that oxbot doesn't trust, which
+    /// What this session has read that oxbot doesn't trust, which
     /// may have asked for what comes next (see [`taint`] for the sources).
     /// Passing a task to a private bot then needs the person's OK.
     taint: Option<String>,
     /// What this turn was asked, as the chat shows it (a report keeps it).
     question: Option<String>,
-    /// The web pages this Claude session has opened (normalized address →
+    /// The web pages this session has opened (normalized address →
     /// title and when), kept with the session: a report may cite only
     /// these (see [`reports`]).
     visited: BTreeMap<String, crate::report::Visit>,
     /// A turn that was running when oxbot stopped, which this session can
     /// go on with (loop engine).
     resumed: Option<crate::engine::ResumedTurn>,
-    /// This turn's model requests so far (loop engine): count, money, and
-    /// the last model that answered.
+    /// This turn's model requests so far: count, money, and the last model
+    /// that answered.
     meter: looped::TurnMeter,
 }
 
@@ -313,12 +280,9 @@ pub struct Hub {
     bots: RwLock<BTreeMap<BotId, Bot>>,
     store: Arc<Store>,
     config: HubConfig,
-    /// Runs bots on Claude Code.
-    claude: Arc<dyn Engine>,
-    /// oxbot's own loop, for bots on `OpenRouter` (if set up).
+    /// oxbot's own loop, for bots on `OpenRouter` and Codex's tools (if
+    /// set up).
     loop_engine: Option<Arc<oxbot_loop::LoopEngine>>,
-    /// Turns the loop may run at once.
-    loop_turns: Arc<Semaphore>,
     /// The Codex engine, once started ([`Hub::start_codex`]).
     codex: std::sync::OnceLock<Arc<oxbot_codex::CodexEngine>>,
     /// Whether the page was last told the `OpenRouter` account's privacy
@@ -334,9 +298,10 @@ pub struct Hub {
     approvals: WaitingApprovals,
     sign_ins: Waiting<SignInRequest, bool>,
     next_id: AtomicU64,
-    /// Bots whose `claude` is being started (which can take a while the first
-    /// time, while the browser tool installs).
+    /// Bots whose session is being started (which can take a while the
+    /// first time, while the browser tool installs).
     starting: std::sync::Mutex<HashSet<BotId>>,
+    /// Turns that may run at once.
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
     /// Each bot's latest event and reply numbers, kept as events are
@@ -387,6 +352,10 @@ impl Hub {
                 None
             }
         };
+        // Bots that ran on Claude move to Codex first: their files are
+        // rewritten only once their chats have the line about it.
+        let mut bots = bots;
+        engines::upgrade_from_claude(&mut bots, &store);
         // Nobody is listening yet: no need to tell anyone who's new.
         let (bots, _) = people::adopt_bots(bots, &store, farm.as_ref());
         let seqs = seqs::LatestSeqs::load(&store);
@@ -401,13 +370,11 @@ impl Hub {
                 .openrouter
                 .as_ref()
                 .map(|parts| looped::build_engine(parts, &store, &config, me.clone())),
-            loop_turns: Arc::new(Semaphore::new(config.max_loop_turns.max(1))),
             codex: std::sync::OnceLock::new(),
             data_policy_shown: std::sync::atomic::AtomicBool::new(false),
             context_swept: std::sync::atomic::AtomicI64::new(0),
             store,
-            turns: Arc::new(Semaphore::new(config.max_concurrent_turns)),
-            claude: Arc::new(ClaudeEngine::new(&config.claude_program)),
+            turns: Arc::new(Semaphore::new(config.max_concurrent_turns.max(1))),
             config,
             runtimes: Mutex::new(HashMap::new()),
             browsers: std::sync::Mutex::new(HashMap::new()),
@@ -464,23 +431,6 @@ impl Hub {
             .map_or_else(|_| id.to_string(), |b| b.name)
     }
 
-    /// Claude's usage: the plan's limits and every bot's totals.
-    ///
-    /// # Errors
-    /// Fails if the database fails.
-    pub fn usage(&self) -> Result<Usage, HubError> {
-        Ok(self.store.usage()?)
-    }
-
-    fn announce_usage(&self) {
-        match self.usage() {
-            Ok(usage) => {
-                let _ = self.updates.send(ServerMsg::Usage(usage));
-            }
-            Err(err) => tracing::warn!(%err, "couldn't read usage"),
-        }
-    }
-
     /// Stores an event and tells every client about it.
     fn record(&self, bot: &BotId, kind: EventKind) -> Result<BotEvent, HubError> {
         // A practice run's events are its own, never a chat's.
@@ -532,12 +482,12 @@ fn owner_id(owner: &BrowserOwner) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::browsers::person_folder;
-    use super::claude::{activity_label, listed_selected_page, selected_page, tool_label};
+    use super::session::{activity_label, listed_selected_page, selected_page, tool_label};
     use super::turns::{relayed_line, sender_line};
     use super::*;
     use crate::bot::Viewer;
+    use crate::engine::Activity;
     use oxbot_browser::Tools;
-    use oxbot_claude::Activity;
     use oxbot_protocol::ApprovalKind;
 
     #[test]

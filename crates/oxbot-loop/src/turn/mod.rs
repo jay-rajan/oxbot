@@ -108,7 +108,6 @@ pub(crate) async fn run_turn(core: Arc<Core>, input: TurnInput, cancel: Cancella
             ok,
             text,
             duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-            usage: None,
         })
         .await;
 }

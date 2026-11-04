@@ -1,5 +1,5 @@
 //! File tools for the bot's own `work/` folder: `Read`, `Write`, `Edit`,
-//! `Glob`, `Grep`, with the names and arguments Claude Code uses.
+//! `Glob`, `Grep`, with the names and arguments models know them by.
 //!
 //! The gate already refused any path outside `work/`; these check again
 //! (defense in depth): a path must be inside `work/` both as written and

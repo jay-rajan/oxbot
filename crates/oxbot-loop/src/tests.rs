@@ -124,7 +124,6 @@ impl Harness {
             model: ModelChoice::Auto,
             browser: Some(BrowserSpec {
                 mcp: McpCommand::default(),
-                mcp_json: json!({}),
             }),
             host_tools: HostTools {
                 central: true,
@@ -231,10 +230,7 @@ async fn pump(mut events: mpsc::Receiver<EngineEvent>, hub: HubScript) -> Vec<Se
                 seen.push(Seen::Done(ok, text));
                 break;
             }
-            EngineEvent::TextDelta(_)
-            | EngineEvent::Limits(_)
-            | EngineEvent::ModelCall(_)
-            | EngineEvent::Activity(_) => {}
+            EngineEvent::TextDelta(_) | EngineEvent::ModelCall(_) | EngineEvent::Activity(_) => {}
         }
     }
     seen

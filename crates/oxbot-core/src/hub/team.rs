@@ -90,7 +90,7 @@ impl Hub {
         match tool {
             tools::SIGN_IN_TOOL => self.request_sign_in(bot, &text("url"), &text("why")).await,
             tools::LIST_BOTS_TOOL => {
-                let (list, others) = self.team(bot, &asker, &origin).await;
+                let (list, others) = self.team(bot, &asker).await;
                 if others {
                     self.mark_untrusted(bot, OTHER_PEOPLES_BOTS.to_owned())
                         .await;
@@ -143,12 +143,7 @@ impl Hub {
     /// for (as data), and status. Also whether it lists a name or
     /// instructions someone other than `asker` wrote, which Herder can't
     /// trust.
-    pub(super) async fn team(
-        &self,
-        me: &BotId,
-        asker: &Viewer,
-        origin: &ChainOrigin,
-    ) -> (String, bool) {
+    pub(super) async fn team(&self, me: &BotId, asker: &Viewer) -> (String, bool) {
         let busy: HashSet<BotId> = self
             .runtimes
             .lock()
@@ -193,12 +188,7 @@ impl Hub {
                 .chars()
                 .take(160)
                 .collect();
-            let status = if !b.is_central() && self.may_task(&b, origin).is_err() {
-                &format!(
-                    "owner only (runs on {}'s Claude plan), so you can't give it tasks",
-                    self.owner_name()
-                )
-            } else if busy.contains(&b.id) {
+            let status = if busy.contains(&b.id) {
                 "working"
             } else {
                 "free"
@@ -262,10 +252,8 @@ impl Hub {
         // The chain stays whoever started it: passing it on never makes it
         // the owner's.
         let relayed = origin.relayed_by(from, self.untrusted(from).await);
-        match self.may_task(&to, &relayed) {
-            Ok(()) => {}
-            Err(HubError::OwnerOnly { .. }) => return (false, self.owner_only_message(&to)),
-            Err(err) => return (false, format!("Couldn't send the task: {err}")),
+        if let Err(err) = super::engines::may_task(&relayed) {
+            return (false, format!("Couldn't send the task: {err}"));
         }
         if to.private
             && let Some(refused) = self.check_private_task(from, asker, &to, message).await
@@ -284,7 +272,6 @@ impl Hub {
             .await
         {
             Ok(()) => {}
-            Err(HubError::OwnerOnly { .. }) => return (false, self.owner_only_message(&to)),
             Err(HubError::Busy(_)) => {
                 return (
                     false,

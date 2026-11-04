@@ -12,11 +12,11 @@
 //! request is metered ([`meter`]).
 //!
 //! The loop never decides what a tool may do: the hub does, through
-//! [`oxbot_engine::EngineEvent::Permission`], with the same policy as for
-//! Claude bots. Tools have the same names as on Claude, so the hub reads
-//! both engines the same way.
+//! [`oxbot_engine::EngineEvent::Permission`], with the same policy for
+//! every engine. The Codex engine runs these same tools through
+//! [`ToolService`], so the hub reads both engines the same way.
 
-// Product names (OpenRouter, Claude) read better in docs without backticks.
+// Product names (OpenRouter, Codex) read better in docs without backticks.
 #![allow(clippy::doc_markdown)]
 
 pub mod budget;

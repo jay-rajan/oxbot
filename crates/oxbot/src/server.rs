@@ -15,14 +15,14 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
-use oxbot_core::engine::EngineKind;
+use oxbot_core::engine::{EngineKind, from_wire};
 use oxbot_core::hub::answers;
 use oxbot_core::id::BrowserOwner;
 use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
     AppSettings, ClientMsg, DEFAULT_PAGE, EnginesView, KeyLimits, LogLine, MAX_PAGE, ModelRow,
-    OpenRouterView, ReviewBot, ServerHello, ServerMsg, SetupAction, SetupReport,
+    OpenRouterView, ServerHello, ServerMsg, SetupReport,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
@@ -58,8 +58,6 @@ pub struct AppState {
     /// Whether the browser tool (and the Node.js it needs) ships inside the
     /// app, so the setup check doesn't ask for Node.js.
     pub tool_built_in: bool,
-    /// Set while a setup step (install, sign-in) runs, so only one runs.
-    pub setup_running: Arc<std::sync::atomic::AtomicBool>,
     /// End-to-end test mode: a connection may say who it is with `?as=Name`
     /// (always a Gate person, never the Farm).
     pub e2e: bool,
@@ -75,9 +73,6 @@ pub struct AppState {
     pub dictation: Arc<crate::dictation::Dictation>,
     /// Numbers connections, so dictation goes back to the one that asked.
     pub next_conn: Arc<std::sync::atomic::AtomicU64>,
-    /// Claude bots other people used before they became owner-only, found
-    /// at start (see [`AppState::review_engines`]).
-    pub engine_review: Arc<std::sync::RwLock<Vec<ReviewBot>>>,
     /// The port this server listens on (`OpenRouter`'s sign-in comes back
     /// to it); 0 if unknown.
     pub port: u16,
@@ -136,22 +131,11 @@ impl AppState {
     }
 
     /// Settings → Engines as `viewer` gets it: everyone the notice and
-    /// whether `OpenRouter` is ready; the Farm also the banner and the Claude
-    /// bots others used (those still on Claude).
+    /// whether each engine is ready; the Farm also `OpenRouter`'s account
+    /// and what was found of Codex.
     #[must_use]
     pub fn engines_for(&self, viewer: &Viewer) -> EnginesView {
         let farm = viewer.farm;
-        let review = if farm {
-            self.engine_review
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .iter()
-                .filter(|r| self.hub.engine_of_bot(&r.bot) == Some(EngineKind::Claude))
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        };
         let catalog = self.catalog();
         let models = catalog
             .as_ref()
@@ -164,8 +148,6 @@ impl AppState {
             notice: oxbot_core::hub::ENGINES_NOTICE.to_owned(),
             owner: self.hub.owner_display_name(),
             openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
-            banner: farm && self.hub.engines_notice_due(),
-            review,
             models,
             openrouter,
         }
@@ -257,25 +239,6 @@ impl AppState {
         result
     }
 
-    /// Looks again for Claude bots other people used in the last 30 days
-    /// (once at start: they are owner-only now, and the owner reviews
-    /// them in Settings → Engines).
-    pub fn review_engines(&self) {
-        const DAYS_30_MS: i64 = 30 * 24 * 60 * 60 * 1000;
-        let since = crate::runtime::now_ms() - DAYS_30_MS;
-        let found = self.hub.claude_bots_others_used(since);
-        if !found.is_empty() {
-            tracing::info!(
-                bots = found.len(),
-                "Claude bots other people used are owner-only now"
-            );
-        }
-        *self
-            .engine_review
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = found;
-    }
-
     /// Who the Farm's own window is: the Farm's own person. (Gates connect
     /// through the Gate door as the person they were paired for.)
     #[must_use]
@@ -288,7 +251,10 @@ impl AppState {
     /// Runs the setup check again and keeps the result.
     pub async fn refresh_setup(&self) -> SetupReport {
         self.dictation.check().await;
-        let mut report = crate::setup::check(&self.search_path, self.tool_built_in).await;
+        let mut report = crate::setup::check(&self.search_path, self.tool_built_in);
+        report
+            .checks
+            .insert(0, crate::setup::codex_check(&self.hub.codex_view()));
         report.checks.push(crate::setup::mac_helper_check(
             self.dictation.helper().is_some(),
             self.dictation.available(),
@@ -332,14 +298,12 @@ impl AppState {
             search_path: std::env::var("PATH").unwrap_or_default(),
             setup: Arc::default(),
             tool_built_in: false,
-            setup_running: Arc::default(),
             e2e: false,
             door: None,
             farm_key: crate::secret::random_hex::<32>(),
             notifier: None,
             dictation: Arc::new(crate::dictation::Dictation::new(None)),
             next_conn: Arc::default(),
-            engine_review: Arc::default(),
             port: 0,
             openrouter: None,
         }
@@ -522,8 +486,8 @@ async fn upload(
         }
         Err(err) => return upload_error(StatusCode::FORBIDDEN, &err.to_string()),
     };
-    // Files only for a bot they may give tasks (Claude bots: the owner's),
-    // refused before anything is read.
+    // Files only for a bot they may give tasks, refused before anything is
+    // read.
     if let Err(err) = state.hub.may_send(bot_id.as_str(), &viewer) {
         return upload_error(StatusCode::FORBIDDEN, &err.to_string());
     }
@@ -836,14 +800,6 @@ impl Client {
                 None => true,
             });
         }
-        view.review = view
-            .review
-            .into_iter()
-            .filter_map(|mut r| {
-                r.bot = self.outer(&r.bot)?;
-                Some(r)
-            })
-            .collect();
         view
     }
 
@@ -929,17 +885,6 @@ impl Client {
                     .collect(),
                 owner_id,
             },
-            ServerMsg::Usage(mut usage) => {
-                usage.bots = usage
-                    .bots
-                    .into_iter()
-                    .filter_map(|mut b| {
-                        b.bot = self.outer(&b.bot)?;
-                        Some(b)
-                    })
-                    .collect();
-                ServerMsg::Usage(usage)
-            }
             other => return self.outbound_engines(other),
         })
     }
@@ -1029,7 +974,7 @@ async fn serve_client(
         ServerMsg::Settings(state.settings_for(&client.viewer)),
     ];
     first.push(ServerMsg::Setup(state.setup_report()));
-    first.extend(usage_now(&state, &mut client));
+    first.extend(usage_now(&state));
     if let Ok(people) = state.hub.people() {
         first.push(ServerMsg::People { people });
     }
@@ -1116,20 +1061,13 @@ async fn serve_client(
     }
 }
 
-/// Usage as `client` may see it, then the usage alerts still live (so the
-/// banner survives a reload).
-fn usage_now(state: &AppState, client: &mut Client) -> Vec<ServerMsg> {
-    let usage = state.hub.usage().ok().map(ServerMsg::Usage);
-    usage
-        .and_then(|u| forward(u, client))
+/// The usage alerts still live (so the banner survives a reload).
+fn usage_now(state: &AppState) -> Vec<ServerMsg> {
+    state
+        .hub
+        .live_usage_alerts()
         .into_iter()
-        .chain(
-            state
-                .hub
-                .live_usage_alerts()
-                .into_iter()
-                .map(ServerMsg::UsageAlert),
-        )
+        .map(ServerMsg::UsageAlert)
         .collect()
 }
 
@@ -1281,24 +1219,12 @@ async fn handle_engines(
                 .set_bot_daily_limit(&bot, daily_requests, viewer)
                 .await,
         ),
-        ClientMsg::SetEngine {
-            bot,
-            engine,
-            model,
-            confirm_owner_only,
-        } => {
-            let done = state
+        ClientMsg::SetEngine { bot, engine, model } => reply(
+            state
                 .hub
-                .set_engine(&bot, engine_kind(engine), model, viewer, confirm_owner_only)
-                .await;
-            if done.is_ok() {
-                // The owner's review list changes with it.
-                state
-                    .hub
-                    .announce(ServerMsg::Engines(state.engines_for(viewer)));
-            }
-            reply(done)
-        }
+                .set_engine(&bot, from_wire(engine), model, viewer)
+                .await,
+        ),
         other => return Err(other),
     })
 }
@@ -1496,10 +1422,6 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
-        ClientMsg::EnginesNoticeSeen => match state.hub.set_engines_notice_seen() {
-            Ok(()) => vec![ServerMsg::Engines(state.engines_for(&state.farm_viewer()))],
-            Err(e) => error(&e),
-        },
         ClientMsg::OpenRouterSignIn
         | ClientMsg::OpenRouterSignOut
         | ClientMsg::RefreshModels
@@ -1511,20 +1433,6 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             }
             Err(e) => error(&e),
         },
-        ClientMsg::RunSetup { action } => {
-            if state
-                .setup_running
-                .swap(true, std::sync::atomic::Ordering::SeqCst)
-            {
-                return Ok(vec![ServerMsg::Notice {
-                    message: "A setup step is already running.".to_owned(),
-                    owner: None,
-                    owner_id: None,
-                }]);
-            }
-            tokio::spawn(run_setup(state.clone(), action));
-            Vec::new()
-        }
         other => return Err(other),
     })
 }
@@ -1636,11 +1544,9 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::AddDoorNetwork
             | ClientMsg::RemoveDoorNetwork { .. }
             | ClientMsg::SetDoorName { .. }
-            | ClientMsg::RunSetup { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
             | ClientMsg::SetNotifyWhenHidden { .. }
-            | ClientMsg::EnginesNoticeSeen
             // The household's OpenRouter account and settings.
             | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut
@@ -1694,9 +1600,8 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
     }
 }
 
-/// Makes a bot for the client on `engine` (the server's default if
-/// `None`). Claude only for the Farm's owner; `OpenRouter` only once it's
-/// set up. Checked before anything is made.
+/// Makes a bot for the client on `engine` (Codex if `None`), once that
+/// engine can run. Checked before anything is made.
 async fn create_bot(
     state: &AppState,
     client: &mut Client,
@@ -1711,20 +1616,11 @@ async fn create_bot(
             message: e.to_string(),
         }]
     };
-    let wanted = engine.map(engine_kind);
-    match wanted {
-        Some(EngineKind::Claude) if !state.hub.is_owner_viewer(&viewer) => {
-            let owner = state.hub.owner_display_name();
-            return error(&format!(
-                "Only {owner} can make Claude bots: they run on {owner}'s own Claude plan."
-            ));
-        }
-        Some(kind @ (EngineKind::OpenRouter | EngineKind::Codex)) => {
-            if let Err(why) = state.hub.engine_ready(kind) {
-                return error(&why);
-            }
-        }
-        _ => {}
+    let wanted = engine.map(from_wire);
+    if let Some(kind) = wanted
+        && let Err(why) = state.hub.engine_ready(kind)
+    {
+        return error(&why);
     }
     let info = match state
         .hub
@@ -1736,17 +1632,12 @@ async fn create_bot(
     };
     client.visible.insert(info.id.clone());
     let mut out = Vec::new();
-    if let Some(wanted) = wanted.filter(|w| *w != engine_kind(info.engine)) {
-        // The person picked it in the dialog, which said what Claude means.
-        if let Err(e) = state
-            .hub
-            .set_engine(&info.id, wanted, None, &viewer, true)
-            .await
-        {
-            out.push(ServerMsg::Error {
-                message: format!("Made {}, but couldn't switch its engine: {e}", info.name),
-            });
-        }
+    if let Some(wanted) = wanted.filter(|w| *w != from_wire(info.engine))
+        && let Err(e) = state.hub.set_engine(&info.id, wanted, None, &viewer).await
+    {
+        out.push(ServerMsg::Error {
+            message: format!("Made {}, but couldn't switch its engine: {e}", info.name),
+        });
     }
     let info = match state.hub.bots().await {
         Ok(list) => list.into_iter().find(|b| b.id == info.id).unwrap_or(info),
@@ -1760,15 +1651,6 @@ async fn create_bot(
             .map(ServerMsg::BotCreated),
     );
     out
-}
-
-/// The engine as the hub names it.
-fn engine_kind(engine: oxbot_protocol::EngineKind) -> EngineKind {
-    match engine {
-        oxbot_protocol::EngineKind::Claude => EngineKind::Claude,
-        oxbot_protocol::EngineKind::OpenRouter => EngineKind::OpenRouter,
-        oxbot_protocol::EngineKind::Codex => EngineKind::Codex,
-    }
 }
 
 /// A message on its way: to `bot`, `text` with the uploaded `files`.
@@ -1863,33 +1745,6 @@ fn reply(result: Result<(), oxbot_core::HubError>) -> Vec<ServerMsg> {
     }
 }
 
-/// Runs a setup step for the user, telling every client how it goes, then
-/// checks setup again.
-async fn run_setup(state: AppState, action: SetupAction) {
-    let tell = |text: String, running: bool| {
-        state.hub.announce(ServerMsg::SetupProgress {
-            action,
-            text,
-            running,
-        });
-    };
-    tracing::info!(?action, "setup step started");
-    tell("Starting…".to_owned(), true);
-    let result = crate::setup::run(action, &state.search_path, |line| tell(line, true)).await;
-    match &result {
-        Ok(()) => tell("Done.".to_owned(), false),
-        Err(why) => {
-            tracing::warn!(?action, why, "setup step failed");
-            tell(why.clone(), false);
-        }
-    }
-    let report = state.refresh_setup().await;
-    state.hub.announce(ServerMsg::Setup(report));
-    state
-        .setup_running
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-}
-
 /// What only the hub can decide for one viewer, just before sending: on a
 /// card, whether they're offered "Always allow"; a bot's rules go only to
 /// those who may manage it.
@@ -1956,10 +1811,6 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
                 .viewer
                 .is_person(owner_id.as_deref(), owner.as_deref()))
         .then_some(msg),
-        ServerMsg::Usage(mut usage) => {
-            usage.bots.retain(|b| client.sees(&b.bot));
-            Some(ServerMsg::Usage(usage))
-        }
         // A person's sections are their own view: only their connections
         // get them, by id. Not the Farm: it manages bots, not people's views.
         ServerMsg::Sections { ref owner_id, .. } => client
@@ -2009,10 +1860,9 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::ApprovalResolved { .. }
         | ServerMsg::SignInResolved { .. }
         | ServerMsg::Setup(_)
-        | ServerMsg::SetupProgress { .. }
         | ServerMsg::People { .. }
-        // Plan limits already go to everyone in `Usage`; an alert names no
-        // bot, site or person.
+        // The household's limits: an alert names at most a bot, by the
+        // name everyone sees in the list.
         | ServerMsg::UsageAlert(_)
         // Made for each viewer in [`for_viewer`].
         | ServerMsg::Engines(_)
@@ -2820,7 +2670,7 @@ mod tests {
         );
     }
 
-    /// A server with every engine rule on: Recipes (shared, Claude) and
+    /// A server with every engine rule on: Recipes (shared, Codex) and
     /// Sam's own Notes (`OpenRouter`); Jay is the Farm's person.
     fn engines_state(dir: &std::path::Path) -> (AppState, Viewer) {
         engines_state_with(dir, None)
@@ -2851,9 +2701,8 @@ mod tests {
             notes,
         ];
         let config = oxbot_core::HubConfig {
-            pre_engine_tests: false,
             openrouter,
-            ..oxbot_core::HubConfig::for_app(dir)
+            ..oxbot_core::HubConfig::new(dir)
         };
         let hub = Hub::new(bots, store, config);
         let state = AppState {
@@ -2867,7 +2716,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_owner_may_task_claude_bots_whoever_sees_the_list() {
+    async fn anyone_may_task_the_bots_they_see_and_engines_are_listed() {
         let tmp = tempfile::tempdir().unwrap();
         let (state, sam) = engines_state(tmp.path());
         let farm = state.farm_viewer();
@@ -2893,14 +2742,15 @@ mod tests {
         let all = vec![("notes".to_owned(), true), ("recipes".to_owned(), true)];
         assert_eq!(can_task(&farm), all);
         assert_eq!(can_task(&jay_phone), all);
-        assert_eq!(
-            can_task(&sam),
-            [("notes".to_owned(), true), ("recipes".to_owned(), false)]
-        );
+        assert_eq!(can_task(&sam), all);
         // The engine is listed for everyone.
         assert!(
             bots.iter()
                 .any(|b| b.id == "notes" && b.engine == oxbot_protocol::EngineKind::OpenRouter)
+        );
+        assert!(
+            bots.iter()
+                .any(|b| b.id == "recipes" && b.engine == oxbot_protocol::EngineKind::Codex)
         );
 
         let settings = state.settings_for(&sam);
@@ -2911,7 +2761,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_owner_switches_bots_to_claude_or_makes_claude_bots() {
+    async fn bots_are_made_and_switched_only_on_an_engine_that_can_run() {
         let tmp = tempfile::tempdir().unwrap();
         let (state, sam) = engines_state(tmp.path());
         let (out, _rx) = mpsc::channel(4);
@@ -2920,76 +2770,48 @@ mod tests {
             state.hub.visible_ids(&sam),
             herder_for(&state, &sam),
         );
-        let to_claude = ClientMsg::SetEngine {
+        // No OpenRouter here: neither engine can run, and nothing changes.
+        let to_codex = ClientMsg::SetEngine {
             bot: "notes".into(),
-            engine: oxbot_protocol::EngineKind::Claude,
+            engine: oxbot_protocol::EngineKind::Codex,
             model: None,
-            confirm_owner_only: true,
         };
-        assert!(!farm_only(&to_claude));
-        let replies = handle(to_claude, &state, &mut client, &out).await;
+        assert!(!farm_only(&to_codex));
+        let replies = handle(to_codex, &state, &mut client, &out).await;
         assert!(
-            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("Only Jay can switch a bot to Claude")),
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("OpenRouter isn't set up")),
             "{replies:?}"
         );
         assert_eq!(
             state.hub.engine_of_bot("notes"),
             Some(EngineKind::OpenRouter)
         );
-
         let make = ClientMsg::CreateBot {
             name: "Diary".into(),
             instructions: String::new(),
             private: true,
-            engine: Some(oxbot_protocol::EngineKind::Claude),
+            engine: Some(oxbot_protocol::EngineKind::Codex),
         };
         let replies = handle(make, &state, &mut client, &out).await;
         assert!(
-            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("Only Jay can make Claude bots")),
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("OpenRouter isn't set up")),
             "{replies:?}"
         );
         assert!(state.hub.bot("diary").is_err(), "nothing made");
 
-        // The notice is the Farm's to dismiss.
-        assert!(farm_only(&ClientMsg::EnginesNoticeSeen));
-        let replies = handle(ClientMsg::EnginesNoticeSeen, &state, &mut client, &out).await;
-        assert!(
-            matches!(&replies[..], [ServerMsg::Error { .. }]),
-            "{replies:?}"
-        );
-        assert!(state.hub.engines_notice_due());
-
-        // Everyone gets the notice; only the Farm the banner and the review.
+        // Everyone gets the notice: where the bots' model calls go.
         let view = state.engines_for(&sam);
         assert_eq!(view.notice, oxbot_core::hub::ENGINES_NOTICE);
-        assert!(!view.banner && view.review.is_empty());
-        assert!(state.engines_for(&state.farm_viewer()).banner);
-    }
-
-    #[tokio::test]
-    async fn the_owner_reviews_claude_bots_others_used_until_switched() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (state, _sam) = engines_state(tmp.path());
-        // Sam's message to Recipes from before engines.
-        oxbot_core::Store::open(&tmp.path().join("oxbot.db"))
-            .unwrap()
-            .append(
-                &oxbot_core::BotId::new("recipes").unwrap(),
-                oxbot_protocol::EventKind::UserMessage {
-                    text: "dinner?".into(),
-                    from: Some("Sam".into()),
-                    files: Vec::new(),
-                },
-            )
-            .unwrap();
-        state.review_engines();
-        let farm = state.farm_viewer();
-        let review = state.engines_for(&farm).review;
-        assert_eq!(review.len(), 1);
-        assert_eq!(
-            (review[0].bot.as_str(), &review[0].used_by[..]),
-            ("recipes", &["Sam".to_owned()][..])
+        assert!(
+            view.notice
+                .contains("only to OpenRouter through oxbot's relay")
         );
+        assert!(
+            view.codex.is_none() && view.openrouter.is_none(),
+            "the Farm's only"
+        );
+        let json = serde_json::to_string(&ServerMsg::Engines(view)).unwrap();
+        assert!(!json.to_lowercase().contains("claude"), "{json}");
     }
 
     const FAKE_KEY: &str = "sk-or-v1-test-feedfacecafe0123";

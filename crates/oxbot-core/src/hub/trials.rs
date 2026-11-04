@@ -32,12 +32,12 @@ use tokio::sync::{Mutex, Notify, oneshot};
 
 use super::engines::{ChainOrigin, Entry};
 use super::turns::sender_line;
-use super::{Hub, HubError, Shared, claude::SessionOverrides, lock};
+use super::{Hub, HubError, Shared, lock, session::SessionOverrides};
 use crate::bot::Bot;
 use crate::compare::{self, Expected, Fixtures};
 use crate::engine::{
-    CallRecord, Decision, EngineKind, GateMode, HostToolCall, ModelChoice, PermissionRequest,
-    ToolReply, TurnInput, TurnUsage,
+    CallRecord, Decision, GateMode, HostToolCall, ModelChoice, PermissionRequest, ToolReply,
+    TurnInput, from_wire,
 };
 use crate::id::{BotId, BrowserOwner};
 use crate::policy::{self, Intent, TrialCall, TrialMode, TrialVerdict};
@@ -197,22 +197,8 @@ fn net_mode(mode: TrialMode) -> oxbot_browser::NetMode {
     }
 }
 
-/// The engine a target names.
-pub(super) fn engine_kind(engine: oxbot_protocol::EngineKind) -> EngineKind {
-    match engine {
-        oxbot_protocol::EngineKind::Claude => EngineKind::Claude,
-        oxbot_protocol::EngineKind::OpenRouter => EngineKind::OpenRouter,
-        oxbot_protocol::EngineKind::Codex => EngineKind::Codex,
-    }
-}
-
-/// Who serves a target's model.
-pub(super) fn provider_of(engine: EngineKind) -> &'static str {
-    match engine {
-        EngineKind::Claude => "anthropic",
-        EngineKind::OpenRouter | EngineKind::Codex => "openrouter",
-    }
-}
+/// Who serves every run's model: both engines run on `OpenRouter`.
+pub(super) const PROVIDER: &str = "openrouter";
 
 impl Hub {
     /// Looks up a bot or a practice run's synthetic bot, for the engine
@@ -292,24 +278,10 @@ impl Hub {
         Ok(event)
     }
 
-    /// A practice run's turn usage (Claude): onto its run, never the bot's.
-    pub(super) fn trial_usage(&self, key: &BotId, usage: &TurnUsage) {
-        if let Some(a) = lock(&self.trials.active).get_mut(key) {
-            a.run.input_tokens += usage.input_tokens + usage.cache_write_tokens;
-            a.run.cached_tokens += usage.cache_read_tokens;
-            a.run.output_tokens += usage.output_tokens;
-            a.run.cost_usd += usage.cost_usd;
-        }
-    }
-
-    /// One model request of a practice run (loop engine): onto its run.
+    /// One model request of a practice run: onto its run.
     pub(super) fn trial_model_call(&self, key: &BotId, record: &CallRecord) {
         if let Some(a) = lock(&self.trials.active).get_mut(key) {
             a.run.requests += 1;
-            if record.provider == crate::engine::CLAUDE_PROVIDER {
-                // Claude's tokens and cost come with its turn's total.
-                return;
-            }
             a.run.input_tokens += record.prompt_tokens;
             a.run.output_tokens += record.completion_tokens;
             a.run.cached_tokens += record.cached_tokens;
@@ -662,18 +634,16 @@ impl Hub {
                 done += 1;
                 continue;
             }
-            if run.engine == "claude"
-                && let Some(reason) = self.wait_for_claude(id, &batch.bot, done, total).await
-            {
+            // Queued before Claude left oxbot: it can't run.
+            let Some(engine) = compare::engine_of(&run.engine) else {
                 "stopped".clone_into(&mut run.status);
-                run.answer = reason;
+                "Not run: Claude is no longer one of oxbot's engines.".clone_into(&mut run.answer);
                 let _ = self.store.save_run(&run);
                 done += 1;
                 continue;
-            }
+            };
             // The rest of today's free requests are kept for live bots.
-            if run.engine == "openrouter"
-                && let (Some(left), reserve) = self.openrouter_room()
+            if let (Some(left), reserve) = self.openrouter_room()
                 && left <= reserve
             {
                 "rate_limited".clone_into(&mut run.status);
@@ -691,7 +661,7 @@ impl Hub {
             if let Some(case) = case {
                 let input = RunInput::of_case(&case, &cases_dir(&self.config.data_dir));
                 let target = Target {
-                    engine: compare::engine_of(&run.engine),
+                    engine,
                     model: run.model.clone(),
                 };
                 self.run_one(&case.bot, &mut run, &target, input).await;
@@ -712,38 +682,6 @@ impl Hub {
         let _ = self.store.set_batch_status(id, status);
         lock(&self.trials.stopped).remove(id);
         self.announce_batch(&batch.bot, id, done, total, status, None);
-    }
-
-    /// Before a run on Claude: if any of the plan's windows is at the
-    /// pause level, the batch waits (saying so) until it resets. Returns
-    /// why it gave up, if it did (stopped meanwhile).
-    async fn wait_for_claude(&self, id: &str, bot: &str, done: u32, total: u32) -> Option<String> {
-        loop {
-            let level = self.claude_pause_level();
-            let busy = self.store.usage().ok().and_then(|u| {
-                u.limits
-                    .into_iter()
-                    .filter(|l| l.used >= level)
-                    .max_by_key(|l| l.resets_at_ms)
-            });
-            let limit = busy?;
-            if limit.resets_at_ms > 0 && limit.resets_at_ms <= now_ms() {
-                return None;
-            }
-            if self.batch_stopped(id) {
-                return Some("Stopped while waiting for your Claude limits.".to_owned());
-            }
-            let _ = self.store.set_batch_status(id, "paused");
-            self.announce_batch(
-                bot,
-                id,
-                done,
-                total,
-                "paused",
-                Some("waiting for your Claude limits to reset".to_owned()),
-            );
-            tokio::time::sleep(Duration::from_mins(1)).await;
-        }
     }
 
     pub(super) fn announce_batch(
@@ -772,11 +710,9 @@ impl Hub {
             .and_then(|c| self.store.test_case(c).ok().flatten())
             .map(|c| c.title)
             .unwrap_or_default();
-        let _ = self
-            .updates
-            .send(ServerMsg::TrialRun(Box::new(compare::run_info(
-                run, &title,
-            ))));
+        if let Some(info) = compare::run_info(run, &title) {
+            let _ = self.updates.send(ServerMsg::TrialRun(Box::new(info)));
+        }
     }
 
     /// Runs one practice run of `source`'s case on `target`, start to end,
@@ -801,7 +737,7 @@ impl Hub {
         let dir = trials_dir(&self.config.data_dir).join(&run.id);
         let outcome = self.drive(source, run, target, input, &key, &dir).await;
         // Whatever happened: nothing of the run stays but its row.
-        self.stop_claude(&key).await;
+        self.stop_session(&key).await;
         let active = lock(&self.trials.active).remove(&key);
         if let Some(shared) = active.as_ref().and_then(|a| a.shared.clone()) {
             shared.browser.shutdown().await;
@@ -849,7 +785,7 @@ impl Hub {
         let real = self
             .bot(source)
             .map_err(|_| "The bot is gone.".to_owned())?;
-        let kind = engine_kind(target.engine);
+        let kind = from_wire(target.engine);
         let engine_ready = self.engine(kind).map_err(|e| e.to_string());
         engine_ready?;
         // Its folder, with the case's files where the original had them.
@@ -896,7 +832,7 @@ impl Hub {
             .await
             .map_err(|e| e.to_string())?;
         self.runtimes.lock().await.insert(key.clone(), runtime);
-        self.send_trial_turn(key, &input, &work, kind).await?;
+        self.send_trial_turn(key, &input, &work).await?;
         let ok = match tokio::time::timeout(self.config.task_timeout, ended_rx).await {
             Ok(Ok(ok)) => ok,
             Ok(Err(_)) => false,
@@ -919,13 +855,8 @@ impl Hub {
         key: &BotId,
         input: &RunInput,
         work: &Path,
-        kind: EngineKind,
     ) -> Result<(), String> {
-        let slots = match kind {
-            EngineKind::Claude => &self.turns,
-            EngineKind::OpenRouter | EngineKind::Codex => &self.loop_turns,
-        };
-        let permit = Arc::clone(slots)
+        let permit = Arc::clone(&self.turns)
             .acquire_owned()
             .await
             .map_err(|_| "oxbot is stopping".to_owned())?;
@@ -1089,17 +1020,6 @@ impl Hub {
             // Its sign-ins are a copy: never checked against the real list.
             sites_checked: std::sync::atomic::AtomicBool::new(true),
         })))
-    }
-
-    /// The plan level (0 to 1) at which batches wait for Claude's limits.
-    pub(super) fn claude_pause_level(&self) -> f64 {
-        self.store
-            .pref(super::compare::PREF_CLAUDE_PAUSE)
-            .ok()
-            .flatten()
-            .and_then(|v| v.parse::<u32>().ok())
-            .filter(|v| (10..=100).contains(v))
-            .map_or(0.8, |pct| f64::from(pct) / 100.0)
     }
 }
 

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use oxbot::server::{self, AppState};
+use oxbot_core::testing::{self, FakeBots, On, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, Store};
 use oxbot_protocol::{Attachment, AttachmentKind, ClientMsg, EventKind, ServerMsg};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -29,11 +30,9 @@ async fn start() -> Server {
     start_with(false).await
 }
 
-/// As [`start`]; with `engines`, every engine rule holds (the bots are on
-/// Claude, so only the Farm's owner, Jay, may give them tasks).
-async fn start_with(engines: bool) -> Server {
+/// As [`start`]; with `farm_person`, Jay is chosen as the Farm's person.
+async fn start_with(farm_person: bool) -> Server {
     let dir = tempfile::tempdir().unwrap();
-    let claude_tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxbot-claude/tests");
     let store = Store::open_in_memory().unwrap();
     let sam = store.find_or_create_person("Sam").unwrap().0.id;
     let herder = Bot::create(dir.path(), BotId::new("assistant").unwrap(), "Herder", "").unwrap();
@@ -44,19 +43,13 @@ async fn start_with(engines: bool) -> Server {
     diary.private = true;
     diary.save().unwrap();
     let work = notes.work_dir();
+    let fake = Arc::new(FakeBots::new(dir.path(), Tool::Note));
     let config = HubConfig {
-        claude_program: claude_tests.join("fake-claude.sh"),
-        extra_env: vec![(
-            "FAKE_CLAUDE_FIXTURE".into(),
-            claude_tests
-                .join("fixtures/tool-use.jsonl")
-                .display()
-                .to_string(),
-        )],
-        pre_engine_tests: !engines,
-        ..HubConfig::new(dir.path())
+        browser: None,
+        ..testing::config(dir.path(), &dir.path().join(".home"), &fake, &On::Loop)
     };
     let hub = Hub::new(vec![herder, notes, diary], store, config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake-oxbot-mac.sh");
     let state = AppState {
         local_person: "Jay".to_owned(),
@@ -65,7 +58,7 @@ async fn start_with(engines: bool) -> Server {
         ..AppState::new(hub, "test-mac")
     };
     state.refresh_setup().await;
-    if engines {
+    if farm_person {
         // Chooses Jay as the Farm's person.
         let _ = state.farm_viewer();
     }
@@ -196,20 +189,13 @@ async fn uploads_need_the_farm_or_a_test_person_and_this_page() {
 }
 
 #[tokio::test]
-async fn files_for_a_claude_bot_come_only_from_its_owner() {
+async fn anyone_who_may_task_a_shared_bot_sends_it_files() {
     let s = start_with(true).await;
     let (status, body) = upload(&s, "bot=notes&name=a.txt&as=Ann", "", b"hi").await;
-    assert_eq!(status, 403, "{body}");
-    assert!(
-        body["error"]
-            .as_str()
-            .unwrap()
-            .starts_with("Only Jay can give Notes tasks"),
-        "{body}"
-    );
-    assert_eq!(files_in(&s.work), 0, "nothing kept");
-    let (status, body) = upload(&s, "bot=notes&name=a.txt", &farm(&s), b"hi").await;
     assert_eq!(status, 200, "{body}");
+    let (status, body) = upload(&s, "bot=notes&name=b.txt", &farm(&s), b"hi").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(files_in(&s.work), 2);
 }
 
 #[tokio::test]

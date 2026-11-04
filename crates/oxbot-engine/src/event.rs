@@ -5,15 +5,14 @@ use serde_json::Value;
 
 use crate::reply::{Decision, Reply, ToolReply};
 
-/// What an engine reports, in order. Mirrors Claude's output event for
-/// event, plus what only oxbot's own loop reports.
+/// What an engine reports, in order.
 #[derive(Debug)]
 #[allow(
     clippy::large_enum_variant,
     reason = "a meter row per model request; events are few and short-lived"
 )]
 pub enum EngineEvent {
-    /// A turn started on `model` (Claude: every turn).
+    /// A turn started on `model`.
     Started {
         /// The model in use.
         model: String,
@@ -40,9 +39,7 @@ pub enum EngineEvent {
     /// One of oxbot's own tools (sign-in, report, team tools), run by the
     /// hub.
     HostTool(HostToolCall),
-    /// Claude's plan windows, as last seen.
-    Limits(Vec<LimitWindow>),
-    /// One model request (loop engine), for the meter.
+    /// One model request, for the meter.
     ModelCall(CallRecord),
     /// The turn ended.
     TurnDone {
@@ -52,8 +49,6 @@ pub enum EngineEvent {
         text: String,
         /// How long it took.
         duration_ms: u64,
-        /// Tokens and cost of the turn, if the engine counts them per turn.
-        usage: Option<TurnUsage>,
     },
     /// What it's doing right now, for a live status line.
     Activity(Activity),
@@ -87,26 +82,11 @@ pub struct HostToolCall {
     pub reply: Reply<ToolReply>,
 }
 
-/// Tokens and cost of one turn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-pub struct TurnUsage {
-    /// New input tokens.
-    pub input_tokens: u64,
-    /// Output tokens.
-    pub output_tokens: u64,
-    /// Input tokens read from the prompt cache.
-    pub cache_read_tokens: u64,
-    /// Input tokens written to the prompt cache.
-    pub cache_write_tokens: u64,
-    /// Cost estimate in US dollars (Claude: what the API would charge; a
-    /// subscription counts usage against its limits instead).
-    pub cost_usd: f64,
-}
-
-/// One usage limit, e.g. Claude's 5-hour or 7-day window.
+/// One usage limit oxbot alerts on, e.g. the household's free
+/// `OpenRouter` requests today.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LimitWindow {
-    /// Its name, e.g. `five_hour` or `seven_day`.
+    /// Its name, e.g. `openrouter_free_daily`.
     pub name: String,
     /// How much of it is used, from 0 to 1.
     pub used: f64,
@@ -171,8 +151,8 @@ fn shorten(text: &str, max: usize) -> String {
     }
 }
 
-/// One model request by oxbot's own loop, for the meter (a `model_calls`
-/// row). No prompt text.
+/// One model request, for the meter (a `model_calls` row). No prompt
+/// text.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CallRecord {
     /// When it was sent, in milliseconds since the Unix epoch.
@@ -217,8 +197,8 @@ pub struct CallRecord {
     /// What the request was for.
     #[serde(default)]
     pub kind: CallKind,
-    /// The engine that made it: `openrouter` (oxbot's loop), `codex`,
-    /// `claude` (empty: from before engines were recorded).
+    /// The engine that made it: `openrouter` (oxbot's loop) or `codex`
+    /// (older rows: `claude`, or empty from before engines were recorded).
     #[serde(default)]
     pub engine: String,
 }

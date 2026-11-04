@@ -1,4 +1,4 @@
-//! Research reports, and the web pages each bot's Claude session has
+//! Research reports, and the web pages each bot's session has
 //! opened (a report may cite only those).
 
 use oxbot_protocol::{BotEvent, EventKind, ReportInfo};
@@ -186,7 +186,7 @@ impl Store {
         )? > 0)
     }
 
-    /// Notes that `bot`'s current Claude session opened the web page `url`
+    /// Notes that `bot`'s current session opened the web page `url`
     /// (normalized) titled `title`. The first time counts; at most
     /// [`MAX_SESSION_PAGES`] are kept, the oldest dropped.
     ///
@@ -212,7 +212,7 @@ impl Store {
         Ok(())
     }
 
-    /// The web pages `bot`'s current Claude session has opened: (url,
+    /// The web pages `bot`'s current session has opened: (url,
     /// visit), oldest first.
     ///
     /// # Errors

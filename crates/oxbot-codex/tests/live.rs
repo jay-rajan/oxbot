@@ -213,7 +213,6 @@ fn spec(dir: &Path, session: Resume) -> SessionSpec {
         model: ModelChoice::Auto,
         browser: Some(BrowserSpec {
             mcp: oxbot_engine::McpCommand::default(),
-            mcp_json: Value::Null,
         }),
         host_tools: HostTools::default(),
         host_tool_specs: Vec::new(),

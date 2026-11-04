@@ -1,5 +1,5 @@
-//! Chrome for oxbot's bots: one shared, hidden Chrome, driven by Claude
-//! through Google's `chrome-devtools-mcp`.
+//! Chrome for oxbot's bots: one shared, hidden Chrome, driven by the bots
+//! through Google's `chrome-devtools-mcp` (behind oxbot's gate).
 //!
 //! - [`Tools`]: the Chrome program and the installed browser tool.
 //! - [`Browser`]: the Chrome every bot uses, on one control port, with a
@@ -20,7 +20,6 @@ mod web;
 use std::path::{Path, PathBuf};
 
 pub use oxbot_engine::McpCommand;
-use serde_json::json;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
@@ -34,7 +33,8 @@ pub use web::{is_home_network, normalize_web_url, web_host};
 pub const MCP_PACKAGE: &str = "chrome-devtools-mcp";
 /// Pinned version: older than two weeks when chosen (released 2026-09-23).
 pub const MCP_VERSION: &str = "1.10.1";
-/// Name Claude sees the tool under; its actions are `mcp__chrome-devtools__*`.
+/// The tool's server name; its actions are `mcp__chrome-devtools__*` in
+/// oxbot's own names.
 pub const MCP_SERVER_NAME: &str = "chrome-devtools";
 /// Chrome on macOS.
 pub const DEFAULT_CHROME: &str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -126,9 +126,8 @@ pub struct ToolsConfig {
     /// Keep sign-in windows hidden too (end-to-end tests, so no windows pop
     /// up on the screen while they run).
     pub hidden_windows: bool,
-    /// End-to-end tests only: the browser tool oxbot's own loop runs
-    /// instead of `chrome-devtools-mcp` (a stand-in). Claude bots keep the
-    /// real one.
+    /// End-to-end tests only: the browser tool bots run instead of
+    /// `chrome-devtools-mcp` (a stand-in).
     pub mcp_override: Option<McpCommand>,
     /// End-to-end tests only: more Chrome flags (the test site's host
     /// rules, so `*.example.test` names reach it).
@@ -325,24 +324,6 @@ impl Tools {
             },
         }
     }
-
-    /// The browser tool's entry for Claude's `--mcp-config` `mcpServers`
-    /// (named [`MCP_SERVER_NAME`]), for the Chrome on `port`, saving files
-    /// only in `workspace`.
-    #[must_use]
-    pub fn mcp_server(&self, port: u16, workspace: &Path) -> serde_json::Value {
-        let command = self.real_mcp_command(port, workspace);
-        let env: serde_json::Map<_, _> = command
-            .env
-            .iter()
-            .map(|(k, v)| (k.clone(), json!(v)))
-            .collect();
-        json!({
-            "command": command.program,
-            "args": command.args,
-            "env": env,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -400,13 +381,9 @@ mod tests {
             ..ToolsConfig::in_home(tmp.path())
         });
         assert!(tools.is_installed());
-        let entry = tools.mcp_server(9333, Path::new("/bots/x/work"));
-        assert_eq!(entry["command"], json!(tool.node));
-        assert_eq!(entry["args"][0], json!(tool.entry.display().to_string()));
-        assert_eq!(entry["args"][1], "--browserUrl=http://127.0.0.1:9333");
-        // The loop runs the same command.
         let command = tools.mcp_command(9333, Path::new("/bots/x/work"));
         assert_eq!(command.program, tool.node);
+        assert_eq!(command.args[0], tool.entry.display().to_string());
         assert_eq!(command.args[1], "--browserUrl=http://127.0.0.1:9333");
         assert!(
             command
@@ -417,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stand_in_replaces_the_tool_only_for_the_loop() {
+    fn a_stand_in_replaces_the_tool() {
         let tmp = tempfile::tempdir().unwrap();
         let stand_in = McpCommand {
             program: PathBuf::from("/e2e/oxbot-fake-devtools"),
@@ -432,12 +409,5 @@ mod tests {
         let mut told = stand_in.clone();
         told.args.push("--browserUrl=http://127.0.0.1:9333".into());
         assert_eq!(tools.mcp_command(9333, Path::new("/w")), told);
-        assert_eq!(
-            tools.mcp_server(9333, Path::new("/w"))["command"],
-            json!(
-                tmp.path()
-                    .join("tools/node_modules/.bin/chrome-devtools-mcp")
-            )
-        );
     }
 }

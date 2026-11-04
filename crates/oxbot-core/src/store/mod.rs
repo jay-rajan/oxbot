@@ -1,14 +1,15 @@
-//! [`Store`]: every bot's history and Claude session, in SQLite.
+//! [`Store`]: every bot's history and engine session, in SQLite.
 //!
 //! Events are numbered per bot from 1 with no gaps, so a client that saw up to
 //! `seq` N can ask for everything after N and miss nothing.
 //!
 //! One file per table group: [`migrations`] (the schema and its changes),
-//! people, sites, gates, events, sessions, usage, "Always allow" rules,
-//! sidebar sections, research reports with the pages each session
-//! opened, usage alerts and preferences, who started each turn, and
-//! oxbot's own loop (conversations, turns, model requests).
-//! comparisons of engines and models (test cases and practice runs).
+//! people, sites, gates, events, sessions, "Always allow" rules, sidebar
+//! sections, research reports with the pages each session opened, usage
+//! alerts and preferences, who started each turn, oxbot's own loop
+//! (conversations, turns, model requests), Codex's threads and what the
+//! relay sent, and comparisons of engines and models (test cases and
+//! practice runs).
 
 mod alerts;
 mod codex;
@@ -36,7 +37,6 @@ mod sections;
 pub use sections::{SectionError, SectionRecord};
 mod sessions;
 mod sites;
-mod usage;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -61,13 +61,13 @@ pub const PEOPLE_COLORS: [&str; 12] = [
     "#0E93B8", "#A0663A", "#7C8A1C", "#5E6B7D",
 ];
 
-/// A bot's saved Claude session.
+/// A bot's saved engine session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedSession {
-    /// Claude's session id.
+    /// The session's id (oxbot picked it).
     pub id: String,
-    /// The system prompt the session started with. Claude keeps a session's
-    /// first prompt, so a changed prompt needs a new session.
+    /// The system prompt the session started with. An engine keeps a
+    /// session's first prompt, so a changed prompt needs a new session.
     pub prompt: String,
 }
 

@@ -34,7 +34,7 @@ const HERDER_RULES: &str = "\nYou're Herder, the central bot: the user comes to 
              - You can't delete, rename or change bots; the user does that in the oxbot app.\n";
 
 /// How bots on oxbot's own loop work, after the system prompt (the loop
-/// has no built-in habits the way Claude Code has).
+/// has no built-in habits of its own).
 #[must_use]
 pub fn loop_rules(caps: Capabilities) -> String {
     rules(caps, false)
@@ -198,11 +198,11 @@ mod tests {
         Bot {
             id: BotId::new("news").unwrap(),
             name: "News".into(),
-            model: None,
             owner: None,
             created_by: None,
             private: false,
-            engine: crate::engine::EngineKind::Claude,
+            engine: crate::engine::EngineKind::Codex,
+            from_claude: false,
             loop_settings: crate::bot::LoopSettings::default(),
             instructions: instructions.into(),
             dir: PathBuf::from("/x"),

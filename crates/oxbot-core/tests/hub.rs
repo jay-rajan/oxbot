@@ -1,21 +1,22 @@
-//! Runs the hub against the fake `claude` scripts from oxbot-claude's tests.
+//! Runs the hub with stand-in bots on oxbot's own loop (`oxbot_core::testing`):
+//! a scripted model that asks before every tool and says what oxbot answered,
+//! and a scripted browser. The gate, cards and Herder's tools are the hub's,
+//! the same for every engine (the Codex engine reaches them through the same
+//! tool service: see `codex_engine.rs`).
 #![allow(clippy::unwrap_used, reason = "test helpers may panic")]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use oxbot_browser::{Tools, ToolsConfig};
+use oxbot_core::testing::{self, FakeBots, On, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, Store, Viewer};
 use oxbot_protocol::{
     Answer, Approval, ApprovalKind, EventKind, Outcome, ServerMsg, SignInOutcome,
 };
 use tokio::sync::broadcast::Receiver;
 
-fn claude_tests() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxbot-claude/tests")
-}
-
+/// A hub whose Herder (in `dir`) saves a note for every message.
 fn fake_hub(dir: &Path) -> Arc<Hub> {
     let bot = Bot::create(
         dir,
@@ -24,18 +25,14 @@ fn fake_hub(dir: &Path) -> Arc<Hub> {
         "Be brief.",
     )
     .unwrap();
+    let fake = Arc::new(FakeBots::new(dir, Tool::Note));
     let config = HubConfig {
-        claude_program: claude_tests().join("fake-claude.sh"),
-        extra_env: vec![(
-            "FAKE_CLAUDE_FIXTURE".into(),
-            claude_tests()
-                .join("fixtures/tool-use.jsonl")
-                .display()
-                .to_string(),
-        )],
-        ..HubConfig::new(dir)
+        browser: None,
+        ..testing::config(dir, &dir.join(".home"), &fake, &On::Loop)
     };
-    Hub::new(vec![bot], Store::open_in_memory().unwrap(), config)
+    let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub
 }
 
 /// A hub whose bot asks to upload a CV. Chrome is "missing", but the
@@ -44,12 +41,14 @@ fn asking_hub(dir: &Path) -> Arc<Hub> {
     asking_hub_with(dir, "upload", &["poster"])
 }
 
-/// Like [`asking_hub`], with the fake's `FAKE_TOOL` and more bots.
+/// Like [`asking_hub`], with the fake's tool and more bots.
 fn asking_hub_with(dir: &Path, tool: &str, ids: &[&str]) -> Arc<Hub> {
     asking_hub_env(dir, tool, ids, &[])
 }
 
-/// Like [`asking_hub_with`], with more environment for the fake.
+/// Like [`asking_hub_with`], with more settings for the fake (`FAKE_TOOLS`,
+/// `FAKE_HELPER_TOOLS`, `FAKE_TARGET`, `FAKE_PRIVATE`, `FAKE_NO_PAGE`,
+/// `FAKE_PAGE_ONCE`, `FAKE_READ_FILE`, `FAKE_REPORT`).
 fn asking_hub_env(dir: &Path, tool: &str, ids: &[&str], env: &[(&str, &str)]) -> Arc<Hub> {
     asking_hub_store(dir, tool, ids, env, Store::open_in_memory().unwrap())
 }
@@ -66,6 +65,27 @@ fn asking_hub_store(
     asking_hub_tweaked(dir, tool, ids, env, store, |_| {})
 }
 
+/// The fake for bots in `bots`, from the settings tests name it by.
+fn fake_of(bots: &Path, tool: &str, env: &[(&str, &str)]) -> FakeBots {
+    let get = |k: &str| env.iter().find(|(key, _)| *key == k).map(|(_, v)| *v);
+    let list = |k: &str| {
+        get(k)
+            .map(|v| v.split(',').map(Tool::named).collect())
+            .unwrap_or_default()
+    };
+    FakeBots {
+        tools: list("FAKE_TOOLS"),
+        helper_tools: list("FAKE_HELPER_TOOLS"),
+        target: get("FAKE_TARGET").map(str::to_owned),
+        private: get("FAKE_PRIVATE").is_some(),
+        no_page: get("FAKE_NO_PAGE").is_some(),
+        page_once: get("FAKE_PAGE_ONCE").map(PathBuf::from),
+        read_file: get("FAKE_READ_FILE").is_some(),
+        report: get("FAKE_REPORT").map(|r| serde_json::from_str(r).unwrap()),
+        ..FakeBots::new(bots, Tool::named(tool))
+    }
+}
+
 /// Like [`asking_hub_store`], with `tweak` applied to the hub's settings.
 fn asking_hub_tweaked(
     dir: &Path,
@@ -75,35 +95,14 @@ fn asking_hub_tweaked(
     store: Store,
     tweak: impl FnOnce(&mut HubConfig),
 ) -> Arc<Hub> {
-    let mut tools = ToolsConfig::in_home(&dir.join("home"));
-    tools.chrome = PathBuf::from("/no/chrome");
-    let package = tools.tools_dir.join("node_modules/chrome-devtools-mcp");
-    std::fs::create_dir_all(&package).unwrap();
-    std::fs::write(package.join("package.json"), r#"{"version":"1.10.1"}"#).unwrap();
-    std::fs::create_dir_all(tools.tools_dir.join("node_modules/.bin")).unwrap();
-    std::fs::write(tools.mcp_program(), "").unwrap();
-
     let bots = dir.join("bots");
-    std::fs::create_dir_all(&bots).unwrap();
-    let all = ids
-        .iter()
-        .map(|id| match Bot::load(&bots.join(id)) {
-            Ok(bot) => bot,
-            Err(_) => Bot::create(&bots, BotId::new(*id).unwrap(), id, "").unwrap(),
-        })
-        .collect();
-    let mut config = HubConfig {
-        claude_program: claude_tests().join("fake-claude-perm.sh"),
-        browser: Some(Tools::new(tools)),
-        approval_timeout: Duration::from_secs(5),
-        sign_in_timeout: Duration::from_secs(5),
-        extra_env: std::iter::once(("FAKE_TOOL".to_owned(), tool.to_owned()))
-            .chain(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())))
-            .collect(),
-        ..HubConfig::new(&bots)
-    };
+    let all = testing::bots(&bots, ids, &On::Loop);
+    let fake = Arc::new(fake_of(&bots, tool, env));
+    let mut config = testing::config(&bots, &dir.join("home"), &fake, &On::Loop);
     tweak(&mut config);
-    Hub::new(all, store, config)
+    let hub = Hub::new(all, store, config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub
 }
 
 async fn wait_for_turn_done(updates: &mut Receiver<ServerMsg>) {
@@ -132,6 +131,7 @@ async fn a_message_becomes_a_stored_conversation() {
         .unwrap()
         .into_iter()
         .map(|e| e.kind)
+        .take(4)
         .collect();
     assert_eq!(
         kinds,
@@ -151,15 +151,20 @@ async fn a_message_becomes_a_stored_conversation() {
             EventKind::AssistantMessage {
                 text: "Saved to notes.md.".into()
             },
-            EventKind::TurnDone {
-                ok: true,
-                duration_ms: 2300
-            },
         ]
+    );
+    assert!(matches!(
+        hub.history("assistant", 4).unwrap()[0].kind,
+        EventKind::TurnDone { ok: true, .. }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("assistant/work/notes.md")).unwrap(),
+        "Rust day one",
+        "the note was really written, in the bot's folder"
     );
     assert!(!hub.bots().await.unwrap()[0].busy);
 
-    // A second turn reuses the same child and continues the numbering.
+    // A second turn goes on in the same session and continues the numbering.
     hub.send("assistant", "again", Some("Anu")).await.unwrap();
     wait_for_turn_done(&mut updates).await;
     assert_eq!(hub.history("assistant", 5).unwrap()[0].seq, 6);
@@ -291,31 +296,6 @@ async fn an_unanswered_card_is_a_no() {
         .unwrap();
     assert_eq!(said, "behavior=deny");
     assert_eq!(outcome, Some(Outcome::TimedOut));
-    hub.shutdown().await;
-}
-
-#[tokio::test]
-async fn usage_is_kept_per_bot_with_the_plan_limits() {
-    let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub(tmp.path());
-    let mut updates = hub.subscribe();
-    let approval = card(&hub, &mut updates).await;
-    hub.answer(approval.id, Answer::AllowOnce);
-    let _ = ending(&hub, &mut updates).await;
-
-    let usage = hub.usage().unwrap();
-    assert_eq!(usage.bots.len(), 1);
-    assert_eq!(
-        (usage.bots[0].bot.as_str(), usage.bots[0].turns),
-        ("poster", 1)
-    );
-    assert_eq!(usage.bots[0].output_tokens, 7);
-    let limits: Vec<_> = usage
-        .limits
-        .iter()
-        .map(|l| (l.name.as_str(), l.used))
-        .collect();
-    assert_eq!(limits, [("five_hour", 0.25), ("seven_day", 0.5)]);
     hub.shutdown().await;
 }
 
@@ -775,9 +755,9 @@ async fn the_farms_person_tasks_their_private_bot_without_a_card_before_reading_
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
     assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
-    // The reply comes back marked as data (the fake drops its quotes).
+    // The reply comes back marked as data.
     assert!(
-        said.contains("<bot_reply bot=helper>") && said.contains("</bot_reply>"),
+        said.contains("<bot_reply bot=\"helper\">") && said.contains("</bot_reply>"),
         "{said}"
     );
     assert_eq!(approvals_in(&hub, "assistant"), 0, "no card");
@@ -1023,7 +1003,7 @@ async fn what_herder_read_on_the_web_counts_for_the_whole_session() {
     // Reads a page and lists only Jay's own bots.
     let said = ask_herder(&hub, &mut updates).await;
     assert!(said.starts_with("tool_ok=true"), "{said}");
-    // The next turn reads nothing new, but Claude still remembers the page.
+    // The next turn reads nothing new, but the session still remembers the page.
     asked_and_denied(
         &hub,
         &mut updates,
@@ -1271,7 +1251,7 @@ async fn research_is_saved_as_a_report_with_a_card() {
         .await
         .unwrap();
     let said = reply_of(&hub, &mut updates, "scout").await;
-    assert!(said.starts_with("tool_ok=true Saved Jobs."), "{said}");
+    assert!(said.starts_with("tool_ok=true Saved \"Jobs\"."), "{said}");
     assert!(said.contains("2 to 4 lines"), "{said}");
     let card = hub
         .history("scout", 0)
@@ -1522,8 +1502,8 @@ async fn deleting_a_bot_keeps_its_reports_in_the_trash() {
     hub.shutdown().await;
 }
 
-/// Sends one message per entry of `FAKE_LIMITS` and returns every usage
-/// alert broadcast meanwhile.
+/// Sends `turns` messages to `poster` and returns every usage alert
+/// broadcast meanwhile.
 async fn alerts_over(hub: &Arc<Hub>, turns: usize) -> Vec<oxbot_protocol::UsageAlert> {
     let mut updates = hub.subscribe();
     let mut alerts = Vec::new();
@@ -1546,72 +1526,51 @@ async fn alerts_over(hub: &Arc<Hub>, turns: usize) -> Vec<oxbot_protocol::UsageA
     alerts
 }
 
-fn limits_env(limits: &str) -> [(&str, &str); 3] {
-    [
-        ("FAKE_LIMITS", limits),
-        ("FAKE_NO_PAGE", "1"),
-        ("FAKE_MODEL", "claude-haiku-4-5-20251001"),
-    ]
+/// A hub (on `store`) whose `poster` answers without tools, one model
+/// request a turn, and may make 5 a day.
+async fn counting_poster(dir: &Path, store: Store) -> Arc<Hub> {
+    let hub = asking_hub_store(dir, "none", &["poster"], &[("FAKE_NO_PAGE", "1")], store);
+    hub.set_bot_daily_limit("poster", Some(5), &Viewer::farm("Jay"))
+        .await
+        .unwrap();
+    hub
 }
 
 #[tokio::test]
 async fn usage_alerts_come_once_per_level_per_window_even_after_a_restart() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("oxbot.db");
-    let env = limits_env("0.4,0.55,0.6,0.85,0.9");
-    let hub = asking_hub_store(
-        tmp.path(),
-        "none",
-        &["poster"],
-        &env,
-        Store::open(&db).unwrap(),
-    );
+    let hub = counting_poster(tmp.path(), Store::open(&db).unwrap()).await;
+    // 1, 2, 3 (60%), 4 (80%), 5 (100%) of the bot's 5 requests today.
     let alerts = alerts_over(&hub, 5).await;
     let got: Vec<_> = alerts.iter().map(|a| (a.limit.as_str(), a.level)).collect();
     assert_eq!(
         got,
         [
-            ("five_hour", 50),
-            ("seven_day", 50),
-            ("five_hour", 80),
-            ("seven_day", 80)
+            ("openrouter_bot_daily:poster", 50),
+            ("openrouter_bot_daily:poster", 80),
+            ("openrouter_bot_daily:poster", 100)
         ]
     );
     assert!(
         alerts[0]
             .message
-            .starts_with("Claude's 5-hour limit is at 55%. Resets in "),
+            .starts_with("poster's requests for today are at 60%. Resets in "),
         "{}",
         alerts[0].message
     );
-    assert!(
-        alerts[0].message.ends_with("Your bots use Haiku 4.5."),
-        "names the model Claude reported: {}",
-        alerts[0].message
-    );
-    assert_eq!(alerts[0].models, ["Haiku 4.5"]);
-    // Live for a client that connects now: the latest of each window.
+    // Live for a client that connects now: the window's latest.
     let live: Vec<_> = hub
         .live_usage_alerts()
         .into_iter()
         .map(|a| (a.limit, a.level))
         .collect();
-    assert_eq!(
-        live,
-        [("five_hour".to_owned(), 80), ("seven_day".to_owned(), 80)]
-    );
+    assert_eq!(live, [("openrouter_bot_daily:poster".to_owned(), 100)]);
     hub.shutdown().await;
     drop(hub);
 
-    // Started again on the same database, still at 90%: nothing new.
-    let env = limits_env("0.9");
-    let hub = asking_hub_store(
-        tmp.path(),
-        "none",
-        &["poster"],
-        &env,
-        Store::open(&db).unwrap(),
-    );
+    // Started again on the same database, still used up: nothing new.
+    let hub = counting_poster(tmp.path(), Store::open(&db).unwrap()).await;
     assert_eq!(alerts_over(&hub, 1).await, []);
     hub.shutdown().await;
 }
@@ -1619,18 +1578,17 @@ async fn usage_alerts_come_once_per_level_per_window_even_after_a_restart() {
 #[tokio::test]
 async fn usage_alerts_switched_off_send_nothing_and_stay_quiet_when_back_on() {
     let tmp = tempfile::tempdir().unwrap();
-    let env = limits_env("0.4,0.55,0.6,0.85,0.9,0.95");
-    let hub = asking_hub_env(tmp.path(), "none", &["poster"], &env);
+    let hub = counting_poster(tmp.path(), Store::open_in_memory().unwrap()).await;
     assert!(hub.usage_alerts_on(), "on by default");
     hub.set_usage_alerts(false).unwrap();
     assert!(!hub.usage_alerts_on());
-    assert_eq!(alerts_over(&hub, 5).await, []);
+    assert_eq!(alerts_over(&hub, 4).await, []);
     assert_eq!(hub.live_usage_alerts(), []);
     // Back on in the same window: the levels passed while off were kept,
     // so no late alert.
     hub.set_usage_alerts(true).unwrap();
-    assert_eq!(alerts_over(&hub, 1).await, []);
-    assert_eq!(hub.live_usage_alerts().len(), 2, "the banner shows again");
+    assert_eq!(alerts_over(&hub, 1).await.len(), 1, "only the new level");
+    assert_eq!(hub.live_usage_alerts().len(), 1, "the banner shows again");
     hub.shutdown().await;
 }
 
@@ -1677,32 +1635,61 @@ async fn upload(
         .map_err(|e| e.to_string())
 }
 
-/// A hub on the plain fake, which writes every line Claude gets to `input`.
-fn listening_hub(dir: &Path, input: &Path) -> Arc<Hub> {
-    let bot = Bot::create(dir, BotId::new("notes").unwrap(), "Notes", "").unwrap();
-    let other = Bot::create(dir, BotId::new("other").unwrap(), "Other", "").unwrap();
+/// A hub whose bots (in `dir`) answer without tools; the model keeps what
+/// it was asked.
+fn listening_hub(dir: &Path) -> (Arc<Hub>, Arc<oxbot_llm::ScriptedModel>) {
+    let mut all = Vec::new();
+    for (id, name) in [("notes", "Notes"), ("other", "Other")] {
+        let mut bot = Bot::create(dir, BotId::new(id).unwrap(), name, "").unwrap();
+        bot.engine = oxbot_core::engine::EngineKind::OpenRouter;
+        bot.save().unwrap();
+        all.push(bot);
+    }
+    let fake = Arc::new(FakeBots {
+        no_page: true,
+        ..FakeBots::new(dir, Tool::None)
+    });
+    let model = fake.model();
     let config = HubConfig {
-        claude_program: claude_tests().join("fake-claude.sh"),
-        extra_env: vec![
-            (
-                "FAKE_CLAUDE_FIXTURE".into(),
-                claude_tests()
-                    .join("fixtures/tool-use.jsonl")
-                    .display()
-                    .to_string(),
-            ),
-            ("FAKE_CLAUDE_INPUT".into(), input.display().to_string()),
-        ],
-        ..HubConfig::new(dir)
+        browser: None,
+        ..testing::config_with(
+            dir,
+            &dir.join(".home"),
+            Arc::clone(&model),
+            &fake,
+            &On::Loop,
+        )
     };
-    Hub::new(vec![bot, other], Store::open_in_memory().unwrap(), config)
+    let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    (hub, model)
+}
+
+/// The person's message in the model's last request, as it got it.
+fn told(model: &oxbot_llm::ScriptedModel) -> String {
+    let req = model.requests().pop().unwrap();
+    let text = req
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == oxbot_llm::Role::User)
+        .unwrap()
+        .text();
+    // The loop puts a line saying which window and day it is first.
+    let text = text
+        .strip_prefix("<window ")
+        .and_then(|t| t.split_once("/>\n\n"))
+        .map_or(text.as_str(), |(_, rest)| rest);
+    text.split("\n\n[oxbot] Answer only from what you read.")
+        .next()
+        .unwrap()
+        .to_owned()
 }
 
 #[tokio::test]
-async fn files_go_with_a_message_and_claude_is_told_where_they_are() {
+async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
     let tmp = tempfile::tempdir().unwrap();
-    let input = tmp.path().join("input.jsonl");
-    let hub = listening_hub(tmp.path(), &input);
+    let (hub, model) = listening_hub(tmp.path());
     let mut updates = hub.subscribe();
     let jay = Viewer::gate("Jay");
     let csv = upload(
@@ -1735,15 +1722,7 @@ async fn files_go_with_a_message_and_claude_is_told_where_they_are() {
     );
     assert_eq!(files, std::slice::from_ref(&csv));
 
-    let line: serde_json::Value = serde_json::from_str(
-        std::fs::read_to_string(&input)
-            .unwrap()
-            .lines()
-            .next()
-            .unwrap(),
-    )
-    .unwrap();
-    let got = line["message"]["content"].as_str().unwrap();
+    let got = told(&model);
     let work = tmp.path().join("notes/work");
     let saved = work.join(&csv.path);
     assert!(saved.is_file());
@@ -1774,9 +1753,7 @@ async fn files_go_with_a_message_and_claude_is_told_where_they_are() {
         .await
         .unwrap();
     wait_for_turn_done(&mut updates).await;
-    let lines = std::fs::read_to_string(&input).unwrap();
-    let last: serde_json::Value = serde_json::from_str(lines.lines().last().unwrap()).unwrap();
-    let got = last["message"]["content"].as_str().unwrap();
+    let got = told(&model);
     assert!(
         got.starts_with("[Jay] (oxbot: Jay attached a file"),
         "{got}"
@@ -1804,8 +1781,7 @@ async fn files_go_with_a_message_and_claude_is_told_where_they_are() {
 #[tokio::test]
 async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
     let tmp = tempfile::tempdir().unwrap();
-    let input = tmp.path().join("input.jsonl");
-    let hub = listening_hub(tmp.path(), &input);
+    let (hub, _) = listening_hub(tmp.path());
     let (sam, ann) = (Viewer::gate("Sam"), Viewer::gate("Ann"));
     let sams = upload(&hub, "notes", &sam, "notes.txt", b"hello")
         .await
@@ -1861,18 +1837,17 @@ async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
 #[tokio::test]
 async fn files_never_sent_are_deleted() {
     let tmp = tempfile::tempdir().unwrap();
-    let bot = Bot::create(tmp.path(), BotId::new("notes").unwrap(), "A", "").unwrap();
-    let hub = Hub::new(
-        vec![bot],
+    let hub = asking_hub_tweaked(
+        tmp.path(),
+        "none",
+        &["notes"],
+        &[],
         Store::open_in_memory().unwrap(),
-        HubConfig {
-            keep_unsent: Duration::ZERO,
-            ..HubConfig::new(tmp.path())
-        },
+        |c| c.keep_unsent = Duration::ZERO,
     );
     let jay = Viewer::gate("Jay");
     let kept = upload(&hub, "notes", &jay, "a.txt", b"x").await.unwrap();
-    let saved = tmp.path().join("notes/work").join(&kept.path);
+    let saved = tmp.path().join("bots/notes/work").join(&kept.path);
     assert!(saved.is_file());
     hub.sweep_uploads();
     assert!(!saved.exists());

@@ -40,8 +40,7 @@ fn hub(dir: &Path, ids: &[&str], model: &Arc<ScriptedModel>) -> Arc<Hub> {
             free_per_minute: 1000,
             ..LoopParts::new(Arc::clone(model) as _, None, None)
         }),
-        pre_engine_tests: false,
-        ..HubConfig::for_app(&bots)
+        ..HubConfig::new(&bots)
     };
     let hub = Hub::new(all, Store::open(&dir.join("oxbot.db")).unwrap(), config);
     hub.set_model_catalog(&catalog(), 1).unwrap();
@@ -166,6 +165,13 @@ async fn private_bots_ask_providers_not_to_keep_data() {
         .create_bot_as("Mine", "", Some(&sam), true)
         .await
         .unwrap();
+    // New bots run on Codex; Sam moves both to oxbot's own loop.
+    for bot in [&shared, &private] {
+        assert_eq!(bot.engine, oxbot_protocol::EngineKind::Codex);
+        hub.set_engine(&bot.id, EngineKind::OpenRouter, None, &sam)
+            .await
+            .unwrap();
+    }
     let mut updates = hub.subscribe();
     for bot in [&shared.id, &private.id] {
         hub.send_as(bot, "hi", &sam).await.unwrap();
@@ -181,7 +187,6 @@ async fn private_bots_ask_providers_not_to_keep_data() {
     assert_eq!(prefs(1).data_collection, Some(DataCollection::Deny));
     assert_eq!(prefs(1).zdr, Some(true));
     assert!(private.private);
-    // New bots run on OpenRouter, so Sam could task them.
     assert_eq!(hub.engine_of_bot(&shared.id), Some(EngineKind::OpenRouter));
 }
 
@@ -230,7 +235,7 @@ async fn a_turn_goes_on_after_a_restart() {
 }
 
 #[tokio::test]
-async fn someone_elses_claude_bot_turn_isnt_picked_up() {
+async fn a_turn_isnt_picked_up_once_its_bot_moved_to_another_engine() {
     let tmp = tempfile::tempdir().unwrap();
     let first = Arc::new(ScriptedModel::new().then(Step::Hang));
     let hub1 = hub(tmp.path(), &["scout"], &first);
@@ -246,9 +251,9 @@ async fn someone_elses_claude_bot_turn_isnt_picked_up() {
     .unwrap();
     hub1.shutdown().await;
     drop(hub1);
-    // Switched to Claude while oxbot was stopped.
+    // Switched to Codex while oxbot was stopped.
     let mut bot = Bot::load(&tmp.path().join("bots/scout")).unwrap();
-    bot.engine = EngineKind::Claude;
+    bot.engine = EngineKind::Codex;
     bot.save().unwrap();
     let bots = tmp.path().join("bots");
     let config = HubConfig {
@@ -257,8 +262,7 @@ async fn someone_elses_claude_bot_turn_isnt_picked_up() {
             None,
             None,
         )),
-        pre_engine_tests: false,
-        ..HubConfig::for_app(&bots)
+        ..HubConfig::new(&bots)
     };
     let hub2 = Hub::new(
         vec![Bot::load(&bots.join("scout")).unwrap()],
@@ -277,14 +281,14 @@ async fn someone_elses_claude_bot_turn_isnt_picked_up() {
     assert_eq!(
         errors,
         [
-            "oxbot restarted and couldn't pick this task up again (the bot runs on Claude now). Send \
-          it again if you still need it."
+            "oxbot restarted and couldn't pick this task up again (the bot runs on another engine \
+             now). Send it again if you still need it."
         ]
     );
 }
 
 #[tokio::test]
-async fn what_a_loop_bot_reads_taints_its_session_as_on_claude() {
+async fn what_a_loop_bot_reads_taints_its_session_as_on_codex() {
     let tmp = tempfile::tempdir().unwrap();
     let model = Arc::new(
         ScriptedModel::new()
@@ -305,7 +309,7 @@ async fn what_a_loop_bot_reads_taints_its_session_as_on_claude() {
         .await
         .unwrap();
     assert_eq!(done(&mut updates, "scout").await.0, "Read them.");
-    // The hub marks the session from the same tool names as on Claude: the
+    // The hub marks the session from the same tool names as on Codex: the
     // file taints it, the loop's to-do list doesn't change that.
     let store = Store::open(&tmp.path().join("oxbot.db")).unwrap();
     let taint = store.session_taint(&BotId::new("scout").unwrap()).unwrap();

@@ -373,7 +373,7 @@ impl Hub {
     }
 
     /// Person `id`'s own Herder, made the first time they need it. It shares
-    /// the Farm's Herder's instructions and model, but has its own Claude
+    /// the Farm's Herder's instructions, but has its own engine
     /// session and history, so nobody can ask it what someone else asked.
     /// Its id is kept with the person, so it stays theirs if their name
     /// changes. (The Farm's own person uses the Farm's Herder, `assistant`.)

@@ -14,9 +14,9 @@ const HEAD: usize = 64 * 1024;
 /// What a file turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Found {
-    /// A picture Claude reads as it is (`ext`: png, jpg, gif, webp).
+    /// A picture models read as it is (`ext`: png, jpg, gif, webp).
     Image { ext: &'static str },
-    /// A picture Claude can't read as it is (an iPhone photo, TIFF, BMP):
+    /// A picture models can't read as it is (an iPhone photo, TIFF, BMP):
     /// `sips` makes a JPEG of it.
     Convertible { what: &'static str },
     /// A PDF.
@@ -248,7 +248,7 @@ fn refusal(head: &[u8], name: &str, ext: &str) -> String {
     }
 }
 
-/// Whether a PDF is locked with a password (Claude can't read those).
+/// Whether a PDF is locked with a password (no bot can read those).
 pub(super) fn pdf_is_locked(path: &Path) -> Result<bool, AttachError> {
     const NEEDLE: &[u8] = b"/Encrypt";
     let mut file = std::fs::File::open(path)?;

@@ -1,13 +1,11 @@
 //! Comparing engines and models per bot (#21), for the Farm owner: thumbs
 //! on replies, test cases made from finished turns, batches of practice
-//! runs, verdicts (the owner's, or Claude's as judge), the scoreboard, and
-//! shadow runs next to the owner's own messages.
+//! runs on Codex and on oxbot's own loop, the owner's verdicts, the
+//! scoreboard, and shadow runs next to the owner's own messages.
 //!
 //! Every call here is the owner's only: the Farm connection, or the Farm's
 //! person on their own Gate. Cases come only from bots the owner may task
-//! (shared bots and their own private ones), and run on Claude, or are
-//! judged by Claude, only if the owner started the original turn: the
-//! owner's Claude plan never does someone else's task.
+//! (shared bots and their own private ones).
 
 use std::sync::Arc;
 
@@ -20,13 +18,13 @@ use serde_json::{Value, json};
 
 use super::engines::ChainOrigin;
 use super::trials::{
-    Job, RunInput, ShadowJob, cases_dir, copy_tree, engine_kind, original_steps, provider_of,
-    safe_relative, trial_mode,
+    Job, PROVIDER, RunInput, ShadowJob, cases_dir, copy_tree, original_steps, safe_relative,
+    trial_mode,
 };
 use super::{Hub, HubError};
 use crate::bot::{Bot, Viewer};
-use crate::compare::{self, Expected, Fixtures, JudgeInput};
-use crate::engine::EngineKind;
+use crate::compare::{self, Expected, Fixtures};
+use crate::engine::{EngineKind, from_wire};
 use crate::id::BotId;
 use crate::store::{BatchRecord, TestCaseRecord, TrialRunRecord, now_ms, shadow_cases};
 use crate::tools;
@@ -35,14 +33,10 @@ use crate::tools;
 /// and the targets refused, with why.
 type Plan = (Vec<(TestCaseRecord, Target)>, Vec<String>);
 
-/// The plan level (0 to 1) at which batches wait for Claude's limits.
-pub(super) const PREF_CLAUDE_PAUSE: &str = "compare.claude_pause";
 /// Free `OpenRouter` requests kept for live bots, as a share of the day's.
 pub(super) const PREF_RESERVE: &str = "compare.reserve";
 /// Most shadow runs a day.
 pub(super) const PREF_SHADOWS_A_DAY: &str = "compare.shadows_a_day";
-/// The Claude model that judges runs.
-const JUDGE_MODEL: &str = "sonnet";
 /// Most runs one batch may make.
 const MAX_BATCH_RUNS: usize = 60;
 
@@ -52,11 +46,7 @@ fn shadow_pref(bot: &BotId) -> String {
 }
 
 fn engine_name(e: WireEngine) -> &'static str {
-    match e {
-        WireEngine::Claude => "claude",
-        WireEngine::OpenRouter => "openrouter",
-        WireEngine::Codex => "codex",
-    }
+    from_wire(e).as_str()
 }
 
 fn first_line(text: &str) -> String {
@@ -249,24 +239,29 @@ impl Hub {
     }
 
     /// The engine and model that ran a live turn, as the scoreboard names
-    /// them, with what it used when the loop ran it.
-    fn turn_model(&self, bot: &Bot, user_seq: u64) -> (EngineKind, String, Option<TrialRunRecord>) {
-        let engine = self
+    /// them (a turn from before Claude left oxbot keeps `claude`, which the
+    /// scoreboard leaves out), with what it used when the loop ran it.
+    fn turn_model(&self, bot: &Bot, user_seq: u64) -> (String, String, Option<TrialRunRecord>) {
+        let recorded = self
             .store
             .turn_origin(&bot.id, user_seq)
             .ok()
             .flatten()
-            .and_then(|o| EngineKind::parse(&o.engine))
-            .unwrap_or_else(|| self.engine_of(bot));
+            .map(|o| o.engine);
+        let engine = match recorded.as_deref().map(EngineKind::parse) {
+            Some(Some(kind)) => kind,
+            // An engine oxbot no longer has: named as it was.
+            Some(None) => {
+                let name = recorded.unwrap_or_default();
+                return (name.clone(), name, None);
+            }
+            None => self.engine_of(bot),
+        };
+        let name = engine.as_str().to_owned();
         match engine {
-            EngineKind::Claude => (
-                engine,
-                bot.model.clone().unwrap_or_else(|| "default".to_owned()),
-                None,
-            ),
             // Codex keeps no loop turns: its requests are in the meter.
             EngineKind::Codex => (
-                engine,
+                name,
                 bot.loop_settings
                     .model
                     .clone()
@@ -299,7 +294,7 @@ impl Hub {
                             ..TrialRunRecord::default()
                         },
                     );
-                (engine, model, used)
+                (name, model, used)
             }
         }
     }
@@ -329,8 +324,8 @@ impl Hub {
             case_id: case.map(str::to_owned),
             bot: bot.id.to_string(),
             kind: "original".to_owned(),
-            engine: engine.as_str().to_owned(),
-            provider: provider_of(engine).to_owned(),
+            engine,
+            provider: PROVIDER.to_owned(),
             model,
             started_ms: Some(turn.done_ms - i64::try_from(turn.duration_ms).unwrap_or(0)),
             ended_ms: Some(turn.done_ms),
@@ -361,8 +356,7 @@ impl Hub {
         let bot = self.bot_for(id, viewer)?;
         let turn = self.finished_turn(&bot.id, seq)?;
         let (engine, model, _) = self.turn_model(&bot, turn.user.seq);
-        self.store
-            .set_rating(&bot.id, seq, up, engine.as_str(), &model)?;
+        self.store.set_rating(&bot.id, seq, up, &engine, &model)?;
         Ok(())
     }
 
@@ -486,9 +480,6 @@ impl Hub {
             }
         }
         let origin = self.store.turn_origin(&bot.id, turn.user.seq)?;
-        let owner_started = origin.as_ref().is_some_and(|o| {
-            o.on_farm || (o.person.is_some() && o.person == self.farm_id().map(|p| p.to_string()))
-        });
         let original = self.original_run(&bot, &turn, Some(&case_id), None);
         let case = TestCaseRecord {
             id: case_id.clone(),
@@ -520,7 +511,6 @@ impl Hub {
             local_only: false,
             origin: json!({
                 "person": origin.as_ref().and_then(|o| o.person.clone()),
-                "owner_started": owner_started,
                 "tainted_by": origin.as_ref().and_then(|o| o.tainted_by.clone()),
                 "ms": turn.user.ts_ms,
                 "steps": original.steps,
@@ -546,7 +536,9 @@ impl Hub {
             .unwrap_or_default();
         let mut last: Vec<CaseResult> = Vec::new();
         for r in runs.iter().filter(|r| r.kind != "original") {
-            let engine = compare::engine_of(&r.engine);
+            let Some(engine) = compare::engine_of(&r.engine) else {
+                continue;
+            };
             if last
                 .iter()
                 .any(|l| l.engine == engine && l.model == r.model)
@@ -557,7 +549,7 @@ impl Hub {
                 engine,
                 model: r.model.clone(),
                 status: r.status.clone(),
-                verdict: compare::run_info(r, "").verdict,
+                verdict: compare::run_info(r, "").and_then(|i| i.verdict),
             });
         }
         TestCaseInfo {
@@ -576,7 +568,6 @@ impl Hub {
             },
             created_ms: c.created_ms,
             archived: c.archived,
-            owner_started: owner_started(c),
             last,
         }
     }
@@ -691,22 +682,11 @@ impl Hub {
                 refused.push(format!("{name}: not a model name"));
                 continue;
             }
-            if target.engine == WireEngine::Codex {
-                refused.push(format!("{name}: practice runs don't run on Codex yet"));
-                continue;
-            }
-            if let Err(err) = self.engine(engine_kind(target.engine)) {
+            if let Err(err) = self.engine(from_wire(target.engine)) {
                 refused.push(format!("{name}: {err}"));
                 continue;
             }
             for case in &found {
-                if target.engine == WireEngine::Claude && !owner_started(case) {
-                    refused.push(format!(
-                        "{name} for \"{}\": someone else started it, and Claude runs only the owner's own tasks",
-                        case.title
-                    ));
-                    continue;
-                }
                 if case.local_only {
                     refused.push(format!(
                         "{name} for \"{}\": the bot keeps its data on this Mac",
@@ -740,19 +720,12 @@ impl Hub {
     ) -> Result<BatchEstimate, HubError> {
         let bot = self.compared_bot(id, viewer)?;
         let (pairs, refused) = self.batch_plan(&bot, cases, targets, repeats)?;
-        let mut openrouter = 0;
-        let mut claude = 0;
-        for (case, target) in &pairs {
-            match target.engine {
-                WireEngine::Claude => claude += repeats,
-                WireEngine::OpenRouter | WireEngine::Codex => {
-                    openrouter += repeats * compare::requests_per_run(original_steps(case));
-                }
-            }
-        }
-        let paid = pairs
+        // Both engines' requests go to OpenRouter.
+        let openrouter: u32 = pairs
             .iter()
-            .any(|(_, t)| t.engine == WireEngine::OpenRouter && !t.model.ends_with(":free"));
+            .map(|(case, _)| repeats * compare::requests_per_run(original_steps(case)))
+            .sum();
+        let paid = pairs.iter().any(|(_, t)| !t.model.ends_with(":free"));
         let (left, reserve) = self.openrouter_room();
         Ok(BatchEstimate {
             bot: bot.id.to_string(),
@@ -760,7 +733,6 @@ impl Hub {
             openrouter_requests: openrouter,
             openrouter_left: left,
             reserve,
-            claude_runs: claude,
             paid,
             fits: !pairs.is_empty()
                 && pairs.len() * repeats as usize <= MAX_BATCH_RUNS
@@ -829,15 +801,14 @@ impl Hub {
         })?;
         for (case, target) in &pairs {
             for _ in 0..repeats {
-                let engine = engine_kind(target.engine);
                 self.store.save_run(&TrialRunRecord {
                     id: format!("r_{}", uuid::Uuid::new_v4().simple()),
                     batch: Some(batch_id.clone()),
                     case_id: Some(case.id.clone()),
                     bot: bot.id.to_string(),
                     kind: "replay".to_owned(),
-                    engine: engine.as_str().to_owned(),
-                    provider: provider_of(engine).to_owned(),
+                    engine: engine_name(target.engine).to_owned(),
+                    provider: PROVIDER.to_owned(),
                     model: target.model.clone(),
                     status: "queued".to_owned(),
                     intent_list: json!([]),
@@ -887,7 +858,7 @@ impl Hub {
             .store
             .runs(&bot.id, case)?
             .iter()
-            .map(|r| {
+            .filter_map(|r| {
                 let title = r
                     .case_id
                     .as_ref()
@@ -905,6 +876,11 @@ impl Hub {
             .run(id)?
             .ok_or_else(|| HubError::NotAllowed("That run was deleted.".to_owned()))?;
         self.bot_for(&run.bot, viewer)?;
+        if compare::engine_of(&run.engine).is_none() {
+            return Err(HubError::NotAllowed(
+                "That run was on Claude, which oxbot no longer runs.".to_owned(),
+            ));
+        }
         Ok(run)
     }
 
@@ -937,19 +913,24 @@ impl Hub {
                 .collect(),
             None => Vec::new(),
         };
+        let info = compare::run_info(&run, &title)
+            .ok_or_else(|| HubError::NotAllowed("That run can't be shown.".to_owned()))?;
         Ok(ServerMsg::RunDetail {
             events: if run.kind == "original" {
                 Vec::new()
             } else {
                 self.store.trial_events(&run.id)?
             },
-            run: Box::new(compare::run_info(&run, &title)),
-            original: original.map(|o| Box::new(compare::run_info(&o, &title))),
+            run: Box::new(info),
+            original: original
+                .and_then(|o| compare::run_info(&o, &title))
+                .map(Box::new),
             original_events,
         })
     }
 
-    /// The owner's own verdict on run `id`; it wins over the judge's.
+    /// The owner's own verdict on run `id`; it wins over a judge's (runs
+    /// judged before Claude left oxbot).
     ///
     /// # Errors
     /// Not the owner, no such run, or the database failed.
@@ -991,7 +972,8 @@ impl Hub {
             .and_then(|c| self.store.test_case(c).ok().flatten())
             .map(|c| c.title)
             .unwrap_or_default();
-        Ok(compare::run_info(&run, &title))
+        compare::run_info(&run, &title)
+            .ok_or_else(|| HubError::NotAllowed("That run can't be shown.".to_owned()))
     }
 
     /// `bot`'s scoreboard.
@@ -1023,7 +1005,6 @@ impl Hub {
         };
         Ok(ComparePrefs {
             reserve_pct: read(PREF_RESERVE, d.reserve_pct),
-            claude_pause_pct: read(PREF_CLAUDE_PAUSE, d.claude_pause_pct),
             shadows_a_day: read(PREF_SHADOWS_A_DAY, d.shadows_a_day),
         })
     }
@@ -1040,10 +1021,6 @@ impl Hub {
         self.owner_only(viewer)?;
         self.store
             .set_pref(PREF_RESERVE, &p.reserve_pct.min(90).to_string())?;
-        self.store.set_pref(
-            PREF_CLAUDE_PAUSE,
-            &p.claude_pause_pct.clamp(10, 100).to_string(),
-        )?;
         self.store
             .set_pref(PREF_SHADOWS_A_DAY, &p.shadows_a_day.min(500).to_string())?;
         self.compare_prefs(viewer)
@@ -1056,117 +1033,6 @@ impl Hub {
     pub fn delete_all_runs(&self, viewer: &Viewer) -> Result<usize, HubError> {
         self.owner_only(viewer)?;
         Ok(self.store.delete_all_runs()?)
-    }
-
-    /// Asks Claude to judge runs, in the background; each run is sent to
-    /// the owner again when judged. A local judge (`local`) needs a local
-    /// model.
-    ///
-    /// # Errors
-    /// Not the owner, a run that may not go to Claude, or `local`.
-    pub fn judge_runs(
-        self: &Arc<Self>,
-        ids: &[String],
-        local: bool,
-        viewer: &Viewer,
-    ) -> Result<(), HubError> {
-        self.owner_only(viewer)?;
-        if local {
-            return Err(HubError::NotAllowed(
-                "Judging on this Mac needs a local model, which oxbot can't run yet.".to_owned(),
-            ));
-        }
-        let mut runs = Vec::new();
-        for id in ids.iter().take(30) {
-            let run = self.run_for(id, viewer)?;
-            let case = run
-                .case_id
-                .as_deref()
-                .and_then(|c| self.store.test_case(c).ok().flatten())
-                .ok_or_else(|| {
-                    HubError::NotAllowed("Only runs of a test case can be judged.".to_owned())
-                })?;
-            if !owner_started(&case) || case.local_only {
-                return Err(HubError::NotAllowed(format!(
-                    "\"{}\" can't go to Claude: someone else started it, or its bot keeps its data on this Mac. Mark it yourself.",
-                    case.title
-                )));
-            }
-            runs.push((run, case));
-        }
-        let hub = Arc::clone(self);
-        tokio::spawn(async move {
-            for (run, case) in runs {
-                hub.judge_one(run, &case).await;
-            }
-        });
-        Ok(())
-    }
-
-    async fn judge_one(&self, mut run: TrialRunRecord, case: &TestCaseRecord) {
-        let expected: Vec<Expected> =
-            serde_json::from_value(case.expected.clone()).unwrap_or_default();
-        let original = BotId::new(&case.bot)
-            .ok()
-            .and_then(|b| self.store.runs(&b, Some(&case.id)).ok())
-            .and_then(|runs| runs.into_iter().find(|r| r.kind == "original"))
-            .map(|r| r.answer)
-            .unwrap_or_default();
-        let day = oxbot_loop::meter::utc_day;
-        let input = compare::judge_prompt(&JudgeInput {
-            title: &case.title,
-            original_day: &day(case
-                .origin
-                .get("ms")
-                .and_then(Value::as_i64)
-                .unwrap_or(case.created_ms)),
-            run_day: &day(run.started_ms.unwrap_or_else(now_ms)),
-            prompt: &case.prompt,
-            rubric: &case.rubric,
-            expected: &expected,
-            original_answer: &original,
-            run: &run,
-        });
-        let mut shot = oxbot_claude::one_shot::OneShot {
-            program: self.config.claude_program.clone(),
-            model: JUDGE_MODEL.to_owned(),
-            system: compare::JUDGE_SYSTEM.to_owned(),
-            input,
-            env: self.config.extra_env.clone(),
-            timeout: std::time::Duration::from_mins(3),
-        };
-        let mut answer = oxbot_claude::one_shot::one_shot(&shot).await;
-        let mut view = answer
-            .as_ref()
-            .map_err(ToString::to_string)
-            .and_then(|a| compare::parse_judge(a, JUDGE_MODEL, false));
-        if view.is_err() && answer.is_ok() {
-            // One more try on an answer that isn't the JSON asked for.
-            shot.input.push_str("\n\nReply with the JSON object only.");
-            answer = oxbot_claude::one_shot::one_shot(&shot).await;
-            view = answer
-                .as_ref()
-                .map_err(ToString::to_string)
-                .and_then(|a| compare::parse_judge(a, JUDGE_MODEL, false));
-        }
-        match view {
-            Ok(view) => {
-                run.judge = serde_json::to_value(&view).ok();
-                if run.owner_verdict.is_none() {
-                    run.verdict = Some(compare::verdict_name(view.verdict).to_owned());
-                    run.verdict_by = Some("judge".to_owned());
-                }
-            }
-            Err(why) => {
-                tracing::warn!(run = run.id, why, "the judge couldn't grade a run");
-                run.judge = Some(json!({ "error": why }));
-                if matches!(run.status.as_str(), "done" | "failed") {
-                    "judge_error".clone_into(&mut run.status);
-                }
-            }
-        }
-        let _ = self.store.save_run(&run);
-        self.announce_run(&run);
     }
 
     /// The engine and model the owner's messages to `bot` are shadowed on.
@@ -1195,7 +1061,7 @@ impl Hub {
                         "Pick a model to shadow on.".to_owned(),
                     ));
                 }
-                self.engine(engine_kind(t.engine))?;
+                self.engine(from_wire(t.engine))?;
                 self.store.set_pref(
                     &shadow_pref(&bot.id),
                     &serde_json::to_string(&t).unwrap_or_default(),
@@ -1241,7 +1107,6 @@ impl Hub {
         }
         let batch = format!("b_{}", uuid::Uuid::new_v4().simple());
         let run = format!("r_{}", uuid::Uuid::new_v4().simple());
-        let engine = engine_kind(target.engine);
         let saved = self
             .store
             .add_batch(&BatchRecord {
@@ -1261,8 +1126,8 @@ impl Hub {
                     batch: Some(batch.clone()),
                     bot: bot.id.to_string(),
                     kind: "shadow".to_owned(),
-                    engine: engine.as_str().to_owned(),
-                    provider: provider_of(engine).to_owned(),
+                    engine: engine_name(target.engine).to_owned(),
+                    provider: PROVIDER.to_owned(),
                     model: target.model.clone(),
                     status: "queued".to_owned(),
                     intent_list: json!([]),
@@ -1331,11 +1196,13 @@ impl Hub {
             let row = self.original_run(&bot, &turn, None, Some(&job.batch));
             let _ = self.store.save_run(&row);
         }
-        let _ = self.updates.send(ServerMsg::ShadowPair {
-            bot: job.bot.to_string(),
-            live_seq: job.live_seq,
-            run: Box::new(compare::run_info(&run, "")),
-        });
+        if let Some(info) = compare::run_info(&run, "") {
+            let _ = self.updates.send(ServerMsg::ShadowPair {
+                bot: job.bot.to_string(),
+                live_seq: job.live_seq,
+                run: Box::new(info),
+            });
+        }
     }
 
     /// The `TurnDone` event that ended the turn of `bot`'s message
@@ -1376,11 +1243,6 @@ impl Hub {
             tracing::warn!(%bot, %err, "couldn't keep an oxbot tool call");
         }
     }
-}
-
-/// Whether the owner started a case's original turn.
-fn owner_started(case: &TestCaseRecord) -> bool {
-    case.origin.get("owner_started").and_then(Value::as_bool) == Some(true)
 }
 
 /// What a case knew then, once there is knowledge (#20): a snapshot of the

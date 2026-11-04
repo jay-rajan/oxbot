@@ -160,6 +160,7 @@ impl View {
             } => println!(
                 "   · Report: {title}. {summary} ({sources} sources; open it in the oxbot app)"
             ),
+            EventKind::Note { text } => println!("   · {text}"),
             EventKind::Error { message } => println!("   ! {message}"),
             // Only practice runs have these, never a chat.
             EventKind::DryRun {
@@ -255,7 +256,6 @@ impl View {
             | ServerMsg::SignInNeeded(_)
             | ServerMsg::SignInResolved { .. }
             | ServerMsg::Setup(_)
-            | ServerMsg::SetupProgress { .. }
             | ServerMsg::Sites { .. }
             | ServerMsg::Sections { .. }
             | ServerMsg::People { .. }
@@ -276,8 +276,7 @@ impl View {
             | ServerMsg::RunDetail { .. }
             | ServerMsg::Scoreboard { .. }
             | ServerMsg::ShadowPair { .. }
-            | ServerMsg::ComparePrefs(_)
-            | ServerMsg::Usage(_) => {}
+            | ServerMsg::ComparePrefs(_) => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }
     }

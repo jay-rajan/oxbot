@@ -1,7 +1,7 @@
 //! The store's tests.
 
 use super::*;
-use oxbot_claude::{LimitWindow, TurnUsage};
+use crate::engine::{EngineKind, LimitWindow};
 use oxbot_protocol::{EventKind, SignInOutcome};
 
 use crate::bot::personal_herder_id;
@@ -588,47 +588,6 @@ fn history_survives_reopening() {
         .unwrap();
     let events = Store::open(&path).unwrap().history(&bot("a"), 0).unwrap();
     assert_eq!(events.len(), 1);
-}
-
-#[test]
-fn usage_adds_up_and_limits_are_replaced() {
-    let store = Store::open_in_memory().unwrap();
-    let bot = BotId::new("news").unwrap();
-    let turn = TurnUsage {
-        input_tokens: 10,
-        output_tokens: 5,
-        cache_read_tokens: 100,
-        cache_write_tokens: 50,
-        cost_usd: 0.25,
-    };
-    store.add_usage(&bot, &turn).unwrap();
-    store.add_usage(&bot, &turn).unwrap();
-    let usage = store.usage().unwrap();
-    assert_eq!(usage.bots.len(), 1);
-    assert_eq!((usage.bots[0].turns, usage.bots[0].output_tokens), (2, 10));
-    assert!((usage.bots[0].cost_usd - 0.5).abs() < 1e-9);
-    assert_eq!(usage.limits, []);
-
-    let window = |name: &str, used: f64, resets_at: i64| LimitWindow {
-        name: name.into(),
-        used,
-        resets_at,
-        status: "allowed".into(),
-    };
-    store
-        .set_limits(&[window("seven_day", 0.3, 20), window("five_hour", 0.1, 10)])
-        .unwrap();
-    store
-        .set_limits(&[window("five_hour", 0.2, 10), window("seven_day", 0.4, 20)])
-        .unwrap();
-    let usage = store.usage().unwrap();
-    assert_eq!(usage.limits.len(), 2);
-    assert_eq!(
-        (usage.limits[0].name.as_str(), usage.limits[0].used),
-        ("five_hour", 0.2)
-    );
-    assert_eq!(usage.limits[1].resets_at_ms, 20_000);
-    assert!(usage.limits_seen_ms > 0);
 }
 
 #[test]
@@ -1256,22 +1215,6 @@ fn limit(name: &str, used: f64, resets_at: i64) -> LimitWindow {
     }
 }
 
-#[test]
-fn a_report_of_one_window_keeps_the_other() {
-    let store = Store::open_in_memory().unwrap();
-    store
-        .set_limits(&[limit("five_hour", 0.1, 10), limit("seven_day", 0.3, 20)])
-        .unwrap();
-    store.set_limits(&[limit("five_hour", 0.2, 10)]).unwrap();
-    let usage = store.usage().unwrap();
-    let limits: Vec<_> = usage
-        .limits
-        .iter()
-        .map(|l| (l.name.as_str(), l.used))
-        .collect();
-    assert_eq!(limits, [("five_hour", 0.2), ("seven_day", 0.3)]);
-}
-
 fn alert(name: &str, resets_at_ms: i64, level: u8) -> LimitAlert {
     LimitAlert {
         name: name.into(),
@@ -1288,66 +1231,43 @@ fn usage_alerts_and_prefs_survive_a_restart() {
     let path = tmp.path().join("oxbot.db");
     {
         let store = Store::open(&path).unwrap();
-        assert_eq!(store.limit_alert("five_hour").unwrap(), None);
-        store
-            .set_limit_alert(&alert("five_hour", 1_000, 50))
-            .unwrap();
-        store
-            .set_limit_alert(&alert("five_hour", 1_000, 80))
-            .unwrap();
+        let free = "openrouter_free_daily";
+        assert_eq!(store.limit_alert(free).unwrap(), None);
+        store.set_limit_alert(&alert(free, 1_000, 50)).unwrap();
+        store.set_limit_alert(&alert(free, 1_000, 80)).unwrap();
         assert_eq!(store.pref("usage_alerts").unwrap(), None);
         store.set_pref("usage_alerts", "0").unwrap();
-        store.set_model(&bot("news"), "claude-haiku-4-5").unwrap();
-        store.set_model(&bot("mail"), "claude-sonnet-4-5").unwrap();
-        store.set_model(&bot("news"), "claude-sonnet-4-5").unwrap();
     }
     let store = Store::open(&path).unwrap();
     assert_eq!(
-        store.limit_alert("five_hour").unwrap(),
-        Some(alert("five_hour", 1_000, 80))
+        store.limit_alert("openrouter_free_daily").unwrap(),
+        Some(alert("openrouter_free_daily", 1_000, 80))
     );
     assert_eq!(store.limit_alerts().unwrap().len(), 1);
     assert_eq!(store.pref("usage_alerts").unwrap().as_deref(), Some("0"));
-    assert_eq!(
-        store.bot_models().unwrap(),
-        [
-            ("mail".to_owned(), "claude-sonnet-4-5".to_owned()),
-            ("news".to_owned(), "claude-sonnet-4-5".to_owned())
-        ]
-    );
-    // A model noted before the first finished turn still counts the turn.
-    store
-        .add_usage(
-            &bot("news"),
-            &TurnUsage {
-                input_tokens: 1,
-                output_tokens: 1,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                cost_usd: 0.0,
-            },
-        )
-        .unwrap();
-    let usage = store.usage().unwrap();
-    assert!(usage.bots.iter().any(|b| b.bot == "news" && b.turns == 1));
 }
 
 #[test]
 fn alert_changes_are_decided_and_saved_together() {
     let store = Store::open_in_memory().unwrap();
     store
-        .set_limit_alert(&alert("seven_day", 2_000, 50))
+        .set_limit_alert(&alert("openrouter_credits", 2_000, 50))
         .unwrap();
-    let windows = [limit("five_hour", 0.6, 1), limit("seven_day", 0.1, 2)];
+    let windows = [
+        limit("openrouter_free_daily", 0.6, 1),
+        limit("openrouter_credits", 0.1, 2),
+    ];
     let recorded = store
         .change_limit_alerts(&windows, |prev, w| match (prev, w.name.as_str()) {
-            (None, "five_hour") => AlertChange::Record(alert("five_hour", 1_000, 50)),
-            (Some(_), "seven_day") => AlertChange::Clear,
+            (None, "openrouter_free_daily") => {
+                AlertChange::Record(alert("openrouter_free_daily", 1_000, 50))
+            }
+            (Some(_), "openrouter_credits") => AlertChange::Clear,
             _ => AlertChange::Keep,
         })
         .unwrap();
-    assert_eq!(recorded, [alert("five_hour", 1_000, 50)]);
-    assert_eq!(store.limit_alert("seven_day").unwrap(), None);
+    assert_eq!(recorded, [alert("openrouter_free_daily", 1_000, 50)]);
+    assert_eq!(store.limit_alert("openrouter_credits").unwrap(), None);
     assert_eq!(store.limit_alerts().unwrap().len(), 1);
 }
 
@@ -1372,13 +1292,17 @@ fn a_version_14_database_gets_usage_alerts_and_keeps_its_usage_and_reports() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
-    let usage = store.usage().unwrap();
-    assert_eq!(usage.bots[0].turns, 3);
-    assert_eq!(usage.limits.len(), 1);
-    assert_eq!(store.bot_models().unwrap(), []);
-    store.set_model(&bot("news"), "claude-opus-4-1").unwrap();
-    assert_eq!(store.usage().unwrap().bots[0].turns, 3);
-    assert_eq!(store.bot_models().unwrap().len(), 1);
+    let count = |sql: &str| -> i64 { store.conn().query_row(sql, [], |r| r.get(0)).unwrap() };
+    assert_eq!(
+        count("SELECT turns FROM usage WHERE bot = 'news'"),
+        3,
+        "Claude's usage rows stay"
+    );
+    assert_eq!(
+        count("SELECT COUNT(*) FROM limits"),
+        0,
+        "Claude's plan limits go (migration 22)"
+    );
     assert_eq!(store.pref("notify_when_hidden").unwrap(), None);
     let pages: i64 = store
         .conn()
@@ -1466,7 +1390,8 @@ fn a_session_remembers_its_engine() {
     store.set_session(&bot("scout"), Some(&saved)).unwrap();
     assert_eq!(
         store.session_engine(&bot("scout")).unwrap().as_deref(),
-        Some("claude")
+        Some("codex"),
+        "the default engine"
     );
 }
 
@@ -1749,7 +1674,7 @@ fn a_version_20_database_gets_codex_threads_the_relay_log_and_engines() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
-    assert_eq!(MIGRATIONS.len(), 21);
+    assert!(MIGRATIONS.len() >= 21);
     let record = oxbot_engine::CallRecord {
         bot: "scout".into(),
         provider: "openrouter".into(),
@@ -1780,4 +1705,73 @@ fn a_version_20_database_gets_codex_threads_the_relay_log_and_engines() {
         panic!("migration 21 is Rust");
     }
     tx.commit().unwrap();
+}
+
+#[test]
+fn a_version_21_database_forgets_what_only_claude_used_and_keeps_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 21).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO sessions (bot, claude_session, prompt, updated_ms, engine)
+             VALUES ('news', 's1', 'p', 1, 'claude');
+             INSERT INTO events (bot, seq, ts_ms, body)
+             VALUES ('news', 1, 1, '{\"kind\":\"assistant_message\",\"text\":\"hi\"}');
+             INSERT INTO limit_alerts (name, resets_at_ms, level, used, alerted_ms)
+             VALUES ('five_hour', 9999999999999, 80, 0.8, 1),
+                    ('seven_day', 9999999999999, 50, 0.5, 1),
+                    ('openrouter_free_daily', 9999999999999, 50, 0.5, 1);
+             INSERT INTO limits (name, used, resets_at_ms, status, seen_ms)
+             VALUES ('five_hour', 0.8, 1, 'allowed', 1);
+             INSERT INTO prefs (key, value) VALUES ('engines_notice_seen', '1'),
+                    ('compare.claude_pause', '80'), ('usage_alerts', '1');",
+        )
+        .unwrap();
+    let store = Store::open(&path).unwrap();
+    let names: Vec<String> = store
+        .limit_alerts()
+        .unwrap()
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    assert_eq!(
+        names,
+        ["openrouter_free_daily"],
+        "Claude's windows never alert again"
+    );
+    assert_eq!(store.pref("engines_notice_seen").unwrap(), None);
+    assert_eq!(store.pref("compare.claude_pause").unwrap(), None);
+    assert_eq!(store.pref("usage_alerts").unwrap().as_deref(), Some("1"));
+    // The chat and the session stay; the session is still Claude's.
+    assert_eq!(store.history(&bot("news"), 0).unwrap().len(), 1);
+    assert_eq!(
+        store.session_engine(&bot("news")).unwrap().as_deref(),
+        Some("claude")
+    );
+
+    // The move is noted once, with its line.
+    let note = || EventKind::Note {
+        text: "moved".into(),
+    };
+    let first = store
+        .note_engine_upgrade(&bot("news"), "claude", EngineKind::Codex, note())
+        .unwrap();
+    assert_eq!(first.map(|e| e.seq), Some(2));
+    assert_eq!(
+        store
+            .note_engine_upgrade(&bot("news"), "claude", EngineKind::Codex, note())
+            .unwrap(),
+        None
+    );
+    assert_eq!(store.history(&bot("news"), 0).unwrap().len(), 2);
+    // A deleted bot's note goes with it: a new bot with its id starts over.
+    store.delete_bot(&bot("news")).unwrap();
+    assert!(
+        store
+            .note_engine_upgrade(&bot("news"), "claude", EngineKind::Codex, note())
+            .unwrap()
+            .is_some()
+    );
 }

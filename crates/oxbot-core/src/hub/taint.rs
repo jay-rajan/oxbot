@@ -1,4 +1,4 @@
-//! Taint: whether a bot's Claude session has read text oxbot doesn't trust,
+//! Taint: whether a bot's session has read text oxbot doesn't trust,
 //! which may be asking for what the bot does next. Herder then needs its
 //! person's OK on a card before passing a task to their private bot.
 //!
@@ -6,7 +6,7 @@
 //! - every tool result except the trusted tools below: web pages from the
 //!   browser tool, files from `Read`, `Grep` and `Glob`, what `Write` and
 //!   `Edit` echo back, and any tool oxbot doesn't know. A browser call is
-//!   marked when Claude makes it as well as when its result comes back, so
+//!   marked when the bot makes it as well as when its result comes back, so
 //!   a team tool called right after it can't miss it;
 //! - another bot's reply, from `give_task` or `read_reply`;
 //! - `list_bots` output with bot names or instructions written by someone
@@ -14,17 +14,16 @@
 //!
 //! Trusted (`crate::engine::trust`, shared by every engine): oxbot's own tools, whose text oxbot writes
 //! (statuses, refusals, sign-in results, whether a report was saved); the team tools mark the session
-//! themselves when they hand back someone else's text. Also Claude Code's
-//! planning tools (`TRUSTED_BUILTINS`), which only echo Claude's own plan
-//! or load tool definitions, never outside text.
+//! themselves when they hand back someone else's text; and the loop's own
+//! to-do list, progress notes and stored results read back.
 //!
-//! Claude remembers what it read for the whole session, across turns and
+//! A session remembers what it read for the whole session, across turns and
 //! restarts, so the taint does too: it's saved with the session and only a
 //! new session clears it.
 
 use oxbot_browser::MCP_SERVER_NAME;
 
-use super::claude::tool_label;
+use super::session::tool_label;
 use super::{Hub, Runtime};
 use crate::engine::trust::is_trusted_tool;
 use crate::id::BotId;
@@ -88,7 +87,7 @@ impl Runtime {
         true
     }
 
-    /// A new Claude session remembers nothing, so it starts trusted.
+    /// A new session remembers nothing, so it starts trusted.
     pub(super) fn reset_for_new_session(&mut self) {
         self.taint = None;
     }
@@ -122,7 +121,7 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::trust::{TRUSTED_BUILTINS, TRUSTED_HOST_TOOLS};
+    use crate::engine::trust::TRUSTED_HOST_TOOLS;
 
     #[test]
     fn the_shared_list_names_oxbots_own_tools() {
@@ -170,11 +169,10 @@ mod tests {
     }
 
     #[test]
-    fn claude_codes_planning_tools_are_trusted_but_not_its_readers() {
-        for t in TRUSTED_BUILTINS {
-            assert_eq!(untrusted_tool(t, None), None, "{t}");
-        }
+    fn no_other_tool_is_trusted() {
         for t in [
+            "TodoWrite",
+            "ToolSearch",
             "Read",
             "Grep",
             "Glob",

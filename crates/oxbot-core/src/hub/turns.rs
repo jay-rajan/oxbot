@@ -1,5 +1,5 @@
-//! Turns: delivering a message to a bot's engine (its Claude), cancelling,
-//! stopping idle bots and shutting down.
+//! Turns: delivering a message to a bot's engine, cancelling, stopping
+//! idle bots and shutting down.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use oxbot_browser::BrowserStatus;
 use oxbot_protocol::{Attachment, EventKind};
 use tokio::sync::OwnedSemaphorePermit;
 
-use super::engines::{ChainOrigin, entry_of};
+use super::engines::{ChainOrigin, entry_of, may_task};
 use super::{Hub, HubError, lock};
 use crate::bot::{Bot, Viewer};
 use crate::engine::TurnInput;
@@ -18,12 +18,12 @@ use crate::id::BotId;
 impl Hub {
     /// Sends a message to a bot from the person called `from` (made if new,
     /// see [`Hub::person_named`]; for `oxbot chat` and tests: connections
-    /// use [`Hub::send_as`]). Returns once Claude has it; the reply arrives through
+    /// use [`Hub::send_as`]). Returns once its engine has it; the reply arrives through
     /// [`Hub::subscribe`]. Waits if `max_concurrent_turns` turns are already
     /// running.
     ///
     /// # Errors
-    /// Fails if the bot doesn't exist, is busy, or Claude can't be started.
+    /// Fails if the bot doesn't exist, is busy, or its engine can't start.
     pub async fn send(
         self: &Arc<Self>,
         bot: &str,
@@ -45,7 +45,7 @@ impl Hub {
     /// Like [`Hub::send`], from `viewer` (by their person id).
     ///
     /// # Errors
-    /// Fails if the bot doesn't exist, is busy, or Claude can't be started.
+    /// Fails if the bot doesn't exist, is busy, or its engine can't start.
     pub async fn send_as(
         self: &Arc<Self>,
         bot: &str,
@@ -60,7 +60,7 @@ impl Hub {
     ///
     /// # Errors
     /// Fails if the bot doesn't exist or is busy, a file isn't theirs or
-    /// isn't waiting any more, or Claude can't be started.
+    /// isn't waiting any more, or its engine can't start.
     pub async fn send_files_as(
         self: &Arc<Self>,
         bot: &str,
@@ -76,7 +76,7 @@ impl Hub {
         } else {
             let target = self.bot_for(bot, &viewer)?;
             // Refused before its files are taken: they stay for another try.
-            self.may_task(&target, &origin)?;
+            may_task(&origin)?;
             self.claim_uploads(&target.id, viewer.id.as_ref(), files)?
         };
         let sent = self.send_for(bot, text, &files, from, &origin, false).await;
@@ -101,28 +101,21 @@ impl Hub {
         relayed: bool,
     ) -> Result<(), HubError> {
         let bot = self.bot(bot)?;
-        self.may_task(&bot, origin)?;
+        may_task(origin)?;
         self.engine(self.engine_of(&bot))?;
         let from = from.map(str::trim).filter(|f| !f.is_empty());
-        // Loop turns wait for the model pacer: they have their own slots.
-        let slots = match self.engine_of(&bot) {
-            crate::engine::EngineKind::Claude => &self.turns,
-            crate::engine::EngineKind::OpenRouter | crate::engine::EngineKind::Codex => {
-                &self.loop_turns
-            }
-        };
-        let permit = Arc::clone(slots)
+        let permit = Arc::clone(&self.turns)
             .acquire_owned()
             .await
             .map_err(|_| HubError::Busy(bot.id.clone()))?;
 
-        // Claim the bot, so a second message can't slip in while Claude starts.
+        // Claim the bot, so a second message can't slip in while it starts.
         self.claim(&bot.id).await?;
         // It may have been made private, renamed or deleted while this
         // message waited for a turn: use it as it is now.
         // Its engine may have changed meanwhile too: check again.
         let result = match self.bot(bot.id.as_str()) {
-            Ok(bot) => match self.may_task(&bot, origin) {
+            Ok(bot) => match may_task(origin) {
                 Ok(()) => {
                     let sent = Sent {
                         text,
@@ -207,7 +200,7 @@ impl Hub {
                 .await;
         }
 
-        // The chat keeps the task as Herder wrote it; only Claude is told
+        // The chat keeps the task as Herder wrote it; only the bot is told
         // it was passed on and may quote web text.
         let mut message = match from {
             Some(from) if relayed => {
@@ -253,7 +246,7 @@ impl Hub {
             text.to_owned()
         };
         runtime.question = Some(question.chars().take(crate::report::MAX_QUESTION).collect());
-        // The taint stays: Claude still remembers what earlier turns read.
+        // The taint stays: the session still remembers what earlier turns read.
         let origin = runtime.origin.clone();
         drop(runtimes);
         // The owner's own message may run on the bot's shadow too.
@@ -283,7 +276,7 @@ impl Hub {
     /// sign-in it's waiting on. Does nothing if it's idle.
     ///
     /// # Errors
-    /// Fails if the bot doesn't exist or Claude has stopped.
+    /// Fails if the bot doesn't exist or its session has stopped.
     pub async fn cancel(&self, bot: &str) -> Result<(), HubError> {
         let id = self.bot(bot)?.id;
         self.deny_open_approvals(&id);
@@ -295,7 +288,8 @@ impl Hub {
         Ok(())
     }
 
-    /// Stops every `claude` child and the browser (sign-ins stay).
+    /// Stops every session, Codex's processes and the browser (sign-ins
+    /// stay).
     pub async fn shutdown(&self) {
         let runtimes: Vec<_> = self.runtimes.lock().await.drain().collect();
         for (_, runtime) in runtimes {
@@ -309,7 +303,7 @@ impl Hub {
         }
     }
 
-    pub(super) async fn stop_claude(&self, bot: &BotId) {
+    pub(super) async fn stop_session(&self, bot: &BotId) {
         let runtime = self.runtimes.lock().await.remove(bot);
         if let Some(r) = runtime {
             r.session.shutdown().await;
@@ -338,8 +332,8 @@ impl Hub {
             .map(|(id, _)| id.clone())
             .collect();
         for id in idle {
-            tracing::info!(bot = %id, "idle; stopping Claude until the next message");
-            self.stop_claude(&id).await;
+            tracing::info!(bot = %id, "idle; stopping its session until the next message");
+            self.stop_session(&id).await;
         }
         self.sweep_uploads();
         self.sweep_context();
@@ -385,7 +379,7 @@ struct Sent<'a> {
     relayed: bool,
 }
 
-/// What a bot's Claude gets for a task Herder (`from`) passed on for
+/// What a bot gets for a task Herder (`from`) passed on for
 /// `person`: marked as passed on, and as maybe quoting web text, which is
 /// never an instruction. Lines are escaped as in [`sender_line`].
 pub(super) fn relayed_line(from: &str, person: Option<&str>, text: &str) -> String {
@@ -397,10 +391,10 @@ pub(super) fn relayed_line(from: &str, person: Option<&str>, text: &str) -> Stri
     )
 }
 
-/// What Claude gets for a message: `[Name] text`. Only that first bracket
+/// What a bot gets for a message: `[Name] text`. Only that first bracket
 /// names the sender, so a line in the text that starts with `[` gets a
 /// backslash and can't pass for another person's message. Every character
-/// Claude may read as a line break counts as one.
+/// a model may read as a line break counts as one.
 pub(super) fn sender_line(from: Option<&str>, text: &str) -> String {
     let is_break = |c: char| matches!(c, '\n' | '\r' | '\u{0085}' | '\u{2028}' | '\u{2029}');
     let mut body = String::with_capacity(text.len() + 8);

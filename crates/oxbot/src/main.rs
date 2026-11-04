@@ -15,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
 
-/// Always-on Claude bots on your Mac, reachable from your phone.
+/// Always-on bots on your Mac, reachable from your phone.
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {

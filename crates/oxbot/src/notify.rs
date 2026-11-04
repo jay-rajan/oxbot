@@ -321,15 +321,17 @@ mod tests {
             HubConfig::new(tmp.path()),
         );
         let alert = oxbot_protocol::UsageAlert {
-            limit: "five_hour".into(),
+            limit: "openrouter_free_daily".into(),
             level: 50,
             used: 0.5,
             resets_at_ms: 0,
-            models: Vec::new(),
-            message: "Claude's 5-hour limit is at 50%.".into(),
+            message: "OpenRouter's free daily requests are at 50%.".into(),
         };
         let body = Waiting::default().body(&ServerMsg::UsageAlert(alert), &hub, None);
-        assert_eq!(body.as_deref(), Some("Claude's 5-hour limit is at 50%."));
+        assert_eq!(
+            body.as_deref(),
+            Some("OpenRouter's free daily requests are at 50%.")
+        );
     }
 
     #[test]

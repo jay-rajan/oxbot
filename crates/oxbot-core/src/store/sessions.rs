@@ -1,6 +1,8 @@
-//! Sessions: each bot's saved engine session (its Claude session), the
-//! engine it belongs to, and what it has read.
+//! Sessions: each bot's saved engine session, the engine it belongs to,
+//! and what it has read. (The id's column is still called
+//! `claude_session`, from when every session was Claude's.)
 
+use oxbot_protocol::{BotEvent, EventKind};
 use rusqlite::{OptionalExtension, params};
 
 use super::{SavedSession, Store, StoreError, now_ms};
@@ -8,7 +10,7 @@ use crate::engine::EngineKind;
 use crate::id::BotId;
 
 impl Store {
-    /// The Claude session saved for `bot`, if any.
+    /// The session saved for `bot`, if any.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -29,7 +31,8 @@ impl Store {
     }
 
     /// The engine `bot`'s saved session belongs to (`claude` for sessions
-    /// saved before engines), if one is saved.
+    /// from before Claude left oxbot, which no engine goes on with), if
+    /// one is saved.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -44,9 +47,9 @@ impl Store {
             .optional()?)
     }
 
-    /// Saves `bot`'s Claude session, or forgets it with `None`. A
-    /// different session (or none) starts clean: nothing read, no pages
-    /// opened.
+    /// Saves `bot`'s session on the default engine (Codex), or forgets it
+    /// with `None`. A different session (or none) starts clean: nothing
+    /// read, no pages opened.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -55,7 +58,7 @@ impl Store {
         bot: &BotId,
         session: Option<&SavedSession>,
     ) -> Result<(), StoreError> {
-        self.save_session(bot, session, EngineKind::Claude)
+        self.save_session(bot, session, EngineKind::default())
     }
 
     /// Like [`Store::set_session`], for a session of `engine`.
@@ -96,7 +99,7 @@ impl Store {
         Ok(())
     }
 
-    /// What `bot`'s saved Claude session has read that oxbot doesn't trust,
+    /// What `bot`'s saved session has read that oxbot doesn't trust,
     /// if anything (see `hub::taint`).
     ///
     /// # Errors
@@ -124,5 +127,35 @@ impl Store {
             params![bot.as_str(), why],
         )?;
         Ok(())
+    }
+
+    /// Notes that `bot` moved from engine `from` to `to` and, the first
+    /// time only, adds `note` to its chat, in one transaction: a crash
+    /// leaves neither, and a second call (oxbot started again before the
+    /// bot's file was rewritten) adds nothing. Returns the event added.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn note_engine_upgrade(
+        &self,
+        bot: &BotId,
+        from: &str,
+        to: EngineKind,
+        note: EventKind,
+    ) -> Result<Option<BotEvent>, StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let new = tx.execute(
+            "INSERT OR IGNORE INTO engine_upgrades (bot, from_engine, to_engine, upgraded_ms)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![bot.as_str(), from, to.as_str(), now_ms()],
+        )? == 1;
+        let event = if new {
+            Some(super::events::append_in(&tx, bot, note)?)
+        } else {
+            None
+        };
+        tx.commit()?;
+        Ok(event)
     }
 }

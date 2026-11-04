@@ -7,18 +7,15 @@
 //!   `give_task` and `read_reply`, so it can run the team. Other bots aren't
 //!   shown them and can't call them, so bots can't set each other off.
 //!
-//! oxbot hosts the tools inside the server: Claude Code is given an `sdk`
-//! tool server (see [`mcp_entry`]) and passes each MCP message to oxbot over
-//! the same stdin/stdout link it already uses. No helper process, no network
-//! port.
-
-use std::future::Future;
+//! oxbot runs them inside the hub: every engine offers them to the model
+//! under the same names ([`specs`]) and hands each call to the hub. No
+//! helper process, no network port.
 
 use serde_json::{Value, json};
 
 use crate::engine::ToolSpec;
 
-/// The tool server's name; Claude sees its tools as `mcp__oxbot__*`.
+/// The tools' prefix: models see them as `mcp__oxbot__*`.
 pub const TOOL_SERVER_NAME: &str = "oxbot";
 /// The sign-in tool's name.
 pub const SIGN_IN_TOOL: &str = "request_sign_in";
@@ -69,23 +66,15 @@ impl ToolSet {
     }
 }
 
-/// Newest MCP protocol version this server knows; older clients get theirs back.
-const PROTOCOL_VERSION: &str = "2025-06-18";
-
-/// The `mcpServers` entry that tells Claude Code oxbot hosts this server.
-#[must_use]
-pub fn mcp_entry() -> Value {
-    json!({ "type": "sdk", "name": TOOL_SERVER_NAME })
-}
-
-/// Claude's name for one of oxbot's tools, e.g. `mcp__oxbot__create_bot`.
+/// The name models call one of oxbot's tools by, e.g.
+/// `mcp__oxbot__create_bot`.
 #[must_use]
 pub fn full_name(tool: &str) -> String {
     format!("mcp__{TOOL_SERVER_NAME}__{tool}")
 }
 
-/// The tools a bot has, as every engine shows them to the model: the same
-/// JSON as `tools/list`, with Claude's full names (`mcp__oxbot__*`).
+/// The tools a bot has, as every engine shows them to the model, under
+/// their full names (`mcp__oxbot__*`).
 #[must_use]
 pub fn specs(set: ToolSet) -> Vec<ToolSpec> {
     tools(set)
@@ -114,7 +103,7 @@ pub fn check_call(tool: &str, arguments: &Value, set: ToolSet) -> Result<(), Str
     }
 }
 
-/// The tools a bot sees, as `tools/list` describes them.
+/// The tools a bot sees: name, description and input schema.
 fn tools(set: ToolSet) -> Vec<Value> {
     let mut list = vec![json!({
         "name": SIGN_IN_TOOL,
@@ -223,45 +212,6 @@ fn save_report_schema() -> Value {
     })
 }
 
-/// Answers one MCP (JSON-RPC) message for a bot. A notification gets an
-/// empty `{}` (Claude Code wants every message answered). `set` says which
-/// of oxbot's tools the bot has. `call(tool, arguments)` runs a tool and
-/// returns whether it worked and what to tell the bot.
-pub async fn handle<F, Fut>(msg: &Value, set: ToolSet, call: F) -> Value
-where
-    F: FnOnce(String, Value) -> Fut,
-    Fut: Future<Output = (bool, String)>,
-{
-    let Some(id) = msg.get("id").cloned() else {
-        return json!({});
-    };
-    let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
-    let params = msg.get("params").cloned().unwrap_or(Value::Null);
-    let result = match method {
-        "initialize" => json!({
-            "protocolVersion": params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOL_VERSION),
-            "capabilities": { "tools": {} },
-            "serverInfo": { "name": TOOL_SERVER_NAME, "version": env!("CARGO_PKG_VERSION") }
-        }),
-        "ping" => json!({}),
-        "tools/list" => json!({ "tools": tools(set) }),
-        "tools/call" => {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let arguments = params
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            if let Err(message) = check_call(name, &arguments, set) {
-                return error(&id, -32602, &message);
-            }
-            let (ok, message) = call(name.to_owned(), arguments).await;
-            json!({ "content": [{ "type": "text", "text": message }], "isError": !ok })
-        }
-        _ => return error(&id, -32601, "method not found"),
-    };
-    json!({ "jsonrpc": "2.0", "id": id, "result": result })
-}
-
 /// The first required text argument that's missing or empty.
 fn missing_argument(tool: &str, arguments: &Value) -> Option<&'static str> {
     let required: &[&'static str] = match tool {
@@ -286,10 +236,6 @@ pub fn text_arg<'a>(arguments: &'a Value, key: &str) -> &'a str {
     arguments.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn error(id: &Value, code: i64, message: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,52 +252,32 @@ mod tests {
         central: false,
         browser: true,
     };
+    const BOTH: ToolSet = ToolSet {
+        central: true,
+        browser: true,
+    };
 
-    async fn no_call(_: String, _: Value) -> (bool, String) {
-        panic!("should not call")
+    fn names(set: ToolSet) -> Vec<String> {
+        specs(set).into_iter().map(|s| s.name).collect()
     }
 
-    fn names(reply: &Value) -> Vec<String> {
-        reply["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t["name"].as_str().unwrap().to_owned())
-            .collect()
-    }
-
-    #[tokio::test]
-    async fn it_introduces_itself_and_lists_its_tools() {
-        let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}});
-        let reply = handle(&init, PLAIN, no_call).await;
-        assert_eq!(reply["result"]["protocolVersion"], "2025-11-25");
-        assert_eq!(reply["result"]["serverInfo"]["name"], "oxbot");
-
-        let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
-        assert_eq!(names(&handle(&list, PLAIN, no_call).await), [SIGN_IN_TOOL]);
-        let central = names(&handle(&list, CENTRAL, no_call).await);
+    #[test]
+    fn specs_are_the_tools_under_their_full_names() {
+        let listed = specs(BOTH);
+        assert_eq!(listed.len(), tools(BOTH).len());
+        assert_eq!(listed.len(), 6);
+        assert_eq!(listed[0].name, "mcp__oxbot__request_sign_in");
+        assert_eq!(listed[0].parameters, tools(BOTH)[0]["inputSchema"]);
+        assert!(listed.iter().any(|s| s.name == full_name(GIVE_TASK_TOOL)));
+        assert_eq!(names(PLAIN), [full_name(SIGN_IN_TOOL)]);
+        let central = names(CENTRAL);
         assert_eq!(central.len(), 5);
-        assert!(central.iter().any(|n| n == CREATE_BOT_TOOL));
-        assert_eq!(mcp_entry()["type"], "sdk");
+        assert!(central.contains(&full_name(CREATE_BOT_TOOL)));
         assert_eq!(full_name(GIVE_TASK_TOOL), "mcp__oxbot__give_task");
     }
 
     #[test]
-    fn specs_are_the_listed_tools_under_their_full_names() {
-        let both = ToolSet {
-            central: true,
-            browser: true,
-        };
-        let listed = specs(both);
-        assert_eq!(listed.len(), tools(both).len());
-        assert_eq!(listed[0].name, "mcp__oxbot__request_sign_in");
-        assert_eq!(listed[0].parameters, tools(both)[0]["inputSchema"]);
-        assert!(listed.iter().any(|s| s.name == full_name(GIVE_TASK_TOOL)));
-        assert_eq!(specs(PLAIN).len(), 1);
-    }
-
-    #[test]
-    fn calls_are_checked_as_tools_call_checks_them() {
+    fn calls_are_checked_before_they_run() {
         assert_eq!(
             check_call(GIVE_TASK_TOOL, &json!({"bot":"x","message":"hi"}), PLAIN),
             Err("unknown tool".into())
@@ -361,113 +287,60 @@ mod tests {
             Err("give_task needs message".into())
         );
         assert_eq!(
+            check_call(GIVE_TASK_TOOL, &json!({"bot":"x","message":" "}), CENTRAL),
+            Err("give_task needs message".into())
+        );
+        assert_eq!(
             check_call(GIVE_TASK_TOOL, &json!({"bot":"x","message":"hi"}), CENTRAL),
             Ok(())
         );
-    }
-
-    #[tokio::test]
-    async fn notifications_get_an_empty_answer() {
-        let note = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
-        assert_eq!(handle(&note, PLAIN, no_call).await, json!({}));
-    }
-
-    #[tokio::test]
-    async fn a_call_runs_the_tool_and_reports_back() {
-        let call = json!({"jsonrpc":"2.0","id":3,"method":"tools/call",
-            "params":{"name":SIGN_IN_TOOL,"arguments":{"url":"https://accounts.google.com","why":"to read mail"}}});
-        let reply = handle(&call, PLAIN, |tool, args| async move {
-            assert_eq!(tool, SIGN_IN_TOOL);
-            assert_eq!(text_arg(&args, "url"), "https://accounts.google.com");
-            (true, "signed in".to_owned())
-        })
-        .await;
-        assert_eq!(reply["result"]["content"][0]["text"], "signed in");
-        assert_eq!(reply["result"]["isError"], false);
-    }
-
-    #[tokio::test]
-    async fn only_the_central_bot_can_use_its_tools() {
-        let create = json!({"jsonrpc":"2.0","id":7,"method":"tools/call",
-            "params":{"name":CREATE_BOT_TOOL,"arguments":{"name":"Mail","instructions":"Check mail."}}});
         assert_eq!(
-            handle(&create, PLAIN, no_call).await["error"]["code"],
-            -32602
+            check_call("nope", &json!({}), BOTH),
+            Err("unknown tool".into())
         );
-        let reply = handle(&create, CENTRAL, |tool, _| async move {
-            assert_eq!(tool, CREATE_BOT_TOOL);
-            (true, "created mail".to_owned())
-        })
-        .await;
-        assert_eq!(reply["result"]["isError"], false);
-    }
-
-    #[tokio::test]
-    async fn bad_calls_are_errors() {
-        let unknown =
-            json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope"}});
         assert_eq!(
-            handle(&unknown, CENTRAL, no_call).await["error"]["code"],
-            -32602
+            check_call(SIGN_IN_TOOL, &json!({}), PLAIN),
+            Err("request_sign_in needs url".into())
         );
-        let no_url = json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":SIGN_IN_TOOL,"arguments":{}}});
         assert_eq!(
-            handle(&no_url, PLAIN, no_call).await["error"]["code"],
-            -32602
-        );
-        let no_message = json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":GIVE_TASK_TOOL,"arguments":{"bot":"x","message":" "}}});
-        assert_eq!(
-            handle(&no_message, CENTRAL, no_call).await["error"]["code"],
-            -32602
-        );
-        let other = json!({"jsonrpc":"2.0","id":6,"method":"resources/list"});
-        assert_eq!(
-            handle(&other, PLAIN, no_call).await["error"]["code"],
-            -32601
+            check_call(
+                CREATE_BOT_TOOL,
+                &json!({"name":"Mail","instructions":"Check mail."}),
+                PLAIN
+            ),
+            Err("unknown tool".into()),
+            "only the central bot can use its tools"
         );
     }
 
-    #[tokio::test]
-    async fn only_a_bot_with_the_browser_saves_reports() {
-        let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
-        let browsing = handle(&list, BROWSING, no_call).await;
-        assert_eq!(names(&browsing), [SIGN_IN_TOOL, SAVE_REPORT_TOOL]);
-        let schema = &browsing["result"]["tools"][1]["inputSchema"];
+    #[test]
+    fn only_a_bot_with_the_browser_saves_reports() {
+        assert_eq!(
+            names(BROWSING),
+            [full_name(SIGN_IN_TOOL), full_name(SAVE_REPORT_TOOL)]
+        );
+        let schema = &specs(BROWSING)[1].parameters;
         assert_eq!(
             schema["required"],
             json!(["title", "summary", "markdown", "sources"])
         );
-        let both = ToolSet {
-            central: true,
-            browser: true,
-        };
-        assert_eq!(names(&handle(&list, both, no_call).await).len(), 6);
-
-        let save = |args: Value| {
-            json!({"jsonrpc":"2.0","id":9,"method":"tools/call",
-            "params":{"name":SAVE_REPORT_TOOL,"arguments":args}})
-        };
         let full = json!({"title":"Coffee","summary":"A wins.","markdown":"A [1]","sources":[{"url":"https://a.example.com/"}]});
         for set in [PLAIN, CENTRAL] {
             assert_eq!(
-                handle(&save(full.clone()), set, no_call).await["error"]["code"],
-                -32602
+                check_call(SAVE_REPORT_TOOL, &full, set),
+                Err("unknown tool".into())
             );
         }
         for missing in ["title", "summary", "markdown"] {
             let mut args = full.clone();
             args[missing] = json!(" ");
-            let reply = handle(&save(args), BROWSING, no_call).await;
             assert_eq!(
-                reply["error"]["message"],
-                format!("save_report needs {missing}")
+                check_call(SAVE_REPORT_TOOL, &args, BROWSING),
+                Err(format!("save_report needs {missing}"))
             );
         }
-        let reply = handle(&save(full), BROWSING, |tool, _| async move {
-            assert_eq!(tool, SAVE_REPORT_TOOL);
-            (true, "Saved".to_owned())
-        })
-        .await;
-        assert_eq!(reply["result"]["isError"], false);
+        assert_eq!(check_call(SAVE_REPORT_TOOL, &full, BROWSING), Ok(()));
+        assert_eq!(text_arg(&full, "title"), "Coffee");
+        assert_eq!(text_arg(&full, "nothing"), "");
     }
 }

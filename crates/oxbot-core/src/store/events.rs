@@ -153,6 +153,7 @@ impl Store {
             "turn_ratings",
             "codex_threads",
             "relay_log",
+            "engine_upgrades",
         ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),

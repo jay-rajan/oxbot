@@ -1,8 +1,8 @@
 //! What every oxbot engine shares.
 //!
-//! An engine runs a bot: today Claude Code (`claude`), and oxbot's own
-//! agent loop on `OpenRouter`. The hub talks to each one only through this
-//! crate:
+//! An engine runs a bot: Codex CLI's agent loop (`codex app-server`) on
+//! `OpenRouter`'s models through oxbot's relay, or oxbot's own agent loop
+//! on them. The hub talks to each one only through this crate:
 //!
 //! - [`Engine`] starts sessions; [`Session`] takes turns.
 //! - An engine reports what happens as [`EngineEvent`]s, in order.
@@ -24,7 +24,7 @@ use std::fmt;
 
 pub use event::{
     Activity, CallKind, CallRecord, EngineEvent, HostToolCall, LimitWindow, PermissionRequest,
-    ToolUse, TurnUsage,
+    ToolUse,
 };
 pub use futures_util::future::BoxFuture;
 pub use reply::{Decision, Refusal, Reply, ReplyWait, ToolReply};
@@ -35,41 +35,32 @@ pub use spec::{
 
 use serde::{Deserialize, Serialize};
 
-/// Which engine runs a bot.
+/// Which engine runs a bot. Both run on `OpenRouter`'s models with the
+/// household's key, so anyone in the household may give their bots tasks,
+/// within the same daily limits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineKind {
-    /// Claude Code on the Farm owner's own Claude plan.
+    /// Codex CLI's agent loop, through oxbot's relay, with oxbot's own
+    /// tools and gate. New bots and every Herder run on it.
     #[default]
-    Claude,
-    /// oxbot's own agent loop on `OpenRouter` models.
-    OpenRouter,
-    /// Codex CLI's agent loop on `OpenRouter` models, through oxbot's
-    /// relay, with oxbot's own tools and gate.
     Codex,
+    /// oxbot's own agent loop.
+    OpenRouter,
 }
 
 impl EngineKind {
     /// Every engine, in the order settings show them.
-    pub const ALL: [Self; 3] = [Self::Claude, Self::OpenRouter, Self::Codex];
+    pub const ALL: [Self; 2] = [Self::Codex, Self::OpenRouter];
 
-    /// Its name in files, the database and the protocol: `claude`,
-    /// `openrouter`, `codex`.
+    /// Its name in files, the database and the protocol: `codex`,
+    /// `openrouter`.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Claude => "claude",
-            Self::OpenRouter => "openrouter",
             Self::Codex => "codex",
+            Self::OpenRouter => "openrouter",
         }
-    }
-
-    /// Whether its model requests go to `OpenRouter` on the household's
-    /// key: anyone in the household may give its bots tasks, within the
-    /// same daily limits.
-    #[must_use]
-    pub fn uses_openrouter(self) -> bool {
-        matches!(self, Self::OpenRouter | Self::Codex)
     }
 
     /// The engine called `name` (as [`EngineKind::as_str`] writes it).
@@ -113,8 +104,8 @@ pub trait Engine: Send + Sync + fmt::Debug {
     /// Which engine this is.
     fn kind(&self) -> EngineKind;
 
-    /// Whether it can run now (`OpenRouter`: signed in; Claude: always, its
-    /// setup checks show problems).
+    /// Whether it can run now (signed in to `OpenRouter`; Codex: also
+    /// found and the right version).
     ///
     /// # Errors
     /// [`NotReady`] with what's missing.
@@ -145,8 +136,8 @@ impl fmt::Debug for Started {
     }
 }
 
-/// A running bot session (Claude: one `claude` child; loop: one
-/// conversation and its tools).
+/// A running bot session (Codex: one thread in the bot's `codex`
+/// process; loop: one conversation and its tools).
 pub trait Session: Send {
     /// The session's id, as saved with the bot.
     fn id(&self) -> &str;
@@ -177,9 +168,8 @@ mod tests {
         }
         assert_eq!(EngineKind::parse("codex"), Some(EngineKind::Codex));
         assert_eq!(EngineKind::parse("gpt"), None);
-        assert!(EngineKind::Codex.uses_openrouter());
-        assert!(!EngineKind::Claude.uses_openrouter());
-        assert_eq!(EngineKind::default(), EngineKind::Claude);
+        assert_eq!(EngineKind::parse("claude"), None, "no longer an engine");
+        assert_eq!(EngineKind::default(), EngineKind::Codex);
         assert_eq!(
             serde_json::from_str::<EngineKind>("\"openrouter\"").unwrap(),
             EngineKind::OpenRouter
@@ -189,8 +179,8 @@ mod tests {
     #[test]
     fn errors_show_their_message_as_it_is() {
         assert_eq!(
-            EngineError::Start("couldn't start claude: no such file".into()).to_string(),
-            "couldn't start claude: no such file"
+            EngineError::Start("couldn't start codex: no such file".into()).to_string(),
+            "couldn't start codex: no such file"
         );
         assert_eq!(
             EngineError::from(NotReady("Sign in with OpenRouter first.".into())).to_string(),

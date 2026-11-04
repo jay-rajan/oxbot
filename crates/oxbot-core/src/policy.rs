@@ -1,7 +1,7 @@
 //! What a bot may do with a tool, decided by oxbot (not by the bot).
 //!
-//! Claude asks oxbot before every browser action (see
-//! `ClaudeConfig::ask_oxbot`). The shared browser stays signed in to the
+//! Every engine asks oxbot before every browser action (its tool service
+//! sends each call to the hub's gate). The shared browser stays signed in to the
 //! user's sites, so anything that changes something there needs the user's
 //! yes. [`decide`] answers:
 //!
@@ -347,10 +347,10 @@ pub const LOOP_BROWSER_TOOLS: [&str; 17] = [
     "handle_dialog",
 ];
 
-/// The file tools, as Claude Code names them.
+/// The file tools, as models know them.
 const FILE_TOOLS: [&str; 5] = ["Read", "Write", "Edit", "Glob", "Grep"];
 
-/// Claude Code's `acceptEdits` rule, shared by both engines: a file tool
+/// The rule for file tools, shared by both engines: a file tool
 /// whose every path (`file_path`, `path`; no `path` means the folder
 /// itself; relative paths are inside `work_dir`) is inside `work_dir`,
 /// as written and after following links, runs without asking. Anything
@@ -1213,7 +1213,7 @@ pub fn trial_overlay(verdict: &Verdict, call: TrialCall<'_>, mode: TrialMode) ->
 }
 
 /// What every practice-run result oxbot makes up starts with. The stand-in
-/// Claude and the judge look for it.
+/// model looks for it.
 pub const DRY_RUN_PREFIX: &str = "[test run]";
 
 /// What the model is told about a step a practice run recorded instead of

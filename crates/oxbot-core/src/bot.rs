@@ -4,11 +4,15 @@
 //!
 //! ```text
 //! bots/assistant/
-//!   bot.toml          name = "Herder", optional engine, model, owner,
-//!                     created_by, private, [openrouter] settings
-//!   instructions.md   appended to Claude's system prompt
-//!   work/             Claude's working folder: the only place it may touch
+//!   bot.toml          name = "Herder", engine, owner, created_by, private,
+//!                     [openrouter] settings (its model and daily limit)
+//!   instructions.md   appended to the bot's system prompt
+//!   work/             the bot's working folder: the only place it may touch
 //! ```
+//!
+//! A file from before Claude left oxbot says `engine = "claude"`, or no
+//! engine at all (every bot made before engines): that bot runs on Codex
+//! now, and [`Bot::from_claude`] says so until the hub upgrades its file.
 
 use std::fs;
 use std::io;
@@ -187,13 +191,7 @@ impl Viewer {
             let maker = self.maker(b.owner.as_deref(), b.created_by.as_deref());
             b.locked = !self.can_see(maker, b.private);
             b.can_manage = !b.central && self.can_manage(maker);
-            // Claude bots take tasks only from the Farm's owner.
-            b.can_task = !b.locked
-                && b.task_owner.as_deref().is_none_or(|owner| {
-                    self.farm
-                        || (!owner.is_empty()
-                            && self.id.as_ref().is_some_and(|id| id.as_str() == owner))
-                });
+            b.can_task = !b.locked;
             if b.locked {
                 b.busy = false;
                 b.last_seq = 0;
@@ -233,9 +231,7 @@ pub struct Bot {
     pub id: BotId,
     /// Display name.
     pub name: String,
-    /// Model alias for Claude (e.g. `sonnet`); `None` uses the default.
-    pub model: Option<String>,
-    /// Extra instructions for Claude.
+    /// Extra instructions for the bot.
     pub instructions: String,
     /// Who it belongs to: the person who made it (or the Farm's own person,
     /// for bots from before oxbot kept track). Access is decided by this.
@@ -246,8 +242,12 @@ pub struct Bot {
     /// only its owner's own browser.
     pub private: bool,
     /// The engine that runs it, as its file says (Herders' engines are
-    /// fixed by the hub). Bots made before engines run on Claude.
+    /// fixed by the hub).
     pub engine: EngineKind,
+    /// Its file says Claude (or no engine: made before engines), so it
+    /// runs on Codex now: the hub rewrites the file once and tells its chat
+    /// (see `Hub::upgrade_from_claude`).
+    pub from_claude: bool,
     /// Its settings for oxbot's own loop (the `[openrouter]` table).
     pub loop_settings: LoopSettings,
     /// The bot's folder.
@@ -274,12 +274,9 @@ impl LoopSettings {
 #[derive(Debug, Serialize, Deserialize)]
 struct BotFile {
     name: String,
-    /// Absent: `claude` (every bot made before engines), so old files keep
-    /// their exact bytes when saved again.
+    /// Absent: `claude` (every bot made before engines).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     engine: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
     /// The owner's person id (`p_…`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     owner: Option<String>,
@@ -291,23 +288,27 @@ struct BotFile {
     openrouter: Option<LoopSettings>,
 }
 
+/// The engine files from before Claude left oxbot name.
+const CLAUDE: &str = "claude";
+
 impl BotFile {
-    /// The engine it names. One this oxbot doesn't know runs on Claude: the
-    /// strictest (only the owner may give it tasks), never open to anyone.
-    fn engine(&self, id: &BotId) -> EngineKind {
+    /// The engine it names, and whether that was Claude (or nothing),
+    /// which runs on Codex now. One this oxbot doesn't know (a newer
+    /// oxbot's) runs on Codex too, under the same rules, and its file is
+    /// left as it is.
+    fn engine(&self, id: &BotId) -> (EngineKind, bool) {
         match self.engine.as_deref() {
-            None => EngineKind::Claude,
-            Some(name) => EngineKind::parse(name).unwrap_or_else(|| {
-                tracing::warn!(bot = %id, engine = name, "unknown engine in bot.toml; using claude");
-                EngineKind::Claude
-            }),
+            None | Some(CLAUDE) => (EngineKind::Codex, true),
+            Some(name) => {
+                if let Some(kind) = EngineKind::parse(name) {
+                    (kind, false)
+                } else {
+                    tracing::warn!(bot = %id, engine = name, "unknown engine in bot.toml; using codex");
+                    (EngineKind::Codex, false)
+                }
+            }
         }
     }
-}
-
-/// How `engine` is written to `bot.toml`: not at all for Claude.
-fn engine_entry(engine: EngineKind) -> Option<String> {
-    (engine != EngineKind::Claude).then(|| engine.as_str().to_owned())
 }
 
 /// Errors reading or writing bots.
@@ -391,7 +392,7 @@ impl Bot {
         })?;
         // A missing instructions file just means no extra instructions.
         let instructions = fs::read_to_string(dir.join("instructions.md")).unwrap_or_default();
-        let engine = file.engine(&id);
+        let (engine, from_claude) = file.engine(&id);
         let owner = file.owner.and_then(|o| match PersonId::new(o) {
             Ok(id) => Some(id),
             Err(err) => {
@@ -403,11 +404,11 @@ impl Bot {
         Ok(Self {
             id,
             name: file.name,
-            model: file.model,
             owner,
             created_by: file.created_by,
             private: file.private,
             engine,
+            from_claude,
             loop_settings: file.openrouter.unwrap_or_default(),
             instructions,
             dir: dir.to_owned(),
@@ -462,8 +463,7 @@ impl Bot {
         fs::create_dir_all(&work).map_err(io_err(&work))?;
         let file = BotFile {
             name: name.to_owned(),
-            engine: None,
-            model: None,
+            engine: Some(EngineKind::default().as_str().to_owned()),
             owner: owner.map(ToString::to_string),
             created_by: created_by.map(str::to_owned),
             private: false,
@@ -475,7 +475,7 @@ impl Bot {
         Self::load(&dir)
     }
 
-    /// Claude's working folder for this bot.
+    /// The bot's working folder.
     #[must_use]
     pub fn work_dir(&self) -> PathBuf {
         self.dir.join("work")
@@ -517,8 +517,9 @@ impl Bot {
         }
     }
 
-    /// Writes its name, engine, model, owner, creator, privacy and loop
-    /// settings back to `bot.toml`.
+    /// Writes its name, engine, owner, creator, privacy and loop settings
+    /// back to `bot.toml` (a bot from Claude's days gets its engine written
+    /// out, and loses the Claude model it named).
     ///
     /// # Errors
     /// Fails if the file can't be written.
@@ -527,8 +528,7 @@ impl Bot {
             &self.dir,
             &BotFile {
                 name: self.name.clone(),
-                engine: engine_entry(self.engine),
-                model: self.model.clone(),
+                engine: Some(self.engine.as_str().to_owned()),
                 owner: self.owner.as_ref().map(ToString::to_string),
                 created_by: self.created_by.clone(),
                 private: self.private,
@@ -670,7 +670,6 @@ mod tests {
         ensure_default(tmp.path()).unwrap();
         let bot = Bot::load(&old.dir).unwrap();
         assert_eq!(bot.name, "Herder");
-        assert_eq!(bot.model.as_deref(), Some("haiku"), "the model is kept");
         assert!(bot.instructions.contains("You are Herder"));
 
         // It's renamed once: a name put back by hand stays.
@@ -776,12 +775,14 @@ mod tests {
     }
 
     #[test]
-    fn a_bots_engine_is_saved_and_absent_means_claude() {
+    fn a_new_bot_runs_on_codex_and_its_engine_is_saved() {
         let tmp = tempfile::tempdir().unwrap();
         let id = BotId::new("scout").unwrap();
         let mut bot = Bot::create(tmp.path(), id, "Scout", "").unwrap();
-        assert_eq!(bot.engine, EngineKind::Claude);
+        assert_eq!((bot.engine, bot.from_claude), (EngineKind::Codex, false));
         assert_eq!(bot.loop_settings, LoopSettings::default());
+        let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(text.contains("engine = \"codex\""), "{text}");
 
         bot.engine = EngineKind::OpenRouter;
         bot.loop_settings.model = Some("auto".into());
@@ -794,45 +795,52 @@ mod tests {
         assert_eq!(again.engine, EngineKind::OpenRouter);
         assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
         assert_eq!(again.loop_settings.daily_requests, Some(200));
-
-        // Back to Claude: the file says nothing about engines again.
-        let mut again = again;
-        again.engine = EngineKind::Claude;
-        again.loop_settings = LoopSettings::default();
-        again.save().unwrap();
-        let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
-        assert!(
-            !text.contains("engine") && !text.contains("openrouter"),
-            "{text}"
-        );
     }
 
     #[test]
-    fn an_old_file_keeps_its_bytes_and_an_unknown_engine_is_claude() {
+    fn a_claude_bots_file_runs_on_codex_and_saves_without_claude() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("news");
         fs::create_dir_all(&dir).unwrap();
         let old = "name = \"News\"\nmodel = \"haiku\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\n";
         fs::write(dir.join("bot.toml"), old).unwrap();
         let bot = Bot::load(&dir).unwrap();
-        assert_eq!(bot.engine, EngineKind::Claude);
+        assert_eq!((bot.engine, bot.from_claude), (EngineKind::Codex, true));
         bot.save().unwrap();
-        assert_eq!(fs::read_to_string(dir.join("bot.toml")).unwrap(), old);
+        let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
+        assert_eq!(
+            text,
+            "name = \"News\"\nengine = \"codex\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\n",
+            "everything but Claude's model is kept"
+        );
+        let again = Bot::load(&dir).unwrap();
+        assert!(!again.from_claude && again.private);
 
-        fs::write(dir.join("bot.toml"), "name = \"News\"\nengine = \"gpt\"\n").unwrap();
-        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Claude);
-        fs::write(
-            dir.join("bot.toml"),
-            "name = \"News\"\nengine = \"codex\"\n",
-        )
-        .unwrap();
-        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Codex);
         fs::write(
             dir.join("bot.toml"),
             "name = \"News\"\nengine = \"claude\"\n",
         )
         .unwrap();
-        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Claude);
+        assert_eq!(
+            (
+                Bot::load(&dir).unwrap().engine,
+                Bot::load(&dir).unwrap().from_claude
+            ),
+            (EngineKind::Codex, true)
+        );
+        // A newer oxbot's engine: Codex's rules, and not called an upgrade.
+        fs::write(dir.join("bot.toml"), "name = \"News\"\nengine = \"gpt\"\n").unwrap();
+        let unknown = Bot::load(&dir).unwrap();
+        assert_eq!(
+            (unknown.engine, unknown.from_claude),
+            (EngineKind::Codex, false)
+        );
+        fs::write(
+            dir.join("bot.toml"),
+            "name = \"News\"\nengine = \"openrouter\"\n",
+        )
+        .unwrap();
+        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::OpenRouter);
     }
 
     #[test]

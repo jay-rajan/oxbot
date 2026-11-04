@@ -21,8 +21,8 @@ pub(super) fn maker_name(bot: &Bot, names: &HashMap<PersonId, String>) -> Option
 }
 
 impl Hub {
-    /// A person's Herder as Claude runs it: with the Farm's Herder's
-    /// instructions and model.
+    /// A person's Herder as its engine runs it: with the Farm's Herder's
+    /// name and instructions.
     pub(super) fn as_herder(&self, bot: &Bot) -> Bot {
         let mut bot = bot.clone();
         if !bot.is_main_herder()
@@ -34,7 +34,6 @@ impl Hub {
                 .get(&BotId::new(crate::bot::DEFAULT_BOT).unwrap_or_else(|_| unreachable!()))
         {
             bot.instructions.clone_from(&main.instructions);
-            bot.model.clone_from(&main.model);
             bot.name.clone_from(&main.name);
         }
         bot
@@ -201,7 +200,7 @@ impl Hub {
                 "A private bot needs to know whose it is.".to_owned(),
             ));
         }
-        // Held until its Claude is stopped, so a waiting message can't start
+        // Held until its session is stopped, so a waiting message can't start
         // it with the old browser.
         self.claim(&bot.id).await?;
         let changed = self.update_bot(&bot.id, |b| {
@@ -213,8 +212,8 @@ impl Hub {
         });
         if changed.is_ok() {
             tracing::info!(bot = %bot.id, private, "changed who can see it");
-            // Its Claude was started with the other browser: start it again next time.
-            self.stop_claude(&bot.id).await;
+            // Its session was started with the other browser: start it again next time.
+            self.stop_session(&bot.id).await;
         }
         lock(&self.starting).remove(&bot.id);
         changed?;
@@ -290,7 +289,7 @@ impl Hub {
     async fn delete_claimed(&self, bot: &Bot, viewer: &Viewer) -> Result<Vec<PersonId>, HubError> {
         self.deny_open_approvals(&bot.id);
         self.cancel_sign_ins(&bot.id);
-        self.stop_claude(&bot.id).await;
+        self.stop_session(&bot.id).await;
         // The trash keeps the whole bot, history included.
         let history: String = self
             .store
@@ -532,10 +531,8 @@ impl Hub {
         )?;
         if private && owner.is_some() {
             bot.private = true;
+            bot.save()?;
         }
-        // New bots run on OpenRouter; the owner may switch one to Claude.
-        bot.engine = crate::engine::EngineKind::OpenRouter;
-        bot.save()?;
         self.bots
             .write()
             .unwrap_or_else(PoisonError::into_inner)

@@ -1,6 +1,6 @@
 //! The tools a loop session offers, in a fixed order (oxbot's own tools,
 //! browser tools sorted by name, file tools, then the loop's own), with
-//! the same names as on Claude. [`ToolRegistry::run`] needs a [`Permit`]:
+//! the names the hub's rules use. [`ToolRegistry::run`] needs a [`Permit`]:
 //! only the gate makes one.
 //!
 //! Results the model gets are kept small: a page snapshot is stored whole

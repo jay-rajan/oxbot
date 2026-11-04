@@ -70,7 +70,8 @@ fn gate_port(setting: Option<&str>) -> Option<u16> {
 }
 
 /// A running server. Call [`RunningServer::stop`] to shut it down cleanly
-/// (it stops every `claude` and the shared Chrome; sign-ins stay).
+/// (it stops every bot's session, Codex and the shared Chrome; sign-ins
+/// stay).
 #[derive(Debug)]
 pub struct RunningServer {
     /// Where it listens.
@@ -128,7 +129,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // A database a newer oxbot upgraded is refused here, with what to do.
     let store = Store::open(&home.db_path())
         .with_context(|| format!("couldn't open {}", home.db_path().display()))?;
-    // Programs started from here (claude, npm, the browser tool) look for
+    // Programs started from here (codex, npm, the browser tool) look for
     // their tools on this PATH, which works when oxbot was opened from Finder.
     let path = setup::search_path();
     let path_env = vec![("PATH".to_owned(), path.clone())];
@@ -172,13 +173,12 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     );
     let helper = mac_helper();
     let config = HubConfig {
-        claude_program: std::env::var_os("OXBOT_CLAUDE")
-            .map_or_else(|| PathBuf::from("claude"), PathBuf::from),
         browser,
         extra_env: path_env,
         mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
-        // oxbot's own loop for bots on OpenRouter, with the household's key.
+        // oxbot's own loop for bots on OpenRouter (and Codex bots' tools,
+        // routing and meter), with the household's key.
         openrouter: Some(oxbot_core::LoopParts::openrouter(
             openrouter.client(),
             openrouter.key_cell(),
@@ -191,7 +191,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         }),
         // Practice runs and test cases' files.
         data_dir: home.root().to_path_buf(),
-        ..HubConfig::for_app(home.bots_dir())
+        ..HubConfig::new(home.bots_dir())
     };
     let hub = Hub::new(bots, store, config);
     hub.start_codex().await;
@@ -236,18 +236,15 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         search_path: path,
         setup: Arc::default(),
         tool_built_in: built_in.is_some(),
-        setup_running: Arc::default(),
         door: door.clone(),
         farm_key: farm_key.clone(),
         notifier: crate::notify::pick(options.notifier, e2e),
         dictation: Arc::new(crate::dictation::Dictation::new(helper)),
         next_conn: Arc::default(),
-        engine_review: Arc::default(),
         port: addr.port(),
         openrouter: Some(openrouter),
     };
     state.refresh_setup().await;
-    state.review_engines();
     load_key_then_resume(&state);
     refresh_models_now_and_then(&state);
     crate::notify::start(&state);
@@ -276,7 +273,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
 /// built oxbot makes the Keychain ask the person first, and until they
 /// answer, `OpenRouter` bots and Settings → Engines say so. Then the key's
 /// limits, and the loop turns that were running when oxbot stopped go on
-/// (the owner-only rule needs the Farm's person, known by now).
+/// (who may answer their cards needs the Farm's person, known by now).
 fn load_key_then_resume(state: &AppState) {
     let state = state.clone();
     tokio::spawn(async move {
@@ -327,8 +324,8 @@ fn refresh_models_now_and_then(state: &AppState) {
 }
 
 /// End-to-end tests only (`OXBOT_E2E=1`): the stand-in browser tool for
-/// bots on oxbot's own loop (`OXBOT_FAKE_DEVTOOLS`), with the reply script
-/// (`OXBOT_FAKE_DT_SCRIPT`, else the stand-in Claude's) and log it reads.
+/// bots (`OXBOT_FAKE_DEVTOOLS`), with the reply script
+/// (`OXBOT_FAKE_DT_SCRIPT`, else `OXBOT_FAKE_SCRIPT`) and log it reads.
 fn fake_devtools(e2e: bool) -> Option<oxbot_browser::McpCommand> {
     if !e2e {
         return None;

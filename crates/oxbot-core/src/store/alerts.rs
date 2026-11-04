@@ -1,19 +1,19 @@
-//! The usage alerts already sent: one row per plan window, holding the
+//! The usage alerts already sent: one row per limit window, holding the
 //! window it was for and the highest level alerted in it.
 
-use oxbot_claude::LimitWindow;
+use crate::engine::LimitWindow;
 use rusqlite::{OptionalExtension as _, Row, params};
 
 use super::{Store, StoreError};
 
-/// What was alerted for one of the plan's windows.
+/// What was alerted for one limit window.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LimitAlert {
-    /// The window's name, e.g. `five_hour`.
+    /// The window's name, e.g. `openrouter_free_daily`.
     pub name: String,
     /// When that window resets (ms since the Unix epoch; 0 if unknown).
     pub resets_at_ms: i64,
-    /// The highest level alerted: 50 or 80.
+    /// The highest level alerted: 50, 80 or 100.
     pub level: u8,
     /// How much was used when it alerted, from 0 to 1.
     pub used: f64,
@@ -22,7 +22,7 @@ pub struct LimitAlert {
 }
 
 /// What to do with a window's alert row, decided from the row and the
-/// window as Claude just reported it.
+/// window as the meter just measured it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlertChange {
     /// Nothing new.

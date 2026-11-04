@@ -20,7 +20,7 @@ use crate::report::{self, Report};
 const DELETED: &str = "That report was deleted.";
 
 impl Hub {
-    /// `save_report` for `bot`'s Claude: checks the report against the
+    /// `save_report` for `bot`: checks the report against the
     /// pages its session opened, then saves it with its card in the chat.
     /// Returns whether it worked and what to tell the bot.
     pub(super) async fn save_report(self: &Arc<Self>, bot: &BotId, args: &Value) -> (bool, String) {

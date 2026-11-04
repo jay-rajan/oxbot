@@ -10,8 +10,7 @@ use crate::{ApprovalKind, EngineKind};
 pub struct Target {
     /// The engine.
     pub engine: EngineKind,
-    /// The model: a Claude alias (`sonnet`) or a model id
-    /// (`vendor/model:free`).
+    /// The model id (`vendor/model:free`).
     pub model: String,
 }
 
@@ -67,10 +66,6 @@ pub struct TestCaseInfo {
     /// Hidden from the list.
     #[serde(default)]
     pub archived: bool,
-    /// The owner started its original turn: it may run on Claude and be
-    /// judged by Claude.
-    #[serde(default)]
-    pub owner_started: bool,
     /// The latest result on each engine and model.
     #[serde(default)]
     pub last: Vec<CaseResult>,
@@ -123,7 +118,8 @@ pub struct IntentMatch {
     pub should_not: Vec<String>,
 }
 
-/// One of the owner's checks, as the judge saw it.
+/// One of the owner's checks, as a judge saw it (runs judged before
+/// Claude left oxbot).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JudgeCheck {
     /// The check.
@@ -134,7 +130,7 @@ pub struct JudgeCheck {
     pub why: String,
 }
 
-/// What the judge said about a run.
+/// What a judge said about a run (runs judged before Claude left oxbot).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JudgeView {
     /// Each check.
@@ -148,7 +144,7 @@ pub struct JudgeView {
     pub notes: String,
     /// The model that judged.
     pub model: String,
-    /// Judged by a local model, not Claude.
+    /// Judged by a local model.
     #[serde(default)]
     pub local: bool,
 }
@@ -187,7 +183,7 @@ pub struct RunInfo {
     pub kind: String,
     /// The engine.
     pub engine: EngineKind,
-    /// Who served the model (`anthropic`, `openrouter`).
+    /// Who served the model (`openrouter`).
     pub provider: String,
     /// The model.
     pub model: String,
@@ -319,8 +315,8 @@ pub struct ScoreRow {
     /// Live thumbs down.
     #[serde(default)]
     pub thumbs_down: u32,
-    /// At least 5 runs, a pass rate within 10 points of Claude's, and no
-    /// step the owner had said no to.
+    /// At least 5 runs, a pass rate within 10 points of Codex's best, and
+    /// no step the owner had said no to.
     #[serde(default)]
     pub good_enough: bool,
 }
@@ -340,8 +336,6 @@ pub struct BatchEstimate {
     /// Kept for live bots.
     #[serde(default)]
     pub reserve: u32,
-    /// Runs on the owner's Claude plan.
-    pub claude_runs: u32,
     /// Whether any target is a paid model.
     #[serde(default)]
     pub paid: bool,
@@ -359,9 +353,6 @@ pub struct ComparePrefs {
     /// Share of the day's free `OpenRouter` requests kept for live bots,
     /// in percent (0 to 90).
     pub reserve_pct: u32,
-    /// Batches wait when any Claude window is used this much, in percent
-    /// (10 to 100).
-    pub claude_pause_pct: u32,
     /// Most shadow runs a day.
     pub shadows_a_day: u32,
 }
@@ -370,7 +361,6 @@ impl Default for ComparePrefs {
     fn default() -> Self {
         Self {
             reserve_pct: 30,
-            claude_pause_pct: 80,
             shadows_a_day: 20,
         }
     }

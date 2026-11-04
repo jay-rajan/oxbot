@@ -1,8 +1,8 @@
 //! Relays the server's log to the apps, so they see what the terminal shows:
-//! Chrome starting, the browser tool installing, Claude's warnings.
+//! Chrome starting, the browser tool installing, Codex starting and stopping.
 //!
 //! [`RelayLayer`] is a `tracing` layer: every `info`, `warn` or `error` event
-//! from oxbot's own crates (and Claude's stderr) becomes a [`LogLine`] on the
+//! from oxbot's own crates becomes a [`LogLine`] on the
 //! [`LogRelay`], which keeps the most recent ones for apps that connect later.
 
 use std::collections::VecDeque;
@@ -71,7 +71,7 @@ pub struct RelayLayer(pub Arc<LogRelay>);
 
 /// Whether an event belongs in the app's activity log.
 fn wanted(level: Level, target: &str) -> bool {
-    level <= Level::INFO && (target.starts_with("oxbot") || target == "claude_stderr")
+    level <= Level::INFO && target.starts_with("oxbot")
 }
 
 impl<S: Subscriber> Layer<S> for RelayLayer {
@@ -132,13 +132,14 @@ mod tests {
             tracing::info!(target: "oxbot_browser", pid = 42, "Chrome started");
             tracing::debug!(target: "oxbot_browser", "too chatty");
             tracing::info!(target: "hyper", "not ours");
-            tracing::warn!(target: "claude_stderr", "rate limited");
+            tracing::warn!(target: "oxbot_codex", "Codex stopped");
+            tracing::warn!(target: "codex_stderr", "not ours either");
         });
         let lines = relay.recent();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].message, "Chrome started pid=42");
         assert_eq!(lines[0].level, "info");
-        assert_eq!(lines[1].target, "claude_stderr");
+        assert_eq!(lines[1].target, "oxbot_codex");
     }
 
     #[test]

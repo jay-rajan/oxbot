@@ -18,8 +18,8 @@ pub struct SessionSpec {
     /// (big tool results, context state): `bots/<id>/context`, outside
     /// `work/`. A practice run gets its own.
     pub context_dir: PathBuf,
-    /// The bot's knowledge folder for engines that read it from files
-    /// (Claude: `--add-dir`), once there is one.
+    /// The bot's knowledge folder for engines that read it from files,
+    /// once there is one.
     pub knowledge_dir: Option<PathBuf>,
     /// The bot's system prompt.
     pub system_prompt: String,
@@ -74,13 +74,11 @@ impl Resume {
 /// Which model a session uses.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelChoice {
-    /// The engine picks (Claude Code's default; the loop's router).
+    /// The router picks.
     #[default]
     Auto,
-    /// A Claude alias such as `sonnet` (Claude engine).
-    Claude(String),
     /// A model id the owner pinned: tried first, with the router's
-    /// fallbacks after it (loop engine).
+    /// fallbacks after it.
     Pin(String),
     /// This model and no other: no fallbacks (practice runs that compare
     /// models).
@@ -93,7 +91,7 @@ impl ModelChoice {
     pub fn named(&self) -> Option<&str> {
         match self {
             Self::Auto => None,
-            Self::Claude(name) | Self::Pin(name) | Self::Only(name) => Some(name),
+            Self::Pin(name) | Self::Only(name) => Some(name),
         }
     }
 }
@@ -101,10 +99,8 @@ impl ModelChoice {
 /// How to run the browser tool (`chrome-devtools-mcp`) for one bot.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserSpec {
-    /// The command, for engines that run it themselves.
+    /// The command the engine's tool service runs.
     pub mcp: McpCommand,
-    /// The same as an `mcpServers` entry, for Claude's `--mcp-config`.
-    pub mcp_json: Value,
 }
 
 /// A program to run as an MCP server over stdio.
@@ -116,34 +112,6 @@ pub struct McpCommand {
     pub args: Vec<String>,
     /// Its whole environment besides `PATH`.
     pub env: Vec<(String, String)>,
-}
-
-impl McpCommand {
-    /// The command an `mcpServers` entry describes (`command`, `args`,
-    /// `env`). `None` without a `command`.
-    #[must_use]
-    pub fn from_server_entry(entry: &Value) -> Option<Self> {
-        let program = entry.get("command").and_then(Value::as_str)?;
-        let args = entry
-            .get("args")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|a| a.as_str().map(str::to_owned))
-            .collect();
-        let env = entry
-            .get("env")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flatten()
-            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
-            .collect();
-        Some(Self {
-            program: PathBuf::from(program),
-            args,
-            env,
-        })
-    }
 }
 
 /// Which of oxbot's own tools a bot gets.
@@ -216,28 +184,15 @@ pub struct ResumedTurn {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn a_server_entry_gives_its_command() {
-        let entry = json!({"command": "/tools/node", "args": ["mcp.js", "--x=1"],
-            "env": {"A": "1", "B": 2}});
-        assert_eq!(
-            McpCommand::from_server_entry(&entry),
-            Some(McpCommand {
-                program: PathBuf::from("/tools/node"),
-                args: vec!["mcp.js".into(), "--x=1".into()],
-                env: vec![("A".into(), "1".into())],
-            })
-        );
-        assert_eq!(McpCommand::from_server_entry(&json!({"type": "sdk"})), None);
-    }
 
     #[test]
     fn resume_and_model_choice() {
         assert_eq!(Resume::New("a".into()).id(), "a");
         assert!(Resume::Resume("b".into()).is_resume());
-        assert_eq!(ModelChoice::Claude("sonnet".into()).named(), Some("sonnet"));
+        assert_eq!(
+            ModelChoice::Pin("e2e/y:free".into()).named(),
+            Some("e2e/y:free")
+        );
         assert_eq!(
             ModelChoice::Only("e2e/x:free".into()).named(),
             Some("e2e/x:free")

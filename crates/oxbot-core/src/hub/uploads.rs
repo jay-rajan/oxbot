@@ -21,7 +21,7 @@ pub(super) struct Pending {
     uploader: Option<PersonId>,
     accepted: attach::Accepted,
     at: Instant,
-    /// Sends of it under way (waiting for a turn, or starting Claude): it
+    /// Sends of it under way (waiting for a turn, or starting its session): it
     /// isn't deleted meanwhile.
     sending: u32,
 }
@@ -49,7 +49,7 @@ impl Hub {
     }
 
     /// Takes a file `viewer` uploaded for `bot` (saved at `incoming`), to
-    /// send with their next message: checks it, converts what Claude can't
+    /// send with their next message: checks it, converts what the bot can't
     /// read as it is, and keeps it until then.
     ///
     /// # Errors
