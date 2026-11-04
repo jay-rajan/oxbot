@@ -26,6 +26,7 @@
 //! | oxbot's own `request_sign_in` and `save_report` | run |
 //! | Herder's `list_bots`, `give_task`, `read_reply` | run |
 //! | Herder's `create_bot` | card with the name and instructions |
+//! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
 //!
 //! Labels come from the page snapshot (`button "Post"`), so a change behind
 //! an oddly named button can slip past; the bot is also told to ask first.
@@ -44,7 +45,7 @@ use serde_json::Value;
 
 use crate::tools::{
     self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
-    SIGN_IN_TOOL,
+    SCHEDULE_TOOLS, SIGN_IN_TOOL,
 };
 
 /// oxbot's answer to "may the bot run this?".
@@ -128,6 +129,8 @@ pub struct Ask {
     /// set only for a [`Click::Change`] on a named element on a known web
     /// site. Never for can't-undo clicks, Enter, uploads or Herder's cards.
     pub rule: Option<String>,
+    /// On a schedule card: the schedule proposed.
+    pub schedule: Option<Box<oxbot_protocol::ScheduleDraft>>,
 }
 
 impl Ask {
@@ -148,6 +151,7 @@ impl Ask {
             private: false,
             click: None,
             rule: None,
+            schedule: None,
         }
     }
 }
@@ -391,9 +395,9 @@ fn browser_action(tool: &str) -> Option<&str> {
         .strip_prefix("__")
 }
 
-/// oxbot's own tools: sign-in, saving a report (which stays inside oxbot)
-/// and Herder's team tools run (oxbot itself checks who may call them, see
-/// `tools`); creating a bot asks.
+/// oxbot's own tools: sign-in, saving a report (which stays inside oxbot),
+/// Herder's team tools and the schedule tools run (oxbot itself checks who
+/// may call them, see `tools`); creating a bot asks.
 fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     let runs = [
         SIGN_IN_TOOL,
@@ -403,9 +407,12 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         READ_REPLY_TOOL,
         ASK_USER_TOOL,
     ];
+    // The schedule tools ask the person themselves, on a card that shows
+    // the schedule (see `Hub::schedule_task`): none is made without it.
     if runs
         .iter()
         .chain(LOOP_CONTEXT_TOOLS.iter())
+        .chain(SCHEDULE_TOOLS.iter())
         .any(|t| tool == tools::full_name(t))
     {
         return Some(Verdict::Allow);

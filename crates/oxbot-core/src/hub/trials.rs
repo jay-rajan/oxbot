@@ -482,6 +482,22 @@ impl Hub {
                 )
             }
             tools::SAVE_REPORT_TOOL => self.trial_report(key, args).await,
+            // A practice run never makes, pauses or deletes a schedule.
+            tools::SCHEDULE_TASK_TOOL => record(
+                ApprovalKind::Schedule,
+                "set up a schedule",
+                format!("\"{}\"", text("task")),
+            ),
+            tools::PAUSE_SCHEDULE_TOOL | tools::DELETE_SCHEDULE_TOOL => record(
+                ApprovalKind::ChangeSchedule,
+                if name == tools::DELETE_SCHEDULE_TOOL {
+                    "delete a schedule"
+                } else {
+                    "pause or resume a schedule"
+                },
+                args.get("id").map(ToString::to_string).unwrap_or_default(),
+            ),
+            tools::LIST_SCHEDULES_TOOL => (true, "No schedules in a test run.".to_owned()),
             // Reading the team changes nothing: as live.
             tools::LIST_BOTS_TOOL => {
                 Arc::clone(self)
@@ -881,6 +897,7 @@ impl Hub {
             root: None,
             via: Vec::new(),
             tainted_by: input.tainted_by.clone(),
+            schedule: None,
         };
         if let Some(why) = &input.tainted_by {
             self.mark_untrusted(key, format!("a task passed on after reading {why}"))

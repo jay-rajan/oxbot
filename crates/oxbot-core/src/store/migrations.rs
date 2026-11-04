@@ -376,6 +376,39 @@ pub(super) const MIGRATIONS: &[Step] = &[
         DELETE FROM loop_progress;
         DELETE FROM token_calibration;",
     ),
+    // 24: schedules (step 3): a bot's task that runs on its own at set
+    // times, as the person who made it (only ever through their card), and
+    // each run's outcome. Rules are small JSON objects (once, daily,
+    // weekdays, weekly, monthly), never cron text; times are in `tz`, the
+    // home's time zone when it was made.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS schedules (
+            id          INTEGER PRIMARY KEY,
+            bot         TEXT    NOT NULL,
+            person      TEXT    NOT NULL,   -- person id it runs as
+            task_text   TEXT    NOT NULL,
+            rule_json   TEXT    NOT NULL,   -- ScheduleRule as JSON
+            tz          TEXT    NOT NULL,   -- IANA name, e.g. America/Toronto
+            next_run_ms INTEGER,            -- NULL: a one-time schedule that ran
+            last_run_ms INTEGER,
+            paused      INTEGER NOT NULL DEFAULT 0,
+            created_ms  INTEGER NOT NULL,
+            updated_ms  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS schedules_due ON schedules (next_run_ms) WHERE paused = 0;
+        CREATE INDEX IF NOT EXISTS schedules_bot ON schedules (bot);
+        CREATE INDEX IF NOT EXISTS schedules_person ON schedules (person);
+        CREATE TABLE IF NOT EXISTS schedule_runs (
+            id         INTEGER PRIMARY KEY,
+            schedule   INTEGER NOT NULL,
+            due_ms     INTEGER NOT NULL,
+            started_ms INTEGER,
+            ended_ms   INTEGER,
+            outcome    TEXT    NOT NULL,   -- running | ok | failed | busy | limit | missed | too_soon | no_access
+            turn       INTEGER             -- the run's message in the bot's chat (events.seq)
+        );
+        CREATE INDEX IF NOT EXISTS schedule_runs_schedule ON schedule_runs (schedule, id);",
+    ),
 ];
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each

@@ -10,10 +10,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 mod compare;
+mod schedule;
 pub use compare::{
     BatchEstimate, CaseDraft, CaseResult, ComparePrefs, IntentMatch, JudgeCheck, JudgeView,
     RunInfo, RunVerdict, ScoreRow, Target, TestCaseInfo, TrialIntent, TrialNetwork, TrialReport,
 };
+pub use schedule::{Day, ScheduleDraft, ScheduleEdit, ScheduleInfo, ScheduleRule};
 
 /// Version of the wire protocol. Bumped on any breaking change, so an old app
 /// can tell the user to update instead of failing in odd ways.
@@ -229,6 +231,38 @@ pub enum ClientMsg {
         id: u64,
         /// What they chose.
         answer: Answer,
+        /// On a schedule card answered with [`Answer::AllowOnce`]: the
+        /// schedule as they changed it ("Change"). Ignored on other cards.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        schedule: Option<ScheduleEdit>,
+    },
+    /// Schedules, answered with [`ServerMsg::Schedules`]: one bot's
+    /// (`bot`), or every one the client may see (Settings → Schedules).
+    ListSchedules {
+        /// Bot id; `None` for all.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bot: Option<String>,
+    },
+    /// Pause or resume a schedule. Its person, the bot's maker or the
+    /// owner.
+    PauseSchedule {
+        /// [`ScheduleInfo::id`].
+        id: i64,
+        /// Paused or not.
+        paused: bool,
+    },
+    /// Delete a schedule. Its person, the bot's maker or the owner.
+    DeleteSchedule {
+        /// [`ScheduleInfo::id`].
+        id: i64,
+    },
+    /// End-to-end test mode only: move the scheduler's clock forward by
+    /// `minutes`, or (`None`) to just past the next schedule's run, and
+    /// check schedules at once. Refused outside test mode.
+    E2eAdvanceClock {
+        /// How far; `None` for the next run.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minutes: Option<u32>,
     },
     /// The "Always allowed" rules of a bot, answered with
     /// [`ServerMsg::AllowRules`]. Only for those who may manage the bot.
@@ -1022,6 +1056,33 @@ pub enum ServerMsg {
         /// The shadow run.
         run: Box<RunInfo>,
     },
+    /// Schedules: the answer to [`ClientMsg::ListSchedules`].
+    Schedules {
+        /// The bot asked about; `None` for all.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bot: Option<String>,
+        /// Soonest first.
+        schedules: Vec<ScheduleInfo>,
+    },
+    /// Schedules changed (made, paused, deleted, or one ran): a client
+    /// showing a list asks for it again. Says nothing about which.
+    SchedulesChanged,
+    /// For one person's devices: a scheduled run ended or needs them, e.g.
+    /// `Prep: Day 3 plan is ready.`
+    Notify {
+        /// Bot id.
+        bot: String,
+        /// The line to show.
+        text: String,
+        /// It waits for them (an approval request or a sign-in), rather
+        /// than ended.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        waiting: bool,
+        /// Server only, never sent: whose it is (only their connections
+        /// get it).
+        #[serde(skip)]
+        person_id: String,
+    },
     /// Something the client asked for went wrong.
     Error {
         /// What went wrong, for the user.
@@ -1327,6 +1388,12 @@ pub enum ApprovalKind {
     /// Herder wants to pass a task to someone's private bot, after reading
     /// web pages or other bots' replies (which may have asked it to).
     GiveTask,
+    /// A bot proposes a schedule ([`Approval::schedule`]): Create, Change
+    /// or Don't.
+    Schedule,
+    /// A bot wants to delete a schedule, or resume one after reading
+    /// something oxbot doesn't trust.
+    ChangeSchedule,
 }
 
 /// Something a bot wants to do that needs the user's yes.
@@ -1369,6 +1436,13 @@ pub struct Approval {
     /// name (`button "Save"`), set only on cards that may offer one.
     #[serde(skip)]
     pub rule: Option<String>,
+    /// On a schedule card: the schedule proposed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<ScheduleDraft>,
+    /// Server only, never sent: other people who may see and answer it
+    /// (person ids), besides its asker and the Farm.
+    #[serde(skip)]
+    pub also: Vec<String>,
 }
 
 #[allow(
@@ -1968,6 +2042,8 @@ mod tests {
             asker_id: Some("p_0123456789abcdef".into()),
             always: false,
             rule: Some("button \"Buy\"".into()),
+            schedule: None,
+            also: Vec::new(),
         };
         let json = serde_json::to_string(&card).unwrap();
         assert!(
@@ -2006,7 +2082,8 @@ mod tests {
             msg,
             ClientMsg::Answer {
                 id: 4,
-                answer: Answer::AllowOnce
+                answer: Answer::AllowOnce,
+                schedule: None,
             }
         );
         let json = serde_json::to_string(&EventKind::Approval {
@@ -2023,7 +2100,8 @@ mod tests {
             always,
             ClientMsg::Answer {
                 id: 4,
-                answer: Answer::AlwaysAllow
+                answer: Answer::AlwaysAllow,
+                schedule: None,
             }
         );
         assert_eq!(

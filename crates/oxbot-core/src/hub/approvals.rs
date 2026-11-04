@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use oxbot_browser::MCP_SERVER_NAME;
-use oxbot_protocol::{Answer, Approval, ApprovalKind, EventKind, Outcome, ServerMsg};
+use oxbot_protocol::{Answer, Approval, ApprovalKind, EventKind, Outcome, ScheduleEdit, ServerMsg};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
@@ -42,8 +42,31 @@ impl Hub {
     /// [`HubError::NotAllowed`] if "Always allow" isn't theirs to give, or
     /// the rule couldn't be saved.
     pub fn answer_as(&self, id: u64, answer: Answer, viewer: &Viewer) -> Result<bool, HubError> {
+        self.answer_with(id, answer, None, viewer)
+    }
+
+    /// Like [`Hub::answer_as`]; on a schedule card, `edit` is the schedule
+    /// as `viewer` changed it before pressing Create. It's checked first:
+    /// a rule or task that isn't valid leaves the card open.
+    ///
+    /// # Errors
+    /// As [`Hub::answer_as`], or what's wrong with the changed schedule.
+    pub fn answer_with(
+        &self,
+        id: u64,
+        answer: Answer,
+        edit: Option<ScheduleEdit>,
+        viewer: &Viewer,
+    ) -> Result<bool, HubError> {
         if !self.approval_visible(id, viewer) {
             return Ok(false);
+        }
+        if let Some(edit) = edit {
+            let kind = lock(&self.approvals).get(&id).map(|(a, _, _)| a.kind);
+            if kind == Some(ApprovalKind::Schedule) && answer == Answer::AllowOnce {
+                let edit = super::schedules::checked_edit(&edit)?;
+                lock(&self.scheduler.edits).insert(id, edit);
+            }
         }
         if answer == Answer::AlwaysAllow {
             // The card as oxbot stored it, not as the client describes it.
@@ -60,8 +83,12 @@ impl Hub {
     pub fn answer(&self, id: u64, answer: Answer) -> bool {
         let entry = lock(&self.approvals).remove(&id);
         let Some((_, _, tx)) = entry else {
+            lock(&self.scheduler.edits).remove(&id);
             return false;
         };
+        if answer != Answer::AllowOnce {
+            lock(&self.scheduler.edits).remove(&id);
+        }
         let _ = tx.send(answer);
         let _ = self.updates.send(ServerMsg::ApprovalResolved { id });
         true
@@ -286,11 +313,31 @@ impl Hub {
         ask: &policy::Ask,
         page: Option<(String, String)>,
     ) -> Result<Outcome, HubError> {
+        Ok(self.confirm_card(bot, ask, page).await?.0)
+    }
+
+    /// Like [`Hub::confirm`], also giving the card's id (a schedule card's
+    /// changes are kept by it).
+    pub(super) async fn confirm_card(
+        &self,
+        bot: &Bot,
+        ask: &policy::Ask,
+        page: Option<(String, String)>,
+    ) -> Result<(Outcome, u64), HubError> {
         let bot_id = &bot.id;
         let screenshot = match self.browser_of(bot) {
-            // A new bot or a task for another bot has nothing to do with
-            // the page on screen.
-            _ if matches!(ask.kind, ApprovalKind::CreateBot | ApprovalKind::GiveTask) => None,
+            // A new bot, a task for another bot or a schedule has nothing
+            // to do with the page on screen.
+            _ if matches!(
+                ask.kind,
+                ApprovalKind::CreateBot
+                    | ApprovalKind::GiveTask
+                    | ApprovalKind::Schedule
+                    | ApprovalKind::ChangeSchedule
+            ) =>
+            {
+                None
+            }
             Some(s) => {
                 s.browser
                     .screenshot(page.as_ref().map(|(_, u)| u.as_str()))
@@ -325,6 +372,8 @@ impl Hub {
                 .rule
                 .clone()
                 .filter(|_| ask.kind == ApprovalKind::Change && !bot.is_central()),
+            schedule: ask.schedule.as_deref().cloned(),
+            also: Vec::new(),
         };
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
@@ -334,6 +383,8 @@ impl Hub {
             text: "Waiting for your OK…".to_owned(),
         });
         tracing::info!(bot = %bot_id, kind = ?ask.kind, "asking the user");
+        // A schedule's run waits here: its person hears it needs them.
+        self.scheduled_run_waiting(bot_id, "is waiting for your OK");
 
         let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
             Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
@@ -347,7 +398,7 @@ impl Hub {
         // Deleting a bot says no to its cards; by the time this one wakes,
         // the bot and its history may be gone. Nothing to add it to then.
         if self.bot(bot_id.as_str()).is_err() {
-            return Ok(outcome);
+            return Ok((outcome, id));
         }
         self.record(
             bot_id,
@@ -358,7 +409,7 @@ impl Hub {
                 outcome,
             },
         )?;
-        Ok(outcome)
+        Ok((outcome, id))
     }
 }
 

@@ -34,6 +34,7 @@ mod looped;
 mod people;
 mod reports;
 mod rules;
+mod schedules;
 mod sections;
 mod seqs;
 mod session;
@@ -100,7 +101,9 @@ pub struct HubConfig {
     pub keep_unsent: Duration,
     /// End-to-end test mode (`OXBOT_E2E`): its stand-in browser tool never
     /// opens real pages, so a blank tab may count for an "Always allow"
-    /// rule (see `Hub::blank_tab_counts_for_rules`). Off everywhere else.
+    /// rule (see `Hub::blank_tab_counts_for_rules`), and the scheduler's
+    /// clock may be moved forward (`Hub::advance_test_clock`). Off
+    /// everywhere else.
     pub e2e: bool,
     /// Tests only (the `test-people` feature): a viewer known only by name
     /// becomes the person called that, made if new, the first time the hub
@@ -125,6 +128,8 @@ pub struct HubConfig {
     /// build: there a practice run browses only behind its network guard.
     #[cfg(any(test, feature = "test-people"))]
     pub trials_without_guard: bool,
+    /// The home's time zone, for schedules: the Mac's own. Tests give one.
+    pub zone: Arc<dyn crate::schedule::Zone>,
 }
 
 impl HubConfig {
@@ -152,6 +157,7 @@ impl HubConfig {
             enrol_named_viewers: true,
             #[cfg(any(test, feature = "test-people"))]
             trials_without_guard: false,
+            zone: Arc::new(crate::schedule::MacZone),
         }
     }
 }
@@ -307,6 +313,8 @@ pub struct Hub {
     uploads: std::sync::Mutex<HashMap<String, uploads::Pending>>,
     /// Uploads being checked and converted at once, at most.
     conversions: Semaphore,
+    /// Schedules' runs in progress and the scheduler's clock.
+    scheduler: schedules::Scheduler,
 }
 
 impl std::fmt::Debug for Hub {
@@ -387,6 +395,7 @@ impl Hub {
             trials: trials::Trials::default(),
             knowledge: Arc::new(NoKnowledge),
             conversions: Semaphore::new(2),
+            scheduler: schedules::Scheduler::default(),
         });
         // The home browser exists from the start, as before.
         let _ = hub.browser_for(&BrowserOwner::Home);
@@ -395,6 +404,13 @@ impl Hub {
         // Practice runs an earlier oxbot left are stopped and deleted.
         hub.start_trials();
         tokio::spawn(stop_idle_bots(Arc::downgrade(&hub)));
+        // Scheduled runs cut short when oxbot last stopped didn't finish.
+        match hub.store.end_unfinished_runs() {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(n, "scheduled runs cut short by a stop"),
+            Err(err) => tracing::warn!(%err, "couldn't end unfinished scheduled runs"),
+        }
+        tokio::spawn(schedules::run_scheduler(Arc::downgrade(&hub)));
         hub
     }
 
@@ -437,6 +453,9 @@ impl Hub {
         self.note_seq(&event);
         // No listeners is fine: nobody's connected right now.
         let _ = self.updates.send(ServerMsg::Event(event.clone()));
+        if let EventKind::TurnDone { ok, .. } = &event.kind {
+            self.scheduled_turn_done(bot, *ok);
+        }
         Ok(event)
     }
 
@@ -535,6 +554,8 @@ mod tests {
             asker_id: None,
             always: false,
             rule: None,
+            schedule: None,
+            also: Vec::new(),
         };
         assert!(answers(&card(Some("Jay")), &Viewer::gate("Jay")));
         assert!(!answers(&card(Some("Jay")), &Viewer::gate("Sam")));
@@ -1120,6 +1141,8 @@ mod tests {
             asker_id: Some(sam.to_string()),
             always: false,
             rule: None,
+            schedule: None,
+            also: Vec::new(),
         };
         assert!(answers(
             &card,

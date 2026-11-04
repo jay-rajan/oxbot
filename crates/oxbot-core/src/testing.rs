@@ -90,7 +90,8 @@ pub enum Tool {
     Note,
     /// No tool: reply `ok`.
     None,
-    /// Any other call, by its full name, with these arguments.
+    /// Any other call, by its full name, with these arguments (oxbot's own
+    /// tools end like the team tools: `tool_ok=true|false <text>`).
     Call(String, Value),
 }
 
@@ -474,6 +475,11 @@ fn finish(tool: &Tool, result: &str) -> String {
         Tool::Note => "Saved to notes.md.".to_owned(),
         Tool::SignIn => format!("signed_in={}", failed.is_none()),
         Tool::CreateBot | Tool::Task | Tool::List | Tool::Read | Tool::Report => match failed {
+            Some(text) => format!("tool_ok=false {text}"),
+            None => format!("tool_ok=true {result}"),
+        },
+        // One of oxbot's own tools (the schedule tools, say): as above.
+        Tool::Call(name, _) if name.starts_with("mcp__oxbot__") => match failed {
             Some(text) => format!("tool_ok=false {text}"),
             None => format!("tool_ok=true {result}"),
         },

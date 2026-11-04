@@ -25,6 +25,7 @@ pub mod id;
 pub mod policy;
 pub mod prompt;
 pub mod report;
+pub mod schedule;
 pub mod store;
 #[cfg(any(test, feature = "test-bots"))]
 pub mod testing;

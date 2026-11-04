@@ -1,5 +1,6 @@
 //! oxbot's own tools: Herder's team tools (`team`, `give_task`,
-//! `read_reply`) and the sign-in tool, run for a bot's engine.
+//! `read_reply`), the sign-in tool and the schedule tools, run for a bot's
+//! engine.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -135,6 +136,14 @@ impl Hub {
             }
             tools::READ_REPLY_TOOL => self.read_reply(bot, &asker, &text("bot")).await,
             tools::SAVE_REPORT_TOOL => self.save_report(bot, args).await,
+            tools::SCHEDULE_TASK_TOOL => self.schedule_task(bot, &asker, &origin, args).await,
+            tools::LIST_SCHEDULES_TOOL => self.list_schedules_tool(bot, &asker),
+            tools::PAUSE_SCHEDULE_TOOL => {
+                self.pause_schedule_tool(bot, &asker, &origin, args).await
+            }
+            tools::DELETE_SCHEDULE_TOOL => {
+                self.delete_schedule_tool(bot, &asker, &origin, args).await
+            }
             _ => (false, "unknown tool".to_owned()),
         }
     }
@@ -271,7 +280,7 @@ impl Hub {
             .send_for(to.id.as_str(), message, &[], Some(&sender), &relayed, true)
             .await
         {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(HubError::Busy(_)) => {
                 return (
                     false,
@@ -548,6 +557,10 @@ pub(super) fn team_label(name: &str) -> Option<&'static str> {
         tools::CREATE_BOT_TOOL => "creating a bot",
         tools::GIVE_TASK_TOOL => "giving a bot a task",
         tools::READ_REPLY_TOOL => "reading a bot's reply",
+        tools::SCHEDULE_TASK_TOOL => "setting up a schedule",
+        tools::LIST_SCHEDULES_TOOL => "looking at schedules",
+        tools::PAUSE_SCHEDULE_TOOL => "pausing or resuming a schedule",
+        tools::DELETE_SCHEDULE_TOOL => "deleting a schedule",
         _ => return None,
     })
 }

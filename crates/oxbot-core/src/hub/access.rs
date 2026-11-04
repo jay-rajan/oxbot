@@ -107,7 +107,7 @@ impl Hub {
     }
 
     /// Whether `viewer` is the Farm or the Farm's person (by id).
-    fn is_farm_side(&self, viewer: &Viewer) -> bool {
+    pub(super) fn is_farm_side(&self, viewer: &Viewer) -> bool {
         viewer.farm
             || viewer
                 .id
@@ -294,6 +294,7 @@ impl Hub {
         self.deny_open_approvals(&bot.id);
         self.cancel_sign_ins(&bot.id);
         self.stop_session(&bot.id).await;
+        self.forget_scheduled_run(&bot.id);
         // The trash keeps the whole bot, history included.
         let history: String = self
             .store

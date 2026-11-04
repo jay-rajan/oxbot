@@ -788,6 +788,9 @@ impl Client {
                 bot: self.inner(bot),
                 id,
             },
+            ClientMsg::ListSchedules { bot } => ClientMsg::ListSchedules {
+                bot: bot.map(|b| self.inner(b)),
+            },
             other => other,
         }
     }
@@ -889,10 +892,36 @@ impl Client {
         })
     }
 
-    /// [`Client::outbound`] for the engines view and turn meters.
+    /// [`Client::outbound`] for the engines view, turn meters, schedules
+    /// and scheduled runs' lines.
     fn outbound_engines(&self, msg: ServerMsg) -> Option<ServerMsg> {
         Some(match msg {
             ServerMsg::Engines(view) => ServerMsg::Engines(self.outer_engines(view)),
+            ServerMsg::Notify {
+                bot,
+                text,
+                waiting,
+                person_id,
+            } => ServerMsg::Notify {
+                bot: self.outer(&bot)?,
+                text,
+                waiting,
+                person_id,
+            },
+            ServerMsg::Schedules { bot, schedules } => ServerMsg::Schedules {
+                bot: bot.and_then(|b| self.outer(&b)),
+                // The owner sees schedules in others' Assistants too, under
+                // their own ids.
+                schedules: schedules
+                    .into_iter()
+                    .map(|mut s| {
+                        if let Some(id) = self.outer(&s.bot) {
+                            s.bot = id;
+                        }
+                        s
+                    })
+                    .collect(),
+            },
             ServerMsg::Meter {
                 bot,
                 model,
@@ -1173,7 +1202,11 @@ async fn handle(
             reply(state.hub.rename_bot(&bot, &name, &viewer).await)
         }
         ClientMsg::DeleteBot { bot } => reply(state.hub.delete_bot(&bot, &viewer).await),
-        ClientMsg::Answer { id, answer } => match state.hub.answer_as(id, answer, &viewer) {
+        ClientMsg::Answer {
+            id,
+            answer,
+            schedule,
+        } => match state.hub.answer_with(id, answer, schedule, &viewer) {
             Ok(_) => Vec::new(),
             Err(e) => error(&e),
         },
@@ -1198,7 +1231,34 @@ async fn handle(
         ClientMsg::OpenReport { .. }
         | ClientMsg::ListReports { .. }
         | ClientMsg::DeleteReport { .. } => handle_reports(msg, state, client),
+        ClientMsg::ListSchedules { .. }
+        | ClientMsg::PauseSchedule { .. }
+        | ClientMsg::DeleteSchedule { .. }
+        | ClientMsg::E2eAdvanceClock { .. } => handle_schedules(msg, state, &viewer).await,
         other => handle_sign_ins(other, state, &viewer).await,
+    }
+}
+
+/// Lists, pauses and deletes schedules (the hub decides who may), and in
+/// test mode moves the scheduler's clock. Nobody makes a schedule here:
+/// only a bot's schedule card does.
+async fn handle_schedules(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
+    match msg {
+        ClientMsg::ListSchedules { bot } => match state.hub.schedules_for(viewer, bot.as_deref()) {
+            Ok(schedules) => vec![ServerMsg::Schedules { bot, schedules }],
+            Err(e) => reply(Err(e)),
+        },
+        ClientMsg::PauseSchedule { id, paused } => {
+            reply(state.hub.pause_schedule_as(id, paused, viewer))
+        }
+        ClientMsg::DeleteSchedule { id } => reply(state.hub.delete_schedule_as(id, viewer)),
+        ClientMsg::E2eAdvanceClock { minutes } if state.e2e => {
+            reply(state.hub.advance_test_clock(minutes).await)
+        }
+        ClientMsg::E2eAdvanceClock { .. } => vec![ServerMsg::Error {
+            message: "That's only for tests.".to_owned(),
+        }],
+        _ => Vec::new(),
     }
 }
 
@@ -1779,7 +1839,9 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // A bot's rules also go only to those who may manage it: see
         // [`for_viewer`].
         ServerMsg::AllowRules { ref bot, .. } if client.sees(bot) => Some(msg),
-        ServerMsg::AllowRules { .. } => None,
+        // A schedule list is a direct answer, made for its viewer: never
+        // passed on to anyone else.
+        ServerMsg::AllowRules { .. } | ServerMsg::Schedules { .. } => None,
         ServerMsg::Report(ref r) => client.sees(&r.bot).then_some(msg),
         ServerMsg::Bots { bots } => {
             client.see(&bots);
@@ -1851,6 +1913,13 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
                 .viewer
                 .is_person(owner_id.as_deref(), owner.as_deref()))
         .then_some(msg),
+        // A scheduled run's line goes to its person's own connections
+        // alone, by id (not the Farm's: it isn't theirs), for a bot they see.
+        ServerMsg::Notify {
+            ref bot,
+            ref person_id,
+            ..
+        } => (client.sees(bot) && client.viewer.is_person(Some(person_id), None)).then_some(msg),
         // Nothing about any one bot or person. Every variant is listed, so a
         // new one has to decide who gets it.
         ServerMsg::Hello(_)
@@ -1858,6 +1927,8 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::BotCreated(_)
         | ServerMsg::ApprovalResolved { .. }
         | ServerMsg::SignInResolved { .. }
+        // Only a cue to ask again; says nothing about which schedule.
+        | ServerMsg::SchedulesChanged
         | ServerMsg::Setup(_)
         | ServerMsg::People { .. }
         // The household's limits: an alert names at most a bot, by the
@@ -2083,7 +2154,76 @@ mod tests {
             asker_id: None,
             always: false,
             rule: None,
+            schedule: None,
+            also: Vec::new(),
         })
+    }
+
+    #[test]
+    fn a_scheduled_runs_line_goes_to_its_person_alone_and_lists_go_nowhere() {
+        let sam = oxbot_core::id::PersonId::random();
+        let bots = [info("shared", None, false), info("bank", Some("Ann"), true)];
+        let mut real = Client::new(Viewer::person(sam.clone(), "Sam", false), &bots);
+        let mut farm = Client::new(Viewer::farm("Jay"), &bots);
+        let mut by_name = Client::new(Viewer::gate("Sam"), &bots);
+        let line = |bot: &str| ServerMsg::Notify {
+            bot: bot.into(),
+            text: "Shared: done".into(),
+            waiting: false,
+            person_id: sam.to_string(),
+        };
+        let sent = forward(line("shared"), &mut real).unwrap();
+        let json = serde_json::to_string(&sent).unwrap();
+        assert!(
+            !json.contains(sam.as_str()),
+            "the person's id is never sent"
+        );
+        assert!(
+            forward(line("shared"), &mut farm).is_none(),
+            "not the Farm's"
+        );
+        assert!(
+            forward(line("shared"), &mut by_name).is_none(),
+            "a name alone"
+        );
+        assert!(
+            forward(line("bank"), &mut real).is_none(),
+            "a bot they can't open"
+        );
+        let list = ServerMsg::Schedules {
+            bot: None,
+            schedules: vec![],
+        };
+        assert!(forward(list, &mut farm).is_none(), "made for one viewer");
+        assert!(forward(ServerMsg::SchedulesChanged, &mut real).is_some());
+    }
+
+    #[tokio::test]
+    async fn the_clock_moves_only_in_test_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        let (out, _rx) = mpsc::channel(8);
+        let mut farm = Client::new(state.farm_viewer(), &[]);
+        let replies = handle(
+            ClientMsg::E2eAdvanceClock { minutes: Some(60) },
+            &state,
+            &mut farm,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("only for tests"))
+        );
+        let replies = handle(
+            ClientMsg::ListSchedules { bot: None },
+            &state,
+            &mut farm,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Schedules { schedules, .. }] if schedules.is_empty())
+        );
     }
 
     #[test]
@@ -2377,6 +2517,7 @@ mod tests {
         let answer = ClientMsg::Answer {
             id: 99,
             answer: oxbot_protocol::Answer::AlwaysAllow,
+            schedule: None,
         };
         assert_eq!(handle(answer, &state, &mut sam, &out).await, []);
     }

@@ -173,6 +173,15 @@ impl Waiting {
                 let new = self.sign_ins.insert(r.id);
                 (new && hidden(hub, app)).then(|| waiting_body(hub, &r.bot, "needs you to sign in"))
             }
+            // A scheduled run's answer, on the Mac's screen only when it's
+            // the Mac owner's own schedule (anyone else's goes to their
+            // devices alone). One that waits is the card's to announce.
+            ServerMsg::Notify {
+                text,
+                person_id,
+                waiting: false,
+                ..
+            } => (hidden(hub, app) && hub.is_farm_person(person_id)).then(|| text.clone()),
             ServerMsg::ApprovalResolved { id } => {
                 self.approvals.remove(id);
                 None
@@ -239,6 +248,8 @@ mod tests {
             asker_id: None,
             always: false,
             rule: None,
+            schedule: None,
+            also: Vec::new(),
         })
     }
 
@@ -309,6 +320,44 @@ mod tests {
             waiting.body(&card(5, "mail"), &hub, None),
             None,
             "a server that can't tell never posts these"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scheduled_runs_answer_shows_on_the_mac_only_for_the_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mail = Bot::create(tmp.path(), BotId::new("mail").unwrap(), "Mail", "").unwrap();
+        let hub = Hub::new(
+            vec![mail],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        let jay = hub.farm_person_from("Jay", true).unwrap().id;
+        let sam = hub.person_named("Sam").unwrap().id;
+        let window = Window(Mutex::new(false));
+        let app: Option<&dyn AppControls> = Some(&window);
+        let line = |person: &oxbot_core::id::PersonId, waiting| ServerMsg::Notify {
+            bot: "mail".into(),
+            text: "Mail: 3 new letters".into(),
+            waiting,
+            person_id: person.to_string(),
+        };
+        let mut seen = Waiting::default();
+        assert_eq!(
+            seen.body(&line(&jay, false), &hub, app).as_deref(),
+            Some("Mail: 3 new letters")
+        );
+        assert_eq!(seen.body(&line(&sam, false), &hub, app), None, "Sam's own");
+        assert_eq!(
+            seen.body(&line(&jay, true), &hub, app),
+            None,
+            "its card says so"
+        );
+        *window.0.lock().unwrap() = true;
+        assert_eq!(
+            seen.body(&line(&jay, false), &hub, app),
+            None,
+            "the page shows it"
         );
     }
 

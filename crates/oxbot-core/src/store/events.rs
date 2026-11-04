@@ -135,6 +135,11 @@ impl Store {
             "DELETE FROM trial_events WHERE run IN (SELECT id FROM trial_runs WHERE bot = ?1)",
             [bot.as_str()],
         )?;
+        tx.execute(
+            "DELETE FROM schedule_runs WHERE schedule IN (SELECT id FROM schedules WHERE bot = ?1)",
+            [bot.as_str()],
+        )?;
+        tx.execute("DELETE FROM schedules WHERE bot = ?1", [bot.as_str()])?;
         for table in [
             "events",
             "sessions",

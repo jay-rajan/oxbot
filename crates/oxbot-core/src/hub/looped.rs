@@ -213,6 +213,34 @@ impl UsageGuard for HubGuard {
     }
 }
 
+impl Hub {
+    /// Why a scheduled run of `bot` for `person` can't start now, if a
+    /// limit stops it: the bot's or the person's questions for today, or
+    /// the home's free questions (with paid ones off, or their cap reached).
+    pub(super) fn run_limit(&self, bot: &BotId, person: &PersonId) -> Option<String> {
+        let guard = HubGuard(self.me.clone());
+        let query = |free| GuardQuery {
+            bot: bot.as_str(),
+            person: Some(person.as_str()),
+            free,
+        };
+        if let Err(hit) = guard.check(&query(true)) {
+            return Some(hit.0);
+        }
+        let engine = self.loop_engine.as_ref()?;
+        if !engine.pacer().free_used_up() {
+            return None;
+        }
+        if !self.engine_prefs().paid_fallback {
+            return Some(
+                "the home's free AI questions for today are used up, and paid models are off"
+                    .to_owned(),
+            );
+        }
+        guard.check(&query(false)).err().map(|hit| hit.0)
+    }
+}
+
 /// Seconds since the Unix epoch of the next 00:00 UTC.
 fn next_utc_midnight_s(now_ms: i64) -> i64 {
     (now_ms.div_euclid(86_400_000) + 1) * 86_400

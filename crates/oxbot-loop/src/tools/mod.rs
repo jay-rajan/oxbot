@@ -46,7 +46,13 @@ pub const MAX_ERROR: usize = 600;
 
 /// oxbot's own tools that change something (written ahead, not re-run
 /// after a restart).
-const HOST_SIDE_EFFECTS: [&str; 2] = ["create_bot", "give_task"];
+const HOST_SIDE_EFFECTS: [&str; 5] = [
+    "create_bot",
+    "give_task",
+    "schedule_task",
+    "pause_schedule",
+    "delete_schedule",
+];
 
 /// What kind of tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

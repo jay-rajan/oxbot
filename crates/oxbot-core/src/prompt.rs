@@ -12,6 +12,14 @@ pub struct Capabilities {
     pub browser: bool,
 }
 
+/// What every bot can do, browser or not.
+const EVERY_BOT_CAN: &str = "- Read and write files in your working folder: notes, drafts, results, anything worth keeping.\n\
+         - You're always on, and your conversation history persists between chats, so you can pick up \
+         where you left off.\n\
+         - Run a task on its own at set times, or remind the person of something, with schedule_task, \
+         when they ask for it in their own message. oxbot shows them a card first; nothing is scheduled \
+         without their yes.\n";
+
 /// What no bot can do through oxbot, in one fixed line every bot gets (the
 /// same bytes for every bot, so it never changes a prompt's start).
 pub const CANT_DO: &str = "- oxbot can't send texts, email or messages through phone apps, make \
@@ -109,11 +117,7 @@ pub fn system_prompt(bot: &Bot, caps: Capabilities) -> String {
              the report. Quick answers stay in chat.\n",
         );
     }
-    p.push_str(
-        "- Read and write files in your working folder: notes, drafts, results, anything worth keeping.\n\
-         - You're always on, and your conversation history persists between chats, so you can pick up \
-         where you left off.\n",
-    );
+    p.push_str(EVERY_BOT_CAN);
     if caps.browser {
         p.push_str(
             "\nAbout the browser:\n\
@@ -246,6 +250,7 @@ mod tests {
         for (b, browser) in [(bot(""), true), (bot("x"), false), (assistant, true)] {
             let p = system_prompt(&b, Capabilities { browser });
             assert_eq!(p.matches(CANT_DO).count(), 1, "{}", b.id);
+            assert!(p.contains("with schedule_task") && p.contains("without their yes"));
         }
         for words in [
             "send texts",

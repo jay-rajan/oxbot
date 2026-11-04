@@ -37,6 +37,8 @@ pub enum Entry {
     /// By name (`Hub::send`).
     #[default]
     Name,
+    /// A schedule's run, as the person who made it ("scheduled by Sam").
+    Schedule,
 }
 
 impl Entry {
@@ -46,6 +48,7 @@ impl Entry {
             Self::Gate => "gate",
             Self::Test => "test",
             Self::Name => "name",
+            Self::Schedule => "schedule",
         }
     }
 }
@@ -66,6 +69,9 @@ pub struct ChainOrigin {
     pub via: Vec<BotId>,
     /// What a bot that passed it on had read that oxbot doesn't trust.
     pub tainted_by: Option<String>,
+    /// The schedule whose run started it ([`Entry::Schedule`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<i64>,
 }
 
 impl ChainOrigin {
@@ -95,6 +101,25 @@ impl ChainOrigin {
     #[must_use]
     pub fn asker(&self) -> Option<&PersonId> {
         self.person.as_ref()
+    }
+
+    /// A run of schedule `id`, as `person`: never the Farm connection,
+    /// whoever made it.
+    #[must_use]
+    pub fn scheduled(person: PersonId, id: i64) -> Self {
+        Self {
+            person: Some(person),
+            on_farm: false,
+            entry: Entry::Schedule,
+            schedule: Some(id),
+            ..Self::default()
+        }
+    }
+
+    /// Whether this is a schedule's own run (not a task passed on from one).
+    #[must_use]
+    pub fn is_scheduled_run(&self) -> bool {
+        self.entry == Entry::Schedule && self.via.is_empty()
     }
 
     /// As stored in `turn_origins`, for a turn of `engine`.
@@ -426,5 +451,26 @@ mod tests {
             (record.entry.as_str(), record.engine.as_str()),
             ("name", "codex")
         );
+    }
+
+    #[test]
+    fn a_scheduled_run_acts_for_its_person_and_never_as_the_farm() {
+        let sam = PersonId::random();
+        let run = ChainOrigin::scheduled(sam.clone(), 7);
+        assert_eq!(
+            (run.asker(), run.on_farm, run.schedule),
+            (Some(&sam), false, Some(7))
+        );
+        assert!(run.is_scheduled_run());
+        assert_eq!(run.record(EngineKind::Codex).entry, "schedule");
+        // A task the run passes on keeps its person, but isn't the run.
+        let passed = run.relayed_by(&BotId::new("assistant").unwrap(), None);
+        assert!(!passed.is_scheduled_run() && passed.asker() == Some(&sam));
+        // Old saved origins (no schedule) still read.
+        let old: ChainOrigin = serde_json::from_str(
+            r#"{"person":null,"on_farm":true,"entry":"farm","root":null,"via":[],"tainted_by":null}"#,
+        )
+        .unwrap();
+        assert_eq!(old.schedule, None);
     }
 }

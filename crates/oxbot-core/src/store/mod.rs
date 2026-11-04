@@ -6,7 +6,8 @@
 //! One file per table group: [`migrations`] (the schema and its changes),
 //! people, sites, gates, events, sessions, "Always allow" rules, sidebar
 //! sections, research reports with the pages each session opened, usage
-//! alerts and preferences, who started each turn, oxbot's own loop
+//! alerts and preferences, who started each turn, schedules and their
+//! runs, oxbot's own loop
 //! (conversations, turns, model requests), Codex's threads and what the
 //! relay sent, and comparisons of engines and models (test cases and
 //! practice runs).
@@ -33,6 +34,8 @@ mod reports;
 pub use reports::MAX_SESSION_PAGES;
 mod rules;
 pub use rules::{RuleKey, StoredRule};
+mod schedules;
+pub use schedules::{NewSchedule, RunRecord, ScheduleRecord};
 mod sections;
 pub use sections::{SectionError, SectionRecord};
 mod sessions;

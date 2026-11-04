@@ -71,7 +71,7 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
                             continue;
                         };
                         let answer = if line.trim() == "/yes" { Answer::AllowOnce } else { Answer::Deny };
-                        ClientMsg::Answer { id, answer }
+                        ClientMsg::Answer { id, answer, schedule: None }
                     }
                     text => ClientMsg::Send { bot: bot.to_owned(), text: text.to_owned(), files: Vec::new() },
                 };
@@ -238,6 +238,7 @@ impl View {
                 }
             }
             ServerMsg::Notice { message, .. } => println!("   · {message}"),
+            ServerMsg::Notify { text, .. } => println!("   · {text}"),
             ServerMsg::UsageAlert(alert) => println!("   ! {}", alert.message),
             ServerMsg::Log(line) if line.level != "info" => {
                 println!("   [{}] {}", line.level, line.message);
@@ -276,7 +277,9 @@ impl View {
             | ServerMsg::RunDetail { .. }
             | ServerMsg::Scoreboard { .. }
             | ServerMsg::ShadowPair { .. }
-            | ServerMsg::ComparePrefs(_) => {}
+            | ServerMsg::ComparePrefs(_)
+            | ServerMsg::Schedules { .. }
+            | ServerMsg::SchedulesChanged => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }
     }

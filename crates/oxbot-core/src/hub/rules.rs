@@ -257,6 +257,8 @@ mod tests {
             asker_id: Some(asker.to_string()),
             always: false,
             rule: Some("button \"Save\"".into()),
+            schedule: None,
+            also: Vec::new(),
         }
     }
 

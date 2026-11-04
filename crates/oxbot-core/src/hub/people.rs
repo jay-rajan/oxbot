@@ -292,6 +292,12 @@ impl Hub {
         }
     }
 
+    /// Whether `id` (a person id) is the Farm's own person's.
+    #[must_use]
+    pub fn is_farm_person(&self, id: &str) -> bool {
+        self.farm_id().is_some_and(|f| f.as_str() == id)
+    }
+
     /// The Farm's person's id, if chosen.
     pub(super) fn farm_id(&self) -> Option<PersonId> {
         if let Some(id) = lock(&self.farm).clone() {

@@ -314,6 +314,7 @@ impl Hub {
             text: format!("Waiting for you to sign in to {site}…"),
         });
         tracing::info!(%bot, browser = %shared.owner, "asking the user to sign in");
+        self.scheduled_run_waiting(bot, "needs you to sign in");
         let before = self.cookies_before_sign_in(&shared).await;
         // Open the sign-in window right away; the card's button is the fallback.
         if let Err(err) = self.open_sign_in(id).await {

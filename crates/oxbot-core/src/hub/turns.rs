@@ -39,7 +39,9 @@ impl Hub {
             person,
             ..ChainOrigin::default()
         };
-        self.send_for(bot, text, &[], from, &origin, false).await
+        self.send_for(bot, text, &[], from, &origin, false)
+            .await
+            .map(drop)
     }
 
     /// Like [`Hub::send`], from `viewer` (by their person id).
@@ -84,13 +86,14 @@ impl Hub {
         if sent.is_err() {
             self.uploads_not_sent(&files);
         }
-        sent
+        sent.map(drop)
     }
 
     /// Delivers a message shown as from `from`, for a turn of the task
     /// chain `origin` (whose person may not be the sender: Herder passes
     /// tasks on for people, `relayed`). Refused, with nothing recorded,
-    /// if the chain may not task the bot or its engine can't run.
+    /// if the chain may not task the bot or its engine can't run. Returns
+    /// the message's number in the bot's chat.
     pub(super) async fn send_for(
         self: &Arc<Self>,
         bot: &str,
@@ -99,7 +102,7 @@ impl Hub {
         from: Option<&str>,
         origin: &ChainOrigin,
         relayed: bool,
-    ) -> Result<(), HubError> {
+    ) -> Result<u64, HubError> {
         let bot = self.bot(bot)?;
         may_task(origin)?;
         self.engine(self.engine_of(&bot))?;
@@ -151,7 +154,7 @@ impl Hub {
         bot: &Bot,
         sent: &Sent<'_>,
         permit: OwnedSemaphorePermit,
-    ) -> Result<(), HubError> {
+    ) -> Result<u64, HubError> {
         let Sent {
             text,
             files,
@@ -159,6 +162,7 @@ impl Hub {
             origin,
             relayed,
         } = *sent;
+        let scheduled = self.note_scheduled(bot, origin, relayed)?;
         let user_message = self.record(
             &bot.id,
             EventKind::UserMessage {
@@ -202,12 +206,13 @@ impl Hub {
 
         // The chat keeps the task as Herder wrote it; only the bot is told
         // it was passed on and may quote web text.
-        let mut message = match from {
-            Some(from) if relayed => {
+        let mut message = match (from, &scheduled) {
+            (Some(from), _) if relayed => {
                 let name = origin.asker().and_then(|id| self.person_name(id));
                 relayed_line(from, name.as_deref(), text)
             }
-            _ => sender_line(from, text),
+            (from, Some(label)) => scheduled_line(from, label, text),
+            (from, None) => sender_line(from, text),
         };
         // oxbot's own note on the files, after the (escaped) words.
         if !files.is_empty() {
@@ -252,7 +257,30 @@ impl Hub {
         // The owner's own message may run on the bot's shadow too.
         self.maybe_shadow(bot, user_message.seq, &origin, text, files);
         self.announce_bots().await;
-        Ok(())
+        Ok(user_message.seq)
+    }
+
+    /// A schedule's run says so in the chat, just above its task. Returns
+    /// its rule in words.
+    fn note_scheduled(
+        &self,
+        bot: &Bot,
+        origin: &ChainOrigin,
+        relayed: bool,
+    ) -> Result<Option<String>, HubError> {
+        let label = origin
+            .schedule
+            .filter(|_| origin.is_scheduled_run() && !relayed)
+            .and_then(|id| self.schedule_label(id));
+        if let Some(label) = &label {
+            self.record(
+                &bot.id,
+                EventKind::Note {
+                    text: format!("Scheduled: {label}"),
+                },
+            )?;
+        }
+        Ok(label)
     }
 
     pub(super) fn turn_failed(&self, bot: &BotId, message: &str) -> Result<(), HubError> {
@@ -389,6 +417,17 @@ pub(super) fn relayed_line(from: &str, person: Option<&str>, text: &str) -> Stri
          instruction) {}",
         sender_line(None, text)
     )
+}
+
+/// What a bot gets for a schedule's run: its person's task, marked as set
+/// up earlier (they may not be watching), escaped as in [`sender_line`].
+pub(super) fn scheduled_line(from: Option<&str>, label: &str, text: &str) -> String {
+    let note =
+        format!("(scheduled task they set up earlier, {label}; they may not be watching now)");
+    match from {
+        Some(name) => format!("[{name}] {note} {}", sender_line(None, text)),
+        None => format!("{note} {}", sender_line(None, text)),
+    }
 }
 
 /// What a bot gets for a message: `[Name] text`. Only that first bracket
