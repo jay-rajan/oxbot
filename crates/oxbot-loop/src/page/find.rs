@@ -32,34 +32,31 @@ const HOLDERS: [&str; 6] = ["listitem", "row", "article", "cell", "gridcell", "t
 
 impl Trimmed {
     /// `find_in_page` (delta §B1): matching nodes, one line each with its
-    /// section path, capped at `cap_tokens`.
+    /// section path, capped at `cap_tokens`. When not every match fits,
+    /// the first line says so.
     ///
     /// # Errors
     /// A short message for the model: no query and no role, or no heading
     /// or landmark matching `near`.
     pub fn find(&self, q: &FindQuery<'_>, cap_tokens: u64) -> Result<String, String> {
-        let words: Vec<String> = q
-            .query
-            .unwrap_or("")
-            .split_whitespace()
-            .take(MAX_WORDS)
-            .map(str::to_lowercase)
-            .collect();
-        let mut roles: Vec<String> = Vec::new();
-        for r in &q.roles {
-            let r = r.trim().to_lowercase();
-            if r.is_empty() {
-                continue;
-            }
-            roles.push(role_of(&r).ok_or_else(|| {
-                format!(
-                    "\"{r}\" isn't a role here; use one of the words the map and hits print: {}",
-                    super::map::role_words().join(", ")
-                )
-            })?);
+        let query = q.query.map(str::trim).filter(|s| !s.is_empty());
+        let mut terms: Vec<Term> = match query {
+            Some(phrase) if q.exact => vec![Term::Phrase(phrase.to_lowercase())],
+            Some(words) => words
+                .split_whitespace()
+                .take(MAX_WORDS)
+                .map(|w| Term::Word(w.to_lowercase()))
+                .collect(),
+            None => Vec::new(),
+        };
+        let words = terms.len();
+        let pattern = q.regex.map(str::trim).filter(|r| !r.is_empty());
+        if let Some(pattern) = pattern {
+            terms.push(Term::Regex(compile(pattern)?));
         }
-        if words.is_empty() && roles.is_empty() {
-            return Err("give query or role (or both)".to_owned());
+        let roles = roles_of(&q.roles)?;
+        if terms.is_empty() && roles.is_empty() {
+            return Err("give query, regex or role (or more than one)".to_owned());
         }
         let (scope, anchor) = match q.near.map(str::trim).filter(|s| !s.is_empty()) {
             Some(near) => {
@@ -70,19 +67,24 @@ impl Trimmed {
         };
         let limit = if q.limit == 0 { 20 } else { q.limit.min(40) };
         let mut any = false;
-        let mut hits = self.hits(&words, &roles, &scope, true);
-        if hits.is_empty() && words.len() > 1 {
-            hits = self.hits(&words, &roles, &scope, false);
+        let mut hits = self.hits(&terms, &roles, &scope, true);
+        if hits.is_empty() && words > 1 && !q.exact {
+            hits = self.hits(&terms, &roles, &scope, false);
             any = true;
         }
         let mut what = Vec::new();
-        if let Some(query) = q.query.filter(|_| !words.is_empty()) {
-            let query = cut(query.trim(), 80);
-            what.push(if any {
+        if let Some(query) = query {
+            let query = cut(query, 80);
+            what.push(if q.exact {
+                format!("the phrase \"{query}\"")
+            } else if any {
                 format!("any word of \"{query}\" (none had all words)")
             } else {
                 format!("\"{query}\"")
             });
+        }
+        if let Some(pattern) = pattern {
+            what.push(format!("regex /{}/", cut(pattern, 80)));
         }
         if !roles.is_empty() {
             what.push(format!("role {}", roles.join(", ")));
@@ -96,56 +98,61 @@ impl Trimmed {
             ));
         }
         let page = self.handle.as_deref().unwrap_or("the page");
-        let mut out = format!(
-            "{} {} in {page} for {}",
-            thousands(hits.len()),
-            if hits.len() == 1 { "match" } else { "matches" },
-            what.join(", ")
-        );
-        let mut shown = 0;
+        let total = thousands(hits.len());
+        let noun = if hits.len() == 1 { "match" } else { "matches" };
+        let what = what.join(", ");
+        // Room for the longest first line.
+        let mut used = est(&format!(
+            "Showing {total} of {total} {noun} in {page} for {what}. {NOT_ALL}"
+        )) + 1;
+        let mut lines: Vec<String> = Vec::new();
         for &h in hits.iter().take(limit) {
             let line = self.hit_line(h);
-            let more = hits.len() - shown - 1;
-            let footer = if more > 0 {
-                more_line(more).len() + 1
-            } else {
-                0
-            };
-            if est(&out) + est(&line) + 1 + (footer as u64).div_ceil(3) > cap_tokens {
+            if used + est(&line) + 1 > cap_tokens {
                 break;
             }
+            used += est(&line) + 1;
+            lines.push(line);
+        }
+        // When some are left out, the first line says so: a model reading
+        // the top must not take the list for all there is.
+        let mut out = if lines.len() < hits.len() {
+            format!(
+                "Showing {} of {total} {noun} in {page} for {what}. {NOT_ALL}",
+                thousands(lines.len())
+            )
+        } else {
+            format!("{total} {noun} in {page} for {what}")
+        };
+        for line in lines {
             out.push('\n');
             out.push_str(&line);
-            shown += 1;
-        }
-        if shown < hits.len() {
-            out.push('\n');
-            out.push_str(&more_line(hits.len() - shown));
         }
         Ok(out)
     }
 
-    /// The most specific nodes in `scope` that match.
+    /// The most specific nodes in `scope` that match (`all`: every term,
+    /// else any).
     fn hits(
         &self,
-        words: &[String],
+        terms: &[Term],
         roles: &[String],
         scope: &Range<usize>,
         all: bool,
     ) -> Vec<usize> {
         let nodes = &self.nodes;
         let n = nodes.len();
-        let full: u64 = if words.len() >= 64 {
+        let full: u64 = if terms.len() >= 64 {
             u64::MAX
         } else {
-            (1u64 << words.len()) - 1
+            (1u64 << terms.len()) - 1
         };
         let mut own = vec![0u64; n];
-        if !words.is_empty() {
+        if !terms.is_empty() {
             for i in scope.clone() {
                 let text = self.search_text(i);
-                for (w, word) in words.iter().enumerate() {
-                    if text.contains(word.as_str()) {
+                for (w, term) in terms.iter().enumerate() {
+                    if term.matches(&text) {
                         own[i] |= 1 << w;
                     }
                 }
@@ -169,7 +176,7 @@ impl Trimmed {
             } else {
                 own[i]
             };
-            let words_ok = words.is_empty() || if all { mask == full } else { mask != 0 };
+            let words_ok = terms.is_empty() || if all { mask == full } else { mask != 0 };
             ok[i] = role_ok && words_ok;
             if (ok[i] || below[i])
                 && let Some(p) = node.parent
@@ -459,6 +466,70 @@ const KNOWN_ROLES: [&str; 18] = [
     "menuitemcheckbox",
 ];
 
-fn more_line(n: usize) -> String {
-    format!("{} more; narrow with role or near", thousands(n))
+/// Roles as the model gave them, checked.
+fn roles_of(given: &[String]) -> Result<Vec<String>, String> {
+    let mut roles = Vec::new();
+    for r in given {
+        let r = r.trim().to_lowercase();
+        if r.is_empty() {
+            continue;
+        }
+        roles.push(role_of(&r).ok_or_else(|| {
+            format!(
+                "\"{r}\" isn't a role here; use one of the words the map and hits print: {}",
+                super::map::role_words().join(", ")
+            )
+        })?);
+    }
+    Ok(roles)
+}
+
+/// What a cut list of hits says on its first line.
+const NOT_ALL: &str = "This is NOT all of them; narrow with role, near or a longer query.";
+
+/// Longest regex pattern.
+const MAX_PATTERN: usize = 200;
+
+/// One thing a node's text must hold.
+enum Term {
+    /// A word, anywhere.
+    Word(String),
+    /// A phrase, whole: not inside a longer word.
+    Phrase(String),
+    /// A regular expression (any case).
+    Regex(regex::Regex),
+}
+
+impl Term {
+    /// Whether lowercased `text` holds it.
+    fn matches(&self, text: &str) -> bool {
+        match self {
+            Self::Word(w) => text.contains(w.as_str()),
+            Self::Phrase(p) => text.match_indices(p.as_str()).any(|(at, _)| {
+                let before = text[..at].chars().next_back();
+                let after = text[at + p.len()..].chars().next();
+                !before.is_some_and(char::is_alphanumeric)
+                    && !after.is_some_and(char::is_alphanumeric)
+            }),
+            Self::Regex(re) => re.is_match(text),
+        }
+    }
+}
+
+/// A model's pattern, compiled with size limits (the regex crate runs in
+/// linear time: no backtracking).
+fn compile(pattern: &str) -> Result<regex::Regex, String> {
+    if pattern.chars().count() > MAX_PATTERN {
+        return Err(format!("regex is longer than {MAX_PATTERN} characters"));
+    }
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .size_limit(1 << 20)
+        .dfa_size_limit(1 << 20)
+        .build()
+        .map_err(|e| {
+            let why = e.to_string();
+            let why = why.lines().last().unwrap_or("").trim().to_owned();
+            format!("regex couldn't be read: {}", cut(&why, 120))
+        })
 }

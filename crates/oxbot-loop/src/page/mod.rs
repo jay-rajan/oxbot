@@ -135,6 +135,10 @@ impl Snapshot {
 pub struct FindQuery<'a> {
     /// Words to look for, case-insensitive; all must match (else any word).
     pub query: Option<&'a str>,
+    /// `query` is one phrase, matched whole (any case).
+    pub exact: bool,
+    /// A regular expression (any case) the node must match too.
+    pub regex: Option<&'a str>,
     /// Roles to keep; empty = any role.
     pub roles: Vec<String>,
     /// Look only under the heading or landmark whose name contains this.

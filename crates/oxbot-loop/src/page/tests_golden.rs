@@ -93,6 +93,8 @@ fn search_tools_match_goldens() {
     ];
     for (query, roles, near, limit) in queries {
         let q = FindQuery {
+            exact: false,
+            regex: None,
             query,
             roles: roles.iter().map(|r| (*r).to_owned()).collect(),
             near,

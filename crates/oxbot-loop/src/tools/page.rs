@@ -81,18 +81,22 @@ pub fn specs() -> Vec<ToolSpec> {
     [
         ToolSpec {
             name: FIND_IN_PAGE.to_owned(),
-            description: "Search a stored page for elements by words and/or role. Each match \
-                shows its uid, role, name and where it is on the page (main › \"Results\" › \
-                listitem). Use it on big pages, which arrive as a map. query: words that must \
-                all appear, any case; role: one role or several with commas, e.g. link, button, \
+            description: "Search a stored page for elements by words, a pattern and/or role. \
+                Each match shows its uid, role, name and where it is on the page (main › \
+                \"Results\" › listitem). Use it on big pages, which arrive as a map. query: words \
+                that must all appear, any case (exact: true for the whole phrase); regex: a \
+                pattern, any case; role: one role or several with commas, e.g. link, button, \
                 listitem, heading, textbox; near: only inside the section or heading with this \
-                name; limit: at most 40 (default 20)."
+                name; limit: at most 40 (default 20). The first line says when not all matches \
+                are shown."
                 .to_owned(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "page": page_param(),
                     "query": {"type": "string", "description": "Words to look for."},
+                    "exact": {"type": "boolean", "description": "Match query as one whole phrase."},
+                    "regex": {"type": "string", "description": "A regular expression to match, any case (at most 200 characters)."},
                     "role": {"type": "string", "description": "Roles to keep, as hits and the map print them, e.g. \"link\", \"button,link\", \"listitem\", \"heading\" or \"text\"."},
                     "near": {"type": "string", "description": "A heading or section name to search under."},
                     "limit": {"type": "integer", "description": "Most matches (at most 40)."}
@@ -249,6 +253,8 @@ pub async fn run(name: &str, args: &Value, env: &PageEnv<'_>) -> Result<PageAnsw
             let roles = roles(args.get("role"));
             let query = FindQuery {
                 query: text_arg(args, "query"),
+                exact: args.get("exact").and_then(Value::as_bool).unwrap_or(false),
+                regex: text_arg(args, "regex"),
                 roles,
                 near: text_arg(args, "near"),
                 limit: args

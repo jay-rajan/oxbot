@@ -23,6 +23,8 @@ fn query<'a>(
     limit: usize,
 ) -> FindQuery<'a> {
     FindQuery {
+        exact: false,
+        regex: None,
         query: q,
         roles: roles.iter().map(|r| (*r).to_owned()).collect(),
         near,
@@ -483,8 +485,15 @@ fn find_filters_by_role_near_and_limit() {
     let limited = t
         .find(&query(Some("lamp"), &["link"], None, 5), 4000)
         .unwrap();
-    assert_eq!(limited.lines().count(), 7, "{limited}");
-    assert!(limited.ends_with("295 more; narrow with role or near"));
+    // Cut: the first line says so, before any hit.
+    assert_eq!(limited.lines().count(), 6, "{limited}");
+    assert!(
+        limited.starts_with(
+            "Showing 5 of 300 matches in r12 for \"lamp\", role link. This is NOT all of \
+             them; narrow with role, near or a longer query.\n"
+        ),
+        "{limited}"
+    );
     // Section paths: the last 4 parts, outermost first.
     let one = t
         .find(&query(Some("model 250,"), &["link"], None, 20), 4000)
@@ -510,12 +519,105 @@ fn find_respects_the_cap_and_needs_a_query_or_role() {
     let t = snap("search").trim();
     let capped = t.find(&query(Some("cart"), &[], None, 40), 200).unwrap();
     assert!(est(&capped) <= 200, "{}", est(&capped));
-    assert!(capped.ends_with("more; narrow with role or near"));
-    assert!(capped.starts_with("301 matches in the page"));
+    assert!(capped.starts_with("Showing "), "{capped}");
+    assert!(
+        capped
+            .lines()
+            .next()
+            .unwrap()
+            .contains(" of 301 matches in the page")
+    );
+    assert!(
+        capped
+            .lines()
+            .next()
+            .unwrap()
+            .ends_with("This is NOT all of them; narrow with role, near or a longer query.")
+    );
+    // All shown: no such line.
+    let all = t
+        .find(&query(Some("model 250,"), &["link"], None, 20), 4000)
+        .unwrap();
+    assert!(all.starts_with("1 match in the page"), "{all}");
     assert!(t.find(&query(None, &[], None, 20), 4000).is_err());
     assert!(
         t.find(&query(Some("x"), &[], Some("no such heading"), 20), 4000)
             .is_err()
+    );
+}
+
+#[test]
+fn find_matches_a_whole_phrase_or_a_pattern() {
+    let t = snap("search").trim();
+    // "model 25" as words also finds 125, 225 and 250…259; as a phrase
+    // only 25.
+    let words = t
+        .find(&query(Some("model 25"), &["link"], None, 40), 4000)
+        .unwrap();
+    assert!(words.starts_with("13 matches"), "{words}");
+    let whole = t
+        .find(
+            &FindQuery {
+                exact: true,
+                ..query(Some("MODEL 25"), &["link"], None, 40)
+            },
+            4000,
+        )
+        .unwrap();
+    assert!(
+        whole.starts_with("1 match in the page for the phrase \"MODEL 25\""),
+        "{whole}"
+    );
+    assert!(
+        whole.contains("\"Desk lamp model 25, adjustable"),
+        "{whole}"
+    );
+    // A pattern, any case, with the role.
+    let re = FindQuery {
+        regex: Some(r"MODEL 2[0-9]{2},"),
+        ..query(None, &["link"], None, 40)
+    };
+    let found = t.find(&re, 4000).unwrap();
+    assert!(
+        found.contains("of 100 matches") && found.contains("regex /MODEL 2[0-9]{2},/"),
+        "{found}"
+    );
+    // Both: the words and the pattern must hold.
+    let both = FindQuery {
+        regex: Some(r"model 25\d,"),
+        ..query(Some("lamp"), &[], None, 40)
+    };
+    assert!(t.find(&both, 4000).unwrap().starts_with("10 matches"));
+    // A broken or too long pattern is a short error.
+    let bad = FindQuery {
+        regex: Some("(unclosed"),
+        ..query(None, &[], None, 20)
+    };
+    assert!(
+        t.find(&bad, 4000)
+            .unwrap_err()
+            .starts_with("regex couldn't be read")
+    );
+    let long = "a".repeat(201);
+    let too_long = FindQuery {
+        regex: Some(&long),
+        ..query(None, &[], None, 20)
+    };
+    assert!(
+        t.find(&too_long, 4000)
+            .unwrap_err()
+            .contains("longer than 200")
+    );
+    // A regex alone is enough.
+    assert!(
+        t.find(
+            &FindQuery {
+                regex: Some("cart"),
+                ..FindQuery::default()
+            },
+            4000
+        )
+        .is_ok()
     );
 }
 
@@ -674,6 +776,8 @@ fn long_text_is_cut_only_on_the_whole_page() {
     let hits = t
         .find(
             &FindQuery {
+                exact: false,
+                regex: None,
                 query: Some("strict argument"),
                 roles: Vec::new(),
                 near: None,
@@ -711,6 +815,8 @@ fn a_short_list_folds_on_the_page_but_never_in_a_section() {
     let hits = t
         .find(
             &FindQuery {
+                exact: false,
+                regex: None,
                 query: Some("walnuts"),
                 roles: vec!["list items".into()],
                 near: None,
@@ -723,6 +829,8 @@ fn a_short_list_folds_on_the_page_but_never_in_a_section() {
     let text = t
         .find(
             &FindQuery {
+                exact: false,
+                regex: None,
                 query: Some("preheat"),
                 roles: vec!["text blocks".into()],
                 near: None,
@@ -735,6 +843,8 @@ fn a_short_list_folds_on_the_page_but_never_in_a_section() {
     let bad = t
         .find(
             &FindQuery {
+                exact: false,
+                regex: None,
                 query: None,
                 roles: vec!["paragraph".into()],
                 near: None,
