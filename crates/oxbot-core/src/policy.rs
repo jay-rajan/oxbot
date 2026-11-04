@@ -656,7 +656,7 @@ pub fn rule_label(label: &str) -> Option<String> {
 /// the site unless their words say so.
 const PLAIN_ROLES: &[&str] = &[
     "link", "tab", "menuitem", "option", "checkbox", "radio", "switch", "treeitem", "row", "cell",
-    "img", "image",
+    "img", "image", "heading",
 ];
 
 /// What a click on `label` (a snapshot label, `button "Post"`) would do,
@@ -676,11 +676,12 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
     if matches!(role, "textbox" | "searchbox" | "combobox") {
         return Click::Plain;
     }
-    // A card or headline link: its name is the item's text, so words in
-    // it ("Save Recipe", "Delete your account in 5 steps") don't say what
-    // a click does. A link is a GET; a link that changes something has a
-    // short action name ("Unsubscribe", "Log out").
-    if role == "link" && name_words(name) > CARD_LINK_WORDS {
+    // A card or headline link (or a heading that is an item's title): its
+    // name is the item's text, so words in it ("Save Recipe", "Delete your
+    // account in 5 steps") don't say what a click does. A link is a GET; a
+    // link that changes something has a short action name ("Unsubscribe",
+    // "Log out"). A heading can't submit anything.
+    if matches!(role, "link" | "heading") && name_words(name) > CARD_LINK_WORDS {
         return Click::Plain;
     }
     let words = click_words(name);
@@ -704,7 +705,7 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
     }
 }
 
-/// A link named with more words than this is a card or headline link.
+/// A link or heading named with more words than this is a card or headline.
 const CARD_LINK_WORDS: usize = 5;
 
 /// Words in a name (runs with a letter or digit; `…` and `|` don't count).
@@ -1704,6 +1705,9 @@ mod tests {
             "link \"How to delete your account in 5 steps\"",
             "link \"Book now: three nights by the lake from $199\"",
             "link \"Sam shared a post about the new library hours\"",
+            "heading \"Roadmap: The Get-It-Together Guide for Figuring Out What To Do with Your Life (C…\"",
+            "heading \"Save Recipe: Banana Nut Bread from the test kitchen\"",
+            "heading \"Results\"",
         ] {
             assert_eq!(click(label, None), Verdict::Allow, "{label}");
         }
@@ -1714,6 +1718,7 @@ mod tests {
             "link \"Log out\"",
             "link \"Unsubscribe from all emails now\"",
             "button \"Save Recipe for banana nut bread loaf\"",
+            "heading \"Save recipe\"",
         ] {
             assert_eq!(asks(&click(label, None)), Some(Click::Change), "{label}");
         }
