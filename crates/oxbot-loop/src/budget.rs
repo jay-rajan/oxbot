@@ -2,68 +2,17 @@
 //!
 //! The estimate is deliberately on the high side: a byte count over three
 //! (English runs near four characters a token, page snapshots near three,
-//! and a three-byte CJK character is about one token). Providers report
-//! what they really counted; each model's ratio of that to the estimate is
-//! kept ([`Calibration`]) and saved, so budgets follow the model's own
-//! tokenizer without bundling any.
-
-use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
-
-use oxbot_llm::{Message, Part, ToolSpec};
-
-use crate::store::{CalibrationRow, LoopStore};
+//! and a three-byte CJK character is about one token). Codex is told the
+//! window's limits from these ([`TokenBudget`]), and big results are
+//! stored and shown in part by them.
 
 /// Bytes per estimated token.
 const BYTES_PER_TOKEN: u64 = 3;
-/// Tokens counted for an image part.
-const IMAGE_TOKENS: u64 = 1_000;
-/// Tokens each message adds for its framing.
-pub const MESSAGE_OVERHEAD: u64 = 4;
 
 /// Estimated tokens of `text`.
 #[must_use]
 pub fn est(text: &str) -> u64 {
     (text.len() as u64).div_ceil(BYTES_PER_TOKEN)
-}
-
-/// Estimated tokens of one message.
-#[must_use]
-pub fn est_message(m: &Message) -> u64 {
-    let parts: u64 = m
-        .parts
-        .iter()
-        .map(|p| match p {
-            Part::Text(t) => est(t),
-            Part::Image { .. } => IMAGE_TOKENS,
-        })
-        .sum();
-    let calls: u64 = m
-        .tool_calls
-        .iter()
-        .map(|c| est(&c.name) + est(&c.raw) + est(&c.id))
-        .sum();
-    parts + calls + MESSAGE_OVERHEAD
-}
-
-/// Estimated tokens of tool definitions, counted once per request.
-#[must_use]
-pub fn est_tools(tools: &[ToolSpec]) -> u64 {
-    tools
-        .iter()
-        .map(|t| est(&t.name) + est(&t.description) + est(&t.parameters.to_string()))
-        .sum()
-}
-
-/// `tokens` with `ratio` applied, rounded up.
-#[must_use]
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
-pub fn scaled(tokens: u64, ratio: f64) -> u64 {
-    (tokens as f64 * ratio).ceil() as u64
 }
 
 /// How many tokens the context may use, for one request.
@@ -127,164 +76,16 @@ impl TokenBudget {
         self.share(15).min(6_000)
     }
 
-    /// Budget for what the bot knows (and past tasks), in the header.
-    #[must_use]
-    pub fn knowledge(&self) -> u64 {
-        self.share(6).clamp(1_500, 6_000)
-    }
-
-    /// Old tool results are cleared above this. Late on purpose: what a
-    /// model can still see explains most of how well it browses, and
-    /// every clearing breaks the provider's cache.
-    #[must_use]
-    pub fn clear_at(&self) -> u64 {
-        self.share(75)
-    }
-
-    /// Clearing goes down to this.
-    #[must_use]
-    pub fn clear_to(&self) -> u64 {
-        self.share(55)
-    }
-
-    /// Clearing happens only if it frees this much (each clearing breaks
-    /// the provider's cache from that point).
-    #[must_use]
-    pub fn clear_at_least(&self) -> u64 {
-        self.share(10)
-    }
-
-    /// Still above this after clearing: summarize (compact).
+    /// Codex summarizes its conversation above this (its own compaction).
     #[must_use]
     pub fn compact_at(&self) -> u64 {
         self.share(88)
-    }
-
-    /// A compaction aims for this.
-    #[must_use]
-    pub fn compact_target(&self) -> u64 {
-        self.share(35)
-    }
-
-    /// Longest summary a compaction may write.
-    #[must_use]
-    pub fn compact_output(&self) -> u32 {
-        u32::try_from(self.reserve.min(4_000)).unwrap_or(4_000)
-    }
-}
-
-/// Smoothing for the per-model ratio.
-const ALPHA: f64 = 0.3;
-/// The ratio stays within these.
-const MIN_RATIO: f64 = 0.5;
-const MAX_RATIO: f64 = 2.0;
-/// What a too-long request does to the ratio.
-const OVERFLOW_BUMP: f64 = 1.2;
-/// Requests smaller than this teach nothing (framing dominates).
-const MIN_SAMPLE: u64 = 100;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Learned {
-    ewma: f64,
-    last: f64,
-    samples: u32,
-}
-
-/// Per-model ratios: what a provider counted over what was estimated.
-#[derive(Debug, Default)]
-pub struct Calibration(Mutex<HashMap<String, Learned>>);
-
-impl Calibration {
-    /// The ratios saved in `store`.
-    #[must_use]
-    pub fn load(store: &dyn LoopStore) -> Self {
-        let rows = store.calibrations().unwrap_or_else(|err| {
-            tracing::warn!(%err, "couldn't read the token calibration");
-            Vec::new()
-        });
-        let map = rows
-            .into_iter()
-            .map(|r| {
-                let ratio = r.ratio.clamp(MIN_RATIO, MAX_RATIO);
-                (
-                    r.model,
-                    Learned {
-                        ewma: ratio,
-                        last: ratio,
-                        samples: r.samples,
-                    },
-                )
-            })
-            .collect();
-        Self(Mutex::new(map))
-    }
-
-    /// Notes that `model` counted `actual` prompt tokens where `estimated`
-    /// were estimated. Returns the row to save, if anything was learned.
-    #[allow(clippy::cast_precision_loss)]
-    pub fn observe(&self, model: &str, estimated: u64, actual: u64) -> Option<CalibrationRow> {
-        if model.is_empty() || estimated < MIN_SAMPLE || actual == 0 {
-            return None;
-        }
-        let r = (actual as f64 / estimated as f64).clamp(MIN_RATIO, MAX_RATIO);
-        let mut map = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let learned = map.entry(model.to_owned()).or_insert(Learned {
-            ewma: r,
-            last: r,
-            samples: 0,
-        });
-        learned.ewma = (learned.ewma * (1.0 - ALPHA) + r * ALPHA).clamp(MIN_RATIO, MAX_RATIO);
-        learned.last = r;
-        learned.samples = learned.samples.saturating_add(1);
-        Some(CalibrationRow {
-            model: model.to_owned(),
-            ratio: learned.ewma,
-            samples: learned.samples,
-        })
-    }
-
-    /// A request to `model` was too long for it: count higher from now on.
-    pub fn overflowed(&self, model: &str) -> Option<CalibrationRow> {
-        let mut map = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let learned = map.entry(model.to_owned()).or_insert(Learned {
-            ewma: 1.0,
-            last: 1.0,
-            samples: 0,
-        });
-        learned.ewma = (learned.ewma * OVERFLOW_BUMP).min(MAX_RATIO);
-        learned.last = (learned.last * OVERFLOW_BUMP).min(MAX_RATIO);
-        Some(CalibrationRow {
-            model: model.to_owned(),
-            ratio: learned.ewma,
-            samples: learned.samples,
-        })
-    }
-
-    /// Provider tokens per estimated token for `model`: the larger of the
-    /// smoothed and the last ratio, so errors fall on the safe side; 1 for
-    /// a model not seen yet.
-    #[must_use]
-    pub fn ratio(&self, model: &str) -> f64 {
-        let map = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        map.get(model).map_or(1.0, |l| l.ewma.max(l.last))
-    }
-
-    /// The largest ratio among `models` (any of them may answer); 1 for
-    /// none.
-    #[must_use]
-    pub fn ratio_of_any<'a>(&self, models: impl IntoIterator<Item = &'a String>) -> f64 {
-        models
-            .into_iter()
-            .map(|m| self.ratio(m))
-            .reduce(f64::max)
-            .unwrap_or(1.0)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::MemoryLoopStore;
 
     #[test]
     fn estimates_count_bytes_over_three() {
@@ -293,35 +94,24 @@ mod tests {
         assert_eq!(est("abcd"), 2);
         // A CJK character is three bytes: one token.
         assert_eq!(est("日本語"), 3);
-        let m = Message::user("x".repeat(300));
-        assert_eq!(est_message(&m), 104);
     }
 
     #[test]
     fn budget_table() {
-        // (W, reserve, U, clear at, compact at, inline cap, snapshot cap, knowledge)
+        // (W, reserve, U, compact at, inline cap, snapshot cap)
         let rows = [
-            (8_192, 2_048, 5_735, 4_301, 5_046, 458, 860, 1_500),
-            (65_536, 8_192, 54_068, 40_551, 47_579, 4_000, 6_000, 3_244),
-            (
-                131_072, 8_192, 116_327, 87_245, 102_367, 4_000, 6_000, 6_000,
-            ),
-            (
-                200_000, 8_192, 181_808, 136_356, 159_991, 4_000, 6_000, 6_000,
-            ),
+            (8_192, 2_048, 5_735, 5_046, 458, 860),
+            (65_536, 8_192, 54_068, 47_579, 4_000, 6_000),
+            (131_072, 8_192, 116_327, 102_367, 4_000, 6_000),
+            (200_000, 8_192, 181_808, 159_991, 4_000, 6_000),
         ];
-        for (w, reserve, u, clear, compact, inline, snap, know) in rows {
+        for (w, reserve, u, compact, inline, snap) in rows {
             let b = TokenBudget::for_model(w, None);
             assert_eq!(b.reserve, reserve, "{w}");
             assert_eq!(b.usable(), u, "{w}");
-            assert_eq!(b.clear_at(), clear, "{w}");
             assert_eq!(b.compact_at(), compact, "{w}");
             assert_eq!(b.inline_cap(), inline, "{w}");
             assert_eq!(b.snapshot_cap(), snap, "{w}");
-            assert_eq!(b.knowledge(), know, "{w}");
-            assert_eq!(b.clear_to(), u * 55 / 100);
-            assert_eq!(b.clear_at_least(), u * 10 / 100);
-            assert_eq!(b.compact_target(), u * 35 / 100);
         }
         // The answer's room: the model's own cap within 2,048..W/4.
         assert_eq!(TokenBudget::for_model(64_000, Some(4_096)).reserve, 4_096);
@@ -331,41 +121,6 @@ mod tests {
         let tiny = TokenBudget::for_model(100, None);
         assert_eq!(tiny.reserve, 25);
         assert_eq!(tiny.usable(), 70);
-        assert_eq!(tiny.compact_output(), 25);
-    }
-
-    #[test]
-    fn calibration_converges_is_clamped_and_saved() {
-        let store = MemoryLoopStore::new();
-        let c = Calibration::load(&store);
-        assert!((c.ratio("m") - 1.0).abs() < f64::EPSILON);
-        // The model counts 0.8 of the estimate, again and again.
-        let mut row = None;
-        for _ in 0..30 {
-            row = c.observe("m", 1_000, 800);
-        }
-        assert!((c.ratio("m") - 0.8).abs() < 0.01, "{}", c.ratio("m"));
-        // One request counted more: the ratio follows at once (safe side).
-        c.observe("m", 1_000, 1_000);
-        assert!((c.ratio("m") - 1.0).abs() < 0.01);
-        // Clamped both ways.
-        c.observe("big", 1_000, 9_000);
-        assert!((c.ratio("big") - 2.0).abs() < f64::EPSILON);
-        c.observe("small", 1_000, 10);
-        assert!((c.ratio("small") - 0.5).abs() < f64::EPSILON);
-        // Tiny requests teach nothing.
-        assert!(c.observe("n", 10, 1_000).is_none());
-        // Saved and read back.
-        store.save_calibration(&row.unwrap()).unwrap();
-        let again = Calibration::load(&store);
-        assert!((again.ratio("m") - 0.8).abs() < 0.01);
-        // A too-long request bumps it by a fifth.
-        again.overflowed("m");
-        assert!(
-            (again.ratio("m") - 0.96).abs() < 0.01,
-            "{}",
-            again.ratio("m")
-        );
     }
 
     #[test]

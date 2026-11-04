@@ -1,6 +1,6 @@
-//! What the server and the page need to know about engines: who the owner
-//! is, whether an engine can run, each bot's engine as listed, and the
-//! household's engine settings. The rules themselves live in `engines.rs`;
+//! What the server and the page need to know about bots' AI models: who
+//! the owner is, whether bots can run, each bot's engine and model as
+//! listed, and the household's model settings. The rules themselves live in `engines.rs`;
 //! these are thin reads and writes around them.
 
 use std::collections::BTreeSet;
@@ -56,6 +56,13 @@ impl Hub {
     /// What's missing.
     pub fn engine_ready(&self, kind: EngineKind) -> Result<(), String> {
         self.engine(kind).map(drop).map_err(|e| e.to_string())
+    }
+
+    /// Whether the household's `OpenRouter` sign-in is ready: bots can't
+    /// use models without it (and Codex needs it too).
+    #[must_use]
+    pub fn openrouter_ready(&self) -> bool {
+        self.loop_engine.as_ref().is_some_and(|e| e.ready().is_ok())
     }
 
     /// The engine bot `id` runs on now, if it exists.
@@ -283,7 +290,6 @@ mod tests {
 
     fn hub(dir: &std::path::Path) -> Arc<Hub> {
         let mut scout = Bot::create(dir, BotId::new("scout").unwrap(), "Scout", "").unwrap();
-        scout.engine = EngineKind::OpenRouter;
         scout.loop_settings.daily_requests = Some(20);
         scout.save().unwrap();
         let bots = vec![
@@ -305,7 +311,7 @@ mod tests {
         let info = |id: &str| list.iter().find(|b| b.id == id).unwrap().clone();
         assert_eq!(info("recipes").engine, oxbot_protocol::EngineKind::Codex);
         assert_eq!(info("assistant").engine, oxbot_protocol::EngineKind::Codex);
-        assert_eq!(info("scout").engine, oxbot_protocol::EngineKind::OpenRouter);
+        assert_eq!(info("scout").engine, oxbot_protocol::EngineKind::Codex);
         assert_eq!(info("scout").daily_requests, Some(20));
 
         let ann = hub.person_named("Ann").unwrap();

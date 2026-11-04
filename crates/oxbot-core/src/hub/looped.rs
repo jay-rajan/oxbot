@@ -1,14 +1,13 @@
-//! The hub's side of oxbot's own loop (bots on `OpenRouter`): building the
-//! engine with the hub's store, limits and browser; the meter and its
-//! alerts; and picking up turns that were running when oxbot stopped.
+//! The hub's side of what Codex bots share with oxbot (`oxbot-loop`, from
+//! oxbot's own loop, which retired as an engine): building it with the
+//! hub's store, limits and browser; the meter and its alerts; and the
+//! sweep of stored results.
 
 use std::sync::{Arc, PoisonError, Weak};
-use std::time::Instant;
 
-use oxbot_engine::{CallRecord, LimitWindow, TurnInput};
+use oxbot_engine::{CallRecord, LimitWindow};
 use oxbot_llm::{Catalog, ChatModel, KeyCell};
 use oxbot_loop::meter::{now_ms, utc_day};
-use oxbot_loop::store::{TurnRow, TurnStatus};
 use oxbot_loop::{
     Account, BrowserFactory, CatalogCache, GuardQuery, LimitHit, LoopEngine, LoopPrefs, LoopSetup,
     LoopStore, McpBrowserFactory, Pacer, UsageGuard,
@@ -16,9 +15,7 @@ use oxbot_loop::{
 use oxbot_protocol::{EnginePrefs, EnginesView, ServerMsg};
 
 use super::engine_prefs::{PREF_CATALOG, PREF_CATALOG_MS, engine_prefs_in};
-use super::engines::{ChainOrigin, may_task};
-use super::{Hub, HubConfig, lock};
-use crate::engine::EngineKind;
+use super::{Hub, HubConfig};
 use crate::id::{BotId, PersonId};
 use crate::policy::LOOP_BROWSER_TOOLS;
 use crate::store::Store;
@@ -262,7 +259,7 @@ impl Hub {
             // The relay's log has its own sweep (above), by age.
             let mut keep_folders = keep.clone();
             keep_folders.push(oxbot_relay::LOG_DIR.to_owned());
-            let last = |session: &str| self.store.loop_session_last_ms(session).ok().flatten();
+            let last = |session: &str| self.store.session_last_ms(session).ok().flatten();
             let gone = oxbot_loop::results::sweep(
                 &dir,
                 &last,
@@ -345,7 +342,7 @@ impl Hub {
                 codex_ready: false,
                 notice: super::ENGINES_NOTICE.to_owned(),
                 owner: self.owner_display_name(),
-                openrouter_ready: self.engine_ready(EngineKind::OpenRouter).is_ok(),
+                openrouter_ready: self.openrouter_ready(),
                 models: Vec::new(),
                 openrouter: None,
             }));
@@ -425,126 +422,6 @@ impl Hub {
         }
         out
     }
-
-    /// Picks up loop turns that were running when oxbot stopped: each goes
-    /// on after its last saved step, if its bot still runs on `OpenRouter`,
-    /// its session is the same, and its chain may still task the bot.
-    /// Practice runs aren't picked up. Call once at start, after the
-    /// Farm's person is known.
-    pub async fn resume_loop_turns(self: &Arc<Self>) {
-        let Some(engine) = self.loop_engine.clone() else {
-            return;
-        };
-        let rows = match engine.running_turns() {
-            Ok(rows) => rows,
-            Err(err) => {
-                tracing::warn!(%err, "couldn't read the loop turns to pick up");
-                return;
-            }
-        };
-        for row in rows {
-            if row.dry_run {
-                let _ = engine.end_turn(&row.session, row.turn, TurnStatus::Stopped);
-                continue;
-            }
-            match self.resume_turn(&row).await {
-                Ok(()) => tracing::info!(bot = row.bot, turn = row.turn, "picked up a loop turn"),
-                Err(why) => {
-                    tracing::info!(bot = row.bot, why, "couldn't pick up a loop turn");
-                    let _ = engine.end_turn(&row.session, row.turn, TurnStatus::Failed);
-                    if let Ok(bot) = self.bot(&row.bot) {
-                        let _ = self.turn_failed(
-                            &bot.id,
-                            &format!(
-                                "oxbot restarted and couldn't pick this task up again ({why}). \
-                                 Send it again if you still need it."
-                            ),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    async fn resume_turn(self: &Arc<Self>, row: &TurnRow) -> Result<(), String> {
-        if row.resumes >= 2 {
-            return Err("it was picked up twice already".to_owned());
-        }
-        let bot = self
-            .bot(&row.bot)
-            .map_err(|_| "the bot is gone".to_owned())?;
-        if self.engine_of(&bot) != EngineKind::OpenRouter {
-            return Err("the bot runs on another engine now".to_owned());
-        }
-        let origin: ChainOrigin = serde_json::from_value(row.origin.clone())
-            .map_err(|_| "who asked couldn't be read".to_owned())?;
-        may_task(&origin).map_err(|e| e.to_string())?;
-        self.engine(EngineKind::OpenRouter)
-            .map_err(|e| e.to_string())?;
-        let saved = self.store.session(&bot.id).map_err(|e| e.to_string())?;
-        if saved.map(|s| s.id).as_deref() != Some(row.session.as_str()) {
-            return Err("its conversation was replaced".to_owned());
-        }
-        let permit = Arc::clone(&self.turns)
-            .acquire_owned()
-            .await
-            .map_err(|_| "oxbot is stopping".to_owned())?;
-        self.claim(&bot.id).await.map_err(|e| e.to_string())?;
-        let result = self.resume_claimed(&bot, row, origin, permit).await;
-        lock(&self.starting).remove(&bot.id);
-        result
-    }
-
-    async fn resume_claimed(
-        self: &Arc<Self>,
-        bot: &crate::bot::Bot,
-        row: &TurnRow,
-        origin: ChainOrigin,
-        permit: tokio::sync::OwnedSemaphorePermit,
-    ) -> Result<(), String> {
-        let running = self.runtimes.lock().await.contains_key(&bot.id);
-        if running {
-            return Err("the bot was already running".to_owned());
-        }
-        let runtime = self.start_session(bot).await.map_err(|e| e.to_string())?;
-        if runtime.resumed.as_ref().map(|r| r.user_seq) != Some(row.user_seq) {
-            runtime.session.shutdown().await;
-            return Err("its conversation changed".to_owned());
-        }
-        let mut runtimes = self.runtimes.lock().await;
-        runtimes.insert(bot.id.clone(), runtime);
-        let Some(runtime) = runtimes.get_mut(&bot.id) else {
-            return Err("the bot stopped".to_owned());
-        };
-        let turn = TurnInput {
-            text: row.question.clone(),
-            user_seq: row.user_seq,
-            person: origin.asker().map(ToString::to_string),
-            origin: row.origin.clone(),
-        };
-        if let Err(err) = runtime.session.send(turn).await {
-            runtimes.remove(&bot.id);
-            return Err(err.to_string());
-        }
-        runtime.busy = true;
-        runtime.permit = Some(permit);
-        runtime.last_active = Instant::now();
-        runtime.origin = origin;
-        runtime.question = Some(question_of(&row.question));
-        drop(runtimes);
-        self.announce_bots().await;
-        Ok(())
-    }
-}
-
-/// The question as the chat shows it: without the `[Name] ` the hub put
-/// before it for the model.
-fn question_of(text: &str) -> String {
-    let text = text
-        .strip_prefix('[')
-        .and_then(|t| t.split_once("] "))
-        .map_or(text, |(_, rest)| rest);
-    text.chars().take(crate::report::MAX_QUESTION).collect()
 }
 
 #[cfg(test)]
@@ -552,10 +429,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn midnight_and_questions() {
+    fn midnight() {
         assert_eq!(next_utc_midnight_s(1_793_577_600_000), 1_793_664_000);
         assert_eq!(next_utc_midnight_s(1_793_577_599_999), 1_793_577_600);
-        assert_eq!(question_of("[Sam] search jobs"), "search jobs");
-        assert_eq!(question_of("search jobs"), "search jobs");
     }
 }

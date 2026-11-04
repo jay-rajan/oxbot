@@ -172,8 +172,9 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
 }
 
 /// A bot's scoreboard from its runs (`original`, `replay`, `shadow`) and its
-/// live thumbs: one row per engine and model, Codex's first (the engine
-/// new bots run on, which the others are measured against).
+/// live thumbs: one row per model, each measured against the best. Runs
+/// on an engine oxbot no longer has (Claude, oxbot's own loop) are kept
+/// but not shown.
 #[must_use]
 #[allow(clippy::cast_precision_loss, reason = "counts and tokens fit in f64")]
 pub fn scoreboard(runs: &[TrialRunRecord], ratings: &[RatingCount]) -> Vec<ScoreRow> {
@@ -196,13 +197,9 @@ pub fn scoreboard(runs: &[TrialRunRecord], ratings: &[RatingCount]) -> Vec<Score
         .into_iter()
         .filter_map(|((engine, model), runs)| score_row(&engine, model, &runs, ratings))
         .collect();
-    // Codex first; then by model.
-    rows.sort_by(|a, b| {
-        (a.engine != EngineKind::Codex, &a.model).cmp(&(b.engine != EngineKind::Codex, &b.model))
-    });
-    let codex_best = rows
+    rows.sort_by(|a, b| a.model.cmp(&b.model));
+    let best = rows
         .iter()
-        .filter(|r| r.engine == EngineKind::Codex)
         .filter_map(|r| r.pass_rate)
         .fold(None, |best: Option<f64>, p| {
             Some(best.map_or(p, |b| b.max(p)))
@@ -210,7 +207,7 @@ pub fn scoreboard(runs: &[TrialRunRecord], ratings: &[RatingCount]) -> Vec<Score
     for row in &mut rows {
         row.good_enough = row.n >= 5
             && row.should_not == 0
-            && match (row.pass_rate, codex_best) {
+            && match (row.pass_rate, best) {
                 (Some(p), Some(c)) => p >= c - 0.10,
                 (Some(_), None) => true,
                 _ => false,
@@ -478,15 +475,16 @@ mod tests {
     }
 
     #[test]
-    fn the_scoreboard_puts_codex_first_and_leaves_out_inconclusive_runs() {
+    fn the_scoreboard_has_a_row_per_model_and_leaves_out_inconclusive_runs() {
         let mut runs = vec![
-            run("openrouter", "a:free", "done", Some("pass")),
-            run("openrouter", "a:free", "done", Some("partial")),
-            run("openrouter", "a:free", "needs_sign_in", None),
             run("codex", "a:free", "done", Some("pass")),
-            run("codex", "a:free", "running", None),
-            // From before Claude left oxbot: kept, not shown.
+            run("codex", "a:free", "done", Some("partial")),
+            run("codex", "a:free", "needs_sign_in", None),
+            run("codex", "c:free", "done", Some("pass")),
+            run("codex", "c:free", "running", None),
+            // From engines oxbot no longer has: kept, not shown.
             run("claude", "sonnet", "done", Some("pass")),
+            run("openrouter", "a:free", "done", Some("fail")),
         ];
         runs[0].owner_verdict = Some("pass".into());
         runs[0].judge = Some(json!({"verdict": "pass"}));
@@ -496,32 +494,30 @@ mod tests {
             Some(json!({"matched": ["x"], "missing": ["y"], "extra": [], "should_not": []}));
         let ratings = [
             RatingCount {
-                engine: "openrouter".into(),
+                engine: "codex".into(),
                 model: "b:free".into(),
                 up: 2,
                 down: 1,
             },
             RatingCount {
-                engine: "claude".into(),
-                model: "sonnet".into(),
-                up: 1,
+                engine: "openrouter".into(),
+                model: "b:free".into(),
+                up: 5,
                 down: 0,
             },
         ];
         let rows = scoreboard(&runs, &ratings);
-        assert_eq!(rows.len(), 3);
-        assert_eq!(
-            (rows[0].engine, rows[0].model.as_str()),
-            (EngineKind::Codex, "a:free")
-        );
+        let models: Vec<&str> = rows.iter().map(|r| r.model.as_str()).collect();
+        assert_eq!(models, ["a:free", "b:free", "c:free"]);
+        assert!(rows.iter().all(|r| r.engine == EngineKind::Codex));
         assert!(run_info(&runs[5], "x").is_none());
+        assert!(run_info(&runs[6], "x").is_none());
         assert_eq!(
             run_info(&runs[3], "x").map(|r| r.engine),
             Some(EngineKind::Codex)
         );
-        assert_eq!(rows[0].n, 1, "a running run isn't counted");
-        let a = &rows[1];
-        assert_eq!((a.n, a.judged, a.needs_sign_in), (2, 2, 1));
+        let a = &rows[0];
+        assert_eq!((a.n, a.judged, a.needs_sign_in), (2, 2, 1), "no loop run");
         assert_eq!(a.pass_rate, Some(0.75));
         assert_eq!(a.agreement, Some(0.5));
         assert_eq!(a.intent_match, Some(0.5));
@@ -529,25 +525,31 @@ mod tests {
         assert_eq!(a.ms, Some(2000.0));
         assert!(!a.good_enough, "too few runs");
         assert_eq!(
-            (rows[2].thumbs_up, rows[2].thumbs_down, rows[2].n),
-            (2, 1, 0)
+            (rows[1].thumbs_up, rows[1].thumbs_down, rows[1].n),
+            (2, 1, 0),
+            "the loop's thumbs aren't counted"
         );
+        assert_eq!(rows[2].n, 1, "a running run isn't counted");
     }
 
     #[test]
-    fn good_enough_needs_five_runs_near_codex_and_no_repeated_no() {
+    fn good_enough_needs_five_runs_near_the_best_and_no_repeated_no() {
         let mut runs: Vec<TrialRunRecord> = (0..5)
             .map(|i| {
-                let mut r = run("openrouter", "a:free", "done", Some("pass"));
+                let mut r = run("codex", "a:free", "done", Some("partial"));
                 r.id = format!("a{i}");
                 r
             })
             .collect();
         runs.push(run("codex", "b:free", "done", Some("pass")));
         let rows = scoreboard(&runs, &[]);
-        assert!(rows[1].good_enough);
+        assert!(!rows[0].good_enough, "half the best's points");
+        for r in &mut runs[..5] {
+            r.verdict = Some("pass".into());
+        }
+        assert!(scoreboard(&runs, &[])[0].good_enough);
         runs[0].intent_match =
             Some(json!({"matched": [], "missing": [], "extra": [], "should_not": ["x"]}));
-        assert!(!scoreboard(&runs, &[])[1].good_enough);
+        assert!(!scoreboard(&runs, &[])[0].good_enough);
     }
 }

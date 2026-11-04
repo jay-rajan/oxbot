@@ -1,8 +1,9 @@
 //! What every oxbot engine shares.
 //!
 //! An engine runs a bot: Codex CLI's agent loop (`codex app-server`) on
-//! `OpenRouter`'s models through oxbot's relay, or oxbot's own agent loop
-//! on them. The hub talks to each one only through this crate:
+//! `OpenRouter`'s models through oxbot's relay, the only engine since
+//! oxbot's own agent loop retired. The hub talks to it only through this
+//! crate:
 //!
 //! - [`Engine`] starts sessions; [`Session`] takes turns.
 //! - An engine reports what happens as [`EngineEvent`]s, in order.
@@ -29,37 +30,35 @@ pub use event::{
 pub use futures_util::future::BoxFuture;
 pub use reply::{Decision, Refusal, Reply, ReplyWait, ToolReply};
 pub use spec::{
-    BrowserSpec, GateMode, HostTools, McpCommand, ModelChoice, Privacy, Resume, ResumedTurn,
-    SessionSpec, ToolSpec, TurnInput,
+    BrowserSpec, GateMode, HostTools, McpCommand, ModelChoice, Privacy, Resume, SessionSpec,
+    ToolSpec, TurnInput,
 };
 
 use serde::{Deserialize, Serialize};
 
-/// Which engine runs a bot. Both run on `OpenRouter`'s models with the
+/// Which engine runs a bot: Codex, on `OpenRouter`'s models with the
 /// household's key, so anyone in the household may give their bots tasks,
-/// within the same daily limits.
+/// within the same daily limits. Files and the database that name another
+/// (`claude`, `openrouter`: oxbot's own loop, retired) are moved to Codex
+/// by the hub.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineKind {
     /// Codex CLI's agent loop, through oxbot's relay, with oxbot's own
-    /// tools and gate. New bots and every Herder run on it.
+    /// tools and gate. Every bot runs on it.
     #[default]
     Codex,
-    /// oxbot's own agent loop.
-    OpenRouter,
 }
 
 impl EngineKind {
-    /// Every engine, in the order settings show them.
-    pub const ALL: [Self; 2] = [Self::Codex, Self::OpenRouter];
+    /// Every engine.
+    pub const ALL: [Self; 1] = [Self::Codex];
 
-    /// Its name in files, the database and the protocol: `codex`,
-    /// `openrouter`.
+    /// Its name in files, the database and the protocol: `codex`.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Codex => "codex",
-            Self::OpenRouter => "openrouter",
         }
     }
 
@@ -104,8 +103,8 @@ pub trait Engine: Send + Sync + fmt::Debug {
     /// Which engine this is.
     fn kind(&self) -> EngineKind;
 
-    /// Whether it can run now (signed in to `OpenRouter`; Codex: also
-    /// found and the right version).
+    /// Whether it can run now (signed in to `OpenRouter`, and Codex found
+    /// at the right version).
     ///
     /// # Errors
     /// [`NotReady`] with what's missing.
@@ -122,22 +121,17 @@ pub struct Started {
     /// What it reports, in order. Closes when the session ends (the hub
     /// then cleans up).
     pub events: tokio::sync::mpsc::Receiver<EngineEvent>,
-    /// A turn that was running when oxbot stopped and now goes on (loop
-    /// engine only).
-    pub resumed_turn: Option<ResumedTurn>,
 }
 
 impl fmt::Debug for Started {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Started")
             .field("session", &self.session.id())
-            .field("resumed_turn", &self.resumed_turn)
             .finish_non_exhaustive()
     }
 }
 
-/// A running bot session (Codex: one thread in the bot's `codex`
-/// process; loop: one conversation and its tools).
+/// A running bot session: one thread in the bot's `codex` process.
 pub trait Session: Send {
     /// The session's id, as saved with the bot.
     fn id(&self) -> &str;
@@ -169,11 +163,8 @@ mod tests {
         assert_eq!(EngineKind::parse("codex"), Some(EngineKind::Codex));
         assert_eq!(EngineKind::parse("gpt"), None);
         assert_eq!(EngineKind::parse("claude"), None, "no longer an engine");
+        assert_eq!(EngineKind::parse("openrouter"), None, "the loop retired");
         assert_eq!(EngineKind::default(), EngineKind::Codex);
-        assert_eq!(
-            serde_json::from_str::<EngineKind>("\"openrouter\"").unwrap(),
-            EngineKind::OpenRouter
-        );
     }
 
     #[test]

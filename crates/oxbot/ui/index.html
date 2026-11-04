@@ -1547,8 +1547,8 @@ function engineLabel(info) {
   const model = info.model ? info.model.replace(/^.*\//, "").replace(/:free$/, "") : "";
   return model || "Free models";
 }
-/** Whether bots on `engine` can run on the home computer now. */
-function engineReady(engine) { return !!(settings && (engine === "codex" ? settings.codex_ready : settings.openrouter_ready)); }
+/** Whether bots can run on the home computer now (the AI account, then the AI helper). */
+function engineReady() { return !!(settings && settings.openrouter_ready && settings.codex_ready); }
 function renderEngineBadge(b) {
   const badge = $("engineBadge");
   badge.hidden = !b || isLocked(b);
@@ -1566,7 +1566,7 @@ function renderEngineNote(b) {
     if (settings.keychain_waiting) text = KEYCHAIN_WAITING;
     else if (settings.farm) { text = "The home's AI account isn't connected yet."; action = ["Connect it", openEngines]; }
     else text = `The home's AI account isn't connected yet; ask ${owner}.`;
-  } else if (!isLocked(b) && b.info.engine === "codex" && settings && !settings.codex_ready) {
+  } else if (!isLocked(b) && settings && !settings.codex_ready) {
     if (settings.farm) { text = "The AI helper isn't ready on the home computer."; action = ["Set up", openEngines]; }
     else text = `The AI helper isn't ready on the home computer; ask ${owner}.`;
   }
@@ -2574,13 +2574,12 @@ const cmp = { bot: null, cases: [], runs: [], rows: [], batch: null, detail: nul
 let cmpPrefsAsked = false;
 function isOwner() { return !!(settings && settings.owner); }
 function comparable(b) { return !!(b && !b.info.central && !isLocked(b)); }
-/** A test target in words: the model; oxbot's own loop is "(classic)". */
-function targetName(t) { return t.engine === "codex" ? t.model : `${t.model} (classic)`; }
-/** Each free model on the AI helper, then on oxbot's own loop (the helper is the yardstick). */
+/** A test target in words: its model. */
+function targetName(t) { return t.model; }
+/** Each free model bots can use now. */
 function targetChoices() {
-  const models = settings && settings.openrouter_ready ? (engines && engines.models) || [] : [];
-  const codex = engineReady("codex") ? models.map((m) => ({ engine: "codex", model: m.id })) : [];
-  return codex.concat(models.map((m) => ({ engine: "openrouter", model: m.id })));
+  const models = engineReady() ? (engines && engines.models) || [] : [];
+  return models.map((m) => ({ engine: "codex", model: m.id }));
 }
 function cmpMoney(x) { return x == null ? "–" : x === 0 ? "$0" : x < 0.01 ? "<$0.01" : `$${x.toFixed(2)}`; }
 function cmpNum(x, digits = 0) { return x == null ? "–" : Number(x).toLocaleString(undefined, { maximumFractionDigits: digits }); }

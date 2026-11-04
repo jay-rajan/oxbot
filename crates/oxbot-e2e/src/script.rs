@@ -1,7 +1,6 @@
 //! The stand-ins' reply scripts (`e2e/scripts/*.toml`), shared by the
 //! stand-in `OpenRouter` and the stand-in browser tool, so one script
-//! drives a test on either engine (Codex, through oxbot's relay, or oxbot's
-//! own loop).
+//! drives a test on Codex (through oxbot's relay).
 //!
 //! A script is a list of replies; the first whose `when` appears in the
 //! message (any case) is used, and one without `when` is the fallback:

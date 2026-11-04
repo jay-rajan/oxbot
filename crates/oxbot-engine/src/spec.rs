@@ -169,18 +169,6 @@ pub struct TurnInput {
     pub origin: Value,
 }
 
-/// A turn that was running when oxbot stopped, which a resumed session
-/// goes on with.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResumedTurn {
-    /// The number of the chat event that started it.
-    pub user_seq: u64,
-    /// Who started its task chain, as the hub wrote it.
-    pub origin: Value,
-    /// What it was asked, as the chat shows it.
-    pub question: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

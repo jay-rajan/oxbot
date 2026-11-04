@@ -157,8 +157,8 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         engine: Option<EngineKind>,
     },
-    /// Switch a bot to another engine. Its maker or the Farm. Herders'
-    /// engines are fixed.
+    /// Set a bot's AI model (Free models / Paid models). Its maker or the
+    /// Farm. Herders' are set by the owner. `engine` is always Codex now.
     SetEngine {
         /// Bot id.
         bot: String,
@@ -550,19 +550,16 @@ fn one() -> u32 {
     1
 }
 
-/// Which engine runs a bot. Both run on `OpenRouter`'s models with the
-/// household's account: anyone in the household may give their bots
-/// tasks.
+/// Which engine runs a bot: Codex, on `OpenRouter`'s models with the
+/// household's account, so anyone in the household may give their bots
+/// tasks. (oxbot's own loop, `openrouter`, retired: bots that ran on it
+/// moved to Codex.)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineKind {
-    /// Codex CLI's agent loop, through oxbot's relay (new bots and every
-    /// Herder).
+    /// Codex CLI's agent loop, through oxbot's relay (every bot).
     #[default]
     Codex,
-    /// oxbot's own agent loop.
-    #[serde(rename = "openrouter")]
-    OpenRouter,
 }
 
 /// Settings → Engines: which engine does what, and whether it can run.
@@ -1734,11 +1731,10 @@ mod tests {
         assert_eq!(old.engine, EngineKind::Codex);
         let info = BotInfo {
             id: "a".into(),
-            engine: EngineKind::OpenRouter,
             ..BotInfo::default()
         };
         let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains(r#""engine":"openrouter""#), "{json}");
+        assert!(json.contains(r#""engine":"codex""#), "{json}");
 
         // An older page's switch (it said who may task it): the extra field
         // is ignored.
@@ -1761,14 +1757,21 @@ mod tests {
             .is_err(),
             "Claude is no longer an engine"
         );
+        assert!(
+            serde_json::from_str::<ClientMsg>(
+                r#"{"type":"set_engine","bot":"a","engine":"openrouter"}"#
+            )
+            .is_err(),
+            "oxbot's own loop retired"
+        );
         let msg: ClientMsg = serde_json::from_str(
-            r#"{"type":"create_bot","name":"X","instructions":"","engine":"openrouter"}"#,
+            r#"{"type":"create_bot","name":"X","instructions":"","engine":"codex"}"#,
         )
         .unwrap();
         assert!(matches!(
             msg,
             ClientMsg::CreateBot {
-                engine: Some(EngineKind::OpenRouter),
+                engine: Some(EngineKind::Codex),
                 ..
             }
         ));

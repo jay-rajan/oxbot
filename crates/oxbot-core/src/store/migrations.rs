@@ -359,6 +359,23 @@ pub(super) const MIGRATIONS: &[Step] = &[
         DELETE FROM limits;
         DELETE FROM prefs WHERE key IN ('engines_notice_seen', 'compare.claude_pause');",
     ),
+    // 23: oxbot's own loop retires as an engine (step 6, part 3). Its bots
+    // run on Codex and are noted once in engine_upgrades (from
+    // `openrouter`) as they move. Its turns never go on: the ones still
+    // marked running or waiting are stopped, and its conversations closed
+    // (their messages go after the usual 30 days). What only the loop read
+    // goes now: progress notes and token calibrations. Stored results,
+    // checks and the meter stay: Codex bots use the same tables.
+    Step::Sql(
+        "UPDATE loop_turns
+            SET status = 'stopped', pending = NULL,
+                ended_ms = COALESCE(ended_ms, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+          WHERE status IN ('running', 'waiting_user');
+        UPDATE loop_sessions SET closed_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+          WHERE closed_ms IS NULL;
+        DELETE FROM loop_progress;
+        DELETE FROM token_calibration;",
+    ),
 ];
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each

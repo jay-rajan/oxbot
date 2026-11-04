@@ -255,13 +255,13 @@ impl Hub {
     }
 
     /// The engine and model that ran a live turn, as the scoreboard names
-    /// them (a turn from before Claude left oxbot keeps `claude`, which the
-    /// scoreboard leaves out), with what it used when the loop ran it.
+    /// them (a turn on an engine oxbot no longer has keeps its name, which
+    /// the scoreboard leaves out), with what it used: the meter's rows
+    /// from the message to the reply's end.
     fn turn_model(&self, bot: &Bot, turn: &Turn) -> (String, String, Option<TrialRunRecord>) {
-        let user_seq = turn.user.seq;
         let recorded = self
             .store
-            .turn_origin(&bot.id, user_seq)
+            .turn_origin(&bot.id, turn.user.seq)
             .ok()
             .flatten()
             .map(|o| o.engine);
@@ -274,47 +274,23 @@ impl Hub {
             }
             None => self.engine_of(bot),
         };
-        let name = engine.as_str().to_owned();
-        match engine {
-            // Codex keeps no loop turns: its requests are the meter's rows
-            // from the message to the reply's end.
-            EngineKind::Codex => {
-                let totals = self
-                    .store
-                    .engine_calls_totals(
-                        bot.id.as_str(),
-                        engine.as_str(),
-                        turn.user.ts_ms,
-                        turn.done_ms,
-                    )
-                    .ok()
-                    .filter(|t| t.0 > 0);
-                let model = totals
-                    .as_ref()
-                    .map(|t| t.5.clone())
-                    .filter(|m| !m.is_empty())
-                    .or_else(|| bot.loop_settings.model.clone())
-                    .unwrap_or_else(|| "auto".to_owned());
-                (name, model, totals.map(used_of))
-            }
-            EngineKind::OpenRouter => {
-                let row = self
-                    .store
-                    .loop_turn_for(bot.id.as_str(), user_seq)
-                    .ok()
-                    .flatten();
-                let totals = row
-                    .as_ref()
-                    .and_then(|r| self.store.loop_turn_totals(&r.session, r.turn).ok());
-                let model = totals
-                    .as_ref()
-                    .map(|t| t.5.clone())
-                    .filter(|m| !m.is_empty())
-                    .or_else(|| row.and_then(|r| r.model))
-                    .unwrap_or_else(|| "auto".to_owned());
-                (name, model, totals.map(used_of))
-            }
-        }
+        let totals = self
+            .store
+            .engine_calls_totals(
+                bot.id.as_str(),
+                engine.as_str(),
+                turn.user.ts_ms,
+                turn.done_ms,
+            )
+            .ok()
+            .filter(|t| t.0 > 0);
+        let model = totals
+            .as_ref()
+            .map(|t| t.5.clone())
+            .filter(|m| !m.is_empty())
+            .or_else(|| bot.loop_settings.model.clone())
+            .unwrap_or_else(|| "auto".to_owned());
+        (engine.as_str().to_owned(), model, totals.map(used_of))
     }
 
     /// A live turn as a run of kind `original`, for the scoreboard.

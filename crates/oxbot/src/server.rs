@@ -122,7 +122,7 @@ impl AppState {
             dictation: viewer.farm && self.dictation.available(),
             owner: self.hub.is_owner_viewer(viewer),
             owner_name: self.hub.owner_display_name(),
-            openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
+            openrouter_ready: self.hub.openrouter_ready(),
             keychain_waiting: self
                 .openrouter
                 .as_ref()
@@ -147,7 +147,7 @@ impl AppState {
             codex_ready: self.hub.engine_ready(EngineKind::Codex).is_ok(),
             notice: oxbot_core::hub::ENGINES_NOTICE.to_owned(),
             owner: self.hub.owner_display_name(),
-            openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
+            openrouter_ready: self.hub.openrouter_ready(),
             models,
             openrouter,
         }
@@ -1461,8 +1461,7 @@ async fn handle_openrouter(msg: ClientMsg, state: &AppState) -> Vec<ServerMsg> {
                 return Vec::new();
             };
             let done = account.sign_out().await;
-            // Codex bots reach OpenRouter on the same key.
-            state.hub.stop_engine_sessions(EngineKind::OpenRouter).await;
+            // Codex bots reach OpenRouter on this key.
             state.hub.stop_engine_sessions(EngineKind::Codex).await;
             state.openrouter_changed();
             match done {
@@ -2676,7 +2675,7 @@ mod tests {
         engines_state_with(dir, None)
     }
 
-    /// [`engines_state`] with the loop engine on `openrouter`.
+    /// [`engines_state`] with the bots' model requests on `openrouter`.
     fn engines_state_with(
         dir: &std::path::Path,
         openrouter: Option<oxbot_core::LoopParts>,
@@ -2684,7 +2683,7 @@ mod tests {
         use oxbot_core::{Bot, BotId};
         let store = oxbot_core::Store::open(&dir.join("oxbot.db")).unwrap();
         let (sam, _) = store.find_or_create_person("Sam").unwrap();
-        let mut notes = Bot::create_owned(
+        let notes = Bot::create_owned(
             dir,
             BotId::new("notes").unwrap(),
             "Notes",
@@ -2693,7 +2692,6 @@ mod tests {
             Some("Sam"),
         )
         .unwrap();
-        notes.engine = EngineKind::OpenRouter;
         notes.save().unwrap();
         let bots = vec![
             Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
@@ -2746,11 +2744,7 @@ mod tests {
         // The engine is listed for everyone.
         assert!(
             bots.iter()
-                .any(|b| b.id == "notes" && b.engine == oxbot_protocol::EngineKind::OpenRouter)
-        );
-        assert!(
-            bots.iter()
-                .any(|b| b.id == "recipes" && b.engine == oxbot_protocol::EngineKind::Codex)
+                .all(|b| b.engine == oxbot_protocol::EngineKind::Codex)
         );
 
         let settings = state.settings_for(&sam);
@@ -2770,7 +2764,7 @@ mod tests {
             state.hub.visible_ids(&sam),
             herder_for(&state, &sam),
         );
-        // No OpenRouter here: neither engine can run, and nothing changes.
+        // No OpenRouter here: bots can't run, and nothing changes.
         let to_codex = ClientMsg::SetEngine {
             bot: "notes".into(),
             engine: oxbot_protocol::EngineKind::Codex,
@@ -2782,10 +2776,7 @@ mod tests {
             matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("The home's AI account (OpenRouter) isn't connected")),
             "{replies:?}"
         );
-        assert_eq!(
-            state.hub.engine_of_bot("notes"),
-            Some(EngineKind::OpenRouter)
-        );
+        assert_eq!(state.hub.engine_of_bot("notes"), Some(EngineKind::Codex));
         let make = ClientMsg::CreateBot {
             name: "Diary".into(),
             instructions: String::new(),
@@ -2881,14 +2872,14 @@ mod tests {
         });
 
         // The Keychain's dialog is up: the page is served all the same,
-        // and OpenRouter bots say what they wait for.
+        // and bots say what they wait for.
         let own = format!("localhost:{}", state.port);
         let (status, _) = get_page(state.port, "/", &own).await;
         assert_eq!(status, 200);
         let settings = state.settings_for(&state.farm_viewer());
         assert!(settings.keychain_waiting && !settings.openrouter_ready);
         assert_eq!(
-            state.hub.engine_ready(EngineKind::OpenRouter),
+            state.hub.engine_ready(EngineKind::Codex),
             Err(oxbot_llm::KEYCHAIN_WAITING.to_owned())
         );
         assert!(!loading.is_finished());
@@ -2898,7 +2889,7 @@ mod tests {
         loading.await.unwrap();
         let settings = state.settings_for(&state.farm_viewer());
         assert!(!settings.keychain_waiting && settings.openrouter_ready);
-        assert!(state.hub.engine_ready(EngineKind::OpenRouter).is_ok());
+        assert!(state.hub.openrouter_ready());
     }
 
     /// A raw GET to the server: (status, body).

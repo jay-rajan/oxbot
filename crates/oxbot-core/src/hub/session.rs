@@ -75,11 +75,8 @@ impl Hub {
             browser: shared.is_some(),
         };
         let mut prompt = system_prompt(bot, caps);
-        // Codex runs oxbot's tools too: oxbot's rules, not Codex's own.
-        prompt.push_str(&match kind {
-            EngineKind::OpenRouter => crate::prompt::loop_rules(caps),
-            EngineKind::Codex => crate::prompt::codex_rules(caps),
-        });
+        // Codex runs oxbot's tools: oxbot's rules, not Codex's own.
+        prompt.push_str(&crate::prompt::codex_rules(caps));
         let resume = self.resume_for(bot, kind, &prompt, overrides.ephemeral)?;
         // A resumed session still remembers what it read and opened.
         let (taint, visited) = match &resume {
@@ -142,11 +139,7 @@ impl Hub {
                 + Duration::from_mins(1),
         };
 
-        let Started {
-            session,
-            events,
-            resumed_turn,
-        } = engine.start(spec).await?;
+        let Started { session, events } = engine.start(spec).await?;
         if !overrides.ephemeral {
             self.store.save_session(
                 &bot.id,
@@ -161,7 +154,6 @@ impl Hub {
         let mut runtime = new_runtime(session, browser, &resume, taint, visited);
         runtime.engine = kind;
         runtime.gate_mode = gate_mode;
-        runtime.resumed = resumed_turn;
         Ok(runtime)
     }
 
@@ -263,7 +255,6 @@ impl Hub {
         self.deny_open_approvals(&bot);
         self.cancel_sign_ins(&bot);
         let removed = self.runtimes.lock().await.remove(&bot);
-        let engine = removed.as_ref().map_or(EngineKind::Codex, |r| r.engine);
         let was_busy = removed.is_some_and(|mut r| {
             Self::release_browser(&bot, &mut r);
             r.busy
@@ -274,11 +265,7 @@ impl Hub {
             let _ = self.store.set_session(&bot, None);
         }
         if was_busy {
-            let message = match engine {
-                EngineKind::OpenRouter => "The bot's session stopped unexpectedly.",
-                EngineKind::Codex => "The bot's AI helper stopped unexpectedly.",
-            };
-            let _ = self.turn_failed(&bot, message);
+            let _ = self.turn_failed(&bot, "The bot's AI helper stopped unexpectedly.");
         }
     }
 
@@ -441,7 +428,7 @@ impl Hub {
     }
 }
 
-/// The model a bot's settings name (both engines use the same models).
+/// The model a bot's settings name.
 fn model_of(bot: &Bot) -> ModelChoice {
     match bot.loop_settings.model.as_deref() {
         None | Some("" | "auto") => ModelChoice::Auto,
@@ -475,7 +462,6 @@ fn new_runtime(
         taint: None,
         question: None,
         visited,
-        resumed: None,
         meter: super::looped::TurnMeter::default(),
     };
     match (resume, taint) {

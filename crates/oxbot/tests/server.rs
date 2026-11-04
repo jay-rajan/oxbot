@@ -8,10 +8,25 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use oxbot::server::{self, AppControls, AppState};
-use oxbot_core::testing::{self, FakeBots, On, Tool};
+use oxbot_core::testing::{self, FakeBots, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, Store};
 use oxbot_protocol::{ClientMsg, EventKind, ServerHello, ServerMsg};
 use tokio_tungstenite::tungstenite::Message;
+
+/// The `codex` program bots run on, if this Mac has Codex 0.148 (found
+/// once). Without it bots can't take turns: a test that needs one says
+/// why and returns.
+async fn codex() -> Option<&'static std::path::Path> {
+    static CODEX: tokio::sync::OnceCell<Option<std::path::PathBuf>> =
+        tokio::sync::OnceCell::const_new();
+    CODEX
+        .get_or_init(|| async {
+            let probe = std::env::temp_dir().join(format!("oxbot-tests-{}", std::process::id()));
+            testing::codex(&probe).await
+        })
+        .await
+        .as_deref()
+}
 
 type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -43,10 +58,11 @@ async fn start_with_store(
     let fake = Arc::new(FakeBots::new(dir, Tool::Note));
     let config = HubConfig {
         browser: None,
-        ..testing::config(dir, &dir.join(".home"), &fake, &On::Loop)
+        ..testing::config(dir, &dir.join(".home"), &fake, codex().await)
     };
     let hub = Hub::new(vec![bot], store, config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let state = AppState {
         data_dir: dir.to_owned(),
@@ -124,6 +140,9 @@ async fn turn(ws: &mut Ws) -> Vec<EventKind> {
 
 #[tokio::test]
 async fn chat_over_websocket_and_catch_up_later() {
+    if codex().await.is_none() {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let url = start(tmp.path()).await;
 
@@ -190,6 +209,9 @@ async fn chat_over_websocket_and_catch_up_later() {
 #[tokio::test]
 async fn opening_a_long_chat_sends_one_page_and_pages_back() {
     const SEEDED: u64 = 5_000;
+    if codex().await.is_none() {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::open_in_memory().unwrap();
     let id = BotId::new("assistant").unwrap();
@@ -451,6 +473,9 @@ async fn the_app_switches_launch_at_login() {
 #[tokio::test]
 async fn catching_up_after_a_long_time_away_gets_the_latest_page() {
     const SEEDED: u64 = 1_234;
+    if codex().await.is_none() {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::open_in_memory().unwrap();
     let id = BotId::new("assistant").unwrap();
@@ -569,10 +594,11 @@ async fn start_alerting(
     });
     let config = HubConfig {
         browser: None,
-        ..testing::config(dir, &dir.join(".home"), &fake, &On::Loop)
+        ..testing::config(dir, &dir.join(".home"), &fake, codex().await)
     };
     let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     hub.set_engine_prefs(oxbot_protocol::EnginePrefs {
         bot_daily_requests: 5,
         ..oxbot_protocol::EnginePrefs::default()
@@ -645,6 +671,9 @@ async fn subscribe(ws: &mut Ws) {
 
 #[tokio::test]
 async fn usage_alerts_reach_everyone_with_one_notification_each() {
+    if codex().await.is_none() {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let notifier = Arc::new(CountingNotifier::default());
     let (farm, gate) = start_alerting(tmp.path(), Arc::clone(&notifier)).await;
@@ -697,6 +726,9 @@ async fn usage_alerts_reach_everyone_with_one_notification_each() {
 
 #[tokio::test]
 async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
+    if codex().await.is_none() {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let notifier = Arc::new(CountingNotifier::default());
     let (farm, gate) = start_alerting(tmp.path(), Arc::clone(&notifier)).await;

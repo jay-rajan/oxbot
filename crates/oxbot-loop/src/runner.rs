@@ -1,7 +1,7 @@
 //! Model requests: [`Caller`] picks the model, checks the host's limits,
-//! waits for the pacer, streams, meters and sorts out errors, for a turn's
-//! steps ([`crate::turn`]) and for helper requests (compaction, page
-//! questions, one-off requests) with the same privacy and routing.
+//! waits for the pacer, streams, meters and sorts out errors, for the
+//! relay's requests ([`crate::gateway`]) and for helper requests (page
+//! questions) with the same privacy and routing.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,11 +15,21 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::compact::ModelCaller;
 use crate::meter::{GuardQuery, now_ms, outcome_of, utc_day};
 use crate::pacer::{Lane, PacerStop};
 use crate::router::{Pick, Route, TurnRouting};
-use crate::{DATA_POLICY_HELP, OneShot, Shared};
+use crate::{DATA_POLICY_HELP, Shared};
+
+/// Makes model requests on a session's behalf (a page question).
+pub trait ModelCaller: Send + Sync {
+    /// Sends `messages` (no tools) and returns the answer's text.
+    fn call(
+        &self,
+        kind: CallKind,
+        messages: Vec<Message>,
+        max_tokens: u32,
+    ) -> futures_util::future::BoxFuture<'_, Result<String, LlmError>>;
+}
 
 /// Waits before retrying the same model after a network or server error.
 const RETRY_WAITS: [Duration; 3] = [
@@ -31,10 +41,9 @@ const RETRY_WAITS: [Duration; 3] = [
 const MAX_COOL_WAIT: Duration = Duration::from_secs(90);
 
 const ZDR_DROPPED: &str = "No zero-retention provider was free; used one that doesn't keep data";
-pub(crate) const RESTARTED_MID_CALL: &str = "oxbot restarted while this was running, so it may or may not \
-    have happened. Look at the page before trying again.";
-pub(crate) const SKIPPED: &str =
-    "[skipped] An earlier call in this step was refused, so this one didn't run.";
+
+/// The engine helper requests are metered for: Codex, the only one.
+const ENGINE: &str = "codex";
 
 /// A request on its way: its provider rules and when it went out.
 #[derive(Debug, Clone)]
@@ -538,7 +547,7 @@ impl Caller<'_> {
     }
 }
 
-/// A [`ModelCaller`] for helpers inside a turn (compaction): its own
+/// A [`ModelCaller`] for helpers inside a turn (page questions): its own
 /// routing, the turn's bot, person, privacy and stop.
 pub(crate) struct HelperCaller<'a> {
     pub shared: &'a Shared,
@@ -574,7 +583,7 @@ impl ModelCaller for HelperCaller<'_> {
                 privacy: self.privacy,
                 lane: self.lane,
                 kind,
-                engine: "openrouter",
+                engine: ENGINE,
                 events: None,
                 meter: self.meter,
                 cancel: self.cancel,
@@ -653,37 +662,4 @@ async fn plain_call(
             },
         }
     }
-}
-
-/// [`crate::LoopEngine::one_shot`].
-pub(crate) async fn one_shot(shared: &Shared, req: OneShot) -> Result<String, String> {
-    let cancel = CancellationToken::new();
-    let mut caller = Caller {
-        shared,
-        model: helper_model(shared, req.kind),
-        bot: &req.bot,
-        person: req.person.as_deref(),
-        session: None,
-        turn: None,
-        step: 0,
-        privacy: req.privacy,
-        lane: Lane::Live,
-        kind: req.kind,
-        engine: "openrouter",
-        events: None,
-        meter: None,
-        cancel: &cancel,
-        routing: TurnRouting {
-            choice: req.model.clone(),
-            ..TurnRouting::default()
-        },
-        zdr_dropped: false,
-        same_retries: 0,
-        cooled_for: Duration::ZERO,
-        last_error: None,
-        data_policy: false,
-    };
-    plain_call(&mut caller, req.messages, req.max_tokens)
-        .await
-        .map_err(|e| e.message)
 }

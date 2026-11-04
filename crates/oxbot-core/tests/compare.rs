@@ -1,6 +1,6 @@
-//! Comparing engines and models (#21): a finished turn becomes a test case,
-//! and replays of it on oxbot's own loop and on Codex (the real `codex`
-//! program, when this Mac has it) record their steps instead of doing
+//! Comparing models (#21): a finished turn becomes a test case, and
+//! replays of it on Codex (the real `codex` program; skipped, saying why,
+//! on a Mac without Codex 0.148) record their steps instead of doing
 //! them, raise no card, leave the chat alone, and show up on the
 //! scoreboard. Everything is the owner's only. The bots are stand-ins
 //! (`oxbot_core::testing`) that read the page and click Post.
@@ -10,28 +10,21 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use oxbot_core::engine::EngineKind;
-use oxbot_core::testing::{self, FakeBots, On, Tool};
+use oxbot_core::testing::{self, FakeBots, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, Store, Viewer};
 use oxbot_protocol::{
     Answer, EngineKind as Wire, EventKind, RunVerdict, ServerMsg, Target, TrialNetwork,
 };
 
-/// A hub with bot `jobs` on the loop; practice runs may also run on Codex
-/// when `codex` is given.
-async fn hub(dir: &Path, codex: Option<&Path>) -> Arc<Hub> {
+/// A hub on Codex (`codex`) with bot `jobs`.
+async fn hub(dir: &Path, codex: &Path) -> Arc<Hub> {
     let bots = dir.join("bots");
     std::fs::create_dir_all(&bots).unwrap();
-    let mut bot = Bot::create(&bots, BotId::new("jobs").unwrap(), "Jobs", "Post jobs.").unwrap();
-    bot.engine = EngineKind::OpenRouter;
-    bot.save().unwrap();
+    let bot = Bot::create(&bots, BotId::new("jobs").unwrap(), "Jobs", "Post jobs.").unwrap();
     let fake = Arc::new(FakeBots::new(&bots, Tool::Post));
-    let on = codex.map_or(On::Loop, |p| On::Codex(p.to_owned()));
     let config = HubConfig {
         trials_without_guard: true,
-        // The live bot on its own engine (the loop).
-        engines_on: None,
-        ..testing::config(&bots, &dir.join("home"), &fake, &on)
+        ..testing::config(&bots, &dir.join("home"), &fake, Some(codex))
     };
     let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
@@ -99,13 +92,12 @@ fn target(engine: Wire) -> Target {
 
 #[tokio::test]
 #[allow(clippy::too_many_lines, reason = "one story, start to scoreboard")]
-async fn a_replay_on_both_engines_records_the_post_and_changes_nothing() {
+async fn a_replay_records_the_post_and_changes_nothing() {
     let tmp = tempfile::tempdir().unwrap();
-    let codex = testing::codex_program(&tmp.path().join("probe")).await;
-    if codex.is_none() {
-        eprintln!("replaying on oxbot's loop only: this Mac has no Codex 0.148");
-    }
-    let hub = hub(tmp.path(), codex.as_deref()).await;
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
+    let hub = hub(tmp.path(), &codex).await;
     let owner = hub.farm_viewer("Jay");
     // "Always allow": a replay records the post all the same.
     let done = live_turn(&hub, &owner, Answer::AlwaysAllow).await;
@@ -131,10 +123,7 @@ async fn a_replay_on_both_engines_records_the_post_and_changes_nothing() {
         .unwrap();
 
     let chat_before = hub.history("jobs", 0).unwrap().len();
-    let mut targets = vec![target(Wire::OpenRouter)];
-    if codex.is_some() {
-        targets.insert(0, target(Wire::Codex));
-    }
+    let targets = vec![target(Wire::Codex)];
     let seen = run_batch(&hub, &owner, &case.id, targets.clone()).await;
     assert!(
         !seen
@@ -158,31 +147,22 @@ async fn a_replay_on_both_engines_records_the_post_and_changes_nothing() {
     let runs = hub.runs_for("jobs", Some(&case.id), &owner).unwrap();
     let replays: Vec<_> = runs.iter().filter(|r| r.kind == "replay").collect();
     assert_eq!(replays.len(), targets.len(), "{runs:#?}");
-    for run in &replays {
-        assert_eq!(run.status, "done", "{run:#?}");
-        assert_eq!(run.intents, 1, "{run:#?}");
-        assert_eq!(run.intent_list[0].target, "button \"Post\"");
-        assert!(
-            run.intent_list[0].by_rule,
-            "a rule would have let it run live"
-        );
-        let m = run.intent_match.as_ref().unwrap();
-        assert_eq!(m.matched, ["click button \"Post\" on jobs.example.com"]);
-        assert!(m.missing.is_empty() && m.should_not.is_empty());
-        assert!(run.steps >= 2);
-        assert_eq!(run.provider, "openrouter");
-        // The recorded click reads as done to the bot.
-        assert_eq!(run.answer, "behavior=allow", "{run:#?}");
-        assert!(run.requests >= 3, "{run:#?}");
-    }
-    let on_loop = replays
-        .iter()
-        .find(|r| r.engine == Wire::OpenRouter)
-        .unwrap();
-    assert_eq!(
-        on_loop.requests, 4,
-        "three model requests and the answer check: {on_loop:#?}"
+    let run = replays[0];
+    assert_eq!(run.status, "done", "{run:#?}");
+    assert_eq!(run.intents, 1, "{run:#?}");
+    assert_eq!(run.intent_list[0].target, "button \"Post\"");
+    assert!(
+        run.intent_list[0].by_rule,
+        "a rule would have let it run live"
     );
+    let m = run.intent_match.as_ref().unwrap();
+    assert_eq!(m.matched, ["click button \"Post\" on jobs.example.com"]);
+    assert!(m.missing.is_empty() && m.should_not.is_empty());
+    assert!(run.steps >= 2);
+    assert_eq!(run.provider, "openrouter");
+    // The recorded click reads as done to the bot.
+    assert_eq!(run.answer, "behavior=allow", "{run:#?}");
+    assert!(run.requests >= 3, "{run:#?}");
     // The runs' own folders and keys are gone.
     assert_eq!(
         std::fs::read_dir(tmp.path().join("home/data/trials")).map_or(0, Iterator::count),
@@ -196,26 +176,28 @@ async fn a_replay_on_both_engines_records_the_post_and_changes_nothing() {
             .all(|b| !b.id.starts_with("t--"))
     );
 
-    // The owner marks one; the scoreboard shows each engine, Codex first.
-    hub.set_run_verdict(&on_loop.id, Some(RunVerdict::Pass), &owner)
+    // The owner marks it; the scoreboard has one row for the model, with
+    // the original (on the same model) and the replay.
+    hub.set_run_verdict(&run.id, Some(RunVerdict::Pass), &owner)
         .unwrap();
     let rows = hub.scoreboard_for("jobs", &owner).unwrap();
-    let loop_row = rows.iter().find(|r| r.engine == Wire::OpenRouter).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].engine, Wire::Codex);
     assert_eq!(
-        (loop_row.n, loop_row.pass_rate),
-        (2, Some(1.0)),
-        "the replay and the original, which ran on the loop"
+        rows[0].model,
+        testing::MODEL,
+        "the original's model, from the meter"
     );
-    if codex.is_some() {
-        assert_eq!(rows[0].engine, Wire::Codex, "Codex first: {rows:?}");
-        assert_eq!(rows[0].n, 1);
-    }
+    assert_eq!((rows[0].n, rows[0].pass_rate), (2, Some(1.0)));
 }
 
 #[tokio::test]
 async fn only_the_owner_compares_and_a_replay_repeats_a_no() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = hub(tmp.path(), None).await;
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
+    let hub = hub(tmp.path(), &codex).await;
     let owner = hub.farm_viewer("Jay");
     let sam = Viewer::gate("Sam");
     let done = live_turn(&hub, &sam, Answer::Deny).await;
@@ -225,29 +207,12 @@ async fn only_the_owner_compares_and_a_replay_repeats_a_no() {
     assert!(hub.scoreboard_for("jobs", &sam).is_err());
     assert!(hub.rate_turn("jobs", done, Some(true), &sam).is_err());
 
-    // Someone else's task may run on any engine the owner picks; one that
-    // isn't here is refused, saying why.
     let case = hub
         .mark_test_case("jobs", done, "", "", TrialNetwork::Strict, None, &owner)
         .await
         .unwrap();
-    let estimate = hub
-        .estimate_batch(
-            "jobs",
-            std::slice::from_ref(&case.id),
-            &[target(Wire::Codex)],
-            1,
-            &owner,
-        )
-        .unwrap();
-    assert_eq!(estimate.runs, 0);
-    assert!(
-        estimate.refused[0].contains("The AI helper isn't set up on the home computer"),
-        "{estimate:?}"
-    );
-
     // Sam said no to the post: a replay that posts repeats a "no".
-    let seen = run_batch(&hub, &owner, &case.id, vec![target(Wire::OpenRouter)]).await;
+    let seen = run_batch(&hub, &owner, &case.id, vec![target(Wire::Codex)]).await;
     assert!(
         !seen
             .iter()
@@ -262,7 +227,7 @@ async fn only_the_owner_compares_and_a_replay_repeats_a_no() {
     let m = run.intent_match.unwrap();
     assert_eq!(m.should_not, ["click button \"Post\" on jobs.example.com"]);
 
-    // Thumbs: the owner's, by engine and model.
+    // Thumbs: the owner's, by model.
     hub.rate_turn("jobs", done, Some(false), &owner).unwrap();
     let rows = hub.scoreboard_for("jobs", &owner).unwrap();
     assert!(rows.iter().any(|r| r.thumbs_down == 1), "{rows:?}");

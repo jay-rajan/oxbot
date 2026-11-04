@@ -1,27 +1,26 @@
-//! oxbot's own loop in the database: conversations (`loop_sessions`,
-//! `loop_messages`), turns with their checkpoints (`loop_turns`), and every
-//! model request (`model_calls`), with the sums the limits and the usage
-//! view read.
+//! What Codex bots' tools and requests keep in the database: every model
+//! request (`model_calls`) with the sums the limits and the usage view
+//! read, stored tool results (`loop_results`) and answer checks
+//! (`loop_checks`). The tables are named from oxbot's own loop, which
+//! retired; its conversations and turns (`loop_sessions`, `loop_messages`,
+//! `loop_turns`) are only pruned.
 
 use oxbot_engine::CallRecord;
-use oxbot_llm::Message;
-use oxbot_loop::store::{
-    CalibrationRow, CheckRow, LoopStore, LoopStoreError, ModelStat, PendingCall, ProgressNote,
-    ResultKind, ResultRow, SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus,
-};
-use rusqlite::{OptionalExtension as _, Row, params};
-use serde_json::Value;
+use oxbot_loop::store::{CheckRow, LoopStore, LoopStoreError, ModelStat, ResultKind, ResultRow};
+use rusqlite::{OptionalExtension as _, params};
 
-use super::{Store, StoreError, now_ms};
+#[cfg(test)]
+use super::now_ms;
+use super::{Store, StoreError};
 
 /// How long model requests are kept, in days.
 pub const KEEP_CALLS_DAYS: i64 = 400;
-/// How long the messages of a closed conversation are kept, in days (for
-/// replays).
+/// How long the messages of a closed conversation of oxbot's retired loop
+/// are kept, in days.
 pub const KEEP_CLOSED_DAYS: i64 = 30;
 
-/// How long stored tool results and progress notes are kept after their
-/// session's last turn, in days (their files follow the same rule).
+/// How long stored tool results and answer checks are kept after their
+/// session's last turn, in days (the results' files follow the same rule).
 pub const KEEP_RESULTS_DAYS: i64 = oxbot_loop::results::KEEP_DAYS;
 
 const DAY_MS: i64 = 86_400_000;
@@ -66,248 +65,7 @@ fn to_u64(n: i64) -> u64 {
     u64::try_from(n.max(0)).unwrap_or(0)
 }
 
-fn json_or_empty(text: &str) -> Value {
-    serde_json::from_str(text).unwrap_or_else(|_| Value::Object(serde_json::Map::new()))
-}
-
-fn turn_row(r: &Row<'_>) -> rusqlite::Result<TurnRow> {
-    let status: String = r.get("status")?;
-    let pending: Option<String> = r.get("pending")?;
-    let origin: String = r.get("origin")?;
-    Ok(TurnRow {
-        session: r.get("session")?,
-        turn: to_u32(r.get("turn")?),
-        bot: r.get("bot")?,
-        user_seq: to_u64(r.get("user_seq")?),
-        origin: serde_json::from_str(&origin).unwrap_or(Value::Null),
-        question: r.get("question")?,
-        status: TurnStatus::parse(&status).unwrap_or(TurnStatus::Failed),
-        step: to_u32(r.get("step")?),
-        pending: pending.and_then(|p| serde_json::from_str::<PendingCall>(&p).ok()),
-        model: r.get("model")?,
-        resumes: to_u32(r.get("resumes")?),
-        dry_run: r.get("dry_run")?,
-    })
-}
-
 impl LoopStore for Store {
-    fn open_session(
-        &self,
-        bot: &str,
-        id: &str,
-        prompt_hash: &str,
-        resume: bool,
-    ) -> Result<SessionRow, LoopStoreError> {
-        let mut conn = self.conn();
-        let tx = conn.transaction().map_err(err)?;
-        let now = now_ms();
-        tx.execute(
-            "UPDATE loop_sessions SET closed_ms = ?3
-             WHERE bot = ?1 AND id != ?2 AND closed_ms IS NULL",
-            params![bot, id, now],
-        )
-        .map_err(err)?;
-        let saved: Option<(String, String)> = tx
-            .query_row(
-                "SELECT prompt_hash, context FROM loop_sessions WHERE id = ?1 AND bot = ?2",
-                params![id, bot],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(err)?;
-        let row = match saved {
-            Some((hash, context)) if resume => {
-                tx.execute(
-                    "UPDATE loop_sessions SET prompt_hash = ?2, closed_ms = NULL WHERE id = ?1",
-                    params![id, prompt_hash],
-                )
-                .map_err(err)?;
-                SessionRow {
-                    id: id.to_owned(),
-                    context: json_or_empty(&context),
-                    existed: true,
-                    prefix_changed: hash != prompt_hash,
-                }
-            }
-            _ => {
-                // A new conversation (an id reused by mistake starts over).
-                tx.execute("DELETE FROM loop_messages WHERE session = ?1", [id])
-                    .map_err(err)?;
-                tx.execute(
-                    "INSERT OR REPLACE INTO loop_sessions (id, bot, prompt_hash, context, created_ms)
-                     VALUES (?1, ?2, ?3, '{}', ?4)",
-                    params![id, bot, prompt_hash, now],
-                )
-                .map_err(err)?;
-                SessionRow {
-                    id: id.to_owned(),
-                    context: json_or_empty("{}"),
-                    existed: false,
-                    prefix_changed: false,
-                }
-            }
-        };
-        tx.commit().map_err(err)?;
-        Ok(row)
-    }
-
-    fn messages(&self, session: &str) -> Result<Vec<StoredMessage>, LoopStoreError> {
-        let conn = self.conn();
-        let mut stmt = conn
-            .prepare(
-                "SELECT idx, turn, body, tokens, untrusted, handle, meta FROM loop_messages
-                 WHERE session = ?1 ORDER BY idx",
-            )
-            .map_err(err)?;
-        let rows = stmt
-            .query_map([session], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, i64>(3)?,
-                    r.get::<_, bool>(4)?,
-                    r.get::<_, Option<String>>(5)?,
-                    r.get::<_, String>(6)?,
-                ))
-            })
-            .map_err(err)?;
-        let mut out = Vec::new();
-        for row in rows {
-            let (idx, turn, body, tokens, untrusted, handle, meta) = row.map_err(err)?;
-            out.push(StoredMessage {
-                idx: to_u32(idx),
-                turn: to_u32(turn),
-                message: Message::from_stored(&body).map_err(err)?,
-                tokens: to_u32(tokens),
-                untrusted,
-                handle,
-                meta: json_or_empty(&meta),
-            });
-        }
-        Ok(out)
-    }
-
-    fn begin_turn(&self, t: &TurnRow) -> Result<(), LoopStoreError> {
-        let now = now_ms();
-        self.conn()
-            .execute(
-                "INSERT OR REPLACE INTO loop_turns
-                   (session, turn, bot, user_seq, origin, question, status, step, pending, model,
-                    resumes, dry_run, started_ms, updated_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
-                params![
-                    t.session,
-                    t.turn,
-                    t.bot,
-                    to_i64(t.user_seq),
-                    t.origin.to_string(),
-                    t.question,
-                    t.status.as_str(),
-                    t.step,
-                    t.pending
-                        .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()
-                        .map_err(err)?,
-                    t.model,
-                    t.resumes,
-                    t.dry_run,
-                    now,
-                ],
-            )
-            .map_err(err)?;
-        Ok(())
-    }
-
-    fn checkpoint(
-        &self,
-        session: &str,
-        turn: u32,
-        add: &[StoredMessage],
-        state: &TurnState,
-        context: Option<&Value>,
-    ) -> Result<(), LoopStoreError> {
-        let mut conn = self.conn();
-        let tx = conn.transaction().map_err(err)?;
-        for m in add {
-            tx.execute(
-                "INSERT INTO loop_messages
-                   (session, idx, turn, role, body, tokens, untrusted, handle, meta)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    session,
-                    m.idx,
-                    m.turn,
-                    m.message.role.as_str(),
-                    m.message.to_stored().map_err(err)?,
-                    m.tokens,
-                    m.untrusted,
-                    m.handle,
-                    m.meta.to_string(),
-                ],
-            )
-            .map_err(err)?;
-        }
-        tx.execute(
-            "UPDATE loop_turns SET step = ?3, model = ?4, pending = ?5, updated_ms = ?6
-             WHERE session = ?1 AND turn = ?2",
-            params![
-                session,
-                turn,
-                state.step,
-                state.model,
-                state
-                    .pending
-                    .as_ref()
-                    .map(serde_json::to_string)
-                    .transpose()
-                    .map_err(err)?,
-                now_ms(),
-            ],
-        )
-        .map_err(err)?;
-        if let Some(context) = context {
-            tx.execute(
-                "UPDATE loop_sessions SET context = ?2 WHERE id = ?1",
-                params![session, context.to_string()],
-            )
-            .map_err(err)?;
-        }
-        tx.commit().map_err(err)
-    }
-
-    fn end_turn(&self, session: &str, turn: u32, status: TurnStatus) -> Result<(), LoopStoreError> {
-        let now = now_ms();
-        self.conn()
-            .execute(
-                "UPDATE loop_turns SET status = ?3, pending = NULL, updated_ms = ?4, ended_ms = ?4
-                 WHERE session = ?1 AND turn = ?2",
-                params![session, turn, status.as_str(), now],
-            )
-            .map_err(err)?;
-        Ok(())
-    }
-
-    fn turn_resumed(&self, session: &str, turn: u32) -> Result<(), LoopStoreError> {
-        self.conn()
-            .execute(
-                "UPDATE loop_turns SET resumes = resumes + 1 WHERE session = ?1 AND turn = ?2",
-                params![session, turn],
-            )
-            .map_err(err)?;
-        Ok(())
-    }
-
-    fn running_turns(&self) -> Result<Vec<TurnRow>, LoopStoreError> {
-        let conn = self.conn();
-        let mut stmt = conn
-            .prepare("SELECT * FROM loop_turns WHERE status = 'running' ORDER BY started_ms, turn")
-            .map_err(err)?;
-        let rows = stmt.query_map([], turn_row).map_err(err)?;
-        rows.collect::<Result<_, _>>().map_err(err)
-    }
-
     fn record_call(&self, c: &CallRecord) -> Result<(), LoopStoreError> {
         self.conn()
             .execute(
@@ -446,60 +204,6 @@ impl LoopStore for Store {
         Ok(to_u32(n.unwrap_or(0)))
     }
 
-    fn add_progress(&self, session: &str, note: &ProgressNote) -> Result<(), LoopStoreError> {
-        self.conn()
-            .execute(
-                "INSERT INTO loop_progress (session, turn, n, ms, note, tainted_by)
-                 VALUES (?1, ?2,
-                         (SELECT COALESCE(MAX(n), 0) + 1 FROM loop_progress
-                          WHERE session = ?1 AND turn = ?2),
-                         ?3, ?4, ?5)",
-                params![session, note.turn, note.ms, note.note, note.tainted_by],
-            )
-            .map_err(err)?;
-        Ok(())
-    }
-
-    fn progress(&self, session: &str, n: usize) -> Result<Vec<ProgressNote>, LoopStoreError> {
-        let conn = self.conn();
-        let mut stmt = conn
-            .prepare(
-                "SELECT turn, ms, note, tainted_by FROM (
-                    SELECT * FROM loop_progress WHERE session = ?1
-                    ORDER BY turn DESC, n DESC LIMIT ?2)
-                 ORDER BY turn, n",
-            )
-            .map_err(err)?;
-        let rows = stmt
-            .query_map(params![session, to_i64(n)], |r| {
-                Ok(ProgressNote {
-                    turn: to_u32(r.get(0)?),
-                    ms: r.get(1)?,
-                    note: r.get(2)?,
-                    tainted_by: r.get(3)?,
-                })
-            })
-            .map_err(err)?;
-        rows.collect::<Result<_, _>>().map_err(err)
-    }
-
-    fn calibrations(&self) -> Result<Vec<CalibrationRow>, LoopStoreError> {
-        let conn = self.conn();
-        let mut stmt = conn
-            .prepare("SELECT model, ratio, samples FROM token_calibration ORDER BY model")
-            .map_err(err)?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok(CalibrationRow {
-                    model: r.get(0)?,
-                    ratio: r.get(1)?,
-                    samples: to_u32(r.get(2)?),
-                })
-            })
-            .map_err(err)?;
-        rows.collect::<Result<_, _>>().map_err(err)
-    }
-
     fn record_check(&self, row: &CheckRow) -> Result<(), LoopStoreError> {
         let list = |v: &[String]| serde_json::to_string(v).unwrap_or_else(|_| "[]".to_owned());
         self.conn()
@@ -515,17 +219,6 @@ impl LoopStore for Store {
                     list(&row.ungrounded_after),
                     row.ms,
                 ],
-            )
-            .map_err(err)?;
-        Ok(())
-    }
-
-    fn save_calibration(&self, row: &CalibrationRow) -> Result<(), LoopStoreError> {
-        self.conn()
-            .execute(
-                "INSERT OR REPLACE INTO token_calibration (model, ratio, samples, updated_ms)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![row.model, row.ratio, row.samples, now_ms()],
             )
             .map_err(err)?;
         Ok(())
@@ -629,13 +322,14 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// When a turn of loop session `session` last moved, if it has any.
+    /// When `session` (a bot's Codex session) last had a turn, if it has
+    /// any.
     ///
     /// # Errors
     /// Fails if SQLite fails.
-    pub fn loop_session_last_ms(&self, session: &str) -> Result<Option<i64>, StoreError> {
+    pub fn session_last_ms(&self, session: &str) -> Result<Option<i64>, StoreError> {
         Ok(self.conn().query_row(
-            "SELECT MAX(updated_ms) FROM loop_turns WHERE session = ?1",
+            "SELECT MAX(updated_ms) FROM codex_threads WHERE session = ?1",
             [session],
             |r| r.get(0),
         )?)
@@ -668,25 +362,11 @@ impl Store {
         Ok(n)
     }
 
-    /// The loop turn started by `bot`'s message `user_seq`, if any.
-    ///
-    /// # Errors
-    /// Fails if SQLite fails.
-    pub fn loop_turn_for(&self, bot: &str, user_seq: u64) -> Result<Option<TurnRow>, StoreError> {
-        Ok(self
-            .conn()
-            .query_row(
-                "SELECT * FROM loop_turns WHERE bot = ?1 AND user_seq = ?2
-                 ORDER BY started_ms DESC LIMIT 1",
-                params![bot, to_i64(user_seq)],
-                turn_row,
-            )
-            .optional()?)
-    }
-
-    /// Deletes model requests older than [`KEEP_CALLS_DAYS`] and the
-    /// messages (and answer checks) of conversations closed more than [`KEEP_CLOSED_DAYS`]
-    /// ago. Returns how many rows went.
+    /// Deletes model requests older than [`KEEP_CALLS_DAYS`], the messages
+    /// of the retired loop's conversations closed more than
+    /// [`KEEP_CLOSED_DAYS`] ago, and stored results and answer checks of
+    /// sessions with no turn for [`KEEP_RESULTS_DAYS`] (a bot's current
+    /// session keeps its own). Returns how many rows went.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -697,27 +377,23 @@ impl Store {
             "DELETE FROM model_calls WHERE ts_ms < ?1",
             [now_ms - KEEP_CALLS_DAYS * DAY_MS],
         )?;
-        let mut messages = 0;
-        for table in ["loop_messages", "loop_checks"] {
-            messages += tx.execute(
-                &format!(
-                    "DELETE FROM {table} WHERE session IN (
-                        SELECT id FROM loop_sessions WHERE closed_ms IS NOT NULL AND closed_ms < ?1)"
-                ),
-                [now_ms - KEEP_CLOSED_DAYS * DAY_MS],
-            )?;
-        }
-        // Stored results and notes go with their files: once no turn of
-        // their session has moved for the retention time. A bot's open
+        let messages = tx.execute(
+            "DELETE FROM loop_messages WHERE session IN (
+                SELECT id FROM loop_sessions WHERE closed_ms IS NOT NULL AND closed_ms < ?1)",
+            [now_ms - KEEP_CLOSED_DAYS * DAY_MS],
+        )?;
+        // Stored results and checks go with their files: once no turn of
+        // their session has moved for the retention time. A bot's current
         // session keeps them (the sweep keeps its files too).
         let mut context = 0;
-        for table in ["loop_results", "loop_progress"] {
+        for table in ["loop_results", "loop_checks"] {
             context += tx.execute(
                 &format!(
                     "DELETE FROM {table}
                      WHERE session NOT IN (
-                           SELECT session FROM loop_turns GROUP BY session HAVING MAX(updated_ms) >= ?1)
-                       AND session NOT IN (SELECT id FROM loop_sessions WHERE closed_ms IS NULL)"
+                           SELECT session FROM codex_threads GROUP BY session
+                           HAVING MAX(updated_ms) >= ?1)
+                       AND session NOT IN (SELECT claude_session FROM sessions)"
                 ),
                 [now_ms - KEEP_RESULTS_DAYS * DAY_MS],
             )?;
@@ -731,99 +407,10 @@ impl Store {
 mod tests {
     use super::*;
     use oxbot_engine::CallKind;
-    use serde_json::json;
-
-    fn turn(session: &str, n: u32) -> TurnRow {
-        TurnRow {
-            session: session.into(),
-            turn: n,
-            bot: "scout".into(),
-            user_seq: 3,
-            origin: json!({"person": "p1", "on_farm": true}),
-            question: "search jobs".into(),
-            status: TurnStatus::Running,
-            step: 0,
-            pending: None,
-            model: None,
-            resumes: 0,
-            dry_run: false,
-        }
-    }
-
-    fn stored(idx: u32, message: Message) -> StoredMessage {
-        StoredMessage {
-            idx,
-            turn: 0,
-            message,
-            tokens: 5,
-            untrusted: idx == 1,
-            handle: None,
-            meta: json!({}),
-        }
-    }
 
     #[test]
-    fn sessions_turns_and_checkpoints() {
-        let store = Store::open_in_memory().unwrap();
-        let s = store.open_session("scout", "s1", "h1", false).unwrap();
-        assert!(!s.existed);
-        store.begin_turn(&turn("s1", 0)).unwrap();
-        let pending = PendingCall {
-            id: "c1".into(),
-            name: "mcp__chrome-devtools__click".into(),
-            args: "{}".into(),
-            side_effect: true,
-        };
-        store
-            .checkpoint(
-                "s1",
-                0,
-                &[
-                    stored(0, Message::user("hi")),
-                    stored(1, Message::tool("c0", vec![])),
-                ],
-                &TurnState {
-                    step: 1,
-                    model: Some("a:free".into()),
-                    pending: Some(pending.clone()),
-                },
-                Some(&json!({"from_idx": 1})),
-            )
-            .unwrap();
-        let running = store.running_turns().unwrap();
-        assert_eq!(running.len(), 1);
-        assert_eq!(running[0].pending, Some(pending));
-        assert_eq!(running[0].step, 1);
-        assert_eq!(running[0].origin["person"], "p1");
-        let msgs = store.messages("s1").unwrap();
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0].message, Message::user("hi"));
-        assert!(msgs[1].untrusted);
-        // Resumed with another prefix: noted, context kept.
-        let s = store.open_session("scout", "s1", "h2", true).unwrap();
-        assert!(s.existed && s.prefix_changed);
-        assert_eq!(s.context["from_idx"], 1);
-        store.turn_resumed("s1", 0).unwrap();
-        store.end_turn("s1", 0, TurnStatus::Done).unwrap();
-        assert_eq!(store.running_turns().unwrap(), Vec::new());
-        let t = store.loop_turn_for("scout", 3).unwrap().unwrap();
-        assert_eq!(
-            (t.status, t.resumes, t.pending),
-            (TurnStatus::Done, 1, None)
-        );
-        // A new session closes the old one; closed ones are pruned later.
-        store.open_session("scout", "s2", "h2", false).unwrap();
-        assert_eq!(store.prune_loop(now_ms()).unwrap(), 0);
-        assert_eq!(
-            store
-                .prune_loop(now_ms() + (KEEP_CLOSED_DAYS + 1) * DAY_MS)
-                .unwrap(),
-            2
-        );
-    }
-
-    #[test]
-    fn stored_results_go_with_their_session_but_not_the_open_one() {
+    fn stored_results_go_with_their_session_but_not_the_current_one() {
+        use oxbot_codex::{CodexStore as _, ThreadRow};
         let store = Store::open_in_memory().unwrap();
         let row = |session: &str| ResultRow {
             session: session.into(),
@@ -840,38 +427,52 @@ mod tests {
             tainted_by: None,
             created_ms: 1,
         };
-        store.open_session("scout", "old", "h", false).unwrap();
-        store.begin_turn(&turn("old", 0)).unwrap();
-        store.save_result(&row("old")).unwrap();
-        // A newer session closes the old one; it stays open itself.
-        store.open_session("scout", "open", "h", false).unwrap();
-        store.begin_turn(&turn("open", 0)).unwrap();
-        store.save_result(&row("open")).unwrap();
-        let later = now_ms() + (KEEP_RESULTS_DAYS + 1) * DAY_MS;
+        let thread = |session: &str| ThreadRow {
+            bot: "scout".into(),
+            session: session.into(),
+            thread_id: format!("t-{session}"),
+            model: "a:free".into(),
+            window: 64_000,
+            turns: 1,
+            created_ms: now_ms(),
+            updated_ms: now_ms(),
+        };
+        for session in ["old", "current"] {
+            store.save_thread(&thread(session)).unwrap();
+            store.save_result(&row(session)).unwrap();
+            store
+                .record_check(&CheckRow {
+                    session: session.into(),
+                    turn: 0,
+                    bounced: false,
+                    ungrounded_before: Vec::new(),
+                    ungrounded_after: Vec::new(),
+                    ms: 0,
+                })
+                .unwrap();
+        }
+        store
+            .set_session(
+                &crate::BotId::new("scout").unwrap(),
+                Some(&super::super::SavedSession {
+                    id: "current".into(),
+                    prompt: "h".into(),
+                }),
+            )
+            .unwrap();
+        let checks = |s: &Store| -> i64 {
+            s.conn()
+                .query_row("SELECT COUNT(*) FROM loop_checks", [], |r| r.get(0))
+                .unwrap()
+        };
         assert_eq!(store.prune_loop(now_ms()).unwrap(), 0);
+        assert!(store.session_last_ms("old").unwrap().is_some());
+        let later = now_ms() + (KEEP_RESULTS_DAYS + 1) * DAY_MS;
         store.prune_loop(later).unwrap();
         assert_eq!(store.result("old", "r1").unwrap(), None);
-        assert!(store.result("open", "r1").unwrap().is_some());
-    }
-
-    #[test]
-    fn a_failed_checkpoint_saves_nothing() {
-        let store = Store::open_in_memory().unwrap();
-        store.open_session("scout", "s1", "h", false).unwrap();
-        store.begin_turn(&turn("s1", 0)).unwrap();
-        let state = TurnState {
-            step: 1,
-            model: None,
-            pending: None,
-        };
-        let m = stored(0, Message::user("hi"));
-        store
-            .checkpoint("s1", 0, std::slice::from_ref(&m), &state, None)
-            .unwrap();
-        // The same message number again fails, and the step isn't saved.
-        let later = TurnState { step: 2, ..state };
-        assert!(store.checkpoint("s1", 0, &[m], &later, None).is_err());
-        assert_eq!(store.running_turns().unwrap()[0].step, 1);
+        assert!(store.result("current", "r1").unwrap().is_some());
+        assert_eq!(checks(&store), 1, "the current session's check stays");
+        assert_eq!(store.session_last_ms("never").unwrap(), None);
     }
 
     fn call(bot: &str, person: Option<&str>, model: &str, outcome: &str, cost: f64) -> CallRecord {

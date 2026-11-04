@@ -98,8 +98,8 @@ impl Hub {
             .get(&bot)
             .map_or(GateMode::Live, |r| r.gate_mode);
         // In a practice run oxbot's own tools run (the hub answers them
-        // with what it records), so both engines get a normal result.
-        // File tools inside the bot's own folder run, on every engine. A
+        // with what it records), so the bot gets a normal result.
+        // File tools inside the bot's own folder run. A
         // practice run's folder is its own copy,
         // deleted when it ends, so its files are written as live.
         let inside = self

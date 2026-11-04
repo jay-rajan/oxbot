@@ -1,11 +1,9 @@
-//! Engines per bot, and whether a task chain may reach a bot.
+//! The engine every bot runs on, bots moving to it from engines oxbot no
+//! longer has, and whether a task chain may reach a bot.
 //!
-//! Which engine, all here: every Herder (the Farm's and each person's own)
-//! runs on Codex; any other bot runs on what its `bot.toml` says (Codex
-//! for new bots and for bots that ran on Claude before it left oxbot).
-//!
-//! Both engines run on the household's `OpenRouter` account, so anyone in
-//! the household may give a bot they can open tasks. A task chain's
+//! Every bot runs on Codex: oxbot's own loop retired, and Claude left
+//! before it. Codex runs on the household's `OpenRouter` account, so
+//! anyone in the household may give a bot they can open tasks. A task chain's
 //! [`ChainOrigin`] (who started it, carried unchanged when a Herder passes
 //! the task on) still decides the rest: whose cards a turn raises, and
 //! [`may_task`] stops a chain passed on too many times.
@@ -119,28 +117,24 @@ impl ChainOrigin {
 }
 
 impl Hub {
-    /// The engine that runs `bot`: Codex for every Herder (each keeps its
-    /// own tools and card rules), else what its file says.
+    /// The engine that runs `bot`: Codex, the only one. (The one place the
+    /// hub decides it, so a later engine changes only this.)
+    #[allow(
+        clippy::unused_self,
+        reason = "the hub's one place to decide a bot's engine"
+    )]
     pub(super) fn engine_of(&self, bot: &Bot) -> EngineKind {
-        #[cfg(any(test, feature = "test-people"))]
-        if let Some(kind) = self.config.engines_on {
-            return kind;
-        }
-        if bot.is_central() {
-            return EngineKind::Codex;
-        }
         bot.engine
     }
 
-    /// The engine `kind`, if it can run now. Both need the household's
-    /// `OpenRouter` sign-in first: until then, bots on either say so the
-    /// same way.
+    /// The engine `kind`, if it can run now. It needs the household's
+    /// `OpenRouter` sign-in first, then the AI helper (Codex) found.
     ///
     /// # Errors
     /// [`HubError::EngineNotReady`] with what's missing.
     pub(super) fn engine(&self, kind: EngineKind) -> Result<Arc<dyn Engine>, HubError> {
-        let loop_engine = match &self.loop_engine {
-            Some(engine) if engine.ready().is_ok() => Arc::clone(engine),
+        match &self.loop_engine {
+            Some(engine) if engine.ready().is_ok() => {}
             // The Keychain is asking the person: say so, for everyone.
             Some(engine) if engine.waiting_for_keychain() => {
                 return Err(HubError::EngineNotReady(
@@ -153,9 +147,8 @@ impl Hub {
                     self.owner_name()
                 )));
             }
-        };
+        }
         let engine: Arc<dyn Engine> = match kind {
-            EngineKind::OpenRouter => loop_engine,
             EngineKind::Codex => match self.codex_engine() {
                 Some(engine) => engine,
                 None => {
@@ -190,9 +183,9 @@ impl Hub {
         self.engine(self.engine_of(&bot)).map(drop)
     }
 
-    /// Switches bot `id` to `engine` (with `model`, if given) for `viewer`.
-    /// Its running session stops; the next message starts one on the new
-    /// engine.
+    /// Sets bot `id`'s AI model (`model`; empty: Auto) on `engine` (Codex)
+    /// for `viewer`. Its running session stops; the next message starts
+    /// one with the new model.
     ///
     /// # Errors
     /// Fails if `viewer` may not change it, it's a Herder, the engine isn't
@@ -213,11 +206,10 @@ impl Hub {
         }
         self.engine(engine)?;
         let model = model.map(|m| m.trim().to_owned());
-        // No turn may start while it changes engine.
+        // No turn may start while it changes model.
         self.claim(&bot.id).await?;
         let changed = self.update_bot(&bot.id, |b| {
             b.engine = engine;
-            // Both engines use the same OpenRouter models.
             if let Some(model) = model {
                 b.loop_settings.model = (!model.is_empty()).then_some(model);
             }
@@ -245,32 +237,48 @@ impl Hub {
 pub const MOVED_FROM_CLAUDE: &str = "This bot now uses free and paid AI models through your \
      OpenRouter account. Its old Claude sessions can't be continued.";
 
-/// Bots whose files still say Claude (or no engine: made before engines)
-/// run on Codex from now on: each gets [`MOVED_FROM_CLAUDE`] in its chat
-/// once, then its `bot.toml` is rewritten (atomically) to say Codex. Its
-/// chat and history stay; its Claude session is never resumed (no engine
-/// goes on with a `claude` session). A person's own Herder ran on oxbot's
-/// loop, not Claude: its file is just brought up to date. Call before
-/// anything else saves the bots, with nobody listening yet.
+/// The line a bot that ran on oxbot's own loop (retired) gets in its chat,
+/// once, when it moves to Codex.
+pub const MOVED_FROM_LOOP: &str = "This bot now uses free and paid AI models through your \
+     OpenRouter account, in a new way. It starts a new conversation: a task it was in the \
+     middle of can't be continued, so send it again if you still need it.";
+
+/// Bots whose files still name an engine oxbot no longer has run on Codex
+/// from now on: Claude (or no engine: made before engines) and oxbot's own
+/// loop. Each gets its line in its chat once ([`MOVED_FROM_CLAUDE`],
+/// [`MOVED_FROM_LOOP`]; noted with the move in `engine_upgrades`), then
+/// its `bot.toml` is rewritten (atomically) to say Codex. Its chat and
+/// history stay; its old session is never resumed (no engine goes on with
+/// a `claude` or `openrouter` session). A person's own Herder whose file
+/// names no engine ran on the loop, not Claude. Call before anything else
+/// saves the bots, with nobody listening yet.
 pub(super) fn upgrade_from_claude(bots: &mut [Bot], store: &Store) {
-    for bot in bots.iter_mut().filter(|b| b.from_claude) {
-        if !is_personal_herder(bot.id.as_str()) {
-            let note = EventKind::Note {
-                text: MOVED_FROM_CLAUDE.to_owned(),
-            };
-            if let Err(err) = store.note_engine_upgrade(&bot.id, "claude", EngineKind::Codex, note)
-            {
-                // It runs on Codex anyway; its file is upgraded next time.
-                tracing::warn!(bot = %bot.id, %err, "couldn't note a bot's move to Codex");
-                continue;
-            }
+    for bot in bots.iter_mut() {
+        let Some(mut from) = bot.moved_from else {
+            continue;
+        };
+        if from == crate::bot::CLAUDE && is_personal_herder(bot.id.as_str()) {
+            from = crate::bot::LOOP;
         }
-        bot.from_claude = false;
+        let text = if from == crate::bot::CLAUDE {
+            MOVED_FROM_CLAUDE
+        } else {
+            MOVED_FROM_LOOP
+        };
+        let note = EventKind::Note {
+            text: text.to_owned(),
+        };
+        if let Err(err) = store.note_engine_upgrade(&bot.id, from, EngineKind::Codex, note) {
+            // It runs on Codex anyway; its file is upgraded next time.
+            tracing::warn!(bot = %bot.id, %err, "couldn't note a bot's move to Codex");
+            continue;
+        }
+        let was = bot.moved_from.take();
         match bot.save() {
-            Ok(()) => tracing::info!(bot = %bot.id, "moved a bot from Claude to Codex"),
+            Ok(()) => tracing::info!(bot = %bot.id, from, "moved a bot to Codex"),
             Err(err) => {
                 // Tried again at the next start (its line isn't added twice).
-                bot.from_claude = true;
+                bot.moved_from = was;
                 tracing::warn!(bot = %bot.id, %err, "couldn't upgrade a bot's file");
             }
         }
@@ -307,13 +315,10 @@ mod tests {
     use crate::HubConfig;
     use crate::bot::personal_herder_id;
 
-    /// A hub with `recipes` (a bot from before engines: Codex now),
-    /// `scout` on `OpenRouter`, and the Farm's Herder; Jay is the Farm's
-    /// person.
+    /// A hub with `recipes`, `scout` and the Farm's Herder; Jay is the
+    /// Farm's person.
     fn hub(dir: &std::path::Path) -> Arc<Hub> {
-        let mut scout = Bot::create(dir, BotId::new("scout").unwrap(), "Scout", "").unwrap();
-        scout.engine = EngineKind::OpenRouter;
-        scout.save().unwrap();
+        let scout = Bot::create(dir, BotId::new("scout").unwrap(), "Scout", "").unwrap();
         let bots = vec![
             Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
             Bot::create(dir, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
@@ -352,8 +357,8 @@ mod tests {
         for (who, chain) in cases {
             assert!(may_task(&chain).is_ok(), "{who}");
         }
-        // Ann may give both bots tasks (Recipes on Codex, Scout on the loop),
-        // as far as who she is goes; here neither engine is set up.
+        // Ann may give both bots tasks, as far as who she is goes; here
+        // Codex isn't set up.
         let ann = Viewer::person(ann, "Ann", false);
         for bot in ["recipes", "scout"] {
             assert!(
@@ -370,21 +375,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_herder_runs_on_codex_and_other_bots_on_their_own_engine() {
+    async fn every_bot_runs_on_codex() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
         let ann = hub.herder_for("Ann").unwrap();
-        for id in ["assistant", ann.as_str(), "recipes"] {
+        for id in ["assistant", ann.as_str(), "recipes", "scout"] {
             assert_eq!(hub.engine_of_bot(id), Some(EngineKind::Codex), "{id}");
         }
-        assert_eq!(hub.engine_of_bot("scout"), Some(EngineKind::OpenRouter));
         assert_eq!(ann, personal_herder_id("Ann"));
-        // Herders' engines are fixed.
+        // A Herder's AI model is the owner's to set.
         assert!(matches!(
             hub.set_engine(
                 "assistant",
-                EngineKind::OpenRouter,
-                None,
+                EngineKind::Codex,
+                Some("m:free".into()),
                 &hub.farm_viewer("Jay")
             )
             .await,

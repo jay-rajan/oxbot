@@ -1,5 +1,4 @@
-//! One session's tools, as every engine that runs oxbot's tools uses them:
-//! the loop's own turns, and Codex's dynamic tools. There is one way from
+//! One session's tools, as Codex's dynamic tools use them. There is one way from
 //! "the model asked for a tool" to "it ran", here:
 //!
 //! 1. the call is checked: a known tool, arguments it can use;
@@ -12,9 +11,8 @@
 //! One call runs at a time per session, in the order asked (Codex may ask
 //! for several at once): the page a gate verdict was read from is the page
 //! the call acts on, and the browser's tabs stay in step with what was
-//! shown. What only an engine knows (the loop's to-do list and progress
-//! notes, its write-ahead of calls that change something, which results
-//! the model still sees) comes through [`TurnHooks`].
+//! shown. What only the engine knows (its to-do list, which results the
+//! model still sees) comes through [`TurnHooks`].
 //!
 //! Two guards keep a model from going round in circles: a read-only tool
 //! asked the same thing twice in a turn gets a pointer to the first answer

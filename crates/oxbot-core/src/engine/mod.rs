@@ -1,6 +1,6 @@
 //! Engines: what runs a bot. The shared types and traits come from
-//! `oxbot-engine` (re-exported here); the engines themselves are
-//! `oxbot-codex` and `oxbot-loop`.
+//! `oxbot-engine` (re-exported here); the engine is `oxbot-codex`, with
+//! the tools, gate and model requests from `oxbot-loop`.
 
 pub use oxbot_engine::*;
 
@@ -9,7 +9,6 @@ pub use oxbot_engine::*;
 pub fn to_wire(kind: EngineKind) -> oxbot_protocol::EngineKind {
     match kind {
         EngineKind::Codex => oxbot_protocol::EngineKind::Codex,
-        EngineKind::OpenRouter => oxbot_protocol::EngineKind::OpenRouter,
     }
 }
 
@@ -18,7 +17,6 @@ pub fn to_wire(kind: EngineKind) -> oxbot_protocol::EngineKind {
 pub fn from_wire(kind: oxbot_protocol::EngineKind) -> EngineKind {
     match kind {
         oxbot_protocol::EngineKind::Codex => EngineKind::Codex,
-        oxbot_protocol::EngineKind::OpenRouter => EngineKind::OpenRouter,
     }
 }
 

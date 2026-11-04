@@ -1,5 +1,5 @@
-//! A stand-in for the browser tool (`chrome-devtools-mcp` 1.10.1) for bots
-//! on either engine (both run it through the loop's tool service): an MCP
+//! A stand-in for the browser tool (`chrome-devtools-mcp` 1.10.1), which
+//! bots run through oxbot's tool service: an MCP
 //! server over stdio (one JSON-RPC message per line) that offers the
 //! browser tools oxbot lists, with the real tool's schemas, and answers
 //! from the same reply scripts as the stand-in `OpenRouter`.

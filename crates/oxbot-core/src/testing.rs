@@ -1,6 +1,6 @@
-//! Test helpers (feature `test-bots`): hubs whose bots run against a
-//! stand-in model, on oxbot's own loop or on Codex (the real `codex`
-//! program, when this Mac has it), with a scripted browser.
+//! Test helpers (feature `test-bots`): hubs whose bots run on Codex (the
+//! real `codex` program, when this Mac has it: tests skip, saying why,
+//! when it hasn't) against a stand-in model, with a scripted browser.
 //!
 //! [`FakeBots`] acts like a bot that asks before every tool and then says
 //! what oxbot answered, so tests can read the outcome from the reply:
@@ -9,9 +9,9 @@
 //! oxbot's other tools, `ok` with no tool. For each person's message it
 //! reads a file (if [`FakeBots::read_file`]), takes a page snapshot (unless
 //! [`FakeBots::no_page`]), then calls the message's tool (see [`Tool`]).
-//! The same plan answers the loop's chat requests ([`FakeBots::model`])
-//! and Codex's Responses requests through oxbot's relay
-//! ([`FakeBots::upstream`]), so a case runs the same way on both engines.
+//! The plan answers Codex's Responses requests through oxbot's relay
+//! ([`FakeBots::upstream`]), and the chat requests of oxbot's own helpers
+//! (a page question: [`FakeBots::model`]).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -28,7 +28,6 @@ use oxbot_loop::tools::browser::{SameBrowser, ScriptedBrowser};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::engine::EngineKind;
 use crate::{Bot, BotId, CodexParts, HubConfig, LoopParts};
 
 /// The page every fake bot reads: a job form with an upload, a post
@@ -161,6 +160,9 @@ pub struct FakeBots {
     pub page: Option<String>,
     /// The browser tools that ran, in order.
     pub browser_calls: Calls,
+    /// Each person's message as the bots got it, in order (see
+    /// [`FakeBots::told`]).
+    pub messages: Calls,
     /// The plan each (bot, message) got, so every request of a turn
     /// follows the same one (made as they're needed; leave it default).
     pub plans: Plans,
@@ -175,7 +177,7 @@ pub struct Calls(Mutex<Vec<String>>);
 #[derive(Debug, Default)]
 pub struct Plans(Mutex<HashMap<(String, usize), Plan>>);
 
-/// A conversation as either engine sends it: the bot's instructions, then
+/// A conversation as a request carries it: the bot's instructions, then
 /// each message with its role, text and calls.
 #[derive(Debug, Default)]
 struct Conversation {
@@ -199,17 +201,6 @@ struct Answer {
 
 /// How oxbot's own notes in a person's place start.
 const NOTE: &str = "[oxbot]";
-/// How the rules line the loop adds to the end of each request starts.
-const TAIL: &str = "\n\n[oxbot] Answer only from what you read.";
-
-/// `text` without the loop's rules line at its end.
-fn without_tail(text: String) -> String {
-    match text.find(TAIL) {
-        Some(at) => text[..at].to_owned(),
-        None => text,
-    }
-}
-
 impl FakeBots {
     /// A fake for bots in `bots_dir` that takes `tool` for every message.
     #[must_use]
@@ -231,7 +222,24 @@ impl FakeBots {
             .clone()
     }
 
-    /// The loop's model, answering from this fake.
+    /// The last person's message a bot got, as it got it (without the
+    /// date line Codex's first request ends with).
+    #[must_use]
+    pub fn told(&self) -> Option<String> {
+        let text = self
+            .messages
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .last()
+            .cloned()?;
+        Some(match text.rfind("\n\n[oxbot] Today is ") {
+            Some(at) => text[..at].to_owned(),
+            None => text,
+        })
+    }
+
+    /// The helpers' model (a page question), answering from this fake.
     #[must_use]
     pub fn model(self: &Arc<Self>) -> Arc<ScriptedModel> {
         let fake = Arc::clone(self);
@@ -249,7 +257,7 @@ impl FakeBots {
                     .filter(|m| m.role != Role::System)
                     .map(|m| Turn {
                         role: m.role,
-                        text: without_tail(m.text()),
+                        text: m.text(),
                         calls: m.tool_calls.len(),
                     })
                     .collect(),
@@ -393,6 +401,17 @@ impl FakeBots {
                 call: None,
             };
         };
+        {
+            let mut told = self
+                .messages
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let text = &conv.messages[last].text;
+            if told.last() != Some(text) {
+                told.push(text.clone());
+            }
+        }
         // oxbot sent an answer back to be checked: the same answer.
         if conv
             .messages
@@ -508,7 +527,7 @@ impl FakeResponses {
                     };
                     conv.messages.push(Turn {
                         role,
-                        text: without_tail(text(&item["content"])),
+                        text: text(&item["content"]),
                         calls: 0,
                     });
                 }
@@ -519,7 +538,7 @@ impl FakeResponses {
                 }),
                 Some("function_call_output") => conv.messages.push(Turn {
                     role: Role::Tool,
-                    text: without_tail(text(&item["output"])),
+                    text: text(&item["output"]),
                     calls: 0,
                 }),
                 _ => {}
@@ -621,66 +640,62 @@ pub async fn codex_program(scratch: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Which engine a test hub runs its bots on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum On {
-    /// oxbot's own loop.
-    Loop,
-    /// Codex, the program at this path.
-    Codex(PathBuf),
-}
-
-impl On {
-    /// The engine it names.
-    #[must_use]
-    pub fn engine(&self) -> EngineKind {
-        match self {
-            Self::Loop => EngineKind::OpenRouter,
-            Self::Codex(_) => EngineKind::Codex,
-        }
+/// The `codex` program a test runs its bots on, if this Mac has Codex
+/// 0.148 (`OXBOT_CODEX`, else `PATH` and Homebrew's folders). A test
+/// without it skips, saying why:
+///
+/// ```ignore
+/// let Some(codex) = testing::codex(&tmp).await else { return };
+/// ```
+pub async fn codex(scratch: &Path) -> Option<PathBuf> {
+    let found = codex_program(&scratch.join("codex-probe")).await;
+    if found.is_none() {
+        eprintln!("SKIPPED: this Mac has no Codex 0.148, which every bot runs on");
     }
+    found
 }
 
 /// The bots `ids` in `bots_dir`, as they were left (or new, named as
-/// their ids), each running on `on`.
+/// their ids).
 ///
 /// # Panics
 /// If a bot's files can't be written.
 #[must_use]
-pub fn bots(bots_dir: &Path, ids: &[&str], on: &On) -> Vec<Bot> {
+pub fn bots(bots_dir: &Path, ids: &[&str]) -> Vec<Bot> {
     std::fs::create_dir_all(bots_dir).unwrap_or_else(|e| panic!("{e}"));
     ids.iter()
         .map(|id| {
-            let mut bot = Bot::load(&bots_dir.join(id)).unwrap_or_else(|_| {
+            Bot::load(&bots_dir.join(id)).unwrap_or_else(|_| {
                 let id = BotId::new(*id).unwrap_or_else(|e| panic!("{e}"));
                 Bot::create(bots_dir, id.clone(), id.as_str(), "").unwrap_or_else(|e| panic!("{e}"))
-            });
-            if !bot.is_central() {
-                bot.engine = on.engine();
-                bot.save().unwrap_or_else(|e| panic!("{e}"));
-            }
-            bot
+            })
         })
         .collect()
 }
 
 /// Hub settings for bots in `bots_dir` (browser tools under `home`)
-/// running on `fake`, on the loop or on Codex (Herders too): short waits
-/// for cards and sign-ins, and the scripted browser showing [`SNAPSHOT`].
+/// running on Codex (`codex`, the program; `None`: no Codex, so no bot can
+/// take a turn) against `fake`: short waits for cards and sign-ins, and
+/// the scripted browser showing [`SNAPSHOT`].
 #[must_use]
-pub fn config(bots_dir: &Path, home: &Path, fake: &Arc<FakeBots>, on: &On) -> HubConfig {
-    config_with(bots_dir, home, fake.model(), fake, on)
+pub fn config(
+    bots_dir: &Path,
+    home: &Path,
+    fake: &Arc<FakeBots>,
+    codex: Option<&Path>,
+) -> HubConfig {
+    config_with(bots_dir, home, fake.model(), fake, codex)
 }
 
-/// Like [`config`], with the loop's `model` made from `fake` already (to
-/// read what it was asked).
+/// Like [`config`], with the helpers' `model` made from `fake` already
+/// (to read what it was asked).
 #[must_use]
 pub fn config_with(
     bots_dir: &Path,
     home: &Path,
     model: Arc<ScriptedModel>,
     fake: &Arc<FakeBots>,
-    on: &On,
+    codex: Option<&Path>,
 ) -> HubConfig {
     let page = fake.page.clone().unwrap_or_else(|| SNAPSHOT.to_owned());
     let calls = Arc::clone(fake);
@@ -709,15 +724,11 @@ pub fn config_with(
             free_per_minute: 1000,
             ..LoopParts::new(model, None, None)
         }),
-        codex: match on {
-            On::Loop => None,
-            On::Codex(program) => Some(CodexParts {
-                upstream: fake.upstream(),
-                program: Some(program.clone()),
-            }),
-        },
+        codex: codex.map(|program| CodexParts {
+            upstream: fake.upstream(),
+            program: Some(program.to_owned()),
+        }),
         data_dir: home.join("data"),
-        engines_on: Some(on.engine()),
         ..HubConfig::new(bots_dir)
     }
 }

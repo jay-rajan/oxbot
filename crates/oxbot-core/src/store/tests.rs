@@ -1376,11 +1376,14 @@ fn a_session_remembers_its_engine() {
         id: "s1".into(),
         prompt: "p".into(),
     };
+    // A session of oxbot's retired loop: still named so (no engine goes
+    // on with it).
     store
-        .save_session(
-            &bot("scout"),
-            Some(&saved),
-            crate::engine::EngineKind::OpenRouter,
+        .conn()
+        .execute(
+            "INSERT INTO sessions (bot, claude_session, prompt, updated_ms, engine)
+             VALUES ('scout', 's0', 'p', 1, 'openrouter')",
+            [],
         )
         .unwrap();
     assert_eq!(
@@ -1423,7 +1426,6 @@ fn who_started_a_turn_is_kept_until_the_bot_is_deleted() {
 
 #[test]
 fn a_version_16_database_gets_the_loop_tables() {
-    use oxbot_loop::LoopStore as _;
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("oxbot.db");
     Store::open_at_version(&path, 16).unwrap();
@@ -1433,7 +1435,11 @@ fn a_version_16_database_gets_the_loop_tables() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
-    assert_eq!(store.running_turns().unwrap(), Vec::new());
+    let turns: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM loop_turns", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(turns, 0);
     assert_eq!(store.bot_requests("2026-11-02", "scout").unwrap(), 0);
     assert!(!tmp.path().join("oxbot.db.v16.bak").exists());
     // Running it again changes nothing.
@@ -1448,61 +1454,57 @@ fn a_version_16_database_gets_the_loop_tables() {
 
 #[test]
 fn deleting_a_bot_deletes_its_loop_conversations() {
-    use oxbot_loop::LoopStore as _;
-    use oxbot_loop::store::{StoredMessage, TurnRow, TurnState, TurnStatus};
     let store = Store::open_in_memory().unwrap();
+    // From before oxbot's own loop retired.
     for (b, id) in [("scout", "s1"), ("news", "s2")] {
-        store.open_session(b, id, "h", false).unwrap();
         store
-            .begin_turn(&TurnRow {
-                session: id.into(),
-                turn: 0,
-                bot: b.into(),
-                user_seq: 1,
-                origin: serde_json::json!({}),
-                question: "q".into(),
-                status: TurnStatus::Running,
-                step: 0,
-                pending: None,
-                model: None,
-                resumes: 0,
-                dry_run: false,
-            })
-            .unwrap();
-        store
-            .checkpoint(
-                id,
-                0,
-                &[StoredMessage {
-                    idx: 0,
-                    turn: 0,
-                    message: oxbot_llm::Message::user("hi"),
-                    tokens: 1,
-                    untrusted: false,
-                    handle: None,
-                    meta: serde_json::json!({}),
-                }],
-                &TurnState {
-                    step: 0,
-                    model: None,
-                    pending: None,
-                },
-                None,
-            )
+            .conn()
+            .execute_batch(&format!(
+                "INSERT INTO loop_sessions (id, bot, prompt_hash, created_ms) VALUES ('{id}', '{b}', 'h', 1);
+                 INSERT INTO loop_messages (session, idx, turn, role, body) VALUES ('{id}', 0, 0, 'user', '{{}}');
+                 INSERT INTO loop_turns (session, turn, bot, user_seq, origin, question, status, started_ms, updated_ms)
+                 VALUES ('{id}', 0, '{b}', 1, '{{}}', 'q', 'stopped', 1, 1);"
+            ))
             .unwrap();
     }
     store.delete_bot(&bot("scout")).unwrap();
-    assert_eq!(store.messages("s1").unwrap(), Vec::new());
-    assert_eq!(store.messages("s2").unwrap().len(), 1);
-    let running = store.running_turns().unwrap();
-    assert_eq!(running.len(), 1);
-    assert_eq!(running[0].bot, "news");
+    let count = |table: &str, bot_or_session: &str| -> i64 {
+        let column = if table == "loop_messages" {
+            "session"
+        } else {
+            "bot"
+        };
+        store
+            .conn()
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
+                [bot_or_session],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(
+        (
+            count("loop_messages", "s1"),
+            count("loop_turns", "scout"),
+            count("loop_sessions", "scout")
+        ),
+        (0, 0, 0)
+    );
+    assert_eq!(
+        (
+            count("loop_messages", "s2"),
+            count("loop_turns", "news"),
+            count("loop_sessions", "news")
+        ),
+        (1, 1, 1)
+    );
 }
 
 #[test]
 fn a_version_18_database_gets_the_loops_context_tables() {
     use oxbot_loop::LoopStore as _;
-    use oxbot_loop::store::{CalibrationRow, ProgressNote, ResultKind, ResultRow};
+    use oxbot_loop::store::{ResultKind, ResultRow};
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("oxbot.db");
     Store::open_at_version(&path, 18).unwrap();
@@ -1554,34 +1556,6 @@ fn a_version_18_database_gets_the_loops_context_tables() {
         ResultKind::Rows
     );
     assert_eq!(store.last_result_number("s2", 'r').unwrap(), 0);
-    for (turn, note) in [(1, "a"), (1, "b"), (2, "c")] {
-        store
-            .add_progress(
-                "s1",
-                &ProgressNote {
-                    turn,
-                    ms: 1,
-                    note: note.into(),
-                    tainted_by: None,
-                },
-            )
-            .unwrap();
-    }
-    let notes: Vec<String> = store
-        .progress("s1", 2)
-        .unwrap()
-        .into_iter()
-        .map(|n| n.note)
-        .collect();
-    assert_eq!(notes, ["b", "c"]);
-    store
-        .save_calibration(&CalibrationRow {
-            model: "m:free".into(),
-            ratio: 0.8,
-            samples: 3,
-        })
-        .unwrap();
-    assert_eq!(store.calibrations().unwrap()[0].samples, 3);
     // Running it again changes nothing.
     drop(store);
     let conn = Connection::open(&path).unwrap();
@@ -1590,13 +1564,11 @@ fn a_version_18_database_gets_the_loops_context_tables() {
     } else {
         panic!("migration 19 is SQL");
     }
-    // Deleting the bot takes its stored results and notes.
+    // Deleting the bot takes its stored results.
     drop(conn);
     let store = Store::open(&path).unwrap();
-    store.open_session("scout", "s1", "h", false).unwrap();
     store.delete_bot(&bot("scout")).unwrap();
     assert_eq!(store.result("s1", "r7").unwrap(), None);
-    assert_eq!(store.progress("s1", 5).unwrap(), Vec::new());
 }
 
 #[test]
@@ -1617,7 +1589,21 @@ fn a_version_19_database_gets_the_answer_checks() {
         !tmp.path().join("oxbot.db.v19.bak").exists(),
         "a new table needs no copy"
     );
-    store.open_session("scout", "s1", "h", false).unwrap();
+    {
+        use oxbot_codex::CodexStore as _;
+        store
+            .save_thread(&oxbot_codex::ThreadRow {
+                bot: "scout".into(),
+                session: "s1".into(),
+                thread_id: "t1".into(),
+                model: "m:free".into(),
+                window: 64_000,
+                turns: 3,
+                created_ms: 1,
+                updated_ms: 1,
+            })
+            .unwrap();
+    }
     let row = CheckRow {
         session: "s1".into(),
         turn: 3,
@@ -1773,5 +1759,83 @@ fn a_version_21_database_forgets_what_only_claude_used_and_keeps_history() {
             .note_engine_upgrade(&bot("news"), "claude", EngineKind::Codex, note())
             .unwrap()
             .is_some()
+    );
+}
+
+#[test]
+fn a_version_22_database_stops_the_loops_turns_and_keeps_what_codex_uses() {
+    use oxbot_loop::LoopStore as _;
+    use oxbot_loop::store::{ResultKind, ResultRow};
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 22).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO loop_sessions (id, bot, prompt_hash, created_ms) VALUES ('s1', 'scout', 'h', 1);
+             INSERT INTO loop_turns (session, turn, bot, user_seq, origin, question, status, pending, started_ms, updated_ms)
+             VALUES ('s1', 0, 'scout', 3, '{}', 'q', 'running', '{\"id\":\"c1\"}', 1, 1),
+                    ('s1', 1, 'scout', 5, '{}', 'q', 'waiting_user', NULL, 1, 1),
+                    ('s1', 2, 'scout', 7, '{}', 'q', 'done', NULL, 1, 1);
+             INSERT INTO loop_progress (session, turn, n, ms, note) VALUES ('s1', 0, 1, 1, 'half way');
+             INSERT INTO token_calibration (model, ratio, samples, updated_ms) VALUES ('m:free', 0.8, 3, 1);
+             INSERT INTO prefs (key, value) VALUES ('usage_alerts', '1');",
+        )
+        .unwrap();
+    let store = Store::open(&path).unwrap();
+    store
+        .save_result(&ResultRow {
+            session: "s1".into(),
+            handle: "r1".into(),
+            bot: "scout".into(),
+            turn: 0,
+            step: 1,
+            tool: "Read".into(),
+            kind: ResultKind::Text,
+            page_url: None,
+            page_title: None,
+            bytes: 3,
+            est_tokens: 1,
+            tainted_by: None,
+            created_ms: 1,
+        })
+        .unwrap();
+    let statuses: Vec<(String, bool)> = {
+        let conn = store.conn();
+        let mut stmt = conn
+            .prepare("SELECT status, pending IS NULL FROM loop_turns ORDER BY turn")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(
+        statuses,
+        [
+            ("stopped".to_owned(), true),
+            ("stopped".to_owned(), true),
+            ("done".to_owned(), true)
+        ],
+        "no loop turn goes on"
+    );
+    let one = |sql: &str| -> i64 { store.conn().query_row(sql, [], |r| r.get(0)).unwrap() };
+    assert_eq!(
+        one("SELECT COUNT(*) FROM loop_sessions WHERE closed_ms IS NULL"),
+        0
+    );
+    assert_eq!(one("SELECT COUNT(*) FROM loop_progress"), 0);
+    assert_eq!(one("SELECT COUNT(*) FROM token_calibration"), 0);
+    assert!(store.result("s1", "r1").unwrap().is_some());
+    assert_eq!(store.pref("usage_alerts").unwrap().as_deref(), Some("1"));
+    // Running it again changes nothing.
+    if let migrations::Step::Sql(sql) = &MIGRATIONS[22] {
+        store.conn().execute_batch(sql).unwrap();
+    } else {
+        panic!("migration 23 is SQL");
+    }
+    assert_eq!(
+        one("SELECT COUNT(*) FROM loop_turns WHERE status = 'stopped'"),
+        2
     );
 }

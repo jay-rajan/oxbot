@@ -40,9 +40,9 @@ pub struct Config {
     /// The real Mac helper, if built (relative path), for still frames.
     pub mac_helper: Option<PathBuf>,
     /// The stand-in `OpenRouter` (relative path): started for every test,
-    /// so oxbot's own loop never reaches the real one.
+    /// so no bot reaches the real one.
     pub fake_openrouter: Option<PathBuf>,
-    /// The stand-in browser tool for oxbot's own loop (relative path).
+    /// The stand-in browser tool (relative path).
     pub fake_devtools: Option<PathBuf>,
 }
 

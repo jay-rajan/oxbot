@@ -177,8 +177,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         extra_env: path_env,
         mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
-        // oxbot's own loop for bots on OpenRouter (and Codex bots' tools,
-        // routing and meter), with the household's key.
+        // Codex bots' tools, routing and meter (oxbot-loop), with the
+        // household's key.
         openrouter: Some(oxbot_core::LoopParts::openrouter(
             openrouter.client(),
             openrouter.key_cell(),
@@ -245,7 +245,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         openrouter: Some(openrouter),
     };
     state.refresh_setup().await;
-    load_key_then_resume(&state);
+    load_key(&state);
     refresh_models_now_and_then(&state);
     crate::notify::start(&state);
     // The door opens when the Mac is on an allowed network and a Gate is
@@ -271,10 +271,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
 
 /// Reads the kept `OpenRouter` key without holding anything up: a newly
 /// built oxbot makes the Keychain ask the person first, and until they
-/// answer, `OpenRouter` bots and Settings → Engines say so. Then the key's
-/// limits, and the loop turns that were running when oxbot stopped go on
-/// (who may answer their cards needs the Farm's person, known by now).
-fn load_key_then_resume(state: &AppState) {
+/// answer, bots and Settings → AI models say so. Then the key's limits.
+fn load_key(state: &AppState) {
     let state = state.clone();
     tokio::spawn(async move {
         if let Some(account) = state.openrouter.clone() {
@@ -285,7 +283,6 @@ fn load_key_then_resume(state: &AppState) {
                 state.openrouter_changed();
             }
         }
-        state.hub.resume_loop_turns().await;
     });
 }
 

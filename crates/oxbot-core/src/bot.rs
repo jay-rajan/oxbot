@@ -10,9 +10,10 @@
 //!   work/             the bot's working folder: the only place it may touch
 //! ```
 //!
-//! A file from before Claude left oxbot says `engine = "claude"`, or no
-//! engine at all (every bot made before engines): that bot runs on Codex
-//! now, and [`Bot::from_claude`] says so until the hub upgrades its file.
+//! A file from before Codex was the only engine says `engine = "claude"`,
+//! no engine at all (every bot made before engines), or `engine =
+//! "openrouter"` (oxbot's own loop, retired): that bot runs on Codex now,
+//! and [`Bot::moved_from`] says so until the hub upgrades its file.
 
 use std::fs;
 use std::io;
@@ -246,17 +247,19 @@ pub struct Bot {
     /// The engine that runs it, as its file says (Herders' engines are
     /// fixed by the hub).
     pub engine: EngineKind,
-    /// Its file says Claude (or no engine: made before engines), so it
-    /// runs on Codex now: the hub rewrites the file once and tells its chat
-    /// (see `Hub::upgrade_from_claude`).
-    pub from_claude: bool,
-    /// Its settings for oxbot's own loop (the `[openrouter]` table).
+    /// The engine its file still names, when that's one oxbot no longer
+    /// has ([`CLAUDE`], also for no engine: made before engines; or
+    /// [`LOOP`]): it runs on Codex now, and the hub rewrites the file once
+    /// and tells its chat (see `Hub::upgrade_from_claude`).
+    pub moved_from: Option<&'static str>,
+    /// Its model settings (the `[openrouter]` table, named from oxbot's
+    /// retired loop).
     pub loop_settings: LoopSettings,
     /// The bot's folder.
     pub dir: PathBuf,
 }
 
-/// A bot's settings for oxbot's own loop. Every one is optional.
+/// A bot's model settings. Every one is optional.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoopSettings {
     /// `auto`, or a model id the owner pinned.
@@ -291,22 +294,25 @@ struct BotFile {
 }
 
 /// The engine files from before Claude left oxbot name.
-const CLAUDE: &str = "claude";
+pub const CLAUDE: &str = "claude";
+/// The engine files of bots on oxbot's own loop (retired) name.
+pub const LOOP: &str = "openrouter";
 
 impl BotFile {
-    /// The engine it names, and whether that was Claude (or nothing),
-    /// which runs on Codex now. One this oxbot doesn't know (a newer
-    /// oxbot's) runs on Codex too, under the same rules, and its file is
-    /// left as it is.
-    fn engine(&self, id: &BotId) -> (EngineKind, bool) {
+    /// The engine it names, and the retired one it moves from (Claude,
+    /// also for no engine; or oxbot's own loop), which runs on Codex now.
+    /// One this oxbot doesn't know (a newer oxbot's) runs on Codex too,
+    /// under the same rules, and its file is left as it is.
+    fn engine(&self, id: &BotId) -> (EngineKind, Option<&'static str>) {
         match self.engine.as_deref() {
-            None | Some(CLAUDE) => (EngineKind::Codex, true),
+            None | Some(CLAUDE) => (EngineKind::Codex, Some(CLAUDE)),
+            Some(LOOP) => (EngineKind::Codex, Some(LOOP)),
             Some(name) => {
                 if let Some(kind) = EngineKind::parse(name) {
-                    (kind, false)
+                    (kind, None)
                 } else {
                     tracing::warn!(bot = %id, engine = name, "unknown engine in bot.toml; using codex");
-                    (EngineKind::Codex, false)
+                    (EngineKind::Codex, None)
                 }
             }
         }
@@ -394,7 +400,7 @@ impl Bot {
         })?;
         // A missing instructions file just means no extra instructions.
         let instructions = fs::read_to_string(dir.join("instructions.md")).unwrap_or_default();
-        let (engine, from_claude) = file.engine(&id);
+        let (engine, moved_from) = file.engine(&id);
         let owner = file.owner.and_then(|o| match PersonId::new(o) {
             Ok(id) => Some(id),
             Err(err) => {
@@ -410,7 +416,7 @@ impl Bot {
             created_by: file.created_by,
             private: file.private,
             engine,
-            from_claude,
+            moved_from,
             loop_settings: file.openrouter.unwrap_or_default(),
             instructions,
             dir: dir.to_owned(),
@@ -520,8 +526,8 @@ impl Bot {
     }
 
     /// Writes its name, engine, owner, creator, privacy and loop settings
-    /// back to `bot.toml` (a bot from Claude's days gets its engine written
-    /// out, and loses the Claude model it named).
+    /// back to `bot.toml` (a moved bot gets Codex written out once the hub
+    /// moved it, and loses the Claude model it named).
     ///
     /// # Errors
     /// Fails if the file can't be written.
@@ -530,9 +536,13 @@ impl Bot {
             &self.dir,
             &BotFile {
                 name: self.name.clone(),
-                // Until the hub has moved it (and told its chat), a bot from
-                // Claude's days keeps its file's old engine, whoever saves it.
-                engine: (!self.from_claude).then(|| self.engine.as_str().to_owned()),
+                // Until the hub has moved it (and told its chat), a moved bot
+                // keeps its file's old engine, whoever saves it.
+                engine: match self.moved_from {
+                    None => Some(self.engine.as_str().to_owned()),
+                    Some(CLAUDE) => None,
+                    Some(from) => Some(from.to_owned()),
+                },
                 owner: self.owner.as_ref().map(ToString::to_string),
                 created_by: self.created_by.clone(),
                 private: self.private,
@@ -795,20 +805,19 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let id = BotId::new("scout").unwrap();
         let mut bot = Bot::create(tmp.path(), id, "Scout", "").unwrap();
-        assert_eq!((bot.engine, bot.from_claude), (EngineKind::Codex, false));
+        assert_eq!((bot.engine, bot.moved_from), (EngineKind::Codex, None));
         assert_eq!(bot.loop_settings, LoopSettings::default());
         let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
         assert!(text.contains("engine = \"codex\""), "{text}");
 
-        bot.engine = EngineKind::OpenRouter;
         bot.loop_settings.model = Some("auto".into());
         bot.loop_settings.daily_requests = Some(200);
         bot.save().unwrap();
         let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
-        assert!(text.contains("engine = \"openrouter\""), "{text}");
+        assert!(text.contains("engine = \"codex\""), "{text}");
         assert!(text.contains("[openrouter]") && text.contains("daily_requests = 200"));
         let again = Bot::load(&bot.dir).unwrap();
-        assert_eq!(again.engine, EngineKind::OpenRouter);
+        assert_eq!(again.engine, EngineKind::Codex);
         assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
         assert_eq!(again.loop_settings.daily_requests, Some(200));
     }
@@ -821,12 +830,19 @@ mod tests {
         let old = "name = \"News\"\nmodel = \"haiku\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\n";
         fs::write(dir.join("bot.toml"), old).unwrap();
         let mut bot = Bot::load(&dir).unwrap();
-        assert_eq!((bot.engine, bot.from_claude), (EngineKind::Codex, true));
+        assert_eq!(
+            (bot.engine, bot.moved_from),
+            (EngineKind::Codex, Some(CLAUDE))
+        );
         // Saved for another reason first (a rename, say): still Claude's
         // until the hub moves it.
         bot.save().unwrap();
-        assert!(Bot::load(&dir).unwrap().from_claude, "still to be moved");
-        bot.from_claude = false;
+        assert_eq!(
+            Bot::load(&dir).unwrap().moved_from,
+            Some(CLAUDE),
+            "still to be moved"
+        );
+        bot.moved_from = None;
         bot.save().unwrap();
         let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
         assert_eq!(
@@ -835,7 +851,7 @@ mod tests {
             "everything but Claude's model is kept"
         );
         let again = Bot::load(&dir).unwrap();
-        assert!(!again.from_claude && again.private);
+        assert!(again.moved_from.is_none() && again.private);
 
         fs::write(
             dir.join("bot.toml"),
@@ -845,23 +861,39 @@ mod tests {
         assert_eq!(
             (
                 Bot::load(&dir).unwrap().engine,
-                Bot::load(&dir).unwrap().from_claude
+                Bot::load(&dir).unwrap().moved_from
             ),
-            (EngineKind::Codex, true)
+            (EngineKind::Codex, Some(CLAUDE))
         );
         // A newer oxbot's engine: Codex's rules, and not called an upgrade.
         fs::write(dir.join("bot.toml"), "name = \"News\"\nengine = \"gpt\"\n").unwrap();
         let unknown = Bot::load(&dir).unwrap();
         assert_eq!(
-            (unknown.engine, unknown.from_claude),
-            (EngineKind::Codex, false)
+            (unknown.engine, unknown.moved_from),
+            (EngineKind::Codex, None)
         );
+        // oxbot's own loop retired: Codex, moved once, and until then the
+        // file keeps saying so.
         fs::write(
             dir.join("bot.toml"),
-            "name = \"News\"\nengine = \"openrouter\"\n",
+            "name = \"News\"\nengine = \"openrouter\"\n[openrouter]\nmodel = \"e2e/a:free\"\n",
         )
         .unwrap();
-        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::OpenRouter);
+        let mut looped = Bot::load(&dir).unwrap();
+        assert_eq!(
+            (looped.engine, looped.moved_from),
+            (EngineKind::Codex, Some(LOOP))
+        );
+        looped.save().unwrap();
+        assert_eq!(Bot::load(&dir).unwrap().moved_from, Some(LOOP));
+        looped.moved_from = None;
+        looped.save().unwrap();
+        let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
+        assert!(text.contains("engine = \"codex\""), "{text}");
+        assert!(
+            text.contains("model = \"e2e/a:free\""),
+            "its model stays: {text}"
+        );
     }
 
     #[test]

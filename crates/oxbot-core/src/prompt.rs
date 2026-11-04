@@ -34,21 +34,10 @@ const HERDER_RULES: &str = "\nYou're the Assistant, the central bot: the user co
              messages to avoid an approval request.\n\
              - You can't delete, rename or change bots; the user does that in the oxbot app.\n";
 
-/// How bots on oxbot's own loop work, after the system prompt (the loop
-/// has no built-in habits of its own).
-#[must_use]
-pub fn loop_rules(caps: Capabilities) -> String {
-    rules(caps, false)
-}
-
-/// The same rules for a bot on Codex, which keeps every result until it
-/// summarizes and has no progress notes.
+/// How bots on Codex work with oxbot's tools, after the system prompt
+/// (oxbot's rules, not Codex's own habits).
 #[must_use]
 pub fn codex_rules(caps: Capabilities) -> String {
-    rules(caps, true)
-}
-
-fn rules(caps: Capabilities, codex: bool) -> String {
     let mut p = String::from(
         "\nHow you work here:\n\
          - You act only by calling tools, one at a time; wait for each result. When the task is done, or \
@@ -60,16 +49,9 @@ fn rules(caps: Capabilities, codex: bool) -> String {
          only.\n\
          - A result that starts with \"[oxbot said no]\" means oxbot or the person refused: don't try \
          another way; tell the person what you wanted to do, and stop.\n\
-         - Big results are stored with a handle like r12 and shown in part",
+         - Big results are stored with a handle like r12 and shown in part: read_result reads them \
+         again. For a task with several parts, keep a to-do list with update_todo.\n",
     );
-    p.push_str(if codex {
-        ": read_result reads them again. For a task with several parts, keep a to-do list with \
-         update_todo.\n"
-    } else {
-        ", and old ones may become one-line stubs: read_result reads them again. For a task with \
-         several parts, keep a to-do list with update_todo; on a long one, note_progress where you \
-         are.\n"
-    });
     if caps.browser {
         p.push_str(
             "- Before you click or type, call take_snapshot and use a uid from it. If a tool needs a \
@@ -205,7 +187,7 @@ mod tests {
             created_by: None,
             private: false,
             engine: crate::engine::EngineKind::Codex,
-            from_claude: false,
+            moved_from: None,
             loop_settings: crate::bot::LoopSettings::default(),
             instructions: instructions.into(),
             dir: PathBuf::from("/x"),
@@ -259,14 +241,14 @@ mod tests {
     }
 
     #[test]
-    fn the_loops_rules_are_general_short_and_have_no_clock() {
-        let with = loop_rules(Capabilities { browser: true });
+    fn the_rules_are_general_short_and_have_no_clock() {
+        let with = codex_rules(Capabilities { browser: true });
         let browsing = &with[with.find("\nBrowsing:\n").unwrap()..];
         // The block itself (the general rule after it isn't part of it).
         let browsing = &browsing[..browsing.find("- If an action fails").unwrap()];
         // About 170 tokens at most, and the same bytes every time.
         assert!(browsing.len() / 3 <= 170, "{}", browsing.len());
-        assert_eq!(with, loop_rules(Capabilities { browser: true }));
+        assert_eq!(with, codex_rules(Capabilities { browser: true }));
         for tool in [
             "find_in_page",
             "read_section",
@@ -278,19 +260,15 @@ mod tests {
         }
         assert!(!with.contains("http"), "no site names");
         assert!(!with.contains("202"), "no dates");
-        let without = loop_rules(Capabilities { browser: false });
+        let without = codex_rules(Capabilities { browser: false });
         assert!(!without.contains("Browsing:") && without.contains("read_result"));
-    }
-
-    #[test]
-    fn codex_gets_the_same_rules_without_what_only_the_loop_does() {
-        let caps = Capabilities { browser: true };
-        let (looped, codex) = (loop_rules(caps), codex_rules(caps));
-        assert!(looped.contains("note_progress") && looped.contains("one-line stubs"));
-        assert!(!codex.contains("note_progress") && !codex.contains("stubs"));
-        assert!(codex.contains("read_result reads them again") && codex.contains("update_todo"));
-        // Everything else is word for word the same.
-        let tail = |s: &str| s[s.find("- Before you click").unwrap()..].to_owned();
-        assert_eq!(tail(&looped), tail(&codex));
+        // What only oxbot's retired loop did isn't promised.
+        assert!(!with.contains("note_progress") && !with.contains("stubs"));
+        // The same bytes Codex bots had (a changed prompt starts every
+        // bot's session over).
+        assert!(with.contains(
+            "shown in part: read_result reads them again. For a task with several parts, keep a \
+             to-do list with update_todo.\n- Before you click"
+        ));
     }
 }

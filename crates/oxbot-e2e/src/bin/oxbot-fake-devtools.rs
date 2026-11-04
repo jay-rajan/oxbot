@@ -1,5 +1,5 @@
 //! A stand-in for the browser tool (`chrome-devtools-mcp`) in end-to-end
-//! tests of bots on oxbot's own loop: an MCP server over stdio answering
+//! tests: an MCP server over stdio answering
 //! from the reply script in `OXBOT_FAKE_SCRIPT`. See
 //! [`oxbot_e2e::fake_devtools`]. Of the real tool's flags it reads only
 //! `--browserUrl`.

@@ -8,11 +8,25 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use oxbot::server::{self, AppState};
-use oxbot_core::testing::{self, FakeBots, On, Tool};
+use oxbot_core::testing::{self, FakeBots, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, Store};
 use oxbot_protocol::{Attachment, AttachmentKind, ClientMsg, EventKind, ServerMsg};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_tungstenite::tungstenite::Message;
+
+/// The `codex` program bots run on, if this Mac has Codex 0.148 (found
+/// once). Without it bots can't take turns: a test that needs one says
+/// why and returns.
+async fn codex() -> Option<&'static std::path::Path> {
+    static CODEX: tokio::sync::OnceCell<Option<PathBuf>> = tokio::sync::OnceCell::const_new();
+    CODEX
+        .get_or_init(|| async {
+            let probe = std::env::temp_dir().join(format!("oxbot-tests-{}", std::process::id()));
+            testing::codex(&probe).await
+        })
+        .await
+        .as_deref()
+}
 
 type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -46,10 +60,11 @@ async fn start_with(farm_person: bool) -> Server {
     let fake = Arc::new(FakeBots::new(dir.path(), Tool::Note));
     let config = HubConfig {
         browser: None,
-        ..testing::config(dir.path(), &dir.path().join(".home"), &fake, &On::Loop)
+        ..testing::config(dir.path(), &dir.path().join(".home"), &fake, codex().await)
     };
     let hub = Hub::new(vec![herder, notes, diary], store, config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake-oxbot-mac.sh");
     let state = AppState {
         local_person: "Jay".to_owned(),
@@ -254,6 +269,9 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
 
 #[tokio::test]
 async fn a_file_goes_with_a_message_and_opens_on_the_farm_only() {
+    if codex().await.is_none() {
+        return;
+    }
     let s = start().await;
     let (_, body) = upload(
         &s,

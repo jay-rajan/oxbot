@@ -1,23 +1,45 @@
-//! Runs the hub with stand-in bots on oxbot's own loop (`oxbot_core::testing`):
-//! a scripted model that asks before every tool and says what oxbot answered,
-//! and a scripted browser. The gate, cards and Herder's tools are the hub's,
-//! the same for every engine (the Codex engine reaches them through the same
-//! tool service: see `codex_engine.rs`).
+//! Runs the hub with stand-in bots on Codex (`oxbot_core::testing`; the
+//! real `codex` program, skipped, saying why, on a Mac without Codex 0.148):
+//! a stand-in model that asks before every tool and says what oxbot
+//! answered, and a scripted browser. The gate, cards and Herder's tools
+//! are the hub's.
 #![allow(clippy::unwrap_used, reason = "test helpers may panic")]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use oxbot_core::testing::{self, FakeBots, On, Tool};
+use oxbot_core::testing::{self, FakeBots, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, Store, Viewer};
 use oxbot_protocol::{
     Answer, Approval, ApprovalKind, EventKind, Outcome, ServerMsg, SignInOutcome,
 };
+use tokio::sync::OnceCell;
 use tokio::sync::broadcast::Receiver;
 
+/// The `codex` program every test's bots run on, found once.
+static CODEX: OnceCell<Option<PathBuf>> = OnceCell::const_new();
+
+/// The `codex` program, if this Mac has Codex 0.148 (a test without it
+/// returns at once: see [`testing::codex`]).
+async fn codex() -> Option<&'static Path> {
+    CODEX
+        .get_or_init(|| async {
+            let probe =
+                std::env::temp_dir().join(format!("oxbot-hub-tests-{}", std::process::id()));
+            testing::codex(&probe).await
+        })
+        .await
+        .as_deref()
+}
+
+/// [`codex`], for helpers (their test checked it first).
+async fn program() -> &'static Path {
+    codex().await.unwrap()
+}
+
 /// A hub whose Herder (in `dir`) saves a note for every message.
-fn fake_hub(dir: &Path) -> Arc<Hub> {
+async fn fake_hub(dir: &Path) -> Arc<Hub> {
     let bot = Bot::create(
         dir,
         BotId::new("assistant").unwrap(),
@@ -28,41 +50,42 @@ fn fake_hub(dir: &Path) -> Arc<Hub> {
     let fake = Arc::new(FakeBots::new(dir, Tool::Note));
     let config = HubConfig {
         browser: None,
-        ..testing::config(dir, &dir.join(".home"), &fake, &On::Loop)
+        ..testing::config(dir, &dir.join(".home"), &fake, Some(program().await))
     };
     let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     hub
 }
 
 /// A hub whose bot asks to upload a CV. Chrome is "missing", but the
 /// browser tool looks installed, so the rules run as they would for real.
-fn asking_hub(dir: &Path) -> Arc<Hub> {
-    asking_hub_with(dir, "upload", &["poster"])
+async fn asking_hub(dir: &Path) -> Arc<Hub> {
+    asking_hub_with(dir, "upload", &["poster"]).await
 }
 
 /// Like [`asking_hub`], with the fake's tool and more bots.
-fn asking_hub_with(dir: &Path, tool: &str, ids: &[&str]) -> Arc<Hub> {
-    asking_hub_env(dir, tool, ids, &[])
+async fn asking_hub_with(dir: &Path, tool: &str, ids: &[&str]) -> Arc<Hub> {
+    asking_hub_env(dir, tool, ids, &[]).await
 }
 
 /// Like [`asking_hub_with`], with more settings for the fake (`FAKE_TOOLS`,
 /// `FAKE_HELPER_TOOLS`, `FAKE_TARGET`, `FAKE_PRIVATE`, `FAKE_NO_PAGE`,
 /// `FAKE_PAGE_ONCE`, `FAKE_READ_FILE`, `FAKE_REPORT`).
-fn asking_hub_env(dir: &Path, tool: &str, ids: &[&str], env: &[(&str, &str)]) -> Arc<Hub> {
-    asking_hub_store(dir, tool, ids, env, Store::open_in_memory().unwrap())
+async fn asking_hub_env(dir: &Path, tool: &str, ids: &[&str], env: &[(&str, &str)]) -> Arc<Hub> {
+    asking_hub_store(dir, tool, ids, env, Store::open_in_memory().unwrap()).await
 }
 
 /// Like [`asking_hub_env`], with `store`; bots already in `dir` are
 /// loaded as they were left (for a hub started again).
-fn asking_hub_store(
+async fn asking_hub_store(
     dir: &Path,
     tool: &str,
     ids: &[&str],
     env: &[(&str, &str)],
     store: Store,
 ) -> Arc<Hub> {
-    asking_hub_tweaked(dir, tool, ids, env, store, |_| {})
+    asking_hub_tweaked(dir, tool, ids, env, store, |_| {}).await
 }
 
 /// The fake for bots in `bots`, from the settings tests name it by.
@@ -87,7 +110,7 @@ fn fake_of(bots: &Path, tool: &str, env: &[(&str, &str)]) -> FakeBots {
 }
 
 /// Like [`asking_hub_store`], with `tweak` applied to the hub's settings.
-fn asking_hub_tweaked(
+async fn asking_hub_tweaked(
     dir: &Path,
     tool: &str,
     ids: &[&str],
@@ -96,12 +119,13 @@ fn asking_hub_tweaked(
     tweak: impl FnOnce(&mut HubConfig),
 ) -> Arc<Hub> {
     let bots = dir.join("bots");
-    let all = testing::bots(&bots, ids, &On::Loop);
+    let all = testing::bots(&bots, ids);
     let fake = Arc::new(fake_of(&bots, tool, env));
-    let mut config = testing::config(&bots, &dir.join("home"), &fake, &On::Loop);
+    let mut config = testing::config(&bots, &dir.join("home"), &fake, Some(program().await));
     tweak(&mut config);
     let hub = Hub::new(all, store, config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     hub
 }
 
@@ -118,7 +142,10 @@ async fn wait_for_turn_done(updates: &mut Receiver<ServerMsg>) {
 #[tokio::test]
 async fn a_message_becomes_a_stored_conversation() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = fake_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = fake_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
 
     hub.send("assistant", "save a note", Some("Jay"))
@@ -180,7 +207,10 @@ async fn a_message_becomes_a_stored_conversation() {
 #[tokio::test]
 async fn unknown_bots_are_refused() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = fake_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = fake_hub(tmp.path()).await;
     assert!(matches!(
         hub.send("nobody", "hi", None).await,
         Err(HubError::UnknownBot(_))
@@ -194,7 +224,10 @@ async fn unknown_bots_are_refused() {
 #[tokio::test]
 async fn new_bots_get_ids_from_their_names_and_work_without_a_restart() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = fake_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = fake_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
 
     let info = hub
@@ -260,7 +293,10 @@ async fn ending(hub: &Arc<Hub>, updates: &mut Receiver<ServerMsg>) -> (String, O
 #[tokio::test]
 async fn an_upload_waits_for_a_yes_and_no_means_no() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
 
     let approval = card(&hub, &mut updates).await;
@@ -288,7 +324,10 @@ async fn an_upload_waits_for_a_yes_and_no_means_no() {
 #[tokio::test]
 async fn an_unanswered_card_is_a_no() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
     let _ = card(&hub, &mut updates).await;
     let (said, outcome) = tokio::time::timeout(Duration::from_secs(15), ending(&hub, &mut updates))
@@ -317,7 +356,10 @@ async fn next<T>(
 #[tokio::test]
 async fn clicking_post_asks_with_a_red_card() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "post", &["poster"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "post", &["poster"]).await;
     let mut updates = hub.subscribe();
     hub.send("poster", "post my update", Some("Jay"))
         .await
@@ -342,7 +384,10 @@ async fn clicking_post_asks_with_a_red_card() {
 #[tokio::test]
 async fn a_sign_in_request_waits_for_the_user() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "signin", &["poster"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "signin", &["poster"]).await;
     let mut updates = hub.subscribe();
 
     hub.send("poster", "read my mail", Some("Jay"))
@@ -389,7 +434,10 @@ async fn a_sign_in_request_waits_for_the_user() {
 #[tokio::test]
 async fn bots_take_turns_on_the_shared_browser() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "upload", &["first", "second"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "upload", &["first", "second"]).await;
     let mut updates = hub.subscribe();
 
     hub.send("first", "upload", Some("Jay")).await.unwrap();
@@ -433,7 +481,10 @@ async fn bots_take_turns_on_the_shared_browser() {
 #[tokio::test]
 async fn signing_out_is_refused_while_a_bot_uses_the_browser() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
     let approval = card(&hub, &mut updates).await;
     assert!(matches!(
@@ -469,7 +520,10 @@ async fn reply_of(hub: &Arc<Hub>, updates: &mut Receiver<ServerMsg>, bot: &str) 
 #[tokio::test]
 async fn the_assistant_creates_a_bot_only_after_the_users_ok() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "createbot", &["assistant"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "createbot", &["assistant"]).await;
     let mut updates = hub.subscribe();
 
     hub.send("assistant", "make me a mail bot", Some("Jay"))
@@ -513,12 +567,15 @@ async fn the_assistant_creates_a_bot_only_after_the_users_ok() {
 
 #[tokio::test]
 async fn a_create_bot_card_says_who_the_bot_is_for() {
+    if codex().await.is_none() {
+        return;
+    }
     for (env, action) in [
         (&[][..], "create a shared bot"),
         (&[("FAKE_PRIVATE", "1")][..], "create a private bot for Sam"),
     ] {
         let tmp = tempfile::tempdir().unwrap();
-        let hub = asking_hub_env(tmp.path(), "createbot", &["assistant"], env);
+        let hub = asking_hub_env(tmp.path(), "createbot", &["assistant"], env).await;
         let mut updates = hub.subscribe();
         hub.send("assistant", "make me a mail bot", Some("Sam"))
             .await
@@ -535,16 +592,29 @@ async fn a_create_bot_card_says_who_the_bot_is_for() {
 #[tokio::test]
 async fn the_assistant_gives_a_task_and_other_bots_cant() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]).await;
     let mut updates = hub.subscribe();
 
     hub.send("assistant", "ask the helper to say hi", Some("Jay"))
         .await
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
-    // The helper (the same fake) tried to give a task too, and was refused.
+    // The helper (the same fake) tried to give a task too: only Herders
+    // are given give_task, so Codex had no such tool to call.
     assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
-    assert!(said.contains("tool_ok=false"), "{said}");
+    assert!(said.contains("unsupported call: give_task"), "{said}");
+    assert_eq!(
+        hub.history("assistant", 0)
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::UserMessage { .. }))
+            .count(),
+        1,
+        "nothing came back from the helper as a task"
+    );
     let from_assistant = hub.history("helper", 0).unwrap().into_iter().any(|e| {
         matches!(e.kind, EventKind::UserMessage { ref text, ref from, .. }
             if text == "say hi" && from.as_deref() == Some("assistant"))
@@ -563,7 +633,10 @@ fn ids(bots: &[oxbot_protocol::BotInfo]) -> Vec<&str> {
 #[tokio::test]
 async fn a_private_bot_is_seen_only_by_its_maker_and_the_farm() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]).await;
     let bank = hub
         .create_bot_with("Bank", "Check my bank.", Some("Sam"), true)
         .await
@@ -596,7 +669,10 @@ async fn a_private_bot_is_seen_only_by_its_maker_and_the_farm() {
 #[tokio::test]
 async fn only_the_maker_or_the_farm_can_change_or_delete_a_bot() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]).await;
     hub.create_bot_with("Recipes", "", Some("Sam"), false)
         .await
         .unwrap();
@@ -671,7 +747,10 @@ async fn only_the_maker_or_the_farm_can_change_or_delete_a_bot() {
 #[tokio::test]
 async fn herder_never_relays_a_private_bot() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]).await;
     hub.set_private("helper", true, &Viewer::farm("Sam"))
         .await
         .unwrap();
@@ -719,7 +798,7 @@ async fn jays_private_helper(
     page: bool,
 ) -> (Arc<Hub>, oxbot_core::store::PersonRecord) {
     let env: &[(&str, &str)] = if page { &[] } else { &[("FAKE_NO_PAGE", "1")] };
-    let hub = asking_hub_env(dir, "task", &["assistant", "helper"], env);
+    let hub = asking_hub_env(dir, "task", &["assistant", "helper"], env).await;
     let jay = hub.farm_person("Jay").unwrap();
     hub.set_private("helper", true, &hub.farm_viewer("Jay"))
         .await
@@ -747,6 +826,9 @@ fn approvals_in(hub: &Arc<Hub>, bot: &str) -> usize {
 #[tokio::test]
 async fn the_farms_person_tasks_their_private_bot_without_a_card_before_reading_the_web() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let (hub, _) = jays_private_helper(tmp.path(), false).await;
     let mut updates = hub.subscribe();
 
@@ -773,6 +855,9 @@ async fn the_farms_person_tasks_their_private_bot_without_a_card_before_reading_
 #[tokio::test]
 async fn after_reading_the_web_herder_asks_before_tasking_a_private_bot() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let (hub, jay) = jays_private_helper(tmp.path(), true).await;
     let mut updates = hub.subscribe();
     // No: nothing reaches the bot, and Herder is told plainly.
@@ -823,6 +908,9 @@ async fn after_reading_the_web_herder_asks_before_tasking_a_private_bot() {
 #[tokio::test]
 async fn someone_elses_herder_cant_task_a_private_bot() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let (hub, _) = jays_private_helper(tmp.path(), false).await;
     let sams = hub.herder_for("Sam").unwrap();
     let mut updates = hub.subscribe();
@@ -845,12 +933,16 @@ async fn someone_elses_herder_cant_task_a_private_bot() {
 #[tokio::test]
 async fn a_persons_own_herder_tasks_their_private_bot() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = asking_hub_env(
         tmp.path(),
         "task",
         &["assistant", "helper"],
         &[("FAKE_NO_PAGE", "1")],
-    );
+    )
+    .await;
     let sam = Viewer::gate("Sam");
     // An unowned bot made private on the Farm under Sam's name becomes his.
     hub.set_private("helper", true, &Viewer::farm("Sam"))
@@ -871,7 +963,10 @@ async fn a_persons_own_herder_tasks_their_private_bot() {
 #[tokio::test]
 async fn herder_lists_only_the_bots_the_asker_may_see() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "list", &["assistant"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "list", &["assistant"]).await;
     hub.create_bot_with("Bank", "", Some("Sam"), true)
         .await
         .unwrap();
@@ -901,7 +996,10 @@ async fn herder_lists_only_the_bots_the_asker_may_see() {
 #[tokio::test]
 async fn only_a_listed_site_opens() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]).await;
     assert!(matches!(
         hub.open_site("evil.example/phish", oxbot_core::store::HOME)
             .await,
@@ -914,6 +1012,9 @@ async fn only_a_listed_site_opens() {
 /// holds replies passed on for the Farm's person) nor Ann's Herder.
 #[tokio::test]
 async fn a_herder_never_tasks_or_reads_another_herder() {
+    if codex().await.is_none() {
+        return;
+    }
     let anns = oxbot_core::bot::personal_herder_id("Ann").to_string();
     for (tool, target) in [
         ("task", "assistant"),
@@ -927,7 +1028,8 @@ async fn a_herder_never_tasks_or_reads_another_herder() {
             tool,
             &["assistant"],
             &[("FAKE_NO_PAGE", "1"), ("FAKE_TARGET", target)],
-        );
+        )
+        .await;
         hub.farm_person("Jay").unwrap();
         assert_eq!(hub.herder_for("Ann").unwrap().as_str(), anns);
         let mut updates = hub.subscribe();
@@ -963,7 +1065,7 @@ async fn jays_hub(dir: &Path, tools: &str, env: &[(&str, &str)]) -> Arc<Hub> {
         .chain(env.iter().copied())
         .collect();
     let store = Store::open(&dir.join("oxbot.db")).unwrap();
-    let hub = asking_hub_store(dir, "task", &["assistant", "helper"], &env, store);
+    let hub = asking_hub_store(dir, "task", &["assistant", "helper"], &env, store).await;
     let jay = hub.farm_person("Jay").unwrap();
     hub.set_private("helper", true, &hub.farm_viewer("Jay"))
         .await
@@ -996,6 +1098,9 @@ async fn asked_and_denied(hub: &Arc<Hub>, updates: &mut Receiver<ServerMsg>, rea
 #[tokio::test]
 async fn what_herder_read_on_the_web_counts_for_the_whole_session() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let once = tmp.path().join("page-read");
     let once = once.to_str().unwrap();
     let hub = jays_hub(tmp.path(), "list,task", &[("FAKE_PAGE_ONCE", once)]).await;
@@ -1037,6 +1142,9 @@ async fn what_herder_read_on_the_web_counts_for_the_whole_session() {
 #[tokio::test]
 async fn a_bots_reply_counts_before_the_next_private_task() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = jays_hub(tmp.path(), "task,task", &[("FAKE_NO_PAGE", "1")]).await;
     let mut updates = hub.subscribe();
     let said = ask_herder(&hub, &mut updates).await;
@@ -1049,6 +1157,9 @@ async fn a_bots_reply_counts_before_the_next_private_task() {
 #[tokio::test]
 async fn read_reply_counts_before_a_private_task() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = jays_hub(tmp.path(), "read,task", &[("FAKE_NO_PAGE", "1")]).await;
     let mut updates = hub.subscribe();
     hub.send("helper", "hi", Some("Jay")).await.unwrap();
@@ -1065,6 +1176,9 @@ async fn read_reply_counts_before_a_private_task() {
 #[tokio::test]
 async fn listing_someone_elses_bots_counts_and_their_words_are_data() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = jays_hub(tmp.path(), "list,task", &[("FAKE_NO_PAGE", "1")]).await;
     hub.create_bot_with(
         "Recipes",
@@ -1089,6 +1203,9 @@ async fn listing_someone_elses_bots_counts_and_their_words_are_data() {
 #[tokio::test]
 async fn listing_only_your_own_bots_doesnt_count() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = jays_hub(tmp.path(), "list,task", &[("FAKE_NO_PAGE", "1")]).await;
     let mut updates = hub.subscribe();
     let _ = ask_herder(&hub, &mut updates).await;
@@ -1101,6 +1218,9 @@ async fn listing_only_your_own_bots_doesnt_count() {
 #[tokio::test]
 async fn reading_a_file_counts_before_a_private_task() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = jays_hub(
         tmp.path(),
         "task",
@@ -1115,6 +1235,9 @@ async fn reading_a_file_counts_before_a_private_task() {
 #[tokio::test]
 async fn always_allow_is_saved_only_by_those_who_manage_the_bot() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let store = Store::open_in_memory().unwrap();
     let sam = store.find_or_create_person("Sam").unwrap().0.id;
     let bots = tmp.path().join("bots");
@@ -1123,7 +1246,7 @@ async fn always_allow_is_saved_only_by_those_who_manage_the_bot() {
     poster.owner = Some(sam);
     poster.created_by = Some("Sam".into());
     poster.save().unwrap();
-    let hub = asking_hub_store(tmp.path(), "post", &["poster"], &[], store);
+    let hub = asking_hub_store(tmp.path(), "post", &["poster"], &[], store).await;
     let mut updates = hub.subscribe();
 
     // Jay's message raises the card on Sam's bot: Jay may allow it once,
@@ -1192,7 +1315,10 @@ async fn always_allow_is_saved_only_by_those_who_manage_the_bot() {
 #[tokio::test]
 async fn always_is_refused_for_uploads_and_herders_cards() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
     let upload = card(&hub, &mut updates).await;
     assert_eq!(upload.rule, None);
@@ -1212,7 +1338,7 @@ async fn always_is_refused_for_uploads_and_herders_cards() {
 
     // Herder making a bot: never.
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "createbot", &["assistant"]);
+    let hub = asking_hub_with(tmp.path(), "createbot", &["assistant"]).await;
     let mut updates = hub.subscribe();
     hub.send("assistant", "make a bot", Some("Jay"))
         .await
@@ -1245,7 +1371,10 @@ fn report_args(markdown: &str, sources: &[&str]) -> String {
 #[tokio::test]
 async fn research_is_saved_as_a_report_with_a_card() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "report", &["scout"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "report", &["scout"]).await;
     let mut updates = hub.subscribe();
     hub.send("scout", "research jobs for me", Some("Sam"))
         .await
@@ -1291,6 +1420,9 @@ async fn research_is_saved_as_a_report_with_a_card() {
 
 #[tokio::test]
 async fn a_report_that_cites_badly_is_not_saved() {
+    if codex().await.is_none() {
+        return;
+    }
     let cases = [
         (
             report_args("Elsewhere [1].", &["https://other.example.com/"]),
@@ -1322,7 +1454,7 @@ async fn a_report_that_cites_badly_is_not_saved() {
     ];
     for (args, why) in cases {
         let tmp = tempfile::tempdir().unwrap();
-        let hub = asking_hub_env(tmp.path(), "report", &["scout"], &[("FAKE_REPORT", &args)]);
+        let hub = asking_hub_env(tmp.path(), "report", &["scout"], &[("FAKE_REPORT", &args)]).await;
         let mut updates = hub.subscribe();
         hub.send("scout", "research jobs", Some("Sam"))
             .await
@@ -1349,19 +1481,23 @@ async fn a_report_that_cites_badly_is_not_saved() {
 #[tokio::test]
 async fn opened_pages_last_as_long_as_the_session() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let once = tmp.path().join("page-read");
     let once = once.to_str().unwrap();
+    let env = [("FAKE_PAGE_ONCE", once)];
     let start = || {
         asking_hub_store(
             tmp.path(),
             "report",
             &["scout"],
-            &[("FAKE_PAGE_ONCE", once)],
+            &env,
             Store::open(&tmp.path().join("oxbot.db")).unwrap(),
         )
     };
     // Opens the page and cites it.
-    let hub = start();
+    let hub = start().await;
     let mut updates = hub.subscribe();
     hub.send("scout", "research jobs", Some("Jay"))
         .await
@@ -1373,7 +1509,7 @@ async fn opened_pages_last_as_long_as_the_session() {
 
     // Started again, the session resumes: the page still counts, though
     // this turn didn't open it.
-    let hub = start();
+    let hub = start().await;
     let mut updates = hub.subscribe();
     hub.send("scout", "research again", Some("Jay"))
         .await
@@ -1385,7 +1521,7 @@ async fn opened_pages_last_as_long_as_the_session() {
 
     // A new session (its instructions changed) has opened nothing.
     std::fs::write(tmp.path().join("bots/scout/instructions.md"), "Be brief.").unwrap();
-    let hub = start();
+    let hub = start().await;
     let mut updates = hub.subscribe();
     hub.send("scout", "research once more", Some("Jay"))
         .await
@@ -1404,6 +1540,9 @@ async fn opened_pages_last_as_long_as_the_session() {
 #[tokio::test]
 async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let store = Store::open_in_memory().unwrap();
     let sam = store.find_or_create_person("Sam").unwrap().0;
     let ann = store.find_or_create_person("Ann").unwrap().0;
@@ -1416,7 +1555,7 @@ async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
         bot.private = id == "bank";
         bot.save().unwrap();
     }
-    let hub = asking_hub_store(tmp.path(), "report", &["bank", "scout"], &[], store);
+    let hub = asking_hub_store(tmp.path(), "report", &["bank", "scout"], &[], store).await;
     let mut updates = hub.subscribe();
     let sam = Viewer::person(sam.id, "Sam", false);
     let ann = Viewer::person(ann.id, "Ann", false);
@@ -1461,13 +1600,17 @@ async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
 #[tokio::test]
 async fn herder_hears_about_a_report_saved_during_a_task() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     // A shared helper: no card before the task.
     let hub = asking_hub_env(
         tmp.path(),
         "task",
         &["assistant", "helper"],
         &[("FAKE_HELPER_TOOLS", "report")],
-    );
+    )
+    .await;
     let mut updates = hub.subscribe();
     let said = ask_herder(&hub, &mut updates).await;
     assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
@@ -1479,7 +1622,10 @@ async fn herder_hears_about_a_report_saved_during_a_task() {
 #[tokio::test]
 async fn deleting_a_bot_keeps_its_reports_in_the_trash() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "report", &["scout"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "report", &["scout"]).await;
     let mut updates = hub.subscribe();
     hub.send("scout", "research jobs", Some("Jay"))
         .await
@@ -1529,7 +1675,7 @@ async fn alerts_over(hub: &Arc<Hub>, turns: usize) -> Vec<oxbot_protocol::UsageA
 /// A hub (on `store`) whose `poster` answers without tools, one model
 /// request a turn, and may make 5 a day.
 async fn counting_poster(dir: &Path, store: Store) -> Arc<Hub> {
-    let hub = asking_hub_store(dir, "none", &["poster"], &[("FAKE_NO_PAGE", "1")], store);
+    let hub = asking_hub_store(dir, "none", &["poster"], &[("FAKE_NO_PAGE", "1")], store).await;
     hub.set_bot_daily_limit("poster", Some(5), &Viewer::farm("Jay"))
         .await
         .unwrap();
@@ -1539,6 +1685,9 @@ async fn counting_poster(dir: &Path, store: Store) -> Arc<Hub> {
 #[tokio::test]
 async fn usage_alerts_come_once_per_level_per_window_even_after_a_restart() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let db = tmp.path().join("oxbot.db");
     let hub = counting_poster(tmp.path(), Store::open(&db).unwrap()).await;
     // 1, 2, 3 (60%), 4 (80%), 5 (100%) of the bot's 5 requests today.
@@ -1578,6 +1727,9 @@ async fn usage_alerts_come_once_per_level_per_window_even_after_a_restart() {
 #[tokio::test]
 async fn usage_alerts_switched_off_send_nothing_and_stay_quiet_when_back_on() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = counting_poster(tmp.path(), Store::open_in_memory().unwrap()).await;
     assert!(hub.usage_alerts_on(), "on by default");
     hub.set_usage_alerts(false).unwrap();
@@ -1595,7 +1747,10 @@ async fn usage_alerts_switched_off_send_nothing_and_stay_quiet_when_back_on() {
 #[tokio::test]
 async fn a_notification_names_shared_bots_but_not_someone_elses_private_one() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = asking_hub_with(tmp.path(), "none", &["poster"]);
+    if codex().await.is_none() {
+        return;
+    }
+    let hub = asking_hub_with(tmp.path(), "none", &["poster"]).await;
     assert_eq!(hub.notice_name("poster").as_deref(), Some("poster"));
     assert_eq!(hub.notice_name("nobody"), None);
     hub.farm_person_from("Jay", true).unwrap();
@@ -1635,61 +1790,39 @@ async fn upload(
         .map_err(|e| e.to_string())
 }
 
-/// A hub whose bots (in `dir`) answer without tools; the model keeps what
-/// it was asked.
-fn listening_hub(dir: &Path) -> (Arc<Hub>, Arc<oxbot_llm::ScriptedModel>) {
-    let mut all = Vec::new();
-    for (id, name) in [("notes", "Notes"), ("other", "Other")] {
-        let mut bot = Bot::create(dir, BotId::new(id).unwrap(), name, "").unwrap();
-        bot.engine = oxbot_core::engine::EngineKind::OpenRouter;
-        bot.save().unwrap();
-        all.push(bot);
-    }
+/// A hub whose bots (in `dir`) answer without tools; the stand-in keeps
+/// what they were told.
+async fn listening_hub(dir: &Path) -> (Arc<Hub>, Arc<FakeBots>) {
+    let all = vec![
+        Bot::create(dir, BotId::new("notes").unwrap(), "Notes", "").unwrap(),
+        Bot::create(dir, BotId::new("other").unwrap(), "Other", "").unwrap(),
+    ];
     let fake = Arc::new(FakeBots {
         no_page: true,
         ..FakeBots::new(dir, Tool::None)
     });
-    let model = fake.model();
     let config = HubConfig {
         browser: None,
-        ..testing::config_with(
-            dir,
-            &dir.join(".home"),
-            Arc::clone(&model),
-            &fake,
-            &On::Loop,
-        )
+        ..testing::config(dir, &dir.join(".home"), &fake, Some(program().await))
     };
     let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
-    (hub, model)
+    hub.start_codex().await;
+    (hub, fake)
 }
 
-/// The person's message in the model's last request, as it got it.
-fn told(model: &oxbot_llm::ScriptedModel) -> String {
-    let req = model.requests().pop().unwrap();
-    let text = req
-        .messages
-        .iter()
-        .rev()
-        .find(|m| m.role == oxbot_llm::Role::User)
-        .unwrap()
-        .text();
-    // The loop puts a line saying which window and day it is first.
-    let text = text
-        .strip_prefix("<window ")
-        .and_then(|t| t.split_once("/>\n\n"))
-        .map_or(text.as_str(), |(_, rest)| rest);
-    text.split("\n\n[oxbot] Answer only from what you read.")
-        .next()
-        .unwrap()
-        .to_owned()
+/// The person's message in the bot's last request, as it got it.
+fn told(fake: &FakeBots) -> String {
+    fake.told().unwrap()
 }
 
 #[tokio::test]
 async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
     let tmp = tempfile::tempdir().unwrap();
-    let (hub, model) = listening_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, model) = listening_hub(tmp.path()).await;
     let mut updates = hub.subscribe();
     let jay = Viewer::gate("Jay");
     let csv = upload(
@@ -1781,7 +1914,10 @@ async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
 #[tokio::test]
 async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
     let tmp = tempfile::tempdir().unwrap();
-    let (hub, _) = listening_hub(tmp.path());
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, _) = listening_hub(tmp.path()).await;
     let (sam, ann) = (Viewer::gate("Sam"), Viewer::gate("Ann"));
     let sams = upload(&hub, "notes", &sam, "notes.txt", b"hello")
         .await
@@ -1837,6 +1973,9 @@ async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
 #[tokio::test]
 async fn files_never_sent_are_deleted() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let hub = asking_hub_tweaked(
         tmp.path(),
         "none",
@@ -1844,7 +1983,8 @@ async fn files_never_sent_are_deleted() {
         &[],
         Store::open_in_memory().unwrap(),
         |c| c.keep_unsent = Duration::ZERO,
-    );
+    )
+    .await;
     let jay = Viewer::gate("Jay");
     let kept = upload(&hub, "notes", &jay, "a.txt", b"x").await.unwrap();
     let saved = tmp.path().join("bots/notes/work").join(&kept.path);
@@ -1872,7 +2012,8 @@ async fn busy_poster(dir: &Path, turns: usize) -> (Arc<Hub>, Approval, Receiver<
             c.keep_unsent = Duration::ZERO;
             c.approval_timeout = Duration::from_secs(30);
         },
-    );
+    )
+    .await;
     let mut updates = hub.subscribe();
     hub.send("poster", "upload my CV", Some("Jay"))
         .await
@@ -1884,6 +2025,9 @@ async fn busy_poster(dir: &Path, turns: usize) -> (Arc<Hub>, Approval, Receiver<
 #[tokio::test]
 async fn a_send_that_fails_keeps_its_files_to_send_again() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let (hub, card, mut updates) = busy_poster(tmp.path(), 2).await;
     let jay = Viewer::gate("Jay");
     let csv = upload(&hub, "poster", &jay, "list.csv", b"a,b\n")
@@ -1917,6 +2061,9 @@ async fn a_send_that_fails_keeps_its_files_to_send_again() {
 #[tokio::test]
 async fn files_are_kept_while_a_send_waits_for_a_turn() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     // One turn at a time, held by `poster`: a send to `notes` waits.
     let (hub, card, _updates) = busy_poster(tmp.path(), 1).await;
     let jay = Viewer::gate("Jay");
@@ -1953,6 +2100,9 @@ async fn files_are_kept_while_a_send_waits_for_a_turn() {
 #[tokio::test]
 async fn partial_uploads_left_behind_are_deleted_and_nothing_else() {
     let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
     let bot = Bot::create(tmp.path(), BotId::new("notes").unwrap(), "N", "").unwrap();
     let incoming = bot.work_dir().join("inbox/.incoming");
     std::fs::create_dir_all(&incoming).unwrap();

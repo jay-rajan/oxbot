@@ -1,8 +1,9 @@
-//! Engines per bot, with every rule on: who may task a bot (anyone in the
-//! household), the task chain's origin, Herders on Codex, switching
-//! engines, and bots from before Claude left oxbot moving to Codex.
-//! Bots run on oxbot's own loop with a stand-in model
-//! (`oxbot_core::testing`), except where a test says Codex.
+//! The engine every bot runs on, with every rule on: who may task a bot
+//! (anyone in the household), the task chain's origin, setting a bot's AI
+//! model, and bots from engines oxbot no longer has (Claude, oxbot's own
+//! loop) moving to Codex. Bots run on Codex with a stand-in model
+//! (`oxbot_core::testing`); a test skips, saying why, on a Mac without
+//! Codex 0.148.
 #![allow(clippy::unwrap_used, reason = "test helpers may panic")]
 
 use std::path::Path;
@@ -10,27 +11,39 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use oxbot_core::engine::EngineKind;
-use oxbot_core::hub::MOVED_FROM_CLAUDE;
-use oxbot_core::testing::{self, FakeBots, On, Tool};
-use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, LoopParts, Store, Viewer};
-use oxbot_llm::{ScriptedModel, Step};
-use oxbot_protocol::{EventKind, ServerMsg};
+use oxbot_core::hub::{MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
+use oxbot_core::testing::{self, FakeBots, Tool};
+use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, Store, Viewer};
+use oxbot_protocol::{Answer, EventKind, ServerMsg};
 use tokio::sync::broadcast::Receiver;
 
-/// A hub with bots `ids` in `dir/bots` on the loop, every rule on, history
-/// in `dir/oxbot.db`; each bot's messages take `tool` (helpers answer
-/// without tools).
-fn hub_in(dir: &Path, ids: &[&str], tool: Tool) -> Arc<Hub> {
+/// A hub with bots `ids` in `dir/bots` on Codex (`codex`), every rule on,
+/// history in `dir/oxbot.db`; each bot's messages take `tool` (helpers
+/// answer without tools).
+async fn hub_in(dir: &Path, ids: &[&str], tool: Tool, codex: &Path) -> Arc<Hub> {
+    hub_with(dir, ids, tool, codex, |_| {}).await
+}
+
+/// Like [`hub_in`], with `tweak` applied to the settings.
+async fn hub_with(
+    dir: &Path,
+    ids: &[&str],
+    tool: Tool,
+    codex: &Path,
+    tweak: impl FnOnce(&mut HubConfig),
+) -> Arc<Hub> {
     let bots = dir.join("bots");
-    let all = testing::bots(&bots, ids, &On::Loop);
+    let all = testing::bots(&bots, ids);
     let fake = Arc::new(FakeBots {
         helper_tools: vec![Tool::None],
         no_page: true,
         ..FakeBots::new(&bots, tool)
     });
-    let config = testing::config(&bots, &dir.join("home"), &fake, &On::Loop);
+    let mut config = testing::config(&bots, &dir.join("home"), &fake, Some(codex));
+    tweak(&mut config);
     let hub = Hub::new(all, Store::open(&dir.join("oxbot.db")).unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     hub
 }
 
@@ -63,7 +76,10 @@ fn user_messages(hub: &Hub, bot: &str) -> Vec<(u64, String)> {
 #[tokio::test]
 async fn each_turn_keeps_who_started_it_on_the_mac_or_a_phone() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = hub_in(tmp.path(), &["recipes"], Tool::None);
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
+    let hub = hub_in(tmp.path(), &["recipes"], Tool::None, &codex).await;
     let jay = hub.farm_person("Jay").unwrap();
     let mut updates = hub.subscribe();
 
@@ -87,7 +103,7 @@ async fn each_turn_keeps_who_started_it_on_the_mac_or_a_phone() {
         (mac.root_bot.as_str(), mac.root_seq),
         ("recipes", sent[0].0)
     );
-    assert_eq!(mac.engine, "openrouter");
+    assert_eq!(mac.engine, "codex");
     let gate = store.turn_origin(&recipes, sent[1].0).unwrap().unwrap();
     assert!(!gate.on_farm);
     assert_eq!(gate.entry, "gate");
@@ -97,7 +113,10 @@ async fn each_turn_keeps_who_started_it_on_the_mac_or_a_phone() {
 #[tokio::test]
 async fn anyone_in_the_household_tasks_a_shared_bot() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = hub_in(tmp.path(), &["recipes"], Tool::None);
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
+    let hub = hub_in(tmp.path(), &["recipes"], Tool::None, &codex).await;
     hub.farm_person("Jay").unwrap();
     let mut updates = hub.subscribe();
     let sam = Viewer::gate("Sam");
@@ -114,7 +133,10 @@ async fn anyone_in_the_household_tasks_a_shared_bot() {
 #[tokio::test]
 async fn the_owners_herder_passes_a_task_on_in_the_owners_chain() {
     let tmp = tempfile::tempdir().unwrap();
-    let hub = hub_in(tmp.path(), &["assistant", "helper"], Tool::Task);
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
+    let hub = hub_in(tmp.path(), &["assistant", "helper"], Tool::Task, &codex).await;
     let jay = hub.farm_person("Jay").unwrap();
     let mut updates = hub.subscribe();
 
@@ -145,7 +167,7 @@ async fn without_an_openrouter_sign_in_every_bot_says_so() {
         Bot::create(&bots, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
         Bot::create(&bots, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
     ];
-    // No OpenRouter here at all: neither engine can run.
+    // No OpenRouter here at all: no bot can run.
     let hub = Hub::new(all, Store::open_in_memory().unwrap(), HubConfig::new(&bots));
     hub.farm_person("Jay").unwrap();
     let anns = hub.herder_for("Ann").unwrap();
@@ -168,11 +190,15 @@ async fn without_an_openrouter_sign_in_every_bot_says_so() {
 #[tokio::test]
 async fn a_session_of_another_engine_starts_new() {
     let tmp = tempfile::tempdir().unwrap();
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
     let recipes = BotId::new("recipes").unwrap();
     let run = |text: &'static str| {
         let dir = tmp.path().to_owned();
+        let codex = codex.clone();
         async move {
-            let hub = hub_in(&dir, &["recipes"], Tool::None);
+            let hub = hub_in(&dir, &["recipes"], Tool::None, &codex).await;
             let mut updates = hub.subscribe();
             hub.send_as("recipes", text, &Viewer::farm("Jay"))
                 .await
@@ -182,95 +208,85 @@ async fn a_session_of_another_engine_starts_new() {
         }
     };
     let store = || Store::open(&tmp.path().join("oxbot.db")).unwrap();
+    let engine = || store().session_engine(&recipes).unwrap();
     run("hi").await;
     let first = store().session(&recipes).unwrap().unwrap();
-    assert_eq!(
-        store().session_engine(&recipes).unwrap().as_deref(),
-        Some("openrouter")
-    );
+    assert_eq!(engine().as_deref(), Some("codex"));
 
     // Same engine: it goes on with the session.
     run("again").await;
     assert_eq!(store().session(&recipes).unwrap().unwrap().id, first.id);
 
-    // Saved as Claude's (from before Claude left oxbot): a new one.
-    rusqlite::Connection::open(tmp.path().join("oxbot.db"))
+    // Saved as an engine oxbot no longer has: a new one each time.
+    let mut last = first.id;
+    for old in ["openrouter", "claude"] {
+        rusqlite::Connection::open(tmp.path().join("oxbot.db"))
+            .unwrap()
+            .execute("UPDATE sessions SET engine = ?1", [old])
+            .unwrap();
+        run("and again").await;
+        let after = store().session(&recipes).unwrap().unwrap();
+        assert_ne!(after.id, last, "no engine goes on with {old}'s session");
+        assert_eq!(engine().as_deref(), Some("codex"));
+        last = after.id;
+    }
+    let asked = store()
+        .history(&recipes, 0)
         .unwrap()
-        .execute("UPDATE sessions SET engine = 'claude'", [])
-        .unwrap();
-    run("and again").await;
-    let after = store().session(&recipes).unwrap().unwrap();
-    assert_ne!(
-        after.id, first.id,
-        "no engine goes on with Claude's session"
-    );
-    assert_eq!(
-        store().session_engine(&recipes).unwrap().as_deref(),
-        Some("openrouter")
-    );
-    assert_eq!(
-        store().history(&recipes, 0).unwrap().len(),
-        3 * 3,
-        "the chat is kept"
-    );
+        .into_iter()
+        .filter(|e| matches!(e.kind, EventKind::UserMessage { .. }))
+        .count();
+    assert_eq!(asked, 4, "the chat is kept");
 }
 
 #[tokio::test]
-async fn whoever_manages_a_bot_switches_its_engine_but_never_a_herders() {
+async fn whoever_manages_a_bot_sets_its_model_but_never_a_herders() {
     let tmp = tempfile::tempdir().unwrap();
-    let bots = tmp.path().join("bots");
-    std::fs::create_dir_all(&bots).unwrap();
-    let fake = Arc::new(FakeBots::new(&bots, Tool::None));
-    let config = HubConfig {
-        // Each bot on its own engine, as in the app.
-        engines_on: None,
-        ..testing::config(&bots, &tmp.path().join("home"), &fake, &On::Loop)
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
     };
-    let herder = Bot::create(&bots, BotId::new("assistant").unwrap(), "Herder", "").unwrap();
-    let hub = Hub::new(vec![herder], Store::open_in_memory().unwrap(), config);
-    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    let hub = hub_in(tmp.path(), &["assistant"], Tool::None, &codex).await;
     hub.farm_person("Jay").unwrap();
     let owner = hub.farm_viewer("Jay");
     let notes = hub
         .create_bot_with("Notes", "", Some("Sam"), true)
         .await
         .unwrap();
-    assert_eq!(notes.engine, oxbot_protocol::EngineKind::Codex, "new bots");
+    assert_eq!(notes.engine, oxbot_protocol::EngineKind::Codex);
     let sam = Viewer::gate("Sam");
     let ann = Viewer::gate("Ann");
 
     // Ann may not change Sam's bot; Sam may, with a model of his choice.
     assert!(matches!(
-        hub.set_engine("notes", EngineKind::OpenRouter, None, &ann)
-            .await,
+        hub.set_engine(
+            "notes",
+            EngineKind::Codex,
+            Some(testing::MODEL.into()),
+            &ann
+        )
+        .await,
         Err(HubError::UnknownBot(_) | HubError::NotAllowed(_))
     ));
     hub.set_engine(
         "notes",
-        EngineKind::OpenRouter,
+        EngineKind::Codex,
         Some(testing::MODEL.into()),
         &sam,
     )
     .await
     .unwrap();
     let bot = hub.bot("notes").unwrap();
-    assert_eq!(bot.engine, EngineKind::OpenRouter);
     assert_eq!(bot.loop_settings.model.as_deref(), Some(testing::MODEL));
-    let file = std::fs::read_to_string(bots.join("notes/bot.toml")).unwrap();
-    assert!(file.contains("engine = \"openrouter\""), "{file}");
-    // Back to Codex: refused while Codex isn't here, and the model stays.
-    let err = hub
-        .set_engine("notes", EngineKind::Codex, None, &owner)
+    let file = std::fs::read_to_string(tmp.path().join("bots/notes/bot.toml")).unwrap();
+    assert!(file.contains("engine = \"codex\""), "{file}");
+    // Back to Auto.
+    hub.set_engine("notes", EngineKind::Codex, Some(String::new()), &owner)
         .await
-        .unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "The AI helper isn't set up on the home computer."
-    );
-    assert_eq!(hub.bot("notes").unwrap().engine, EngineKind::OpenRouter);
-    // Herders' engines are fixed.
+        .unwrap();
+    assert_eq!(hub.bot("notes").unwrap().loop_settings.model, None);
+    // A Herder's is the owner's to set.
     let err = hub
-        .set_engine("assistant", EngineKind::OpenRouter, None, &owner)
+        .set_engine("assistant", EngineKind::Codex, None, &owner)
         .await
         .unwrap_err();
     assert_eq!(
@@ -282,30 +298,24 @@ async fn whoever_manages_a_bot_switches_its_engine_but_never_a_herders() {
 #[tokio::test]
 async fn a_message_waiting_for_a_slot_is_checked_again() {
     let tmp = tempfile::tempdir().unwrap();
-    let bots = tmp.path().join("bots");
-    let all = testing::bots(&bots, &["busy", "scout"], &On::Loop);
-    // The first request never answers, so "busy" holds the only slot.
-    let model = Arc::new(ScriptedModel::new().then(Step::Hang));
-    let config = HubConfig {
-        openrouter: Some(LoopParts {
-            free_per_minute: 1000,
-            ..LoopParts::new(Arc::clone(&model) as _, None, None)
-        }),
-        max_concurrent_turns: 1,
-        ..HubConfig::new(&bots)
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
     };
-    let hub = Hub::new(
-        all,
-        Store::open(&tmp.path().join("oxbot.db")).unwrap(),
-        config,
-    );
-    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    // "busy" waits on its approval request, holding the only slot.
+    let hub = hub_with(tmp.path(), &["busy", "scout"], Tool::Upload, &codex, |c| {
+        c.max_concurrent_turns = 1;
+        c.approval_timeout = Duration::from_secs(30);
+    })
+    .await;
     hub.farm_person("Jay").unwrap();
     let owner = hub.farm_viewer("Jay");
-    hub.send_as("busy", "take your time", &owner).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while model.requests().is_empty() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
+    let mut updates = hub.subscribe();
+    hub.send_as("busy", "upload my CV", &owner).await.unwrap();
+    let card = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if let ServerMsg::ApprovalNeeded(a) = updates.recv().await.unwrap() {
+                return a;
+            }
         }
     })
     .await
@@ -320,27 +330,23 @@ async fn a_message_waiting_for_a_slot_is_checked_again() {
     assert!(!waiting.is_finished(), "it waits for the only slot");
     // …while the owner deletes Scout, then the slot frees up.
     hub.delete_bot("scout", &owner).await.unwrap();
-    hub.cancel("busy").await.unwrap();
+    assert!(hub.answer(card.id, Answer::Deny));
 
-    let err = tokio::time::timeout(Duration::from_secs(10), waiting)
+    let err = tokio::time::timeout(Duration::from_secs(20), waiting)
         .await
         .unwrap()
         .unwrap()
         .unwrap_err();
     assert!(matches!(err, HubError::UnknownBot(_)), "{err}");
-    assert_eq!(
-        model.requests().len(),
-        1,
-        "no model request for Sam's message"
-    );
     hub.shutdown().await;
 }
 
-/// A data folder as an oxbot from before Claude left it leaves one: a
-/// shared bot on Claude (no engine in its file, a Claude model), one that
-/// says `claude`, a bot on `OpenRouter`, the Farm's Herder and a person's
-/// own Herder (whose files name no engine), Claude sessions saved for
-/// them, a chat each, and an alert for Claude's 5-hour window.
+/// A data folder as an oxbot from before Codex was the only engine leaves
+/// one: a shared bot on Claude (no engine in its file, a Claude model),
+/// one that says `claude`, a bot on oxbot's own loop (`openrouter`, with
+/// a loop session), the Farm's Herder and a person's own Herder (whose
+/// files name no engine), Claude sessions saved for them, a chat each,
+/// and an alert for Claude's 5-hour window.
 fn pre_upgrade_folder(dir: &Path) -> std::path::PathBuf {
     let bots = dir.join("bots");
     for (id, file) in [
@@ -355,7 +361,7 @@ fn pre_upgrade_folder(dir: &Path) -> std::path::PathBuf {
         ),
         (
             "scout",
-            "name = \"Scout\"\nengine = \"openrouter\"\ncreated_by = \"Jay\"\n",
+            "name = \"Scout\"\nengine = \"openrouter\"\ncreated_by = \"Jay\"\n\n[openrouter]\nmodel = \"m:free\"\n",
         ),
         (
             "assistant--ann-1a2b3c",
@@ -368,32 +374,44 @@ fn pre_upgrade_folder(dir: &Path) -> std::path::PathBuf {
     let db = dir.join("oxbot.db");
     Store::open_at_version(&db, 21).unwrap();
     let conn = rusqlite::Connection::open(&db).unwrap();
-    for (i, id) in ["assistant", "recipes", "journal"].iter().enumerate() {
+    for (i, (id, engine)) in [
+        ("assistant", "claude"),
+        ("recipes", "claude"),
+        ("journal", "claude"),
+        ("scout", "openrouter"),
+    ]
+    .iter()
+    .enumerate()
+    {
         conn.execute(
             "INSERT INTO sessions (bot, claude_session, prompt, updated_ms, engine)
-             VALUES (?1, ?2, 'old prompt', 1, 'claude')",
-            rusqlite::params![id, format!("claude-session-{i}")],
+             VALUES (?1, ?2, 'old prompt', 1, ?3)",
+            rusqlite::params![id, format!("old-session-{i}"), engine],
         )
         .unwrap();
         conn.execute(
             "INSERT INTO events (bot, seq, ts_ms, body) VALUES (?1, 1, 1, ?2)",
             rusqlite::params![
                 id,
-                r#"{"kind":"assistant_message","text":"an answer from Claude"}"#
+                r#"{"kind":"assistant_message","text":"an earlier answer"}"#
             ],
         )
         .unwrap();
     }
     conn.execute_batch(
         "INSERT INTO limit_alerts (name, resets_at_ms, level, used, alerted_ms)
-         VALUES ('five_hour', 9999999999999, 80, 0.85, 1);",
+         VALUES ('five_hour', 9999999999999, 80, 0.85, 1);
+         INSERT INTO loop_sessions (id, bot, prompt_hash, created_ms) VALUES ('old-session-3', 'scout', 'h', 1);
+         INSERT INTO loop_turns (session, turn, bot, user_seq, origin, question, status, started_ms, updated_ms)
+         VALUES ('old-session-3', 0, 'scout', 1, '{}', 'compare the lamps', 'running', 1, 1);",
     )
     .unwrap();
     bots
 }
 
 #[tokio::test]
-async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() {
+#[allow(clippy::too_many_lines, reason = "one upgrade, as a person sees it")]
+async fn bots_from_retired_engines_move_to_codex_once_and_keep_their_chats() {
     let tmp = tempfile::tempdir().unwrap();
     let bots = pre_upgrade_folder(tmp.path());
     // As the app starts: the Assistant's file is brought up to date (its
@@ -429,35 +447,63 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
         "Herder is the Assistant now"
     );
     assert!(file("assistant--ann-1a2b3c").contains("engine = \"codex\""));
+    let scout = file("scout");
     assert!(
-        file("scout").contains("engine = \"openrouter\""),
-        "untouched"
+        scout.contains("engine = \"codex\"") && scout.contains("model = \"m:free\""),
+        "the loop's bot keeps its model: {scout}"
     );
 
-    // Each chat that ran on Claude keeps its history and gets one line.
-    let note = |hub: &Hub, id: &str| {
+    // Each chat keeps its history and gets one line: Claude's or the loop's.
+    let note = |hub: &Hub, id: &str, line: &str| {
         hub.history(id, 0)
             .unwrap()
             .into_iter()
-            .filter(|e| matches!(&e.kind, EventKind::Note { text } if text == MOVED_FROM_CLAUDE))
+            .filter(|e| matches!(&e.kind, EventKind::Note { text } if text == line))
             .count()
     };
-    for id in ["assistant", "recipes", "journal"] {
+    for (id, line) in [
+        ("assistant", MOVED_FROM_CLAUDE),
+        ("recipes", MOVED_FROM_CLAUDE),
+        ("journal", MOVED_FROM_CLAUDE),
+        ("scout", MOVED_FROM_LOOP),
+    ] {
         let history = hub.history(id, 0).unwrap();
         assert!(
-            matches!(&history[0].kind, EventKind::AssistantMessage { text } if text == "an answer from Claude"),
+            matches!(&history[0].kind, EventKind::AssistantMessage { text } if text == "an earlier answer"),
             "{id}: {history:?}"
         );
-        assert_eq!(note(&hub, id), 1, "{id}");
+        assert_eq!(note(&hub, id, line), 1, "{id}");
+        assert_eq!(history.len(), 2, "{id}: one line, nothing else");
     }
-    assert_eq!(note(&hub, "scout"), 0, "it never ran on Claude");
-    assert_eq!(note(&hub, "assistant--ann-1a2b3c"), 0, "it ran on the loop");
+    assert_eq!(
+        note(&hub, "assistant--ann-1a2b3c", MOVED_FROM_LOOP),
+        1,
+        "a person's own Herder ran on the loop"
+    );
     assert_eq!(
         MOVED_FROM_CLAUDE,
         "This bot now uses free and paid AI models through your OpenRouter account. Its old \
          Claude sessions can't be continued."
     );
-    for id in ["assistant", "recipes", "journal", "assistant--ann-1a2b3c"] {
+    assert_eq!(
+        MOVED_FROM_LOOP,
+        "This bot now uses free and paid AI models through your OpenRouter account, in a new way. \
+         It starts a new conversation: a task it was in the middle of can't be continued, so \
+         send it again if you still need it."
+    );
+    for line in [MOVED_FROM_CLAUDE, MOVED_FROM_LOOP] {
+        assert!(
+            !line.contains("Codex") && !line.contains("loop"),
+            "plain words"
+        );
+    }
+    for id in [
+        "assistant",
+        "recipes",
+        "journal",
+        "scout",
+        "assistant--ann-1a2b3c",
+    ] {
         assert_eq!(hub.engine_of_bot(id), Some(EngineKind::Codex), "{id}");
     }
     let list = hub.bots().await.unwrap();
@@ -467,6 +513,12 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
         recipes.model, None,
         "Claude's model isn't an OpenRouter model"
     );
+    // The loop's turn that was running never goes on.
+    let status: String = rusqlite::Connection::open(tmp.path().join("oxbot.db"))
+        .unwrap()
+        .query_row("SELECT status FROM loop_turns", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(status, "stopped");
 
     // With no OpenRouter sign-in yet, they say so rather than fail later.
     let err = hub
@@ -483,46 +535,61 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
     drop(hub);
 
     // Started again: no second line, and the files stay as they are.
-    let before = file("recipes");
+    let (before, scout_before) = (file("recipes"), file("scout"));
     let hub = start();
-    for id in ["assistant", "recipes", "journal"] {
-        assert_eq!(note(&hub, id), 1, "{id}: told once");
+    for (id, line) in [("recipes", MOVED_FROM_CLAUDE), ("scout", MOVED_FROM_LOOP)] {
+        assert_eq!(note(&hub, id, line), 1, "{id}: told once");
     }
-    assert_eq!(file("recipes"), before);
+    assert_eq!((file("recipes"), file("scout")), (before, scout_before));
     hub.shutdown().await;
 }
 
 #[tokio::test]
-async fn a_bot_moved_from_claude_starts_a_new_session_on_its_engine() {
+async fn a_moved_bot_starts_a_new_session_on_codex() {
     let tmp = tempfile::tempdir().unwrap();
+    let Some(codex) = testing::codex(tmp.path()).await else {
+        return;
+    };
     let bots = pre_upgrade_folder(tmp.path());
     let fake = Arc::new(FakeBots {
         no_page: true,
         ..FakeBots::new(&bots, Tool::None)
     });
-    // Its file says Codex now; here every bot runs on the loop (no codex).
-    let config = testing::config(&bots, &tmp.path().join("home"), &fake, &On::Loop);
+    let config = testing::config(&bots, &tmp.path().join("home"), &fake, Some(&codex));
     let hub = Hub::new(
         oxbot_core::bot::load_all(&bots).unwrap(),
         Store::open(&tmp.path().join("oxbot.db")).unwrap(),
         config,
     );
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     hub.farm_person("Jay").unwrap();
     let mut updates = hub.subscribe();
-    hub.send_as("recipes", "hi", &hub.farm_viewer("Jay"))
-        .await
-        .unwrap();
-    turn_done(&mut updates, "recipes").await;
     let store = Store::open(&tmp.path().join("oxbot.db")).unwrap();
-    let recipes = BotId::new("recipes").unwrap();
-    let session = store.session(&recipes).unwrap().unwrap();
-    assert_ne!(
-        session.id, "claude-session-1",
-        "Claude's session isn't resumed"
-    );
-    let history = hub.history("recipes", 0).unwrap();
-    assert!(matches!(&history[1].kind, EventKind::Note { .. }));
-    assert!(matches!(&history[2].kind, EventKind::UserMessage { text, .. } if text == "hi"));
+    for (id, old) in [("recipes", "old-session-1"), ("scout", "old-session-3")] {
+        hub.send_as(id, "hi", &hub.farm_viewer("Jay"))
+            .await
+            .unwrap();
+        turn_done(&mut updates, id).await;
+        let bot = BotId::new(id).unwrap();
+        let session = store.session(&bot).unwrap().unwrap();
+        assert_ne!(session.id, old, "{id}: the old session isn't resumed");
+        assert_eq!(
+            store.session_engine(&bot).unwrap().as_deref(),
+            Some("codex")
+        );
+        let history = hub.history(id, 0).unwrap();
+        assert!(matches!(&history[1].kind, EventKind::Note { .. }), "{id}");
+        assert!(
+            matches!(&history[2].kind, EventKind::UserMessage { text, .. } if text == "hi"),
+            "{id}"
+        );
+        assert!(
+            history
+                .iter()
+                .any(|e| matches!(&e.kind, EventKind::AssistantMessage { text } if text == "ok")),
+            "{id}: it answers: {history:?}"
+        );
+    }
     hub.shutdown().await;
 }

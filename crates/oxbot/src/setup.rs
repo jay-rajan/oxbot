@@ -1,7 +1,7 @@
 //! What oxbot needs on the Mac, and where to find it.
 //!
-//! Bots run on Codex CLI (`codex app-server`, installed separately) or
-//! oxbot's own loop, both on `OpenRouter`'s models.
+//! Bots run on Codex CLI (`codex app-server`, installed separately), on
+//! `OpenRouter`'s models.
 //!
 //! An app opened from Finder gets a bare `PATH` (`/usr/bin:/bin:…`), so
 //! programs installed by Homebrew or nvm aren't found. [`search_path`]

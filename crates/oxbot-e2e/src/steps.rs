@@ -256,8 +256,8 @@ async fn page_step(driver: &mut Driver, server: &Server, step: &Step) -> anyhow:
     Ok(())
 }
 
-/// The steps for bots on oxbot's own loop: following a link (the sign-in
-/// page) and checking what the stand-in `OpenRouter` was asked.
+/// The steps with the stand-ins: following a link (the sign-in page) and
+/// checking what the stand-in `OpenRouter` was asked.
 async fn loop_steps(driver: &mut Driver, server: &Server, step: &Step) -> anyhow::Result<()> {
     if let Some(text) = &step.follow {
         follow(driver, text).await?;

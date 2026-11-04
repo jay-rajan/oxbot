@@ -16,10 +16,10 @@ use serde_json::{Value, json};
 
 use super::pages::{PageTracker, ParsedPage};
 use crate::budget::{TokenBudget, est};
-use crate::compact::ModelCaller;
 use crate::page::{FindQuery, Snapshot};
 use crate::results::{NewResult, ResultStore};
 use crate::rows::{Dataset, Query};
+use crate::runner::ModelCaller;
 use crate::store::ResultKind;
 
 /// The name models call `find_in_page` by.

@@ -1,26 +1,25 @@
-//! oxbot's own agent loop: the engine behind `OpenRouter` bots.
+//! What Codex bots share with oxbot: the tools, the gate and the model
+//! requests, from what was oxbot's own agent loop (retired as an engine).
 //!
-//! A turn runs one step at a time: pick a model ([`router`]), build the
-//! context for its window ([`context`]: a stable prefix, a frozen header,
-//! old results cleared to stubs, summaries by the [`compact`]or when it's
-//! still too long), wait for the household's request budget ([`pacer`]),
-//! stream the answer, then run each tool call it asked for, but only after
-//! oxbot's gate said yes ([`gate`]). Big results and every page snapshot
-//! are stored ([`results`]) and shown small: a page as its trimmed tree, a
-//! map ([`page`]) or what changed. Every step is saved ([`store`]) so a
-//! turn picks up where it left off after a restart, and every model
-//! request is metered ([`meter`]).
+//! - [`service::ToolService`]: a Codex session's tools: the browser, page
+//!   tools ([`page`]: maps, find, sections, rows, `ask_page`), files, and
+//!   stored results ([`results`]), each asked of oxbot's gate first
+//!   ([`gate`]).
+//! - [`gateway::Gateway`]: every model request the relay sends: routing
+//!   ([`router`]), the household's request budget ([`pacer`]), retries,
+//!   limits and the meter ([`meter`]).
+//! - [`check`]: the answer check and the wrap-up nudge; [`numbers`]: what
+//!   an answer says that nothing read had.
+//! - [`store`]: where results, requests and checks are saved.
 //!
-//! The loop never decides what a tool may do: the hub does, through
-//! [`oxbot_engine::EngineEvent::Permission`], with the same policy for
-//! every engine. The Codex engine runs these same tools through
-//! [`ToolService`], so the hub reads both engines the same way.
+//! The tools never decide what they may do: the hub does, through
+//! [`oxbot_engine::EngineEvent::Permission`].
 
 // Product names (OpenRouter, Codex) read better in docs without backticks.
 #![allow(clippy::doc_markdown)]
 
 pub mod budget;
-pub mod compact;
+pub mod check;
 pub mod context;
 pub mod gate;
 pub mod gateway;
@@ -33,37 +32,29 @@ pub mod router;
 pub mod rows;
 mod runner;
 pub mod service;
-mod session;
 pub mod store;
 pub mod tools;
-mod turn;
 
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
-use futures_util::future::BoxFuture;
-use oxbot_engine::{
-    CallKind, Engine, EngineError, EngineKind, ModelChoice, NotReady, Privacy, SessionSpec, Started,
-};
-use oxbot_llm::{ChatModel, KeyCell, Message};
+use oxbot_engine::{NotReady, SessionSpec};
+use oxbot_llm::{ChatModel, KeyCell};
 
-pub use compact::{COMPACT_V2, Compaction, Compactor, ModelCaller, SummaryCompactor};
-pub use context::{
-    Built, ContextBuilder, LastCall, Pressure, TaskView, TokenBudget, WindowedContext,
-};
+pub use budget::TokenBudget;
+pub use check::{CHECK_AFTER_CALLS, MAX_NAMED, note as check_note, wrap_up_note};
 pub use meter::{GuardQuery, LimitHit, NoLimits, UsageGuard};
 pub use pacer::{Account, Lane, Pacer};
 pub use router::{CatalogCache, Router};
-pub use runner::Stop;
+pub use runner::{ModelCaller, Stop};
 pub use service::{CallCtx, Dispatched, Failures, OwnTools, RepeatGuard, ToolService, TurnHooks};
-pub use store::{LoopStore, LoopStoreError, StoredMessage, TurnRow, TurnStatus};
+pub use store::{LoopStore, LoopStoreError};
 pub use tools::browser::{BrowserFactory, BrowserOutput, BrowserTools};
 pub use tools::mcp::McpBrowserFactory;
 pub use tools::page::ASK_PAGE_V1;
 pub use tools::{ToolOutcome, ToolRegistry};
-pub use turn::{CHECK_AFTER_CALLS, MAX_NAMED, check_note, wrap_up_note};
 
-/// Household settings for the loop, changed by the owner.
+/// Household settings for bots' model requests, changed by the owner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoopPrefs {
     /// Paid models may answer after every free one failed.
@@ -95,49 +86,16 @@ impl Default for LoopPrefs {
     }
 }
 
-/// What a knowledge source is asked at the start of a turn.
-#[derive(Debug, Clone, Copy)]
-pub struct KnowledgeQuery<'a> {
-    /// The bot.
-    pub bot: &'a str,
-    /// The person the turn acts for.
-    pub person: Option<&'a str>,
-    /// The message.
-    pub text: &'a str,
-    /// Sites the session is on.
-    pub sites: &'a [String],
-    /// Most tokens the block may take.
-    pub budget_tokens: u32,
-}
-
-/// What the bot knows that matters for a turn: one ready, escaped block.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct KnowledgeBlock {
-    /// The block, as the model gets it.
-    pub text: String,
-    /// The items in it.
-    pub ids: Vec<String>,
-    /// Whether any of it came from outside text.
-    pub untrusted: bool,
-}
-
-/// What a bot knows (#20 implements it).
-pub trait KnowledgeSource: Send + Sync {
-    /// The block for a turn.
-    fn for_turn(&self, query: &KnowledgeQuery<'_>) -> KnowledgeBlock;
-    /// The items a turn was given.
-    fn used(&self, ids: &[String], session: &str, turn: u32);
-}
-
-/// Everything the loop engine runs with. The host builds it once.
+/// Everything Codex bots' tools and requests run with. The host builds
+/// it once.
 pub struct LoopSetup {
     /// The chat model (OpenRouter's client; a scripted model in tests).
     pub model: Arc<dyn ChatModel>,
-    /// A helper model for compaction and reflection, if the owner set one.
+    /// A helper model for page questions, if the owner set one.
     pub helper: Option<Arc<dyn ChatModel>>,
     /// The model list.
     pub catalog: Arc<CatalogCache>,
-    /// Where turns, messages and requests are saved.
+    /// Where results, requests and checks are saved.
     pub store: Arc<dyn LoopStore>,
     /// The host's limits.
     pub guard: Arc<dyn UsageGuard>,
@@ -145,8 +103,6 @@ pub struct LoopSetup {
     pub pacer: Arc<Pacer>,
     /// Household settings.
     pub prefs: Arc<RwLock<LoopPrefs>>,
-    /// What bots know (#20).
-    pub knowledge: Option<Arc<dyn KnowledgeSource>>,
     /// Makes each session's browser tool.
     pub browser: Option<Arc<dyn BrowserFactory>>,
     /// Browser tools models may use (their own names).
@@ -154,10 +110,6 @@ pub struct LoopSetup {
     /// The OpenRouter key: the engine is ready while it's set. `None`:
     /// always ready (no key needed).
     pub key: Option<KeyCell>,
-    /// Builds what the model is sent.
-    pub context: Arc<dyn ContextBuilder>,
-    /// Makes room when it's too long.
-    pub compactor: Arc<dyn Compactor>,
     /// How strict an element label is (higher: more care before a click),
     /// the gate's own measure. A page snapshot naming one uid twice keeps
     /// the strictest label.
@@ -169,7 +121,7 @@ pub type Strictness = dyn Fn(&str) -> u8 + Send + Sync;
 
 impl LoopSetup {
     /// A setup with `model` and `store`, a fresh pacer, an empty model
-    /// list, no limits, no browser, and the windowed context.
+    /// list, no limits and no browser.
     #[must_use]
     pub fn new(model: Arc<dyn ChatModel>, store: Arc<dyn LoopStore>) -> Self {
         Self {
@@ -180,12 +132,9 @@ impl LoopSetup {
             guard: Arc::new(NoLimits),
             pacer: Pacer::new(None),
             prefs: Arc::new(RwLock::new(LoopPrefs::default())),
-            knowledge: None,
             browser: None,
             browser_allow: Vec::new(),
             key: None,
-            context: Arc::new(WindowedContext),
-            compactor: Arc::new(SummaryCompactor),
             strictness: Arc::new(|_: &str| 0),
         }
     }
@@ -230,15 +179,15 @@ impl DataPolicyFlag {
     }
 }
 
-/// What the engine shares between its sessions.
+/// What Codex sessions share.
 pub(crate) struct Shared {
     pub setup: LoopSetup,
     pub router: Router,
-    pub calibration: budget::Calibration,
     pub data_policy: DataPolicyFlag,
 }
 
-/// The loop engine. One per hub.
+/// What every Codex bot runs with: the tools, gate, routing, pacer and
+/// meter. One per hub. (Its name is from when it was oxbot's own engine.)
 pub struct LoopEngine {
     shared: Arc<Shared>,
 }
@@ -251,27 +200,8 @@ impl fmt::Debug for LoopEngine {
     }
 }
 
-/// One model request outside any session (reflection, judging).
-#[derive(Debug, Clone)]
-pub struct OneShot {
-    /// The bot it's for (its limits and meter).
-    pub bot: String,
-    /// The person it acts for.
-    pub person: Option<String>,
-    /// The bot's privacy (provider rules).
-    pub privacy: Privacy,
-    /// What it's for.
-    pub kind: CallKind,
-    /// Which model.
-    pub model: ModelChoice,
-    /// The messages (system first).
-    pub messages: Vec<Message>,
-    /// Longest answer.
-    pub max_tokens: u32,
-}
-
 impl LoopEngine {
-    /// An engine running with `setup`.
+    /// The host for `setup`.
     #[must_use]
     pub fn new(setup: LoopSetup) -> Self {
         let router = Router::new(
@@ -279,27 +209,24 @@ impl LoopEngine {
             Arc::clone(&setup.store),
             Arc::clone(&setup.prefs),
         );
-        let calibration = budget::Calibration::load(setup.store.as_ref());
         Self {
             shared: Arc::new(Shared {
                 setup,
                 router,
-                calibration,
                 data_policy: DataPolicyFlag::default(),
             }),
         }
     }
 
-    /// The loop's routing, limits, pacer and meter, for engines that send
-    /// their own requests (Codex, through oxbot's relay).
+    /// The routing, limits, pacer and meter for Codex's requests (through
+    /// oxbot's relay).
     #[must_use]
     pub fn gateway(&self) -> gateway::Gateway {
         gateway::Gateway::new(Arc::clone(&self.shared))
     }
 
-    /// A session's tools for another engine (Codex): the same tools,
-    /// gate, stored results and page tools as the loop's, asking the gate
-    /// and sending results through `events`.
+    /// A Codex session's tools: oxbot's tools, gate, stored results and
+    /// page tools, asking the gate and sending results through `events`.
     pub async fn open_tools(
         &self,
         spec: &SessionSpec,
@@ -309,8 +236,7 @@ impl LoopEngine {
         ToolService::open(Arc::clone(&self.shared), spec, events, own).await
     }
 
-    /// Records how a turn's final answer was checked (`loop_checks`), for
-    /// engines that check answers the loop's way.
+    /// Records how a turn's final answer was checked (`loop_checks`).
     ///
     /// # Errors
     /// The store failed.
@@ -353,46 +279,12 @@ impl LoopEngine {
         Arc::clone(&self.shared.setup.pacer)
     }
 
-    /// Turns still marked running, as the store has them.
+    /// Whether bots can use models now: the OpenRouter key is set (and
+    /// not still being read from the Keychain).
     ///
     /// # Errors
-    /// The store failed.
-    pub fn running_turns(&self) -> Result<Vec<TurnRow>, LoopStoreError> {
-        self.shared.setup.store.running_turns()
-    }
-
-    /// Ends a turn that won't be picked up again.
-    ///
-    /// # Errors
-    /// The store failed.
-    pub fn end_turn(
-        &self,
-        session: &str,
-        turn: u32,
-        status: TurnStatus,
-    ) -> Result<(), LoopStoreError> {
-        self.shared.setup.store.end_turn(session, turn, status)
-    }
-
-    /// Sends one request outside any session, routed, paced and metered
-    /// like every other, with `req.privacy`'s provider rules. Returns the
-    /// answer's text.
-    pub fn one_shot(&self, req: OneShot) -> BoxFuture<'_, Result<String, EngineError>> {
-        Box::pin(async move {
-            self.ready()?;
-            runner::one_shot(&self.shared, req)
-                .await
-                .map_err(EngineError::Other)
-        })
-    }
-}
-
-impl Engine for LoopEngine {
-    fn kind(&self) -> EngineKind {
-        EngineKind::OpenRouter
-    }
-
-    fn ready(&self) -> Result<(), NotReady> {
+    /// [`NotReady`] with what's missing, in words for the person.
+    pub fn ready(&self) -> Result<(), NotReady> {
         match &self.shared.setup.key {
             Some(key) if key.is_loading() => Err(NotReady(oxbot_llm::KEYCHAIN_WAITING.to_owned())),
             Some(key) if !key.is_set() => Err(NotReady(
@@ -403,32 +295,4 @@ impl Engine for LoopEngine {
             _ => Ok(()),
         }
     }
-
-    fn start(&self, spec: SessionSpec) -> BoxFuture<'_, Result<Started, EngineError>> {
-        Box::pin(async move {
-            self.ready()?;
-            session::start(Arc::clone(&self.shared), spec).await
-        })
-    }
 }
-
-/// SHA-256 (hex) of the stable prefix: the system prompt and the tools in
-/// their order.
-#[must_use]
-pub fn prefix_hash(system: &str, tools: &[oxbot_llm::ToolSpec]) -> String {
-    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
-    ctx.update(system.as_bytes());
-    ctx.update(b"\n");
-    ctx.update(serde_json::to_string(tools).unwrap_or_default().as_bytes());
-    ctx.finish()
-        .as_ref()
-        .iter()
-        .fold(String::with_capacity(64), |mut s, b| {
-            use std::fmt::Write as _;
-            let _ = write!(s, "{b:02x}");
-            s
-        })
-}
-
-#[cfg(test)]
-mod tests;

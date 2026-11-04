@@ -8,11 +8,26 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use oxbot::door::{Door, Probe};
 use oxbot::server::{self, AppState};
-use oxbot_core::testing::{self, FakeBots, On, Tool};
+use oxbot_core::testing::{self, FakeBots, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, Store};
 use oxbot_gate::{GateError, PairLink, Paired};
 use oxbot_protocol::{ClientMsg, DoorNetwork, EventKind, ServerMsg};
 use tokio_tungstenite::tungstenite::Message;
+
+/// The `codex` program bots run on, if this Mac has Codex 0.148 (found
+/// once). Without it bots can't take turns: a test that needs one says
+/// why and returns.
+async fn codex() -> Option<&'static std::path::Path> {
+    static CODEX: tokio::sync::OnceCell<Option<std::path::PathBuf>> =
+        tokio::sync::OnceCell::const_new();
+    CODEX
+        .get_or_init(|| async {
+            let probe = std::env::temp_dir().join(format!("oxbot-tests-{}", std::process::id()));
+            testing::codex(&probe).await
+        })
+        .await
+        .as_deref()
+}
 
 type Local =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -56,10 +71,11 @@ async fn farm_with(allow: bool, port: u16) -> Farm {
         Store::open_in_memory().unwrap(),
         HubConfig {
             browser: None,
-            ..testing::config(dir.path(), &dir.path().join(".home"), &fake, &On::Loop)
+            ..testing::config(dir.path(), &dir.path().join(".home"), &fake, codex().await)
         },
     );
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
     let on: Network = Arc::new(Mutex::new(network("home")));
     let probe: Probe = {
         let on = Arc::clone(&on);
@@ -491,6 +507,9 @@ async fn a_phone_is_paired_for_a_person_by_a_safe_name() {
 
 #[tokio::test]
 async fn each_person_talks_to_their_own_herder() {
+    if codex().await.is_none() {
+        return;
+    }
     let mut farm = farm().await;
     let ann = paired(&mut farm, "Ann").await;
     let (_, mut phone) = oxbot_gate::connect(&ann).await.unwrap();
@@ -546,6 +565,9 @@ async fn each_person_talks_to_their_own_herder() {
 
 #[tokio::test]
 async fn opening_a_bot_is_checked_like_subscribing() {
+    if codex().await.is_none() {
+        return;
+    }
     let mut farm = farm().await;
     let ann = paired(&mut farm, "Ann").await;
     let (_, mut phone) = oxbot_gate::connect(&ann).await.unwrap();

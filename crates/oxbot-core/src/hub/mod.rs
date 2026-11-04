@@ -49,7 +49,7 @@ pub use approvals::answers;
 pub use codex::CodexParts;
 pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::ENGINES_NOTICE;
-pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE};
+pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
@@ -120,12 +120,6 @@ pub struct HubConfig {
     /// files (`cases/`) live here. Defaults to a folder inside `bots_dir`
     /// that isn't a bot; the app gives its data folder.
     pub data_dir: PathBuf,
-    /// Tests only (`test-people`): every bot runs on this engine, whatever
-    /// its file says (Herders too), so the hub's rules can be tested on
-    /// oxbot's loop without the `codex` program. Never in a normal build:
-    /// there the field doesn't exist, and Herders and new bots run on Codex.
-    #[cfg(any(test, feature = "test-people"))]
-    pub engines_on: Option<EngineKind>,
     /// Tests only (`test-people`): practice runs may use browser tools
     /// without a guarded Chrome (tests have no Chrome). Never in a normal
     /// build: there a practice run browses only behind its network guard.
@@ -156,8 +150,6 @@ impl HubConfig {
             codex: None,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
-            #[cfg(any(test, feature = "test-people"))]
-            engines_on: None,
             #[cfg(any(test, feature = "test-people"))]
             trials_without_guard: false,
         }
@@ -240,9 +232,6 @@ struct Runtime {
     /// title and when), kept with the session: a report may cite only
     /// these (see [`reports`]).
     visited: BTreeMap<String, crate::report::Visit>,
-    /// A turn that was running when oxbot stopped, which this session can
-    /// go on with (loop engine).
-    resumed: Option<crate::engine::ResumedTurn>,
     /// This turn's model requests so far: count, money, and the last model
     /// that answered.
     meter: looped::TurnMeter,

@@ -324,7 +324,7 @@ pub const LOOP_CONTEXT_TOOLS: [&str; 8] = [
     "query_rows",
 ];
 
-/// The browser tools oxbot's own loop offers models (their own names). None
+/// The browser tools oxbot offers models (their own names). None
 /// is one [`decide`] always refuses; scripts, network and console tools
 /// are left out, and fewer tools help small models.
 pub const LOOP_BROWSER_TOOLS: [&str; 17] = [
@@ -350,7 +350,7 @@ pub const LOOP_BROWSER_TOOLS: [&str; 17] = [
 /// The file tools, as models know them.
 const FILE_TOOLS: [&str; 5] = ["Read", "Write", "Edit", "Glob", "Grep"];
 
-/// The rule for file tools, shared by both engines: a file tool
+/// The rule for file tools: a file tool
 /// whose every path (`file_path`, `path`; no `path` means the folder
 /// itself; relative paths are inside `work_dir`) is inside `work_dir`,
 /// as written and after following links, runs without asking. Anything
@@ -1075,7 +1075,7 @@ fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
 }
 
 // ---------------------------------------------------------------------------
-// Practice runs (#21): one overlay on the live verdict, for both engines.
+// Practice runs (#21): one overlay on the live verdict.
 // ---------------------------------------------------------------------------
 
 /// How strict a practice run's network guard is, per test case.
@@ -1192,7 +1192,7 @@ pub struct TrialCall<'a> {
 }
 
 /// How a practice run treats a tool call whose live verdict is `verdict`.
-/// Both engines use it, through the hub's gate:
+/// The hub's gate uses it:
 ///
 /// - refused live: refused (and counted);
 /// - a card live: recorded, never shown, whatever "Always allow" rules say;

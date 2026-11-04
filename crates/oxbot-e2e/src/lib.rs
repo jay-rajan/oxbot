@@ -4,7 +4,7 @@
 //! - [`pick`]: which tests a change needs, and why.
 //! - [`script`]: the stand-ins' reply scripts (`e2e/scripts/`).
 //! - [`fake_openrouter`], [`fake_devtools`]: stand-ins for `OpenRouter` and
-//!   the browser tool, for bots on oxbot's own loop.
+//!   the browser tool.
 //! - [`pages`]: big fake pages for the scripts.
 //! - [`canary`]: checks a run never wrote the stand-in's key anywhere.
 //! - [`seed`]: a throwaway oxbot home made from `e2e/seed/`.

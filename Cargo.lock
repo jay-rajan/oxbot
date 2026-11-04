@@ -3348,7 +3348,6 @@ dependencies = [
  "oxbot-llm",
  "oxbot-loop",
  "regex",
- "ring",
  "rmcp",
  "serde",
  "serde_json",

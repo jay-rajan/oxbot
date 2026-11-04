@@ -30,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::budget::{TokenBudget, est};
 use crate::context::state::{EntryKind, EntryMeta};
-use crate::context::window::{short_tool, short_url, tokens_in_words};
+use crate::context::{short_tool, short_url, tokens_in_words};
 use crate::gate::Permit;
 use crate::page::{self as snap, Baseline, Snapshot};
 use crate::results::{NewResult, ResultStore};

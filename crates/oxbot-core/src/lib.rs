@@ -13,7 +13,7 @@
 //! - [`prompt`]: the system prompt every bot gets
 //! - [`report`]: research reports: their checks and their safe HTML page
 //! - [`home`]: where all of that lives on disk
-//! - `testing` (tests only): stand-in bots on either engine
+//! - `testing` (tests only): stand-in bots on Codex
 
 pub mod attach;
 pub mod bot;

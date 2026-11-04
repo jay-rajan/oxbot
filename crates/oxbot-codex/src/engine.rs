@@ -79,7 +79,8 @@ const MAX_DROPPED_TOOLS: usize = 8;
 
 /// What the engine runs with. The host builds it once.
 pub struct CodexSetup {
-    /// The loop engine: its tools, gateway, prefs and checks.
+    /// What Codex bots share with oxbot (`oxbot-loop`): tools, gateway,
+    /// prefs and checks.
     pub loop_engine: Arc<LoopEngine>,
     /// oxbot's model relay.
     pub relay: Arc<Relay>,
@@ -297,7 +298,6 @@ impl CodexSession {
         Ok(Started {
             session: Box::new(Self { core, turn: None }),
             events: events_rx,
-            resumed_turn: None,
         })
     }
 }

@@ -1,6 +1,5 @@
-//! Model requests another engine makes through oxbot (Codex, through
-//! oxbot's relay): routed, limited, paced and metered exactly as the loop's
-//! own. The engine brings the request; [`Gateway::request`] picks the
+//! Model requests Codex makes through oxbot's relay: routed, limited,
+//! paced and metered. The engine brings the request; [`Gateway::request`] picks the
 //! model (the bot's pin, then the free models, best first), checks the
 //! host's limits, waits for the pacer, says which provider rules apply,
 //! and lets the engine send it. A model that is busy or rate-limited cools
@@ -145,7 +144,7 @@ pub struct Opened<T> {
     pub ticket: Ticket,
 }
 
-/// The loop's routing, limits, pacer and meter, for other engines.
+/// The routing, limits, pacer and meter every model request goes through.
 #[derive(Clone)]
 pub struct Gateway {
     shared: Arc<Shared>,
@@ -413,5 +412,205 @@ mod tests {
             gateway.window_for(&ModelChoice::Auto, false).map(|w| w.1),
             Some(70_000)
         );
+    }
+
+    /// Sends one request for `asker` whose tries fail with `errors` in
+    /// order (then answer): the tries, and how it ended.
+    async fn tries(
+        gateway: &Gateway,
+        asker: &Asker,
+        errors: Vec<LlmError>,
+    ) -> (Vec<Attempt>, Result<String, GatewayStop>) {
+        let errors = std::sync::Mutex::new(errors.into_iter());
+        let mut tried = Vec::new();
+        let mut routing = TurnRouting::default();
+        let cancel = CancellationToken::new();
+        let result = gateway
+            .request(asker, &mut routing, &cancel, |attempt| {
+                tried.push(attempt.clone());
+                let next = errors.lock().unwrap().next();
+                async move { next.map_or(Ok(attempt.model), Err) }
+            })
+            .await
+            .map(|o| o.value);
+        (tried, result)
+    }
+
+    fn shared_asker() -> Asker {
+        Asker {
+            privacy: Privacy::Standard,
+            ..asker()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_accounts_data_policy_is_explained_with_openrouters_words() {
+        let said = "No endpoints found matching your data policy (Free model training). \
+                    Configure: https://openrouter.ai/settings/privacy";
+        let store = Arc::new(MemoryLoopStore::new());
+        let engine = engine(Arc::clone(&store));
+        let gateway = engine.gateway();
+        let (tried, result) = tries(
+            &gateway,
+            &shared_asker(),
+            vec![LlmError::new(ErrorKind::DataPolicy, said)],
+        )
+        .await;
+        let Err(GatewayStop::Fail(text)) = result else {
+            panic!("{result:?}")
+        };
+        assert!(text.starts_with(crate::DATA_POLICY_HELP), "{text}");
+        assert!(text.contains("Enable free endpoints that may train on inputs"));
+        assert!(
+            text.ends_with(&format!("(OpenRouter said: \u{201c}{said}\u{201d})")),
+            "{text}"
+        );
+        assert_eq!(tried.len(), 1, "both models were ruled out at once");
+        assert_eq!(store.calls()[0].outcome, "error:data_policy");
+        assert!(engine.data_policy_blocked());
+
+        // A free model answering again clears it.
+        let (_, result) = tries(&gateway, &shared_asker(), Vec::new()).await;
+        assert!(result.is_ok());
+        assert!(!engine.data_policy_blocked());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn private_bots_never_drop_deny_and_are_told_why() {
+        let no_provider = || {
+            LlmError::new(
+                ErrorKind::NoProvider,
+                "No endpoints found matching your data policy",
+            )
+        };
+        let store = Arc::new(MemoryLoopStore::new());
+        let engine = engine(Arc::clone(&store));
+        let (tried, result) = tries(
+            &engine.gateway(),
+            &asker(),
+            vec![no_provider(), no_provider()],
+        )
+        .await;
+        for t in &tried {
+            assert!(t.provider.as_ref().unwrap().denies_data_collection());
+        }
+        // First with zero retention, then once more without it.
+        let zdr: Vec<Option<bool>> = tried
+            .iter()
+            .map(|t| t.provider.as_ref().unwrap().zdr)
+            .collect();
+        assert_eq!(zdr, [Some(true), None]);
+        let Err(GatewayStop::Fail(text)) = result else {
+            panic!("{result:?}")
+        };
+        assert!(
+            text.starts_with("This bot is private, so it may only use"),
+            "{text}"
+        );
+        assert!(text.contains("OpenRouter said"), "{text}");
+        assert!(!text.contains("busy"), "{text}");
+        assert!(store.calls().iter().all(|c| c.private));
+        assert!(
+            !engine.data_policy_blocked(),
+            "a private bot asked for it: not the account's settings"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_no_model_takes_keeps_what_the_service_said() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let engine = engine(store);
+        let (_, result) = tries(
+            &engine.gateway(),
+            &shared_asker(),
+            vec![
+                LlmError::new(
+                    ErrorKind::NoProvider,
+                    "No endpoints found that can handle the requested parameters.",
+                );
+                2
+            ],
+        )
+        .await;
+        let Err(GatewayStop::Fail(text)) = result else {
+            panic!("{result:?}")
+        };
+        assert!(
+            text.starts_with("No model can take this request right now."),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "(OpenRouter said: \u{201c}No endpoints found that can handle the requested \
+                 parameters.\u{201d})"
+            ),
+            "{text}"
+        );
+        assert!(
+            !engine.data_policy_blocked(),
+            "not the account's data policy"
+        );
+    }
+
+    #[derive(Debug)]
+    struct NoneLeft;
+
+    impl crate::UsageGuard for NoneLeft {
+        fn check(&self, q: &crate::GuardQuery<'_>) -> Result<(), crate::LimitHit> {
+            Err(crate::LimitHit(format!(
+                "{} has used its 2 AI questions for today.",
+                q.bot
+            )))
+        }
+    }
+
+    #[tokio::test]
+    async fn the_hosts_limits_stop_a_request_before_it_leaves() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let mut setup = LoopSetup::new(Arc::new(ScriptedModel::new()), store);
+        setup.catalog = Arc::new(crate::CatalogCache::new(Catalog {
+            models: vec![model("a/big:free", 200_000)],
+        }));
+        setup.guard = Arc::new(NoneLeft);
+        let (tried, result) = tries(&LoopEngine::new(setup).gateway(), &asker(), Vec::new()).await;
+        assert!(tried.is_empty(), "nothing was sent");
+        assert_eq!(
+            result.unwrap_err(),
+            GatewayStop::Fail("scout has used its 2 AI questions for today.".into())
+        );
+    }
+
+    #[test]
+    fn not_signed_in_or_still_reading_the_keychain_is_not_ready() {
+        let key = oxbot_llm::KeyCell::new();
+        let mut setup = LoopSetup::new(
+            Arc::new(ScriptedModel::new()),
+            Arc::new(MemoryLoopStore::new()),
+        );
+        setup.key = Some(key.clone());
+        let engine = LoopEngine::new(setup);
+        assert!(
+            engine
+                .ready()
+                .unwrap_err()
+                .0
+                .contains("isn't connected yet")
+        );
+        key.set(oxbot_llm::ApiKey::new("sk-or-v1-test".into()).unwrap());
+        assert!(engine.ready().is_ok());
+
+        let key = oxbot_llm::KeyCell::loading();
+        let mut setup = LoopSetup::new(
+            Arc::new(ScriptedModel::new()),
+            Arc::new(MemoryLoopStore::new()),
+        );
+        setup.key = Some(key.clone());
+        let engine = LoopEngine::new(setup);
+        assert_eq!(engine.ready().unwrap_err().0, oxbot_llm::KEYCHAIN_WAITING);
+        assert!(engine.waiting_for_keychain());
+        key.finish_loading(Some(
+            oxbot_llm::ApiKey::new("sk-or-v1-test".into()).unwrap(),
+        ));
+        assert!(engine.ready().is_ok());
     }
 }
