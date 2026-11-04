@@ -330,6 +330,11 @@ fn extract_rows(
     let mut handles: Vec<String> = Vec::new();
     for f in found.into_iter().take(MAX_DATASETS) {
         let mut data = f.data;
+        // Within the cap: one that can't even be named isn't stored.
+        let room = cap.saturating_sub(est(&out) + 60);
+        if !handles.is_empty() && est(&data.summary("d000")) > room {
+            break;
+        }
         handle.clone_into(&mut data.page);
         data.url.clone_from(&url);
         let row = env
@@ -360,7 +365,6 @@ fn extract_rows(
             );
         }
         // A block that doesn't fit is listed by its first line only.
-        let room = cap.saturating_sub(est(&out) + 60);
         if est(&block) > room {
             block = data.summary(&row.handle);
         }
@@ -370,11 +374,11 @@ fn extract_rows(
         out.push_str(&block);
         handles.push(row.handle);
     }
-    if total > MAX_DATASETS {
+    if total > handles.len() {
         let _ = write!(
             out,
             "\n\n{} more; narrow with uid or near.",
-            total - MAX_DATASETS
+            total - handles.len()
         );
     }
     let named = match handles.as_slice() {
@@ -712,6 +716,21 @@ mod tests {
             .await
             .unwrap();
         assert!(none.contains("No tables or lists"), "{none}");
+        // A small window: as many as can be named, then how many more.
+        let small = Rows::new("rows-two-tables");
+        let env = PageEnv {
+            results: &small.results,
+            pages: &small.pages,
+            strictness: &strict,
+            budget: TokenBudget::for_model(2_400, Some(512)),
+            helper: &NoHelper,
+            turn: 0,
+            step: 1,
+        };
+        let cut = run(EXTRACT_ROWS, &json!({}), &env).await.unwrap().text;
+        assert!(cut.contains("d1 · table") && !cut.contains("d2 ·"), "{cut}");
+        assert!(cut.contains("1 more; narrow with uid or near."), "{cut}");
+        assert!(small.results.get("d2").is_err(), "not named, not stored");
     }
 
     #[test]
