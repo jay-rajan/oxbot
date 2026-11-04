@@ -505,7 +505,8 @@ impl Turn {
             bounced_at: None,
             writing: false,
         };
-        let end = match turn.start_codex(&running, &input.text).await {
+        let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
+        let end = match turn.start_codex(&running, &first).await {
             Ok(()) => {
                 turn.drive(core, &running, input, cancel, &mut rx, &mut meter_rx)
                     .await
@@ -889,6 +890,17 @@ impl Turn {
             _ => decline(core, process, &id, method).await,
         }
     }
+}
+
+/// The date line at the end of each turn's message (after the person's
+/// words, like oxbot's other notes), in the Mac's own time
+/// zone, so a task's "Nov 14" means this year. Codex's own environment block
+/// stays off: it would also send the bot's folder path.
+fn date_line<Tz: chrono::TimeZone>(now: &chrono::DateTime<Tz>) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    format!("[oxbot] Today is {}.", now.format("%A, %B %-d, %Y"))
 }
 
 /// Declines what Codex asks to approve: oxbot never lets it run commands,
@@ -1283,6 +1295,18 @@ async fn start_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_turn_starts_with_the_local_date() {
+        use chrono::TimeZone;
+        let toronto = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
+        // 9 PM in Toronto is already the next day in UTC; the bot gets the local day.
+        let now = toronto.with_ymd_and_hms(2026, 11, 4, 21, 0, 0).unwrap();
+        assert_eq!(
+            date_line(&now),
+            "[oxbot] Today is Wednesday, November 4, 2026."
+        );
+    }
 
     #[test]
     fn codex_s_errors_read_in_plain_words() {

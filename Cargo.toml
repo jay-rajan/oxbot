@@ -88,6 +88,8 @@ zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 security-framework = { version = "=3.7.0", default-features = false }
 # The loop's Grep and Glob file tools (already in the build).
 regex = "=1.13.1"
+# Already built (rmcp uses it); oxbot uses only the local date.
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 # The loop's client for the browser tool (chrome-devtools-mcp) over stdio:
 # the official Rust MCP SDK, client side only (released 2026-10-05).
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-child-process"] }

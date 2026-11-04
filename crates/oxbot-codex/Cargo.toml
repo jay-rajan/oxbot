@@ -9,6 +9,7 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+chrono.workspace = true
 futures-util.workspace = true
 oxbot-engine.workspace = true
 oxbot-llm.workspace = true
