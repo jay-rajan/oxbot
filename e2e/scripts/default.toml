@@ -34,6 +34,16 @@ snapshot = "## Pages\n1: Jobs (https://jobs.example.com/apply) [selected]\n## La
 after = "Posted."
 denied = "Okay, I didn't post it."
 
+# A shop's "Add to cart" button, named with the product (amazon.ca). No
+# change word, and its form has nothing filled in: the phrase asks.
+[[reply]]
+when = "add the frother to the cart"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "4_3" }
+snapshot = "## Pages\n1: Milk frother (https://shop.example.com/frother) [selected]\n## Latest page snapshot\nuid=4_1 RootWebArea \"Milk frother\"\n  uid=4_2 link \"Cart (2 items)\"\n  uid=4_3 button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\""
+after = "Added the frother to the cart."
+denied = "Okay, I didn't add it to the cart."
+
 [[reply]]
 when = "search jobs"
 tool = "mcp__chrome-devtools__click"

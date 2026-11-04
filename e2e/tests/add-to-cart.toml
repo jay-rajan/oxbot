@@ -1,0 +1,23 @@
+name = "Adding to a cart asks first"
+about = "A shop's Add to cart button, named with the product, gets an approval request (it puts something in the cart), with Always allow offered since it doesn't pay; Don't allow means nothing is added."
+covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "add the frother to the cart"
+[[step]]
+wait_for = "Allow once"
+note = "The click asks first"
+[[step]]
+expect = "Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld"
+[[step]]
+expect_js = "[...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
+note = "Adding to a cart doesn't pay, so Always allow is offered"
+shot = "add-to-cart"
+[[step]]
+click = "Don't allow"
+[[step]]
+wait_for = "didn't add it to the cart"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"

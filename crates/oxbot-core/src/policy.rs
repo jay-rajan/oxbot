@@ -681,7 +681,10 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
     // account in 5 steps") don't say what a click does. A link is a GET; a
     // link that changes something has a short action name ("Unsubscribe",
     // "Log out"). A heading can't submit anything.
-    if matches!(role, "link" | "heading") && name_words(name) > CARD_LINK_WORDS {
+    if matches!(role, "link" | "heading")
+        && name_words(name) > CARD_LINK_WORDS
+        && !(role == "link" && starts_with_add(name))
+    {
         return Click::Plain;
     }
     let words = click_words(name);
@@ -816,6 +819,36 @@ const CHANGE_WORDS: &[&str] = &[
 /// Phrases that clearly change something.
 const CHANGE_PHRASES: &[&str] = &["sign out", "log out", "sign up", "mark as", "move to"];
 
+/// Putting something in a cart or list: a change (it asks), though no word
+/// alone says so; "Cart" by itself only opens the cart. Always allow is
+/// fine for these: they don't pay, book or delete ("Add to order" is
+/// already a can't-undo click, by "order").
+const ADD_PHRASES: &[&str] = &[
+    "add to cart",
+    "add to bag",
+    "add to basket",
+    "add to trolley",
+    "add to order",
+    "add to list",
+    "add to wishlist",
+    "add to registry",
+];
+
+/// Whether `name` starts with one of [`ADD_PHRASES`] ("Add to Cart, Milk
+/// Frother Handheld"): such a link or button is the action whatever the
+/// product's name after it.
+fn starts_with_add(name: &str) -> bool {
+    let name = name.to_lowercase();
+    let words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let text = format!("{} ", words.join(" "));
+    ADD_PHRASES
+        .iter()
+        .any(|p| text.starts_with(&format!("{p} ")))
+}
+
 /// Words that are a change only when no query word is next to them:
 /// "Apply" asks, "Apply filters" doesn't.
 const SOFT_CHANGE_WORDS: &[&str] = &["apply", "submit", "update", "done", "ok", "continue"];
@@ -858,7 +891,7 @@ fn click_words(name: &str) -> Words {
     let has_phrase = |list: &[&str]| list.iter().any(|p| text.contains(&format!(" {p} ")));
     if has(FINAL_WORDS) || has_phrase(FINAL_PHRASES) {
         Words::Final
-    } else if has(CHANGE_WORDS) || has_phrase(CHANGE_PHRASES) {
+    } else if has(CHANGE_WORDS) || has_phrase(CHANGE_PHRASES) || has_phrase(ADD_PHRASES) {
         Words::Hard
     } else if query || has(QUERY_WORDS) {
         Words::Query
@@ -1694,6 +1727,45 @@ mod tests {
             "button \"Check out\"",
         ] {
             assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+    }
+
+    #[test]
+    fn adding_to_a_cart_or_list_asks_and_may_be_always_allowed() {
+        // amazon.ca and walmart.ca: "Add to cart" went through with no
+        // approval request (no change word, no filled field in its form).
+        let empty_post = submit("post", false, 0);
+        for label in [
+            "button \"Add to cart\"",
+            "button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"",
+            "link \"Add to bag\"",
+            "link \"Add to Basket, Ceramic pour-over coffee dripper with filters\"",
+            "button \"Add to trolley\"",
+            "button \"Add to list\"",
+            "button \"Add to Wishlist\"",
+            "button \"Add to registry\"",
+        ] {
+            let Verdict::Ask(ask) = click(label, Some(&empty_post)) else {
+                panic!("{label}: asks first")
+            };
+            assert_eq!(ask.click, Some(Click::Change), "{label}");
+            assert!(ask.rule.is_some(), "{label}: Always allow is offered");
+            assert_eq!(classify(Some(label), None), Click::Change, "{label}");
+        }
+        // Into an order: can't undo, never Always allow.
+        assert_eq!(
+            asks(&click("button \"Add to order\"", None)),
+            Some(Click::Final)
+        );
+        // Opening the cart, or a product that merely mentions one, navigates.
+        for label in [
+            "link \"Cart (2 items)\"",
+            "link \"Cart\"",
+            "button \"Cart\"",
+            "link \"Shopping bag\"",
+            "link \"Why we added a cart to every listing this year\"",
+        ] {
+            assert_eq!(click(label, None), Verdict::Allow, "{label}");
         }
     }
 
