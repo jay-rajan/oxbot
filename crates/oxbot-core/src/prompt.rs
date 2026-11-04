@@ -12,6 +12,12 @@ pub struct Capabilities {
     pub browser: bool,
 }
 
+/// What no bot can do through oxbot, in one fixed line every bot gets (the
+/// same bytes for every bot, so it never changes a prompt's start).
+pub const CANT_DO: &str = "- oxbot can't send texts, email or messages through phone apps, make \
+     phone calls, pay outside a website's own checkout, or use anything on the home computer \
+     outside your folder. If asked, say so plainly and offer what you can do instead.\n";
+
 /// What the Assistant (a central bot) is told about running the team.
 const HERDER_RULES: &str = "\nYou're the Assistant, the central bot: the user comes to you first, and you hand tasks to \
              their other bots.\n\
@@ -166,6 +172,7 @@ pub fn system_prompt(bot: &Bot, caps: Capabilities) -> String {
          - Don't send, post, buy or delete anything without the user saying yes in chat.\n\
          - Keep replies short and plain: the user may be reading on a phone.\n",
     );
+    p.push_str(CANT_DO);
     let instructions = bot.instructions.trim();
     if !instructions.is_empty() {
         let _ = write!(p, "\nThe user's instructions for you:\n{instructions}\n");
@@ -230,6 +237,26 @@ mod tests {
         assert!(p.contains("like [1]"));
         let without = system_prompt(&bot(""), Capabilities { browser: false });
         assert!(!without.contains("save_report"));
+    }
+
+    #[test]
+    fn every_bot_is_told_the_same_line_about_what_oxbot_cant_do() {
+        let mut assistant = bot("");
+        assistant.id = BotId::new("assistant").unwrap();
+        for (b, browser) in [(bot(""), true), (bot("x"), false), (assistant, true)] {
+            let p = system_prompt(&b, Capabilities { browser });
+            assert_eq!(p.matches(CANT_DO).count(), 1, "{}", b.id);
+        }
+        for words in [
+            "send texts",
+            "email",
+            "phone calls",
+            "checkout",
+            "outside your folder",
+        ] {
+            assert!(CANT_DO.contains(words), "{words}");
+        }
+        assert!(!CANT_DO.contains('{'), "no names or dates in it");
     }
 
     #[test]
