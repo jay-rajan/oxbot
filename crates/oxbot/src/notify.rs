@@ -261,6 +261,7 @@ mod tests {
             site: "mail.example.com".into(),
             why: "to read your mail".into(),
             window_open,
+            only: None,
         })
     }
 

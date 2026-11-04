@@ -189,14 +189,16 @@ impl ChatCopy {
 
     /// Deletes chats of bots that are gone or this person may no longer open.
     /// The Farm says which: a bot `locked` to this phone's person goes. A
-    /// private one also needs to be theirs (they may manage it), or, from a
-    /// Farm too old to say, made under their name.
+    /// private one also needs to be theirs (they may manage it), shared with
+    /// them (picked people), or, from a Farm too old to say, made under
+    /// their name.
     fn drop_hidden(&self, bots: &[BotInfo]) -> Result<(), CopyError> {
         let open: Vec<&str> = bots
             .iter()
             .filter(|b| {
                 !b.locked
                     && (!b.private
+                        || b.sharing == oxbot_protocol::Sharing::People
                         || b.can_manage
                         || b.created_by.as_deref() == Some(self.person.as_str()))
             })

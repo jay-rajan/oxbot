@@ -24,6 +24,7 @@ mod events;
 pub use events::Replay;
 mod gates;
 mod loop_state;
+mod members;
 pub use loop_state::{CallTotals, DayUsage, KEEP_CALLS_DAYS, KEEP_CLOSED_DAYS};
 mod migrations;
 mod origins;

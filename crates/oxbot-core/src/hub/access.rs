@@ -7,7 +7,26 @@ use std::sync::PoisonError;
 use oxbot_protocol::{BotEvent, BotInfo, BrowserState, ServerMsg};
 
 use super::{Hub, HubError, MAX_NAME, lock};
-use crate::bot::{Bot, Viewer};
+use crate::bot::{Bot, Sharing, Viewer};
+use crate::store::Store;
+
+/// The most people one bot may be shared with, besides its maker.
+pub const MAX_MEMBERS: usize = 20;
+
+/// `bots` with the people each is shared with, from the database.
+pub(super) fn with_members(mut bots: Vec<Bot>, store: &Store) -> Vec<Bot> {
+    match store.bot_members() {
+        Ok(mut all) => {
+            for bot in &mut bots {
+                bot.members = all.remove(&bot.id).unwrap_or_default();
+            }
+        }
+        // Nobody picked rather than the wrong people: such bots are just
+        // their maker's until it reads.
+        Err(err) => tracing::warn!(%err, "couldn't read who bots are shared with"),
+    }
+    bots
+}
 use crate::id::{BotId, PersonId};
 use crate::store::{HistoryPage, Replay, now_ms};
 
@@ -77,6 +96,14 @@ impl Hub {
                         .map_or(BrowserState::Off, |owner| self.owner_state(&owner)),
                     created_by: maker_name(&b, &names),
                     private: b.private,
+                    sharing: b.effective_sharing(),
+                    members: b
+                        .member_ids()
+                        .iter()
+                        .filter_map(|id| crate::id::PersonId::new(id).ok())
+                        .filter_map(|id| names.get(&id).cloned())
+                        .collect(),
+                    member_ids: b.member_ids(),
                     owner: b.owner.as_ref().map(ToString::to_string),
                     id: b.id.to_string(),
                     name: b.name,
@@ -173,8 +200,8 @@ impl Hub {
     }
 
     /// Makes a bot private (only its owner and the Farm see it, and it
-    /// uses its owner's own browser) or shared again. A bot nobody owns
-    /// becomes `viewer`'s when it goes private.
+    /// uses its owner's own browser) or shared with everyone again. A bot
+    /// nobody owns becomes `viewer`'s when it goes private.
     ///
     /// # Errors
     /// Fails if `viewer` may not change it, it's Herder, it's working, or
@@ -185,6 +212,31 @@ impl Hub {
         private: bool,
         viewer: &Viewer,
     ) -> Result<(), HubError> {
+        let sharing = if private {
+            Sharing::Me
+        } else {
+            Sharing::Everyone
+        };
+        self.set_sharing(id, sharing, &[], viewer).await
+    }
+
+    /// Chooses who a bot is shared with: everyone in the home, just its
+    /// owner, or its owner and `people` (by name, exactly; at most
+    /// [`MAX_MEMBERS`]). Shared with anyone but everyone, it uses its
+    /// owner's own browser and their sign-ins. A bot nobody owns becomes
+    /// `viewer`'s when it stops being everyone's.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's an Assistant, a name isn't
+    /// someone oxbot knows, nobody is picked, it's working, or its file
+    /// can't be written.
+    pub async fn set_sharing(
+        &self,
+        id: &str,
+        sharing: Sharing,
+        people: &[String],
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
         let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
@@ -192,33 +244,77 @@ impl Hub {
                 "The Assistant is shared by everyone.".to_owned(),
             ));
         }
-        if bot.private == private {
-            return Ok(());
-        }
-        if private && bot.owner.is_none() && viewer.id.is_none() {
+        if sharing != Sharing::Everyone && bot.owner.is_none() && viewer.id.is_none() {
             return Err(HubError::NotAllowed(
                 "A private bot needs to know whose it is.".to_owned(),
             ));
         }
+        let owner = bot.owner.clone().or_else(|| viewer.id.clone());
+        let members = if sharing == Sharing::People {
+            self.picked_people(people, owner.as_ref())?
+        } else {
+            Vec::new()
+        };
+        if bot.effective_sharing() == sharing && bot.members == members {
+            return Ok(());
+        }
         // Held until its session is stopped, so a waiting message can't start
         // it with the old browser.
         self.claim(&bot.id).await?;
-        let changed = self.update_bot(&bot.id, |b| {
-            if private && b.owner.is_none() {
-                b.owner.clone_from(&viewer.id);
-                b.created_by = Some(viewer.name.clone());
-            }
-            b.private = private;
-        });
+        let browser_changes = bot.private != (sharing != Sharing::Everyone);
+        let changed = self
+            .store
+            .set_bot_members(&bot.id, &members)
+            .map_err(HubError::from)
+            .and_then(|()| {
+                self.update_bot(&bot.id, |b| {
+                    if sharing != Sharing::Everyone && b.owner.is_none() {
+                        b.owner.clone_from(&viewer.id);
+                        b.created_by = Some(viewer.name.clone());
+                    }
+                    b.set_sharing(sharing, members.clone());
+                })
+            });
         if changed.is_ok() {
-            tracing::info!(bot = %bot.id, private, "changed who can see it");
+            tracing::info!(bot = %bot.id, ?sharing, people = members.len(), "changed who can see it");
             // Its session was started with the other browser: start it again next time.
-            self.stop_session(&bot.id).await;
+            if browser_changes {
+                self.stop_session(&bot.id).await;
+            }
         }
         lock(&self.starting).remove(&bot.id);
         changed?;
         self.announce_bots().await;
         Ok(())
+    }
+
+    /// The people picked to share a bot with, by their exact names: known
+    /// people only, never its owner (who always may), each once.
+    fn picked_people(
+        &self,
+        names: &[String],
+        owner: Option<&PersonId>,
+    ) -> Result<Vec<PersonId>, HubError> {
+        let mut picked = Vec::new();
+        for name in names.iter().map(|n| n.trim()).filter(|n| !n.is_empty()) {
+            let person = self.store.person_by_name(name)?.ok_or_else(|| {
+                HubError::NotAllowed(format!("oxbot doesn't know anyone called {name}."))
+            })?;
+            if Some(&person.id) != owner && !picked.contains(&person.id) {
+                picked.push(person.id);
+            }
+        }
+        if picked.is_empty() {
+            return Err(HubError::NotAllowed(
+                "Pick at least one person to share it with, or choose Just me.".to_owned(),
+            ));
+        }
+        if picked.len() > MAX_MEMBERS {
+            return Err(HubError::NotAllowed(format!(
+                "A bot can be shared with at most {MAX_MEMBERS} people."
+            )));
+        }
+        Ok(picked)
     }
 
     /// Gives a bot a new name.
@@ -535,7 +631,7 @@ impl Hub {
             created_by,
         )?;
         if private && owner.is_some() {
-            bot.private = true;
+            bot.set_sharing(Sharing::Me, Vec::new());
             bot.save()?;
         }
         self.bots
@@ -548,5 +644,265 @@ impl Hub {
             .into_iter()
             .find(|b| b.id == id.as_str())
             .ok_or_else(|| HubError::UnknownBot(id.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::HubConfig;
+    use crate::hub::answers;
+    use crate::id::PersonId;
+    use crate::store::Store;
+    use oxbot_protocol::{Approval, ApprovalKind, SignInRequest};
+
+    /// Jay (the Farm's person) has a bot, Garden; Sam and Ann are people.
+    async fn hub(
+        db: &std::path::Path,
+        dir: &std::path::Path,
+    ) -> (Arc<Hub>, Viewer, Viewer, Viewer) {
+        let hub = Hub::new(
+            crate::bot::load_all(dir).unwrap_or_default(),
+            Store::open(db).unwrap(),
+            HubConfig::new(dir),
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let sam = hub.person_named("Sam").unwrap();
+        let ann = hub.person_named("Ann").unwrap();
+        if hub.bot("garden").is_err() {
+            let maker = Viewer::person(jay.id.clone(), "Jay", false);
+            hub.create_bot_as("Garden", "", Some(&maker), false)
+                .await
+                .unwrap();
+        }
+        (
+            hub,
+            Viewer::person(jay.id, "Jay", false),
+            Viewer::person(sam.id, "Sam", false),
+            Viewer::person(ann.id, "Ann", false),
+        )
+    }
+
+    fn listed<'a>(list: &'a [BotInfo], id: &str) -> &'a BotInfo {
+        list.iter().find(|b| b.id == id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn picked_people_use_a_bot_and_only_its_maker_and_the_owner_change_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, sam, ann) = hub(&tmp.path().join("oxbot.db"), tmp.path()).await;
+        hub.set_sharing("garden", Sharing::People, &["Sam".into()], &jay)
+            .await
+            .unwrap();
+        let bot = hub.bot("garden").unwrap();
+        assert_eq!(
+            (bot.effective_sharing(), bot.private),
+            (Sharing::People, true)
+        );
+        assert_eq!(
+            bot.browser_owner(),
+            bot.owner.clone().map(crate::id::BrowserOwner::Person),
+            "the maker's sign-ins"
+        );
+
+        // Sam sees it, its chat, and may give it tasks (here no AI model is
+        // set up, so it says that, not that it's hidden).
+        assert!(hub.bot_for("garden", &sam).is_ok());
+        assert!(hub.history_for("garden", 0, &sam).is_ok());
+        assert!(matches!(
+            hub.may_send("garden", &sam),
+            Err(HubError::EngineNotReady(_))
+        ));
+        assert!(hub.visible_ids(&sam).contains("garden"));
+        let for_sam = hub.bots_for(&sam).await.unwrap();
+        let g = listed(&for_sam, "garden");
+        assert!(!g.locked && g.can_task && !g.can_manage);
+        assert_eq!(
+            (g.sharing, g.members.as_slice()),
+            (Sharing::People, &["Sam".to_owned()][..])
+        );
+        // ... but never changes it.
+        assert!(hub.rename_bot("garden", "Mine", &sam).await.is_err());
+        assert!(
+            hub.set_sharing("garden", Sharing::Everyone, &[], &sam)
+                .await
+                .is_err()
+        );
+        assert!(hub.delete_bot("garden", &sam).await.is_err());
+
+        // Ann doesn't, and isn't told who it's shared with.
+        assert!(hub.bot_for("garden", &ann).is_err());
+        assert!(matches!(
+            hub.may_send("garden", &ann),
+            Err(HubError::UnknownBot(_))
+        ));
+        let for_ann = hub.bots_for(&ann).await.unwrap();
+        let g = listed(&for_ann, "garden");
+        assert!(g.locked && !g.can_task && g.members.is_empty());
+
+        // Its maker and the owner always may.
+        assert!(hub.bot_for("garden", &jay).is_ok() && hub.bot_to_manage("garden", &jay).is_ok());
+        assert!(hub.bot_for("garden", &hub.farm_viewer("Jay")).is_ok());
+
+        // Back to just Jay: Sam is out.
+        hub.set_private("garden", true, &jay).await.unwrap();
+        assert_eq!(hub.bot("garden").unwrap().effective_sharing(), Sharing::Me);
+        assert!(hub.bot_for("garden", &sam).is_err());
+        assert!(
+            !hub.store
+                .bot_members()
+                .unwrap()
+                .contains_key(&BotId::new("garden").unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn only_people_oxbot_knows_are_picked_and_the_maker_isnt_one_of_them() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, _, _) = hub(&tmp.path().join("oxbot.db"), tmp.path()).await;
+        for (names, words) in [
+            (vec!["Ghost".to_owned()], "doesn't know anyone called Ghost"),
+            (vec![], "at least one person"),
+            (vec!["Jay".to_owned()], "at least one person"),
+            (vec!["sam".to_owned()], "doesn't know anyone called sam"),
+        ] {
+            let err = hub
+                .set_sharing("garden", Sharing::People, &names, &jay)
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains(words), "{names:?}: {err}");
+        }
+        hub.set_sharing(
+            "garden",
+            Sharing::People,
+            &["Sam".into(), "Sam".into(), "Jay".into(), "Ann".into()],
+            &jay,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            hub.bot("garden").unwrap().members.len(),
+            2,
+            "each once, never the maker"
+        );
+        let herder = hub.herder_for("Sam").unwrap();
+        assert!(
+            hub.set_sharing(
+                herder.as_str(),
+                Sharing::People,
+                &["Ann".into()],
+                &hub.farm_viewer("Jay")
+            )
+            .await
+            .is_err(),
+            "an Assistant is never shared"
+        );
+    }
+
+    #[tokio::test]
+    async fn who_its_shared_with_survives_a_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("oxbot.db");
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let (hub, jay, sam, _) = hub(&db, &bots).await;
+        hub.set_sharing("garden", Sharing::People, &["Sam".into()], &jay)
+            .await
+            .unwrap();
+        hub.shutdown().await;
+        drop(hub);
+        let (hub, _, _, ann) = hub_again(&db, &bots).await;
+        assert!(hub.bot_for("garden", &sam).is_ok());
+        assert!(hub.bot_for("garden", &ann).is_err());
+        let text = std::fs::read_to_string(bots.join("garden/bot.toml")).unwrap();
+        assert!(
+            text.contains("sharing = \"people\"") && text.contains("private = true"),
+            "{text}"
+        );
+    }
+
+    async fn hub_again(
+        db: &std::path::Path,
+        dir: &std::path::Path,
+    ) -> (Arc<Hub>, Viewer, Viewer, Viewer) {
+        hub(db, dir).await
+    }
+
+    #[tokio::test]
+    async fn picked_people_answer_its_cards_but_only_its_maker_signs_its_browser_in() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, sam, ann) = hub(&tmp.path().join("oxbot.db"), tmp.path()).await;
+        hub.set_sharing("garden", Sharing::People, &["Sam".into()], &jay)
+            .await
+            .unwrap();
+        let bot = hub.bot("garden").unwrap();
+        let mut card = Approval {
+            id: 1,
+            bot: "garden".into(),
+            kind: ApprovalKind::Change,
+            action: "click".into(),
+            target: "Post".into(),
+            site: "x.example".into(),
+            page: None,
+            detail: None,
+            screenshot: None,
+            asker: Some("Ann".into()),
+            asker_id: ann.id.as_ref().map(ToString::to_string),
+            always: false,
+            rule: None,
+            schedule: None,
+            also: Vec::new(),
+        };
+        assert!(!answers(&card, &sam));
+        card.also = bot
+            .owner
+            .iter()
+            .map(ToString::to_string)
+            .chain(bot.member_ids())
+            .collect();
+        assert!(answers(&card, &sam) && answers(&card, &jay));
+        assert!(!answers(
+            &card,
+            &Viewer::person(PersonId::random(), "Sam", false)
+        ));
+        let sign_in = SignInRequest {
+            id: 1,
+            bot: "garden".into(),
+            url: "https://x.example/login".into(),
+            site: "x.example".into(),
+            why: String::new(),
+            window_open: false,
+            only: bot.owner.as_ref().map(ToString::to_string),
+        };
+        assert!(super::super::signs_in(&sign_in, &jay));
+        assert!(
+            !super::super::signs_in(&sign_in, &sam),
+            "Sam never signs Jay's browser in"
+        );
+        assert!(super::super::signs_in(&sign_in, &hub.farm_viewer("Jay")));
+    }
+
+    #[tokio::test]
+    async fn the_assistant_lists_a_shared_bot_to_its_people_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, sam, ann) = hub(&tmp.path().join("oxbot.db"), tmp.path()).await;
+        hub.set_sharing("garden", Sharing::People, &["Sam".into()], &jay)
+            .await
+            .unwrap();
+        let sams = hub.herder_for("Sam").unwrap();
+        let anns = hub.herder_for("Ann").unwrap();
+        let (list, _) = hub.team(&sams, &sam).await;
+        let line = list.lines().find(|l| l.contains("(id garden)")).unwrap();
+        assert!(
+            line.contains("shared by Jay with picked people, the person asking among them"),
+            "{line}"
+        );
+        let (list, _) = hub.team(&anns, &ann).await;
+        let line = list.lines().find(|l| l.contains("(id garden)")).unwrap();
+        assert!(line.contains("locked"), "{line}");
+        assert!(hub.locked_message("garden", &ann).is_some());
+        assert!(hub.locked_message("garden", &sam).is_none());
     }
 }

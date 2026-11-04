@@ -1,0 +1,39 @@
+name = "Shared with…: picked people, then everyone again"
+about = "A bot's settings choose who it's shared with: everyone in the home, just its maker, or picked people. Picking Sam says the bot acts with its maker's sign-ins, and the chat's header says who it's shared with."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/store/members.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "document.querySelector('input[name=bdSharing][value=everyone]').checked && document.getElementById('bdPeople').hidden"
+note = "A shared bot is everyone's"
+[[step]]
+click = "Picked people"
+[[step]]
+click = "Sam"
+[[step]]
+expect = "only Jay signs it in to websites"
+note = "It acts with Jay's sign-ins, whoever asks it"
+shot = "shared-with"
+[[step]]
+click = "Save"
+[[step]]
+wait_for = "shared with Sam · @recipes"
+[[step]]
+expect_db = { query = "SELECT p.name FROM bot_members m JOIN people p ON p.id = m.person WHERE m.bot = 'recipes'", equals = "Sam" }
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "document.querySelector('input[name=bdSharing][value=people]').checked && [...document.querySelectorAll('#bdPeople input')].some((c) => c.value === 'Sam' && c.checked)"
+[[step]]
+click = "Everyone in the home"
+[[step]]
+click = "Save"
+[[step]]
+wait_for = "@recipes"
+[[step]]
+expect_not = "shared with Sam"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM bot_members WHERE bot = 'recipes'", equals = "0" }

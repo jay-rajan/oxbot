@@ -1,3 +1,4 @@
 name = "Journal"
 created_by = "Jay"
 private = true
+sharing = "people"

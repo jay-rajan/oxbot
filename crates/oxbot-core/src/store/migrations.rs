@@ -409,6 +409,19 @@ pub(super) const MIGRATIONS: &[Step] = &[
         );
         CREATE INDEX IF NOT EXISTS schedule_runs_schedule ON schedule_runs (schedule, id);",
     ),
+    // 25: the people a bot is shared with when its maker picked them
+    // (`sharing = \"people\"` in its bot.toml). Bots whose files say only
+    // `private` mean just their maker (true) or everyone (false); oxbot
+    // writes that out in each file once.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS bot_members (
+            bot        TEXT    NOT NULL,
+            person     TEXT    NOT NULL,   -- person id
+            added_ms   INTEGER NOT NULL,
+            PRIMARY KEY (bot, person)
+        );
+        CREATE INDEX IF NOT EXISTS bot_members_person ON bot_members (person);",
+    ),
 ];
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each

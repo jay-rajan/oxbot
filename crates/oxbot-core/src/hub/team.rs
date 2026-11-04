@@ -13,7 +13,7 @@ use tokio::sync::broadcast;
 use super::access::maker_name;
 use super::taint::OTHER_PEOPLES_BOTS;
 use super::{ChainOrigin, Hub, HubError};
-use crate::bot::{Bot, Viewer};
+use crate::bot::{Bot, Sharing, Viewer};
 use crate::engine::text::data_block;
 use crate::engine::{HostToolCall, ToolReply};
 use crate::id::BotId;
@@ -203,15 +203,23 @@ impl Hub {
                 "free"
             };
             let you = if b.is_central() { " (you)" } else { "" };
-            let maker = match (&maker, b.private) {
-                (Some(who), true) if own => format!(
+            let maker = match (&maker, b.effective_sharing()) {
+                (Some(who), Sharing::Me) if own => format!(
                     ", private to {who} (uses the websites they're signed in to; you may give it tasks for them, \
                      which they may be asked to OK)"
                 ),
-                (Some(who), true) => format!(
+                (Some(who), Sharing::Me) => format!(
                     ", private to {who} (only they open it; only their own Assistant gives it tasks)"
                 ),
-                (Some(who), false) => format!(", made by {who}"),
+                (Some(who), Sharing::People) if own => format!(
+                    ", shared by {who} with picked people, the person asking among them (uses the websites \
+                     {who} is signed in to; you may give it tasks for the person asking, which they may be \
+                     asked to OK)"
+                ),
+                (Some(who), Sharing::People) => format!(
+                    ", shared by {who} with picked people (only their own Assistants give it tasks)"
+                ),
+                (Some(who), Sharing::Everyone) => format!(", made by {who}"),
                 (None, _) => String::new(),
             };
             let _ = writeln!(
@@ -460,7 +468,7 @@ impl Hub {
     }
 
     /// What Herder hears about a bot that's private to someone else.
-    fn locked_message(&self, target: &str, asker: &Viewer) -> Option<String> {
+    pub(super) fn locked_message(&self, target: &str, asker: &Viewer) -> Option<String> {
         let bot = self.bot(target).ok()?;
         (!self.opens(&bot, asker)).then(|| {
             let who =
@@ -540,9 +548,10 @@ fn herder_message(bot: &Bot) -> String {
 fn private_message(bot: &Bot) -> Option<String> {
     bot.private.then(|| {
         format!(
-            "{} is private. The Assistant doesn't pass tasks to it from here: only its maker's \
-             own Assistant can, and that asks them first if it has read web content or other bots' \
-             replies. Tell the user to open {} in the sidebar and ask it there.",
+            "{} is private. The Assistant doesn't pass tasks to it from here: only the own Assistant \
+             of its maker (or of someone it's shared with) can, and that asks them first if it has \
+             read web content or other bots' replies. Tell the user to open {} in the sidebar and \
+             ask it there.",
             bot.name, bot.name
         )
     })

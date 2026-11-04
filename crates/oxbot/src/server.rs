@@ -16,7 +16,7 @@ use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
 use oxbot_core::engine::{EngineKind, from_wire};
-use oxbot_core::hub::answers;
+use oxbot_core::hub::{answers, signs_in};
 use oxbot_core::id::BrowserOwner;
 use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
@@ -750,6 +750,15 @@ impl Client {
                 bot: self.inner(bot),
                 private,
             },
+            ClientMsg::SetSharing {
+                bot,
+                sharing,
+                people,
+            } => ClientMsg::SetSharing {
+                bot: self.inner(bot),
+                sharing,
+                people,
+            },
             ClientMsg::RenameBot { bot, name } => ClientMsg::RenameBot {
                 bot: self.inner(bot),
                 name,
@@ -1036,7 +1045,7 @@ async fn serve_client(
             .hub
             .pending_sign_ins()
             .into_iter()
-            .filter(|r| client.sees(&r.bot))
+            .filter(|r| client.sees(&r.bot) && signs_in(r, &client.viewer))
             .map(ServerMsg::SignInNeeded),
     );
     for msg in first {
@@ -1198,6 +1207,11 @@ async fn handle(
         ClientMsg::SetPrivate { bot, private } => {
             reply(state.hub.set_private(&bot, private, &viewer).await)
         }
+        ClientMsg::SetSharing {
+            bot,
+            sharing,
+            people,
+        } => reply(state.hub.set_sharing(&bot, sharing, &people, &viewer).await),
         ClientMsg::RenameBot { bot, name } => {
             reply(state.hub.rename_bot(&bot, &name, &viewer).await)
         }
@@ -1861,7 +1875,11 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         ServerMsg::ApprovalNeeded(ref a) => {
             (client.sees(&a.bot) && answers(a, &client.viewer)).then_some(msg)
         }
-        ServerMsg::SignInNeeded(ref r) => client.sees(&r.bot).then_some(msg),
+        // A person's own browser is signed in by them alone (a bot shared
+        // with picked people acts with its maker's sign-ins).
+        ServerMsg::SignInNeeded(ref r) => {
+            (client.sees(&r.bot) && signs_in(r, &client.viewer)).then_some(msg)
+        }
         // A person's own sign-ins go to them alone, by id.
         ServerMsg::Sites {
             ref owner,
@@ -2157,6 +2175,78 @@ mod tests {
             schedule: None,
             also: Vec::new(),
         })
+    }
+
+    #[test]
+    fn a_bot_shared_with_picked_people_reaches_them_and_its_sign_ins_its_maker() {
+        let (jay, sam, ann) = (
+            oxbot_core::id::PersonId::random(),
+            oxbot_core::id::PersonId::random(),
+            oxbot_core::id::PersonId::random(),
+        );
+        let garden = oxbot_protocol::BotInfo {
+            owner: Some(jay.to_string()),
+            sharing: oxbot_protocol::Sharing::People,
+            members: vec!["Sam".into()],
+            member_ids: vec![sam.to_string()],
+            ..info("garden", Some("Jay"), true)
+        };
+        let bots = [garden];
+        let client = |id: &oxbot_core::id::PersonId, name: &str| {
+            Client::new(Viewer::person(id.clone(), name, false), &bots)
+        };
+        let (mut j, mut s, mut a) = (
+            client(&jay, "Jay"),
+            client(&sam, "Sam"),
+            client(&ann, "Ann"),
+        );
+        assert!(j.sees("garden") && s.sees("garden") && !a.sees("garden"));
+        // The list as each gets it: Sam may use it, not change it; Ann
+        // sees a lock and nobody's names.
+        let Some(ServerMsg::Bots { bots: for_sam }) = forward(
+            ServerMsg::Bots {
+                bots: bots.to_vec(),
+            },
+            &mut s,
+        ) else {
+            panic!("a list")
+        };
+        assert!(!for_sam[0].locked && for_sam[0].can_task && !for_sam[0].can_manage);
+        let Some(ServerMsg::Bots { bots: for_ann }) = forward(
+            ServerMsg::Bots {
+                bots: bots.to_vec(),
+            },
+            &mut a,
+        ) else {
+            panic!("a list")
+        };
+        assert!(for_ann[0].locked && for_ann[0].members.is_empty());
+        let json = serde_json::to_string(&for_sam).unwrap();
+        assert!(
+            !json.contains(sam.as_str()) && !json.contains(jay.as_str()),
+            "no ids are sent"
+        );
+        // Its cards go to its people.
+        let ServerMsg::ApprovalNeeded(mut card) = card("garden", Some("Ann")) else {
+            panic!("a card")
+        };
+        card.asker_id = Some(ann.to_string());
+        card.also = vec![jay.to_string(), sam.to_string()];
+        let card = ServerMsg::ApprovalNeeded(card);
+        assert!(forward(card.clone(), &mut s).is_some() && forward(card.clone(), &mut j).is_some());
+        assert!(forward(card, &mut a).is_none(), "Ann can't open it");
+        // Its browser is Jay's: only Jay signs it in.
+        let sign_in = ServerMsg::SignInNeeded(oxbot_protocol::SignInRequest {
+            id: 1,
+            bot: "garden".into(),
+            url: "https://x.example/".into(),
+            site: "x.example".into(),
+            why: String::new(),
+            window_open: false,
+            only: Some(jay.to_string()),
+        });
+        assert!(forward(sign_in.clone(), &mut j).is_some());
+        assert!(forward(sign_in, &mut s).is_none());
     }
 
     #[test]

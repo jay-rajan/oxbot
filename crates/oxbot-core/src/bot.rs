@@ -5,7 +5,8 @@
 //! ```text
 //! bots/assistant/
 //!   bot.toml          name = "Assistant", engine, owner, created_by, private,
-//!                     [openrouter] settings (its model and daily limit)
+//!                     sharing (everyone, me or people), [openrouter]
+//!                     settings (its model and daily limit)
 //!   instructions.md   appended to the bot's system prompt
 //!   work/             the bot's working folder: the only place it may touch
 //! ```
@@ -23,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::EngineKind;
 use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
+pub use oxbot_protocol::Sharing;
 
 /// The central bot's id. It's the Assistant: created on first run, kept if
 /// missing, and the only bot that can create other bots and give them tasks.
@@ -154,7 +156,22 @@ impl Viewer {
     /// (see [`Viewer::maker`]).
     #[must_use]
     pub fn can_see(&self, made_by: Option<&str>, private: bool) -> bool {
-        self.farm || !private || self.made(made_by)
+        self.can_see_shared(made_by, private, &[])
+    }
+
+    /// Like [`Viewer::can_see`], for a private bot shared with `members`
+    /// (person ids; picked people). A member is matched by id only.
+    #[must_use]
+    pub fn can_see_shared(&self, made_by: Option<&str>, private: bool, members: &[String]) -> bool {
+        self.farm || !private || self.made(made_by) || self.is_member(members)
+    }
+
+    /// Whether they're one of `members` (person ids), by id.
+    #[must_use]
+    pub fn is_member(&self, members: &[String]) -> bool {
+        self.id
+            .as_ref()
+            .is_some_and(|id| members.iter().any(|m| m == id.as_str()))
     }
 
     /// Whether they may rename, delete, or change who sees a bot made by
@@ -178,9 +195,10 @@ impl Viewer {
     /// Whether they may open the listed bot `b`.
     #[must_use]
     pub fn can_see_info(&self, b: &oxbot_protocol::BotInfo) -> bool {
-        self.can_see(
+        self.can_see_shared(
             self.maker(b.owner.as_deref(), b.created_by.as_deref()),
             b.private,
+            &b.member_ids,
         )
     }
 
@@ -192,7 +210,7 @@ impl Viewer {
     pub fn redact(&self, mut bots: Vec<oxbot_protocol::BotInfo>) -> Vec<oxbot_protocol::BotInfo> {
         for b in &mut bots {
             let maker = self.maker(b.owner.as_deref(), b.created_by.as_deref());
-            b.locked = !self.can_see(maker, b.private);
+            b.locked = !self.can_see_info(b);
             b.can_manage = !b.central && self.can_manage(maker);
             b.can_task = !b.locked;
             if b.locked {
@@ -200,6 +218,8 @@ impl Viewer {
                 b.last_seq = 0;
                 b.last_reply_seq = 0;
                 b.browser_state = oxbot_protocol::BrowserState::Off;
+                // Who else it's shared with is theirs to know.
+                b.members.clear();
             }
         }
         bots
@@ -241,9 +261,16 @@ pub struct Bot {
     pub owner: Option<PersonId>,
     /// Its maker's name when it was made, for showing.
     pub created_by: Option<String>,
-    /// Only its owner (and the Farm) can see and use it, and it uses
-    /// only its owner's own browser.
+    /// Not shared with everyone: only its owner (and the Farm), and the
+    /// people it's shared with if [`Bot::sharing`] says so, can see and use
+    /// it, and it uses only its owner's own browser.
     pub private: bool,
+    /// Who it's shared with, as its file says (see
+    /// [`Bot::effective_sharing`]: `private` wins if the two disagree).
+    pub sharing: Sharing,
+    /// The people picked ([`Sharing::People`]), kept in the database
+    /// (`bot_members`); the hub fills them in.
+    pub members: Vec<PersonId>,
     /// The engine that runs it, as its file says (Herders' engines are
     /// fixed by the hub).
     pub engine: EngineKind,
@@ -289,8 +316,24 @@ struct BotFile {
     created_by: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     private: bool,
+    /// `everyone`, `me` or `people`; absent in files from before sharing
+    /// (then `private` says: me, else everyone).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sharing: Option<Sharing>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     openrouter: Option<LoopSettings>,
+}
+
+impl BotFile {
+    /// Who the bot is shared with. A file that says private is never
+    /// shared with everyone, whatever else it says.
+    fn sharing(&self) -> Sharing {
+        match (self.sharing, self.private) {
+            (Some(Sharing::Everyone) | None, true) => Sharing::Me,
+            (Some(s), _) => s,
+            (None, false) => Sharing::Everyone,
+        }
+    }
 }
 
 /// The engine files from before Claude left oxbot name.
@@ -401,6 +444,7 @@ impl Bot {
         // A missing instructions file just means no extra instructions.
         let instructions = fs::read_to_string(dir.join("instructions.md")).unwrap_or_default();
         let (engine, moved_from) = file.engine(&id);
+        let sharing = file.sharing();
         let owner = file.owner.and_then(|o| match PersonId::new(o) {
             Ok(id) => Some(id),
             Err(err) => {
@@ -414,7 +458,9 @@ impl Bot {
             name: file.name,
             owner,
             created_by: file.created_by,
-            private: file.private,
+            private: sharing != Sharing::Everyone,
+            sharing,
+            members: Vec::new(),
             engine,
             moved_from,
             loop_settings: file.openrouter.unwrap_or_default(),
@@ -475,6 +521,7 @@ impl Bot {
             owner: owner.map(ToString::to_string),
             created_by: created_by.map(str::to_owned),
             private: false,
+            sharing: Some(Sharing::Everyone),
             openrouter: None,
         };
         write_file(&dir, &file)?;
@@ -497,14 +544,54 @@ impl Bot {
         )
     }
 
-    /// Whether `viewer` may see and use it. A personal Herder is only its
-    /// owner's (and the Farm's), even if an old file says it's shared. The
-    /// Farm's Herder needs the hub to know who the Farm's person is: see
+    /// Who it's shared with: its file's choice, except that a bot marked
+    /// private is never everyone's, and a personal Herder is always just
+    /// its owner's.
+    #[must_use]
+    pub fn effective_sharing(&self) -> Sharing {
+        if is_personal_herder(self.id.as_str()) {
+            return Sharing::Me;
+        }
+        match (self.private, self.sharing) {
+            (false, _) => Sharing::Everyone,
+            (true, Sharing::Everyone) => Sharing::Me,
+            (true, s) => s,
+        }
+    }
+
+    /// The people it's shared with besides its owner, by id: its picked
+    /// people when it's shared with them, else nobody.
+    #[must_use]
+    pub fn member_ids(&self) -> Vec<String> {
+        if self.effective_sharing() == Sharing::People {
+            self.members.iter().map(ToString::to_string).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Sets who it's shared with (`members` only count for
+    /// [`Sharing::People`]).
+    pub fn set_sharing(&mut self, sharing: Sharing, members: Vec<PersonId>) {
+        self.sharing = sharing;
+        self.private = sharing != Sharing::Everyone;
+        self.members = if sharing == Sharing::People {
+            members
+        } else {
+            Vec::new()
+        };
+    }
+
+    /// Whether `viewer` may see and use it: everyone for a shared bot; its
+    /// owner, the Farm and its picked people for one shared with them; its
+    /// owner and the Farm otherwise. A personal Herder is only its owner's
+    /// (and the Farm's), even if an old file says it's shared. The Farm's
+    /// Herder needs the hub to know who the Farm's person is: see
     /// `Hub::bot_for`.
     #[must_use]
     pub fn visible_to(&self, viewer: &Viewer) -> bool {
         let private = self.private || is_personal_herder(self.id.as_str());
-        viewer.can_see(self.maker_for(viewer), private)
+        viewer.can_see_shared(self.maker_for(viewer), private, &self.member_ids())
     }
 
     /// Whether `viewer` may rename it, delete it or change who sees it.
@@ -545,7 +632,10 @@ impl Bot {
                 },
                 owner: self.owner.as_ref().map(ToString::to_string),
                 created_by: self.created_by.clone(),
-                private: self.private,
+                // Both, so an older oxbot (which reads only `private`) keeps
+                // a bot shared with picked people private.
+                private: self.effective_sharing() != Sharing::Everyone,
+                sharing: Some(self.effective_sharing()),
                 openrouter: (!self.loop_settings.is_empty()).then(|| self.loop_settings.clone()),
             },
         )
@@ -578,6 +668,31 @@ fn write_file(dir: &Path, file: &BotFile) -> Result<(), BotError> {
         fs::rename(&tmp, &toml_path)
     };
     write().map_err(io_err(&toml_path))
+}
+
+/// Bots whose files are from before sharing (no `sharing` line) get one
+/// written, as their `private` said: me, else everyone. Once each; a file
+/// that can't be written is tried again next start (it reads the same
+/// meanwhile).
+pub fn write_sharing_once(bots: &[Bot]) {
+    for bot in bots {
+        let path = bot.dir.join("bot.toml");
+        let has = fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| text.parse::<toml::Table>().ok())
+            .is_some_and(|t| t.contains_key("sharing"));
+        if has {
+            continue;
+        }
+        match bot.save() {
+            Ok(()) => {
+                tracing::info!(bot = %bot.id, sharing = ?bot.effective_sharing(), "wrote who a bot is shared with");
+            }
+            Err(err) => {
+                tracing::warn!(bot = %bot.id, %err, "couldn't write who a bot is shared with");
+            }
+        }
+    }
 }
 
 /// Reads every bot under `bots_dir`, sorted by id. Folders that aren't valid
@@ -847,8 +962,8 @@ mod tests {
         let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
         assert_eq!(
             text,
-            "name = \"News\"\nengine = \"codex\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\n",
-            "everything but Claude's model is kept"
+            "name = \"News\"\nengine = \"codex\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\nsharing = \"me\"\n",
+            "everything but Claude's model is kept (and who it's shared with is written out)"
         );
         let again = Bot::load(&dir).unwrap();
         assert!(again.moved_from.is_none() && again.private);
@@ -893,6 +1008,78 @@ mod tests {
         assert!(
             text.contains("model = \"e2e/a:free\""),
             "its model stays: {text}"
+        );
+    }
+
+    #[test]
+    fn sharing_comes_from_private_in_old_files_and_private_always_wins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("garden");
+        fs::create_dir_all(&dir).unwrap();
+        let read = |text: &str| {
+            fs::write(dir.join("bot.toml"), text).unwrap();
+            Bot::load(&dir).unwrap()
+        };
+        assert_eq!(
+            read("name = \"G\"\n").effective_sharing(),
+            Sharing::Everyone
+        );
+        assert_eq!(
+            read("name = \"G\"\nprivate = true\n").effective_sharing(),
+            Sharing::Me
+        );
+        assert_eq!(
+            read("name = \"G\"\nprivate = true\nsharing = \"everyone\"\n").effective_sharing(),
+            Sharing::Me,
+            "a hand-edited file that says both stays private"
+        );
+        let mut b = read("name = \"G\"\nprivate = true\nsharing = \"people\"\n");
+        assert_eq!((b.effective_sharing(), b.private), (Sharing::People, true));
+        // Picked people count only while it's shared with them.
+        let sam = PersonId::random();
+        b.members = vec![sam.clone()];
+        let viewer = Viewer::person(sam.clone(), "Sam", false);
+        assert!(
+            b.visible_to(&viewer) && !b.manageable_by(&viewer),
+            "they use it, never change it"
+        );
+        b.set_sharing(Sharing::Me, vec![sam.clone()]);
+        assert!(!b.visible_to(&viewer) && b.members.is_empty());
+        b.set_sharing(Sharing::People, vec![sam.clone()]);
+        b.save().unwrap();
+        let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
+        assert!(
+            text.contains("private = true") && text.contains("sharing = \"people\""),
+            "{text}"
+        );
+        assert_eq!(
+            Bot::load(&dir).unwrap().members,
+            [],
+            "members live in the database"
+        );
+        b.set_sharing(Sharing::Everyone, vec![sam]);
+        assert!(!b.private && b.member_ids().is_empty());
+        // A personal Herder is its owner's alone, whatever its file says.
+        let h = Bot::create(tmp.path(), personal_herder_id("Ann"), "Assistant", "").unwrap();
+        assert_eq!(h.effective_sharing(), Sharing::Me);
+    }
+
+    #[test]
+    fn a_file_from_before_sharing_gets_it_written_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("diary");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("bot.toml"),
+            "name = \"Diary\"\nengine = \"codex\"\nprivate = true\n",
+        )
+        .unwrap();
+        let bots = load_all(tmp.path()).unwrap();
+        write_sharing_once(&bots);
+        let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
+        assert!(
+            text.contains("sharing = \"me\"") && text.contains("private = true"),
+            "{text}"
         );
     }
 

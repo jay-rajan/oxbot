@@ -61,8 +61,9 @@ impl Hub {
     /// upload id; see [`Hub::accept_upload`]).
     ///
     /// # Errors
-    /// Fails if the bot doesn't exist or is busy, a file isn't theirs or
-    /// isn't waiting any more, or its engine can't start.
+    /// Fails if the bot doesn't exist, is hidden from `viewer`, or is busy,
+    /// a file isn't theirs or isn't waiting any more, or its engine can't
+    /// start.
     pub async fn send_files_as(
         self: &Arc<Self>,
         bot: &str,
@@ -73,10 +74,12 @@ impl Hub {
         let viewer = self.resolve(viewer).into_owned();
         let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
         let origin = ChainOrigin::from_viewer(&viewer, entry_of(&viewer));
+        // Only a bot they may open (as the bot list says): one hidden from
+        // them answers as if it didn't exist.
+        let target = self.bot_for(bot, &viewer)?;
         let files = if files.is_empty() {
             Vec::new()
         } else {
-            let target = self.bot_for(bot, &viewer)?;
             // Refused before its files are taken: they stay for another try.
             may_task(&origin)?;
             self.claim_uploads(&target.id, viewer.id.as_ref(), files)?

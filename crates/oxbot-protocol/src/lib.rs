@@ -212,6 +212,18 @@ pub enum ClientMsg {
         /// Private or shared.
         private: bool,
     },
+    /// Choose who a bot is shared with: everyone in the home, just its
+    /// maker, or the people picked (by name, as [`ServerMsg::People`] lists
+    /// them). Its maker or the Farm only.
+    SetSharing {
+        /// Bot id.
+        bot: String,
+        /// Who.
+        sharing: Sharing,
+        /// The people picked, for [`Sharing::People`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        people: Vec<String>,
+    },
     /// Give a bot a new name. Its creator or the Farm only.
     RenameBot {
         /// Bot id.
@@ -1179,6 +1191,11 @@ pub struct SignInRequest {
     pub why: String,
     /// Whether the sign-in window is open now.
     pub window_open: bool,
+    /// Server only, never sent: the one person (besides the Farm) who may
+    /// see and answer it, when the browser is theirs and others may use
+    /// the bot (a bot shared with picked people signs in as its maker).
+    #[serde(skip)]
+    pub only: Option<String>,
 }
 
 /// How a sign-in request ended, as stored in the chat.
@@ -1589,6 +1606,21 @@ pub enum Outcome {
     TimedOut,
 }
 
+/// Who a bot is shared with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Sharing {
+    /// Everyone in the home (a shared bot; the home's browser).
+    #[default]
+    Everyone,
+    /// Just its maker (a private bot; the maker's own browser).
+    Me,
+    /// Its maker and the people picked: they see it and its chat, give it
+    /// tasks and answer its approval requests. It acts with its maker's
+    /// websites (the maker's own browser).
+    People,
+}
+
 /// What a client needs to show a bot in a list.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(
@@ -1644,6 +1676,16 @@ pub struct BotInfo {
     /// The bot's own cap on model requests a day, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,
+    /// Who it's shared with ([`BotInfo::private`] is anything but
+    /// everyone).
+    #[serde(default)]
+    pub sharing: Sharing,
+    /// The people picked ([`Sharing::People`]), by name as they are now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
+    /// Their person ids, for the server's checks. Never sent.
+    #[serde(skip)]
+    pub member_ids: Vec<String>,
 }
 
 /// One stored event in a bot's history.

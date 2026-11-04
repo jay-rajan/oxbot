@@ -20,16 +20,18 @@ use crate::tools::{SIGN_IN_TOOL, TOOL_SERVER_NAME};
 
 impl Hub {
     /// Whether `viewer` may see (and answer) approval card `id`: the Farm,
-    /// or the person the card's turn acts for.
+    /// the person the card's turn acts for, or (on a bot shared with picked
+    /// people) its owner and those people.
     #[must_use]
     pub fn approval_visible(&self, id: u64, viewer: &Viewer) -> bool {
         let card = lock(&self.approvals)
             .get(&id)
-            .map(|(a, asker, _)| (a.bot.clone(), asker.clone()));
+            .map(|(a, asker, _)| (a.bot.clone(), asker.clone(), a.also.clone()));
         let viewer = self.resolve(viewer);
-        card.is_some_and(|(bot, asker)| {
+        card.is_some_and(|(bot, asker, also)| {
             let theirs = asker.is_some() && viewer.id == asker;
-            (viewer.farm || theirs) && self.bot_for(&bot, &viewer).is_ok()
+            (viewer.farm || theirs || viewer.is_member(&also))
+                && self.bot_for(&bot, &viewer).is_ok()
         })
     }
 
@@ -373,7 +375,17 @@ impl Hub {
                 .clone()
                 .filter(|_| ask.kind == ApprovalKind::Change && !bot.is_central()),
             schedule: ask.schedule.as_deref().cloned(),
-            also: Vec::new(),
+            // A bot shared with picked people: any of them, and its owner,
+            // may answer what it asks.
+            also: if bot.effective_sharing() == crate::bot::Sharing::People {
+                bot.owner
+                    .iter()
+                    .map(ToString::to_string)
+                    .chain(bot.member_ids())
+                    .collect()
+            } else {
+                Vec::new()
+            },
         };
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
@@ -439,11 +451,14 @@ fn click_label<'a>(
     labels.get(uid).map(String::as_str)
 }
 
-/// Whether `viewer` should be shown `card`: the Farm, or the person the
-/// card's turn acts for, by person id (see [`Viewer::is_person`]; answering
-/// is checked again in [`Hub::approval_visible`]). A card nobody asked for
-/// (no person) is the Farm's.
+/// Whether `viewer` should be shown `card`: the Farm, the person the
+/// card's turn acts for, or one of the others who may answer it (a bot
+/// shared with picked people), by person id (see [`Viewer::is_person`];
+/// answering is checked again in [`Hub::approval_visible`]). A card nobody
+/// asked for (no person) is the Farm's.
 #[must_use]
 pub fn answers(card: &Approval, viewer: &Viewer) -> bool {
-    viewer.farm || viewer.is_person(card.asker_id.as_deref(), card.asker.as_deref())
+    viewer.farm
+        || viewer.is_person(card.asker_id.as_deref(), card.asker.as_deref())
+        || viewer.is_member(&card.also)
 }

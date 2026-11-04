@@ -197,6 +197,8 @@ mod tests {
             owner: None,
             created_by: None,
             private: false,
+            sharing: crate::bot::Sharing::Everyone,
+            members: Vec::new(),
             engine: crate::engine::EngineKind::Codex,
             moved_from: None,
             loop_settings: crate::bot::LoopSettings::default(),

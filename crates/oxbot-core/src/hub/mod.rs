@@ -54,6 +54,7 @@ pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
+pub use sign_ins::signs_in;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -362,6 +363,9 @@ impl Hub {
         engines::upgrade_from_claude(&mut bots, &store);
         // Nobody is listening yet: no need to tell anyone who's new.
         let (bots, _) = people::adopt_bots(bots, &store, farm.as_ref());
+        // Who each bot is shared with: its file says how, the database whom.
+        let bots = access::with_members(bots, &store);
+        crate::bot::write_sharing_once(&bots);
         let seqs = seqs::LatestSeqs::load(&store);
         let store = Arc::new(store);
         // Old loop history goes (kept long enough for replays).

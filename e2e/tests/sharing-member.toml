@@ -1,0 +1,22 @@
+name = "A bot shared with you: open it, task it, can't change it"
+about = "Sam is one of the people Jay shared Journal with: Sam opens it, sees its chat, and gives it a task; its settings are Jay's to change, so Sam gets none."
+needs = ["codex"]
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+as = "Sam"
+
+[[step]]
+click = "Journal"
+[[step]]
+wait_for = "shared with Sam · @journal"
+note = "Not locked for Sam"
+[[step]]
+expect_js = "!document.getElementById('input').disabled"
+[[step]]
+expect_js = "document.getElementById('botMore').getAttribute('aria-label') !== 'Bot settings'"
+note = "No settings to change"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in bot."
+timeout_ms = 60000
+shot = "member"

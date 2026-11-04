@@ -305,6 +305,12 @@ impl Hub {
             site: site.clone(),
             why: why.trim().to_owned(),
             window_open: false,
+            // A person's own browser: only they sign it in, even when
+            // others may use the bot (shared with picked people).
+            only: match &shared.owner {
+                BrowserOwner::Person(id) => Some(id.to_string()),
+                BrowserOwner::Home => None,
+            },
         };
         let (tx, rx) = oneshot::channel();
         lock(&self.sign_ins).insert(id, (request.clone(), tx));
@@ -395,8 +401,9 @@ impl Hub {
     /// Whether `viewer` may see (and answer) sign-in request `id`.
     #[must_use]
     pub fn sign_in_visible(&self, id: u64, viewer: &Viewer) -> bool {
-        let bot = lock(&self.sign_ins).get(&id).map(|(r, _)| r.bot.clone());
-        bot.is_some_and(|b| self.bot_for(&b, viewer).is_ok())
+        let card = lock(&self.sign_ins).get(&id).map(|(r, _)| r.clone());
+        let viewer = self.resolve(viewer);
+        card.is_some_and(|r| self.bot_for(&r.bot, &viewer).is_ok() && signs_in(&r, &viewer))
     }
 
     /// The user finished (`true`) or gave up on (`false`) a sign-in. Returns
@@ -457,6 +464,17 @@ impl Hub {
             self.resolve_sign_in(id, false);
         }
     }
+}
+
+/// Whether `viewer` may see and answer sign-in request `r` (besides being
+/// able to open its bot): the Farm, or anyone for the home's browser, but a
+/// person's own browser only by that person (by id).
+#[must_use]
+pub fn signs_in(r: &SignInRequest, viewer: &Viewer) -> bool {
+    viewer.farm
+        || r.only
+            .as_deref()
+            .is_none_or(|id| viewer.is_person(Some(id), None))
 }
 
 #[cfg(test)]

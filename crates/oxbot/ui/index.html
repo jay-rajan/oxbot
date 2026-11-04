@@ -138,6 +138,11 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .site-row small { color: var(--muted); font-size: .75rem; }
 /* a bot's "Always allowed" rules, in its settings */
 .rules-box { display: grid; gap: 6px; min-width: 0; }
+.share-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
+.share-pick legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
+.share-pick .for-pick { flex-wrap: wrap; }
+.people-pick { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 0 0 22px; }
+.people-pick label { display: flex; gap: 6px; align-items: center; font-size: .85rem; color: var(--ink); }
 .sched-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
 .sched-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; gap: 2px; }
 .sched-row small { color: var(--muted); font-size: .75rem; }
@@ -457,7 +462,10 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <h2 id="bdTitle">Bot settings</h2>
     <div class="manage" id="bdManage">
     <label>Name<input id="bdName" required autocomplete="off"></label>
-    <label class="check"><input type="checkbox" id="bdPrivate"> Private</label>
+    <fieldset class="share-pick" id="bdShareBox"><legend>Shared with</legend>
+      <div class="for-pick" role="radiogroup" aria-label="Shared with"><label><input type="radio" name="bdSharing" value="everyone"> Everyone in the home</label><label><input type="radio" name="bdSharing" value="me"> Just me</label><label><input type="radio" name="bdSharing" value="people"> Picked people</label></div>
+      <div class="people-pick" id="bdPeople" hidden></div>
+    </fieldset>
     <p class="hint" id="bdHint"></p>
     <fieldset class="engine-pick" id="bdEngineBox"><legend>AI model</legend>
       <div class="manage" id="bdOrBox">
@@ -1288,7 +1296,7 @@ function botRow(id) {
   el.querySelector(".avatar").innerHTML = avatar(id);
   const label = document.createElement("span"); label.textContent = b.info.name || id;
   el.querySelector(".name").appendChild(label);
-  if (b.info.private) { el.querySelector(".name").insertAdjacentHTML("beforeend", LOCK); el.title = el.title || "Private"; }
+  if (b.info.private) { el.querySelector(".name").insertAdjacentHTML("beforeend", LOCK); el.title = el.title || (b.info.sharing === "people" ? "Shared with picked people" : "Private"); }
   // Under the name: Herder's job, or who the bot belongs to.
   const tag = document.createElement("span"); tag.className = "central";
   const maker = b.info.created_by;
@@ -1547,7 +1555,8 @@ function select(id) {
 function updateStatus() {
   const b = current && bots.get(current);
   if (!b) return;
-  $("botStatus").textContent = b.busy ? (b.activity || "Working…") : b.info.central ? "leads your bots" : `${b.info.private ? "private · " : ""}@${b.info.id}`;
+  const shared = b.info.sharing === "people" ? `shared with ${(b.info.members || []).join(", ") || "picked people"} · ` : b.info.private ? "private · " : "";
+  $("botStatus").textContent = b.busy ? (b.activity || "Working…") : b.info.central ? "leads your bots" : `${shared}@${b.info.id}`;
   // Anyone who may open the bot sees its reports there; only managers change it.
   $("botMore").hidden = isLocked(b);
   const moreLabel = canManage(b) ? "Bot settings" : "Reports";
@@ -1745,7 +1754,7 @@ function renderLog() {
     const note = div("note"); const maker = b.info.created_by || "its maker";
     note.innerHTML = LOCK;
     const t = document.createElement("div"); t.textContent = `${maker}'s private bot`;
-    const sm = document.createElement("small"); sm.textContent = `Only ${maker} can open it.`;
+    const sm = document.createElement("small"); sm.textContent = b.info.sharing === "people" ? `Only ${maker} and the people they shared it with can open it.` : `Only ${maker} can open it.`;
     note.append(t, sm); v.appendChild(note); log.appendChild(v); return;
   }
   if (!b || (b.events.length === 0 && !b.stream)) {
@@ -2177,12 +2186,37 @@ $("newForm").addEventListener("submit", (ev) => {
 
 // Bot settings (its maker, or the Farm): name, private or shared, delete.
 let deleteArmed = false, deleteTimer = null;
-function privacyHint(isPrivate, b) {
+function privacyHint(sharing, b) {
+  if (sharing === true) sharing = "me"; else if (sharing === false) sharing = "everyone";
   const maker = b.info.created_by || "its maker";
-  return isPrivate
+  if (sharing === "people") return `Only ${maker}, the people picked and the owner see it, its chat and its reports, give it tasks and answer its approval requests. It acts with the websites ${maker} is signed in to, in ${maker}'s own browser, whoever asks it; only ${maker} signs it in to websites.`;
+  return sharing === "me"
     ? `Only ${maker} and the owner see it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's.`
-    : "Everyone sees and uses it, its chat and its reports. It uses the websites the home is signed in to.";
+    : "Everyone in the home sees and uses it, its chat and its reports. It uses the websites the home is signed in to.";
 }
+// Who a bot is shared with, as its settings show it.
+function sharingOf(b) { return b.info.sharing || (b.info.private ? "me" : "everyone"); }
+function pickedSharing() { const r = document.querySelector('input[name="bdSharing"]:checked'); return r ? r.value : "everyone"; }
+function pickedPeople() { return [...$("bdPeople").querySelectorAll("input:checked")].map((c) => c.value); }
+// The people a bot may be shared with: everyone oxbot knows but its maker.
+function renderPeoplePick(b, chosen) {
+  const box = $("bdPeople"); box.textContent = "";
+  const maker = b.info.created_by;
+  const names = [...people.keys()].filter((n) => n !== maker);
+  if (!names.length) { const p = document.createElement("span"); p.className = "hint"; p.textContent = "Nobody else yet: connect a device for someone first."; box.appendChild(p); }
+  for (const name of names) {
+    const l = document.createElement("label"); const c = document.createElement("input"); c.type = "checkbox"; c.value = name; c.checked = chosen.includes(name);
+    c.disabled = b.busy;
+    const dot = document.createElement("span"); dot.className = "maker-dot"; dot.style.background = people.get(name) || "var(--muted)";
+    l.append(c, dot, name); box.appendChild(l);
+  }
+  box.hidden = pickedSharing() !== "people";
+}
+function showSharing(b) {
+  $("bdPeople").hidden = pickedSharing() !== "people";
+  $("bdHint").textContent = privacyHint(pickedSharing(), b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
+}
+for (const r of document.querySelectorAll('input[name="bdSharing"]')) r.onchange = () => { const b = bots.get(current); if (b) showSharing(b); };
 function resetDelete() { clearTimeout(deleteTimer); deleteArmed = false; $("bdDelete").textContent = "Delete bot"; }
 $("botMore").onclick = () => {
   const b = current && bots.get(current); if (!b || isLocked(b)) return;
@@ -2196,9 +2230,11 @@ $("botMore").onclick = () => {
   schedFor = b.info.id; schedBot = null; schedArmed = null; renderScheduleList($("bdScheds"), null, false);
   send({ type: "list_schedules", bot: b.info.id });
   $("bdName").value = b.info.name || b.info.id;
-  $("bdPrivate").checked = !!b.info.private;
-  $("bdPrivate").disabled = b.busy;
-  $("bdHint").textContent = privacyHint(!!b.info.private, b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
+  const sharing = sharingOf(b);
+  for (const r of document.querySelectorAll('input[name="bdSharing"]')) { r.checked = r.value === sharing; r.disabled = b.busy; }
+  $("bdShareBox").hidden = !!b.info.central;
+  renderPeoplePick(b, b.info.members || []);
+  showSharing(b);
   // AI model: the Assistant's is fixed.
   $("bdEngineBox").hidden = !manage || !!b.info.central;
   fillModelPick(b);
@@ -2229,7 +2265,6 @@ function renderRules() {
     li.append(name, remove); ul.appendChild(li);
   }
 }
-$("bdPrivate").onchange = () => { const b = bots.get(current); if (b) $("bdHint").textContent = privacyHint($("bdPrivate").checked, b); };
 /** The bot's AI model choice: free models (best first), each free model,
  *  then the paid ones when the owner allows them. A pinned model that's no
  *  longer listed still shows, so saving doesn't drop it. */
@@ -2265,7 +2300,12 @@ $("botForm").addEventListener("submit", (ev) => {
   const b = bots.get(current); if (!b || !canManage(b)) { $("botDlg").close(); return; }
   const name = $("bdName").value.trim();
   renameBot(b.info.id, name);
-  if ($("bdPrivate").checked !== !!b.info.private) setPrivate(b.info.id, $("bdPrivate").checked);
+  if (!b.info.central) {
+    const sharing = pickedSharing(), picked = sharing === "people" ? pickedPeople() : [];
+    const was = b.info.members || [];
+    const same = sharing === sharingOf(b) && (sharing !== "people" || (picked.length === was.length && picked.every((n) => was.includes(n))));
+    if (!same) send({ type: "set_sharing", bot: b.info.id, sharing, people: picked });
+  }
   if (!b.info.central) {
     // The bot keeps its engine; only the model changes here.
     const model = $("bdModel").value, wasModel = b.info.model || "";
