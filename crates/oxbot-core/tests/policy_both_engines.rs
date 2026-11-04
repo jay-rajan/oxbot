@@ -99,12 +99,14 @@ async fn run(hub: &Arc<Hub>, bot: &str) -> Vec<String> {
     seen
 }
 
-/// The loop's model: read the page, make `call`, then answer.
+/// The loop's model: read the page, make `call`, then answer (again after
+/// the answer check, when both calls ran).
 fn loop_model(name: &str, args: Value) -> Arc<ScriptedModel> {
     Arc::new(
         ScriptedModel::new()
             .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
             .then(Step::tool(name, args))
+            .then(Step::text("Okay."))
             .then(Step::text("Okay.")),
     )
 }

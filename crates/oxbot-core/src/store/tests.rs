@@ -1673,3 +1673,66 @@ fn a_version_18_database_gets_the_loops_context_tables() {
     assert_eq!(store.result("s1", "r7").unwrap(), None);
     assert_eq!(store.progress("s1", 5).unwrap(), Vec::new());
 }
+
+#[test]
+fn a_version_19_database_gets_the_answer_checks() {
+    use oxbot_loop::LoopStore as _;
+    use oxbot_loop::store::CheckRow;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 19).unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    assert_eq!(MIGRATIONS.len(), 20);
+    assert!(
+        !tmp.path().join("oxbot.db.v19.bak").exists(),
+        "a new table needs no copy"
+    );
+    store.open_session("scout", "s1", "h", false).unwrap();
+    let row = CheckRow {
+        session: "s1".into(),
+        turn: 3,
+        bounced: true,
+        ungrounded_before: vec!["351.8".into(), "13".into()],
+        ungrounded_after: Vec::new(),
+        ms: 1_200,
+    };
+    store.record_check(&row).unwrap();
+    // Saved again for the same turn: replaced.
+    store
+        .record_check(&CheckRow {
+            ms: 1_300,
+            ..row.clone()
+        })
+        .unwrap();
+    let (n, before, after, ms): (i64, String, String, i64) = store
+        .conn()
+        .query_row(
+            "SELECT COUNT(*), ungrounded_before, ungrounded_after, ms FROM loop_checks
+             WHERE session = 's1' AND turn = 3 AND bounced = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (n, before.as_str(), after.as_str(), ms),
+        (1, r#"["351.8","13"]"#, "[]", 1_300)
+    );
+    // Running it again changes nothing.
+    if let migrations::Step::Sql(sql) = &MIGRATIONS[19] {
+        store.conn().execute_batch(sql).unwrap();
+    } else {
+        panic!("migration 20 is SQL");
+    }
+    // Deleting the bot takes its checks.
+    store.delete_bot(&bot("scout")).unwrap();
+    let left: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM loop_checks", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 0);
+}

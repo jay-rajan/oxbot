@@ -294,6 +294,8 @@ async fn what_a_loop_bot_reads_taints_its_session_as_on_claude() {
                 json!({"items": [
                 {"id": "t1", "text": "Read the notes", "state": "done"}]}),
             ))
+            .then(Step::text("Read them."))
+            // After the answer check.
             .then(Step::text("Read them.")),
     );
     let hub = hub(tmp.path(), &["scout"], &model);

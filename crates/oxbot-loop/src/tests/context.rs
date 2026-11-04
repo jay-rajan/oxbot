@@ -44,6 +44,7 @@ async fn a_big_page_comes_as_a_map_and_the_page_tools_look_inside() {
                 "mcp__oxbot__find_in_page",
                 json!({"role": "link", "query": "lamp 15"}),
             ))
+            .then(Step::text("Lamp 15 is $15.99."))
             .then(Step::text("Lamp 15 is $15.99.")),
         big_page(400, false),
     );
@@ -119,6 +120,7 @@ async fn ask_page_asks_a_helper_with_the_bots_privacy() {
                 json!({"question": "Which has five stars?"}),
             ))
             .then(Step::error(ErrorKind::Refused, "flagged"))
+            .then(Step::text("Lamp 0."))
             .then(Step::text("Lamp 0.")),
         big_page(400, false),
     );
@@ -192,6 +194,8 @@ async fn the_todo_list_notes_and_stored_results() {
                 "mcp__oxbot__note_progress",
                 json!({"text": "Read the notes; the last line is 1999."}),
             ))
+            .then(Step::text("Done."))
+            // After the answer check.
             .then(Step::text("Done.")),
     );
     std::fs::write(h.work.join("notes.md"), &notes).unwrap();
@@ -252,6 +256,7 @@ async fn the_same_failure_three_times_gets_a_nudge() {
             .then(click())
             .then(click())
             .then(click())
+            .then(Step::text("I couldn't."))
             .then(Step::text("I couldn't.")),
         |s| {
             let browser = ScriptedBrowser::new(|_, _| BrowserOutput {
@@ -432,14 +437,18 @@ async fn sixty_steps_in_one_window_start_a_fresh_one() {
     for _ in 0..35 {
         model = model.then(Step::tool("Glob", json!({"pattern": "*.md"})));
     }
-    model = model.then(Step::text("Half way."));
-    for _ in 0..25 {
+    // Each answer is checked once.
+    model = model
+        .then(Step::text("Half way."))
+        .then(Step::text("Half way."));
+    for _ in 0..24 {
         model = model.then(Step::tool("Glob", json!({"pattern": "*.md"})));
     }
     model = model
         .then(Step::text(
             json!({"open": ["finish"], "progress_note": "25 more globs done."}).to_string(),
         ))
+        .then(Step::text("All done."))
         .then(Step::text("All done."));
     // No pacing: 63 requests would take three minutes at the free rate.
     let h = Harness::with(model, |s| s.pacer = crate::Pacer::with_rate(10_000, None));
@@ -453,7 +462,7 @@ async fn sixty_steps_in_one_window_start_a_fresh_one() {
         .iter()
         .position(|r| r.messages[0].text() == crate::COMPACT_V2)
         .unwrap();
-    // After 61 steps in the window (36 + 25).
+    // After 61 steps in the window (37, the checked answer's too, + 24).
     assert_eq!(compaction, 61);
     let fresh = &reqs[compaction + 1];
     assert_eq!(fresh.messages.len(), 2, "the header alone");
@@ -479,6 +488,7 @@ async fn helper_requests_reach_the_hubs_meter_too() {
                 json!({"question": "Which lamp is cheapest?"}),
             ))
             .then(Step::text("Lamp 0."))
+            .then(Step::text("Lamp 0 it is."))
             .then(Step::text("Lamp 0 it is.")),
         big_page(400, false),
     );
@@ -507,7 +517,8 @@ async fn helper_requests_reach_the_hubs_meter_too() {
         oxbot_engine::CallKind::Chat,
         oxbot_engine::CallKind::PageQuestion,
     );
-    assert_eq!(kinds, [chat, chat, page, chat]);
+    // The last request answers the answer check.
+    assert_eq!(kinds, [chat, chat, page, chat, chat]);
 }
 
 #[tokio::test]
@@ -535,6 +546,7 @@ async fn an_empty_helper_answer_tries_the_next_model_then_is_an_error() {
             ))
             .then(thinking_only())
             .then(thinking_only())
+            .then(Step::text("Done."))
             .then(Step::text("Done.")),
         big_page(400, false),
     );
@@ -587,6 +599,7 @@ async fn a_repeat_is_caught_with_other_line_counts_or_limits() {
                 "mcp__chrome-devtools__find_in_page",
                 json!({"query": "x"}),
             ))
+            .then(Step::text("Ok."))
             .then(Step::text("Ok.")),
         big_page(400, false),
     );
@@ -667,4 +680,125 @@ async fn one_turn_any(
             _ => {}
         }
     }
+}
+
+/// The last user message of request `n`.
+fn last_user(h: &Harness, n: usize) -> String {
+    h.model.requests()[n]
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == Role::User)
+        .map(oxbot_llm::Message::text)
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_final_answer_is_checked_once_against_what_was_read() {
+    let h = with_page(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::tool(
+                "mcp__oxbot__find_in_page",
+                json!({"query": "lamp 14"}),
+            ))
+            .then(Step::text(
+                "Lamp 14 is $14.99; Lamp 15 is $15.99 and ships in 1234 days (2026).",
+            ))
+            // Still a value no page had: accepted, and recorded.
+            .then(Step::text("Lamp 14 is $14.99; Lamp 15 is $15.99.")),
+        big_page(400, false),
+    );
+    let seen = h
+        .turn(
+            h.spec(new_session()),
+            "[Jay] price of lamp 14 for 2026",
+            HubScript::default(),
+        )
+        .await;
+    assert_eq!(
+        seen.last().unwrap(),
+        &Seen::Done(true, "Lamp 14 is $14.99; Lamp 15 is $15.99.".into())
+    );
+    // The first answer never reached the chat.
+    assert!(
+        !seen
+            .iter()
+            .any(|s| matches!(s, Seen::Assistant(t, _) if t.contains("1234")))
+    );
+    // Lamp 15 has no price on the page, nothing said 1234, and 2026 was in
+    // the question.
+    assert_eq!(
+        last_user(&h, 3),
+        "[oxbot] Before you answer, check it. The task was: «[Jay] price of lamp 14 for 2026». \
+         These values aren't in anything you read in this task: 15.99, 1234. Check them \
+         (find_in_page, read_section or query_rows) or remove them. Check each part the task \
+         asked for (every filter, the number of items, each field). Then give your final answer."
+    );
+    // One bounce: four requests in all.
+    assert_eq!(h.model.requests().len(), 4);
+    let checks = h.store.checks();
+    assert_eq!(checks.len(), 1);
+    assert!(checks[0].bounced);
+    assert_eq!(checks[0].ungrounded_before, ["15.99", "1234"]);
+    assert_eq!(checks[0].ungrounded_after, ["15.99"]);
+    // The note is saved as oxbot's, not the person's, and isn't outside text.
+    let msgs = h.store.messages("s1").unwrap();
+    let note = msgs
+        .iter()
+        .find(|m| m.message.text().starts_with("[oxbot] Before you answer"))
+        .unwrap();
+    assert!(!note.untrusted);
+    assert_eq!(
+        crate::context::state::EntryMeta::from_value(&note.meta).kind,
+        crate::context::state::EntryKind::Check
+    );
+}
+
+#[tokio::test]
+async fn a_helpers_answer_is_no_evidence_but_its_page_is() {
+    let h = with_page(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::tool(
+                "mcp__oxbot__ask_page",
+                json!({"question": "What does lamp 3 cost?"}),
+            ))
+            .then(Step::text("Lamp 3 costs $3.33 (uid=1_23)."))
+            .then(Step::text("Lamp 3 costs $3.33."))
+            .then(Step::text("Lamp 3 costs $3.99.")),
+        big_page(40, false),
+    );
+    h.turn(h.spec(new_session()), "[Jay] lamp 3", HubScript::default())
+        .await;
+    assert!(last_user(&h, 4).contains("aren't in anything you read in this task: 3.33."));
+    let checks = h.store.checks();
+    assert_eq!(checks[0].ungrounded_before, ["3.33"]);
+    assert!(
+        checks[0].ungrounded_after.is_empty(),
+        "$3.99 is on the page"
+    );
+}
+
+#[tokio::test]
+async fn one_tool_call_or_a_refusal_isnt_checked() {
+    let h = with_page(
+        ScriptedModel::new()
+            .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
+            .then(Step::text("The shop lists 4040 lamps.")),
+        big_page(40, false),
+    );
+    let seen = h
+        .turn(
+            h.spec(new_session()),
+            "[Jay] how many",
+            HubScript::default(),
+        )
+        .await;
+    assert_eq!(
+        seen.last().unwrap(),
+        &Seen::Done(true, "The shop lists 4040 lamps.".into())
+    );
+    assert_eq!(h.model.requests().len(), 2);
+    assert_eq!(h.store.checks(), Vec::new());
 }

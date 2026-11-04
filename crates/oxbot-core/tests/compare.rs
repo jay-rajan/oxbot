@@ -36,11 +36,12 @@ fn tools(dir: &Path) -> Arc<Tools> {
     Tools::new(tools)
 }
 
-/// The loop's model: read the page, click Post, answer. Twice over (the
-/// replay may run more than once).
-fn poster() -> Arc<ScriptedModel> {
+/// The loop's model: read the page, click Post, answer; once per run in
+/// `checked`, with the answer given twice when the run's answer is
+/// checked (a practice run's click ran; a refused one ends as said).
+fn poster(checked: &[bool]) -> Arc<ScriptedModel> {
     let mut model = ScriptedModel::new();
-    for _ in 0..3 {
+    for &check in checked {
         model = model
             .then(Step::tool("mcp__chrome-devtools__take_snapshot", json!({})))
             .then(Step::tool(
@@ -48,6 +49,9 @@ fn poster() -> Arc<ScriptedModel> {
                 json!({"uid": "1_3"}),
             ))
             .then(Step::text("Posted."));
+        if check {
+            model = model.then(Step::text("Posted."));
+        }
     }
     Arc::new(model)
 }
@@ -70,7 +74,17 @@ fn hub(dir: &Path, engine: EngineKind) -> Arc<Hub> {
                 SNAPSHOT,
             )))),
             free_per_minute: 1000,
-            ..LoopParts::new(poster(), None, None)
+            // On the loop, the live turn is refused (Sam says no); every
+            // practice run's answer is checked.
+            ..LoopParts::new(
+                poster(if engine == EngineKind::OpenRouter {
+                    &[false, true, true]
+                } else {
+                    &[true, true, true]
+                }),
+                None,
+                None,
+            )
         }),
         pre_engine_tests: false,
         trials_without_guard: true,
@@ -222,7 +236,10 @@ async fn a_replay_on_both_engines_records_the_post_and_changes_nothing() {
         .iter()
         .find(|r| r.engine == Wire::OpenRouter)
         .unwrap();
-    assert_eq!(on_loop.requests, 3, "three model requests: {on_loop:#?}");
+    assert_eq!(
+        on_loop.requests, 4,
+        "three model requests and the answer check: {on_loop:#?}"
+    );
     assert_eq!(on_loop.answer, "Posted.");
     let on_claude = replays.iter().find(|r| r.engine == Wire::Claude).unwrap();
     assert!(on_claude.input_tokens > 0, "Claude's usage goes to the run");

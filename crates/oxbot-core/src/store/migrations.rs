@@ -324,6 +324,20 @@ pub(super) const MIGRATIONS: &[Step] = &[
             updated_ms INTEGER NOT NULL
         );",
     ),
+    // 20: how each loop turn's final answer was checked (round 3): sent
+    // back once to be checked, and the values in it that nothing the bot
+    // read had, before and after. Owner-only; read by the benchmark.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS loop_checks (
+            session           TEXT    NOT NULL,          -- loop_sessions.id
+            turn              INTEGER NOT NULL,
+            bounced           INTEGER NOT NULL DEFAULT 0,
+            ungrounded_before TEXT    NOT NULL DEFAULT '[]', -- JSON list of values
+            ungrounded_after  TEXT    NOT NULL DEFAULT '[]', -- JSON list of values
+            ms                INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (session, turn)
+        );",
+    ),
 ];
 
 /// Migration 18. Skips what is already there, as 15 does.

@@ -5,9 +5,11 @@
 //! Then each tool call it asked for, in order: check it, ask the gate, run
 //! it (a call that changes something is written down first), save its
 //! result ([`tools`]). A turn ends when the model answers without a tool
-//! call, asks the person something, fails, or is stopped. A restart picks
-//! a turn up after its last saved step.
+//! call (after one check of that answer when the turn used tools:
+//! [`check`]), asks the person something, fails, or is stopped. A restart
+//! picks a turn up after its last saved step.
 
+mod check;
 mod tools;
 mod windows;
 
@@ -137,6 +139,12 @@ pub(crate) struct Turn {
     nudged: bool,
     /// The note to add to this step's last result, if it's due now.
     pub(super) wrap_up: Option<String>,
+    /// The final answer was sent back once to be checked.
+    bounced: bool,
+    /// When.
+    bounced_at: Option<Instant>,
+    /// Values the first answer had that nothing read had.
+    ungrounded_before: Option<Vec<String>>,
 }
 
 impl Turn {
@@ -211,6 +219,9 @@ impl Turn {
             failures: HashMap::new(),
             nudged: false,
             wrap_up: None,
+            bounced: false,
+            bounced_at: None,
+            ungrounded_before: None,
         }
     }
 
@@ -375,25 +386,31 @@ impl Turn {
             let message = resp.message;
             let text = message.text();
             let calls = message.tool_calls.clone();
-            let _ = core
-                .events
-                .send(EngineEvent::Assistant {
-                    text: text.clone(),
-                    tool_uses: calls
-                        .iter()
-                        .map(|c| ToolUse {
-                            id: c.id.clone(),
-                            name: c.name.clone(),
-                            input: c.arguments.clone(),
-                        })
-                        .collect(),
-                })
-                .await;
+            // A final answer reaches the chat only once it's accepted.
+            if !calls.is_empty() {
+                send_assistant(core, &text, &calls).await;
+            }
             if let Err(stop) = self.save(core, conv, vec![ToSave::plain(message)], None) {
                 return stop.into();
             }
             if calls.is_empty() {
-                return End::Done(text);
+                match self.answer_check(core, conv, &input.text, &text, max_steps) {
+                    check::Checked::Bounce(note) => {
+                        if let Err(stop) = self.bounce(core, conv, note) {
+                            return stop.into();
+                        }
+                        continue;
+                    }
+                    check::Checked::Accept(row) => {
+                        if let Some(row) = row
+                            && let Err(err) = core.shared.setup.store.record_check(&row)
+                        {
+                            tracing::warn!(%err, "couldn't save a turn's answer check");
+                        }
+                        send_assistant(core, &text, &calls).await;
+                        return End::Done(text);
+                    }
+                }
             }
             let calls = calls.into_iter().map(|c| (c, None)).collect();
             self.wrap_up = wrap_up_note(self.step, max_steps, &mut self.nudged);
@@ -562,6 +579,24 @@ impl Turn {
             }
         }
     }
+}
+
+/// Tells the hub what the model said and called.
+async fn send_assistant(core: &Core, text: &str, calls: &[ToolCall]) {
+    let _ = core
+        .events
+        .send(EngineEvent::Assistant {
+            text: text.to_owned(),
+            tool_uses: calls
+                .iter()
+                .map(|c| ToolUse {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    input: c.arguments.clone(),
+                })
+                .collect(),
+        })
+        .await;
 }
 
 /// Share of the step budget after which the model is told to wrap up.

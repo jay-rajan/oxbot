@@ -126,6 +126,9 @@ pub enum EntryKind {
     Refusal,
     /// The to-do list's own result (kept).
     Todo,
+    /// oxbot's note asking the model to check its answer: a user-role
+    /// message that is never the person's words.
+    Check,
 }
 
 /// The builder's notes on one stored message.

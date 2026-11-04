@@ -210,6 +210,11 @@ impl Compactor for SummaryCompactor {
     }
 }
 
+/// Whether `m` is oxbot's note asking to check an answer.
+fn is_check(m: &StoredMessage) -> bool {
+    EntryMeta::from_value(&m.meta).kind == EntryKind::Check
+}
+
 /// Drops facts whose numbers aren't in what was summarized: the model made
 /// them up or misread them. Logged by count, never by content.
 fn drop_unread_facts(task: &mut TaskState, read: &Evidence) {
@@ -230,7 +235,7 @@ fn drop_unread_facts(task: &mut TaskState, read: &Evidence) {
 /// just started.
 fn last_exchange(window: &[&StoredMessage]) -> Option<u32> {
     let last = window.last()?;
-    if last.message.role == Role::User {
+    if last.message.role == Role::User && !is_check(last) {
         return Some(last.idx);
     }
     window
@@ -312,7 +317,11 @@ fn own_fields(
     if !prev.goal.is_empty() {
         said.push((prev.goal.clone(), true));
     }
-    for m in window.iter().filter(|m| m.message.role == Role::User) {
+    // oxbot's own notes (the answer check) are never the person's words.
+    for m in window
+        .iter()
+        .filter(|m| m.message.role == Role::User && !is_check(m))
+    {
         let text: String = m.message.text().chars().take(MAX_WORDS).collect();
         if said.iter().any(|(t, _)| *t == text) {
             // Already there: the last summary kept the exchange it ended on.

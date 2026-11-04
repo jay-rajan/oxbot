@@ -247,6 +247,25 @@ pub struct CalibrationRow {
     pub samples: u32,
 }
 
+/// How one turn's final answer was checked: whether it was sent back once
+/// to be checked, and the values in it that nothing the bot read had,
+/// before and after. Owner-only data; nothing leaves the Mac.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckRow {
+    /// The conversation.
+    pub session: String,
+    /// The turn.
+    pub turn: u32,
+    /// The answer was sent back once to be checked.
+    pub bounced: bool,
+    /// Values not in anything read, in the first answer.
+    pub ungrounded_before: Vec<String>,
+    /// Values not in anything read, in the answer accepted.
+    pub ungrounded_after: Vec<String>,
+    /// How long the check took, from the first answer to the last, in ms.
+    pub ms: i64,
+}
+
 /// Where the loop saves its state.
 pub trait LoopStore: Send + Sync {
     /// Opens conversation `id` for `bot`: the saved one when `resume` and
@@ -374,6 +393,12 @@ pub trait LoopStore: Send + Sync {
     /// # Errors
     /// The database failed.
     fn save_calibration(&self, row: &CalibrationRow) -> Result<(), LoopStoreError>;
+
+    /// Saves how a turn's answer was checked (one row per turn).
+    ///
+    /// # Errors
+    /// The database failed.
+    fn record_check(&self, row: &CheckRow) -> Result<(), LoopStoreError>;
 }
 
 #[cfg(any(test, feature = "test-tools"))]
@@ -385,8 +410,8 @@ mod memory {
     use std::sync::{Mutex, MutexGuard, PoisonError};
 
     use super::{
-        CalibrationRow, CallRecord, LoopStore, LoopStoreError, ModelStat, ProgressNote, ResultRow,
-        SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus, Value,
+        CalibrationRow, CallRecord, CheckRow, LoopStore, LoopStoreError, ModelStat, ProgressNote,
+        ResultRow, SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus, Value,
     };
 
     #[derive(Default)]
@@ -399,6 +424,7 @@ mod memory {
         results: BTreeMap<(String, String), ResultRow>,
         progress: BTreeMap<String, Vec<ProgressNote>>,
         calibrations: BTreeMap<String, CalibrationRow>,
+        checks: BTreeMap<(String, u32), CheckRow>,
         fail_checkpoints: bool,
     }
 
@@ -433,6 +459,12 @@ mod memory {
         #[must_use]
         pub fn turn(&self, session: &str, turn: u32) -> Option<TurnRow> {
             self.inner().turns.get(&(session.to_owned(), turn)).cloned()
+        }
+
+        /// Every answer check saved, by session and turn.
+        #[must_use]
+        pub fn checks(&self) -> Vec<CheckRow> {
+            self.inner().checks.values().cloned().collect()
         }
 
         /// Every saved turn.
@@ -691,6 +723,13 @@ mod memory {
             self.inner()
                 .calibrations
                 .insert(row.model.clone(), row.clone());
+            Ok(())
+        }
+
+        fn record_check(&self, row: &CheckRow) -> Result<(), LoopStoreError> {
+            self.inner()
+                .checks
+                .insert((row.session.clone(), row.turn), row.clone());
             Ok(())
         }
     }

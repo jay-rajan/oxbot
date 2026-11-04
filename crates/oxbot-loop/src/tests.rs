@@ -274,7 +274,8 @@ async fn browsing_runs_each_tool_after_the_gate() {
                 "mcp__chrome-devtools__click",
                 json!({"uid": "1_2"}),
             ))
-            .then(Step::text("Searched the jobs.")),
+            .then(Step::text("Searched the jobs."))
+            .then(Step::text("Searched the jobs; one search button.")),
     );
     let seen = h
         .turn(h.spec(new_session()), "search jobs", HubScript::default())
@@ -292,9 +293,30 @@ async fn browsing_runs_each_tool_after_the_gate() {
             Seen::Assistant(String::new(), vec!["mcp__chrome-devtools__click".into()]),
             Seen::Permission("mcp__chrome-devtools__click".into()),
             Seen::ToolResult("Done: click".into()),
-            Seen::Assistant("Searched the jobs.".into(), vec![]),
-            Seen::Done(true, "Searched the jobs.".into()),
+            // The first answer was sent back to be checked: only the
+            // checked one reaches the chat.
+            Seen::Assistant("Searched the jobs; one search button.".into(), vec![]),
+            Seen::Done(true, "Searched the jobs; one search button.".into()),
         ]
+    );
+    let check = h.model.requests()[3].messages.last().unwrap().clone();
+    assert_eq!(check.role, Role::User);
+    assert_eq!(
+        check.text(),
+        "[oxbot] Before you answer, check it. The task was: «search jobs». Check each part the \
+         task asked for (every filter, the number of items, each field). Then give your final \
+         answer."
+    );
+    assert_eq!(
+        h.store.checks(),
+        [crate::store::CheckRow {
+            session: "s1".into(),
+            turn: 0,
+            bounced: true,
+            ungrounded_before: Vec::new(),
+            ungrounded_after: Vec::new(),
+            ms: h.store.checks()[0].ms,
+        }]
     );
     let calls: Vec<String> = h.browser.calls().into_iter().map(|c| c.0).collect();
     assert_eq!(calls, ["take_snapshot", "click"]);
@@ -313,7 +335,7 @@ async fn browsing_runs_each_tool_after_the_gate() {
         last.text()
     );
     let turn = h.store.turn("s1", 0).unwrap();
-    assert_eq!((turn.step, turn.pending), (3, None));
+    assert_eq!((turn.step, turn.pending), (4, None));
     // Outside text is marked in the saved conversation.
     let msgs = h.store.messages("s1").unwrap();
     assert!(msgs[2].untrusted && msgs[2].message.role == Role::Tool);
@@ -352,6 +374,9 @@ async fn a_refusal_reaches_the_model_and_skips_the_rest() {
         1
     );
     assert_eq!(h.browser.calls(), Vec::new(), "nothing ran");
+    // A refused turn ends as the model says: no answer check.
+    assert_eq!(h.model.requests().len(), 2);
+    assert_eq!(h.store.checks(), Vec::new());
     let req = &h.model.requests()[1];
     let n = req.messages.len();
     assert_eq!(

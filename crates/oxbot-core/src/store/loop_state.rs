@@ -6,8 +6,8 @@
 use oxbot_engine::CallRecord;
 use oxbot_llm::Message;
 use oxbot_loop::store::{
-    CalibrationRow, LoopStore, LoopStoreError, ModelStat, PendingCall, ProgressNote, ResultKind,
-    ResultRow, SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus,
+    CalibrationRow, CheckRow, LoopStore, LoopStoreError, ModelStat, PendingCall, ProgressNote,
+    ResultKind, ResultRow, SessionRow, StoredMessage, TurnRow, TurnState, TurnStatus,
 };
 use rusqlite::{OptionalExtension as _, Row, params};
 use serde_json::Value;
@@ -499,6 +499,26 @@ impl LoopStore for Store {
         rows.collect::<Result<_, _>>().map_err(err)
     }
 
+    fn record_check(&self, row: &CheckRow) -> Result<(), LoopStoreError> {
+        let list = |v: &[String]| serde_json::to_string(v).unwrap_or_else(|_| "[]".to_owned());
+        self.conn()
+            .execute(
+                "INSERT OR REPLACE INTO loop_checks
+                   (session, turn, bounced, ungrounded_before, ungrounded_after, ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    row.session,
+                    row.turn,
+                    row.bounced,
+                    list(&row.ungrounded_before),
+                    list(&row.ungrounded_after),
+                    row.ms,
+                ],
+            )
+            .map_err(err)?;
+        Ok(())
+    }
+
     fn save_calibration(&self, row: &CalibrationRow) -> Result<(), LoopStoreError> {
         self.conn()
             .execute(
@@ -664,7 +684,7 @@ impl Store {
     }
 
     /// Deletes model requests older than [`KEEP_CALLS_DAYS`] and the
-    /// messages of conversations closed more than [`KEEP_CLOSED_DAYS`]
+    /// messages (and answer checks) of conversations closed more than [`KEEP_CLOSED_DAYS`]
     /// ago. Returns how many rows went.
     ///
     /// # Errors
@@ -676,11 +696,16 @@ impl Store {
             "DELETE FROM model_calls WHERE ts_ms < ?1",
             [now_ms - KEEP_CALLS_DAYS * DAY_MS],
         )?;
-        let messages = tx.execute(
-            "DELETE FROM loop_messages WHERE session IN (
-                SELECT id FROM loop_sessions WHERE closed_ms IS NOT NULL AND closed_ms < ?1)",
-            [now_ms - KEEP_CLOSED_DAYS * DAY_MS],
-        )?;
+        let mut messages = 0;
+        for table in ["loop_messages", "loop_checks"] {
+            messages += tx.execute(
+                &format!(
+                    "DELETE FROM {table} WHERE session IN (
+                        SELECT id FROM loop_sessions WHERE closed_ms IS NOT NULL AND closed_ms < ?1)"
+                ),
+                [now_ms - KEEP_CLOSED_DAYS * DAY_MS],
+            )?;
+        }
         // Stored results and notes go with their files: once no turn of
         // their session has moved for the retention time. A bot's open
         // session keeps them (the sweep keeps its files too).

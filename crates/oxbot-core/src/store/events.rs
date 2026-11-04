@@ -111,7 +111,7 @@ impl Store {
     pub fn delete_bot(&self, bot: &BotId) -> Result<Vec<PersonId>, StoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        for table in ["loop_messages", "loop_progress"] {
+        for table in ["loop_messages", "loop_progress", "loop_checks"] {
             tx.execute(
                 &format!(
                     "DELETE FROM {table} WHERE session IN (SELECT id FROM loop_sessions WHERE bot = ?1)"

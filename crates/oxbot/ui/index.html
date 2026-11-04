@@ -918,6 +918,9 @@ function onMessage(m) {
     case "bot_created": pendingSelect = m.id; if (bots.has(m.id)) { pendingSelect = null; select(m.id); } break;
     case "activity": {
       const b = bot(m.bot); b.activity = m.text;
+      // A new request: text streamed before it and never kept (an answer
+      // sent back to be checked, a request that failed midway) goes.
+      if (m.text === "Working…" && b.stream) { b.stream = null; if (m.bot === current) { const s = $("log").querySelector(".streaming"); if (s) s.remove(); } }
       if (m.bot === current) { showTyping(); updateStatus(); }
       break;
     }
