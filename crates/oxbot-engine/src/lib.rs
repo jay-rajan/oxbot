@@ -44,20 +44,32 @@ pub enum EngineKind {
     Claude,
     /// oxbot's own agent loop on `OpenRouter` models.
     OpenRouter,
+    /// Codex CLI's agent loop on `OpenRouter` models, through oxbot's
+    /// relay, with oxbot's own tools and gate.
+    Codex,
 }
 
 impl EngineKind {
     /// Every engine, in the order settings show them.
-    pub const ALL: [Self; 2] = [Self::Claude, Self::OpenRouter];
+    pub const ALL: [Self; 3] = [Self::Claude, Self::OpenRouter, Self::Codex];
 
     /// Its name in files, the database and the protocol: `claude`,
-    /// `openrouter`.
+    /// `openrouter`, `codex`.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::OpenRouter => "openrouter",
+            Self::Codex => "codex",
         }
+    }
+
+    /// Whether its model requests go to `OpenRouter` on the household's
+    /// key: anyone in the household may give its bots tasks, within the
+    /// same daily limits.
+    #[must_use]
+    pub fn uses_openrouter(self) -> bool {
+        matches!(self, Self::OpenRouter | Self::Codex)
     }
 
     /// The engine called `name` (as [`EngineKind::as_str`] writes it).
@@ -163,7 +175,10 @@ mod tests {
                 serde_json::json!(kind.as_str())
             );
         }
-        assert_eq!(EngineKind::parse("codex"), None);
+        assert_eq!(EngineKind::parse("codex"), Some(EngineKind::Codex));
+        assert_eq!(EngineKind::parse("gpt"), None);
+        assert!(EngineKind::Codex.uses_openrouter());
+        assert!(!EngineKind::Claude.uses_openrouter());
         assert_eq!(EngineKind::default(), EngineKind::Claude);
         assert_eq!(
             serde_json::from_str::<EngineKind>("\"openrouter\"").unwrap(),

@@ -75,7 +75,8 @@ impl Hub {
             browser: shared.is_some(),
         };
         let mut prompt = system_prompt(bot, caps);
-        if kind == EngineKind::OpenRouter {
+        // Codex runs oxbot's tools too: the loop's rules, not Codex's own.
+        if kind.uses_openrouter() {
             prompt.push_str(&crate::prompt::loop_rules(caps));
         }
         let resume = self.resume_for(bot, kind, &prompt, overrides.ephemeral)?;
@@ -101,8 +102,7 @@ impl Hub {
             .openrouter
             .as_ref()
             .is_some_and(|p| p.browser.is_some());
-        if browser_spec.is_none() && shared.is_some() && kind == EngineKind::OpenRouter && injected
-        {
+        if browser_spec.is_none() && shared.is_some() && kind.uses_openrouter() && injected {
             browser_spec = Some(BrowserSpec {
                 mcp: crate::engine::McpCommand::default(),
                 mcp_json: serde_json::Value::Null,
@@ -279,6 +279,7 @@ impl Hub {
             let message = match engine {
                 EngineKind::Claude => "Claude stopped unexpectedly.",
                 EngineKind::OpenRouter => "The bot's session stopped unexpectedly.",
+                EngineKind::Codex => "Codex stopped unexpectedly.",
             };
             let _ = self.turn_failed(&bot, message);
         }
@@ -370,7 +371,9 @@ impl Hub {
                     runtime.permit = None;
                     runtime.last_active = Instant::now();
                     Self::release_browser(bot, runtime);
-                    (runtime.engine == EngineKind::OpenRouter)
+                    runtime
+                        .engine
+                        .uses_openrouter()
                         .then(|| std::mem::take(&mut runtime.meter))
                 } else {
                     None
@@ -482,7 +485,7 @@ fn model_of(bot: &Bot, engine: EngineKind) -> ModelChoice {
             .model
             .clone()
             .map_or(ModelChoice::Auto, ModelChoice::Claude),
-        EngineKind::OpenRouter => match bot.loop_settings.model.as_deref() {
+        EngineKind::OpenRouter | EngineKind::Codex => match bot.loop_settings.model.as_deref() {
             None | Some("" | "auto") => ModelChoice::Auto,
             Some(id) => ModelChoice::Pin(id.to_owned()),
         },

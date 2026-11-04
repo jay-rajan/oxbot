@@ -154,6 +154,11 @@ impl Hub {
                     )));
                 }
             },
+            EngineKind::Codex => {
+                return Err(HubError::EngineNotReady(
+                    "Codex isn't set up on this Mac.".to_owned(),
+                ));
+            }
         };
         engine
             .ready()
@@ -246,8 +251,8 @@ impl Hub {
                     )));
                 }
             }
-            EngineKind::OpenRouter => {
-                self.engine(EngineKind::OpenRouter)?;
+            EngineKind::OpenRouter | EngineKind::Codex => {
+                self.engine(engine)?;
             }
         }
         let model = model.map(|m| m.trim().to_owned());
@@ -259,7 +264,8 @@ impl Hub {
                 let model = (!model.is_empty()).then_some(model);
                 match engine {
                     EngineKind::Claude => b.model = model,
-                    EngineKind::OpenRouter => b.loop_settings.model = model,
+                    // Codex bots use the same OpenRouter models.
+                    EngineKind::OpenRouter | EngineKind::Codex => b.loop_settings.model = model,
                 }
             }
         });

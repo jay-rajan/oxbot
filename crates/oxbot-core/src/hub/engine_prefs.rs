@@ -73,14 +73,15 @@ impl Hub {
         info.engine = match engine {
             EngineKind::Claude => oxbot_protocol::EngineKind::Claude,
             EngineKind::OpenRouter => oxbot_protocol::EngineKind::OpenRouter,
+            EngineKind::Codex => oxbot_protocol::EngineKind::Codex,
         };
         info.model = match engine {
             EngineKind::Claude => bot.model.clone(),
-            EngineKind::OpenRouter => bot.loop_settings.model.clone(),
+            EngineKind::OpenRouter | EngineKind::Codex => bot.loop_settings.model.clone(),
         };
         info.daily_requests = match engine {
             EngineKind::Claude => None,
-            EngineKind::OpenRouter => bot.loop_settings.daily_requests,
+            EngineKind::OpenRouter | EngineKind::Codex => bot.loop_settings.daily_requests,
         };
         // Owner-only exactly when the rule would refuse someone else.
         let someone_else = ChainOrigin::default();

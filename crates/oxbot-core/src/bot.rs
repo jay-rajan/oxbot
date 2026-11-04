@@ -819,12 +819,14 @@ mod tests {
         bot.save().unwrap();
         assert_eq!(fs::read_to_string(dir.join("bot.toml")).unwrap(), old);
 
+        fs::write(dir.join("bot.toml"), "name = \"News\"\nengine = \"gpt\"\n").unwrap();
+        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Claude);
         fs::write(
             dir.join("bot.toml"),
             "name = \"News\"\nengine = \"codex\"\n",
         )
         .unwrap();
-        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Claude);
+        assert_eq!(Bot::load(&dir).unwrap().engine, EngineKind::Codex);
         fs::write(
             dir.join("bot.toml"),
             "name = \"News\"\nengine = \"claude\"\n",

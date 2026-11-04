@@ -578,6 +578,9 @@ pub enum EngineKind {
     /// household may give it tasks.
     #[serde(rename = "openrouter")]
     OpenRouter,
+    /// Codex CLI's agent loop on `OpenRouter`'s models, through oxbot's
+    /// relay: anyone in the household may give it tasks.
+    Codex,
 }
 
 /// Settings → Engines: which engine does what, and who may use it.

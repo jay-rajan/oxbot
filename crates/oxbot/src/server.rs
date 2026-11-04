@@ -1543,7 +1543,9 @@ async fn handle_openrouter(msg: ClientMsg, state: &AppState) -> Vec<ServerMsg> {
                 return Vec::new();
             };
             let done = account.sign_out().await;
+            // Codex bots reach OpenRouter on the same key.
             state.hub.stop_engine_sessions(EngineKind::OpenRouter).await;
+            state.hub.stop_engine_sessions(EngineKind::Codex).await;
             state.openrouter_changed();
             match done {
                 Ok(()) => vec![ServerMsg::Notice {
@@ -1705,8 +1707,8 @@ async fn create_bot(
                 "Only {owner} can make Claude bots: they run on {owner}'s own Claude plan."
             ));
         }
-        Some(EngineKind::OpenRouter) => {
-            if let Err(why) = state.hub.engine_ready(EngineKind::OpenRouter) {
+        Some(kind @ (EngineKind::OpenRouter | EngineKind::Codex)) => {
+            if let Err(why) = state.hub.engine_ready(kind) {
                 return error(&why);
             }
         }
@@ -1753,6 +1755,7 @@ fn engine_kind(engine: oxbot_protocol::EngineKind) -> EngineKind {
     match engine {
         oxbot_protocol::EngineKind::Claude => EngineKind::Claude,
         oxbot_protocol::EngineKind::OpenRouter => EngineKind::OpenRouter,
+        oxbot_protocol::EngineKind::Codex => EngineKind::Codex,
     }
 }
 

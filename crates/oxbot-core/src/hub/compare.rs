@@ -55,6 +55,7 @@ fn engine_name(e: WireEngine) -> &'static str {
     match e {
         WireEngine::Claude => "claude",
         WireEngine::OpenRouter => "openrouter",
+        WireEngine::Codex => "codex",
     }
 }
 
@@ -261,6 +262,15 @@ impl Hub {
             EngineKind::Claude => (
                 engine,
                 bot.model.clone().unwrap_or_else(|| "default".to_owned()),
+                None,
+            ),
+            // Codex keeps no loop turns: its requests are in the meter.
+            EngineKind::Codex => (
+                engine,
+                bot.loop_settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "auto".to_owned()),
                 None,
             ),
             EngineKind::OpenRouter => {
@@ -681,6 +691,10 @@ impl Hub {
                 refused.push(format!("{name}: not a model name"));
                 continue;
             }
+            if target.engine == WireEngine::Codex {
+                refused.push(format!("{name}: practice runs don't run on Codex yet"));
+                continue;
+            }
             if let Err(err) = self.engine(engine_kind(target.engine)) {
                 refused.push(format!("{name}: {err}"));
                 continue;
@@ -731,7 +745,7 @@ impl Hub {
         for (case, target) in &pairs {
             match target.engine {
                 WireEngine::Claude => claude += repeats,
-                WireEngine::OpenRouter => {
+                WireEngine::OpenRouter | WireEngine::Codex => {
                     openrouter += repeats * compare::requests_per_run(original_steps(case));
                 }
             }

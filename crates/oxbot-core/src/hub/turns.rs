@@ -107,7 +107,9 @@ impl Hub {
         // Loop turns wait for the model pacer: they have their own slots.
         let slots = match self.engine_of(&bot) {
             crate::engine::EngineKind::Claude => &self.turns,
-            crate::engine::EngineKind::OpenRouter => &self.loop_turns,
+            crate::engine::EngineKind::OpenRouter | crate::engine::EngineKind::Codex => {
+                &self.loop_turns
+            }
         };
         let permit = Arc::clone(slots)
             .acquire_owned()

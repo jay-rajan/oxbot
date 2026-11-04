@@ -202,6 +202,7 @@ pub(super) fn engine_kind(engine: oxbot_protocol::EngineKind) -> EngineKind {
     match engine {
         oxbot_protocol::EngineKind::Claude => EngineKind::Claude,
         oxbot_protocol::EngineKind::OpenRouter => EngineKind::OpenRouter,
+        oxbot_protocol::EngineKind::Codex => EngineKind::Codex,
     }
 }
 
@@ -209,7 +210,7 @@ pub(super) fn engine_kind(engine: oxbot_protocol::EngineKind) -> EngineKind {
 pub(super) fn provider_of(engine: EngineKind) -> &'static str {
     match engine {
         EngineKind::Claude => "anthropic",
-        EngineKind::OpenRouter => "openrouter",
+        EngineKind::OpenRouter | EngineKind::Codex => "openrouter",
     }
 }
 
@@ -922,7 +923,7 @@ impl Hub {
     ) -> Result<(), String> {
         let slots = match kind {
             EngineKind::Claude => &self.turns,
-            EngineKind::OpenRouter => &self.loop_turns,
+            EngineKind::OpenRouter | EngineKind::Codex => &self.loop_turns,
         };
         let permit = Arc::clone(slots)
             .acquire_owned()
