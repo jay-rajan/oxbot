@@ -138,6 +138,22 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .site-row small { color: var(--muted); font-size: .75rem; }
 /* a bot's "Always allowed" rules, in its settings */
 .rules-box { display: grid; gap: 6px; min-width: 0; }
+.sched-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.sched-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; gap: 2px; }
+.sched-row small { color: var(--muted); font-size: .75rem; }
+.sched-row .btns { display: flex; gap: 6px; }
+.sched-row.paused .name > span { color: var(--muted); }
+.sched-person { margin: 14px 0 4px; font-size: .85rem; }
+.card.sched { border: 1px solid var(--line); background: var(--surface); }
+.card.sched h3 { color: var(--ink); }
+.card.sched .sched-text { font-weight: 600; overflow-wrap: anywhere; }
+.card .from { color: var(--danger-ink); background: var(--danger-soft); border-radius: 6px; padding: 6px 8px; font-size: .85rem; }
+.sched-edit { display: grid; gap: 8px; }
+.sched-edit label { display: grid; gap: 4px; font-size: .85rem; }
+.sched-edit textarea { min-height: 3.2em; }
+.sched-edit .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; justify-content: flex-start; }
+.sched-edit .days { display: flex; gap: 4px; flex-wrap: wrap; }
+.sched-edit .days label { display: flex; gap: 3px; align-items: center; font-size: .8rem; }
 .rules-box h3 { margin: 0; font-size: .9rem; }
 .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 30vh; overflow-y: auto; }
 .rule-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
@@ -453,6 +469,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <section class="rules-box" aria-labelledby="bdRulesTitle"><h3 id="bdRulesTitle">Always allowed</h3><ul class="rules" id="bdRules"></ul></section>
     </div>
     <section class="reports-box" aria-labelledby="bdReportsTitle"><h3 id="bdReportsTitle">Reports</h3><ul class="rules" id="bdReports"></ul></section>
+    <section class="rules-box" aria-labelledby="bdSchedTitle"><h3 id="bdSchedTitle">Schedules</h3><ul class="rules" id="bdScheds"></ul></section>
     <div class="row"><button class="ghost" type="button" id="bdDelete">Delete bot</button><span style="flex:1"></span><button class="ghost" type="button" id="bdCancel">Cancel</button><button class="primary" type="submit" id="bdSave">Save</button></div>
   </form>
 </dialog>
@@ -466,7 +483,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <dialog id="appDlg" class="wide" aria-labelledby="appTitle">
   <div class="settings">
     <header class="settings-head"><h2 id="appTitle">Settings</h2><button class="ghost" id="appClose" type="button">Close</button></header>
-    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Websites</button><button type="button" role="tab" data-tab="setGates" aria-selected="false" id="gatesTab" hidden>Devices</button><button type="button" role="tab" data-tab="setEngines" aria-selected="false" id="enginesTab">AI models</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
+    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Websites</button><button type="button" role="tab" data-tab="setGates" aria-selected="false" id="gatesTab" hidden>Devices</button><button type="button" role="tab" data-tab="setEngines" aria-selected="false" id="enginesTab">AI models</button><button type="button" role="tab" data-tab="setSchedules" aria-selected="false" id="schedulesTab">Schedules</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
 
     <div id="setGeneral" role="tabpanel">
     <section id="notifySection">
@@ -614,6 +631,14 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
         <div class="btns"><button class="primary" type="submit">Save</button><button class="ghost" type="button" id="cmpDeleteRuns">Delete all test runs</button></div>
         <p class="hint">Test runs get a copy of the websites they need you signed in to, in their own browser without history, and delete it when they end. A link that acts when opened (one-click unsubscribe, magic links) can't be told from a read, as in live runs.</p>
       </form>
+    </section>
+    </div>
+
+    <div id="setSchedules" role="tabpanel" hidden>
+    <section>
+      <h3>Schedules</h3>
+      <p class="hint" id="schedHint">Tasks bots run on their own at set times, each as the person who set it up: their bots, the websites they're signed in to, their AI spending. Ask any bot ("every weekday at 8:15 AM, send me…") and press Create on its schedule card. A run's answer goes to that person's devices. Missed while the home computer was off or asleep: it runs once if it's back within 2 hours.</p>
+      <div id="schedAll"></div>
     </section>
     </div>
 
@@ -861,7 +886,7 @@ function onMessage(m) {
       break;
     }
     case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
-    case "approval_resolved": approvals.delete(m.id); renderCards(); break;
+    case "approval_resolved": approvals.delete(m.id); forgetScheduleEdits(); renderCards(); break;
     case "allow_rules": if (m.bot === rulesFor) { rules = m.rules; renderRules(); } break;
     case "report": keepReport(m); if (wantReport === reportKey(m.bot, m.id)) showReport(m); break;
     case "reports": if (m.bot === reportsFor) { reportList = m.reports; renderReportList(); } break;
@@ -966,6 +991,9 @@ function onMessage(m) {
     case "gates": gates = m.gates; renderGates(); break;
     case "door": door = m; renderGates(); break;
     case "notice": toast(m.message); break;
+    case "notify": toast(m.text); break;
+    case "schedules": onSchedules(m); break;
+    case "schedules_changed": askSchedules(); break;
     case "dictation": onDictation(m); break;
     case "error": sendFailed(); toast(m.message, true); break;
   }
@@ -2165,6 +2193,8 @@ $("botMore").onclick = () => {
   $("bdCancel").textContent = manage ? "Cancel" : "Close";
   reportsFor = b.info.id; reportList = null; reportArmed = null; renderReportList();
   send({ type: "list_reports", bot: b.info.id });
+  schedFor = b.info.id; schedBot = null; schedArmed = null; renderScheduleList($("bdScheds"), null, false);
+  send({ type: "list_schedules", bot: b.info.id });
   $("bdName").value = b.info.name || b.info.id;
   $("bdPrivate").checked = !!b.info.private;
   $("bdPrivate").disabled = b.busy;
@@ -2179,7 +2209,7 @@ $("botMore").onclick = () => {
   if (manage) { rulesFor = b.info.id; rules = null; renderRules(); send({ type: "list_allow_rules", bot: b.info.id }); }
   $("botDlg").showModal();
 };
-$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; reportsFor = null; reportList = null; });
+$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; reportsFor = null; reportList = null; schedFor = null; schedBot = null; });
 // The open bot's rules; Remove takes effect at once (it's a permission, not a setting to Save).
 let rulesFor = null, rules = null;
 function renderRules() {
@@ -2310,6 +2340,7 @@ function renderCards(onlyIfRenamed) {
   }
   function approvalCard(a, key) {
     const who = botName(a.bot);
+    if ((a.kind === "schedule" || a.kind === "change_schedule") && a.schedule) return scheduleCard(a, who, btn);
     if (a.kind === "create_bot") {
       // Herder wants to make a bot: show its name and instructions.
       const card = div("card newbot");
@@ -2376,6 +2407,175 @@ function renderCards(onlyIfRenamed) {
     return img;
   }
 }
+// ---------- schedules
+// A schedule card: Create, Change (edit it right here first) or Don't.
+// What's being changed survives redraws, by card id.
+const schedEdits = new Map();
+const KINDS = [["once", "Once"], ["daily", "Every day"], ["weekdays", "Every weekday"], ["weekly", "Some days of the week"], ["monthly", "Once a month"]];
+const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+function editOf(a) {
+  let e = schedEdits.get(a.id);
+  if (!e) {
+    const r = a.schedule.rule;
+    const at = r.kind === "once" ? r.at.split("T") : ["", ""];
+    e = { open: false, task: a.schedule.task, kind: r.kind, time: r.time || at[1] || "09:00", date: at[0] || "", days: new Set(r.days || []), day: r.day || 1 };
+    schedEdits.set(a.id, e);
+  }
+  return e;
+}
+function ruleOf(e) {
+  switch (e.kind) {
+    case "once": return { kind: "once", at: `${e.date}T${e.time}` };
+    case "weekly": return { kind: "weekly", days: DAYS.map((d) => d[0]).filter((d) => e.days.has(d)), time: e.time };
+    case "monthly": return { kind: "monthly", day: Number(e.day) || 1, time: e.time };
+    default: return { kind: e.kind, time: e.time };
+  }
+}
+function scheduleCard(a, who, btn) {
+  const d = a.schedule;
+  const card = div("card sched");
+  const h = document.createElement("h3");
+  const text = div("sched-text"); text.textContent = d.text;
+  const where = div("where");
+  if (a.kind === "schedule") {
+    h.textContent = `${who} wants to set up a schedule`;
+    where.textContent = `It runs in ${d.bot_name} as ${a.asker || "you"}, with their bots, the websites they're signed in to and their AI spending, and each answer goes to their devices. Times are ${d.tz} time.${a.detail ? " " + a.detail + "." : ""}`;
+  } else {
+    h.textContent = `${who} wants to ${a.action}`;
+    where.textContent = `In ${d.bot_name}.`;
+  }
+  card.append(h, text, where);
+  if (d.from) { const from = div("from"); from.textContent = `⚠ Not straight from a message of yours: ${d.from}. Check it's what you want.`; card.appendChild(from); }
+  const btns = div("btns");
+  const answer = (ans, schedule) => send({ type: "answer", id: a.id, answer: ans, ...(schedule ? { schedule } : {}) });
+  if (a.kind !== "schedule") {
+    btn(btns, a.action.startsWith("delete") ? "Delete it" : "Resume it", "primary", () => answer("allow_once"));
+    btn(btns, "Don't", "deny", () => answer("deny"));
+    card.appendChild(btns);
+    return card;
+  }
+  const e = editOf(a);
+  if (!e.open) {
+    btn(btns, "Create", "primary", () => answer("allow_once"));
+    btn(btns, "Change", "ghost", () => { e.open = true; renderCards(); });
+    btn(btns, "Don't", "deny", () => answer("deny"));
+    card.appendChild(btns);
+    return card;
+  }
+  card.appendChild(scheduleForm(e));
+  btn(btns, "Create", "primary", () => answer("allow_once", { task: e.task.trim(), rule: ruleOf(e) }));
+  btn(btns, "Back", "ghost", () => { e.open = false; renderCards(); });
+  btn(btns, "Don't", "deny", () => answer("deny"));
+  card.appendChild(btns);
+  return card;
+}
+// The fields to change a proposed schedule: what to do, and when.
+function scheduleForm(e) {
+  const form = div("sched-edit");
+  const field = (label, input) => { const l = document.createElement("label"); l.append(label, input); return l; };
+  const task = document.createElement("textarea"); task.value = e.task; task.maxLength = 1000;
+  task.oninput = () => { e.task = task.value; };
+  form.appendChild(field("What the bot does each time", task));
+  const row = div("row");
+  const kind = document.createElement("select");
+  for (const [v, t] of KINDS) { const o = document.createElement("option"); o.value = v; o.textContent = t; kind.appendChild(o); }
+  kind.value = e.kind;
+  kind.onchange = () => { e.kind = kind.value; renderCards(); };
+  row.appendChild(field("How often", kind));
+  if (e.kind === "once") {
+    const date = document.createElement("input"); date.type = "date"; date.value = e.date;
+    date.oninput = () => { e.date = date.value; };
+    row.appendChild(field("Day", date));
+  }
+  if (e.kind === "monthly") {
+    const day = document.createElement("input"); day.type = "number"; day.min = 1; day.max = 31; day.value = e.day;
+    day.oninput = () => { e.day = day.value; };
+    row.appendChild(field("Day of the month", day));
+  }
+  const time = document.createElement("input"); time.type = "time"; time.value = e.time;
+  time.oninput = () => { e.time = time.value; };
+  row.appendChild(field("Time", time));
+  form.appendChild(row);
+  if (e.kind === "weekly") {
+    const days = div("days");
+    for (const [v, t] of DAYS) {
+      const l = document.createElement("label"); const c = document.createElement("input"); c.type = "checkbox"; c.checked = e.days.has(v);
+      c.onchange = () => { if (c.checked) e.days.add(v); else e.days.delete(v); };
+      l.append(c, t); days.appendChild(l);
+    }
+    form.appendChild(days);
+  }
+  return form;
+}
+function forgetScheduleEdits() { for (const id of [...schedEdits.keys()]) if (!approvals.has(id)) schedEdits.delete(id); }
+
+// Lists: the open bot's (its ··· settings) and everyone's (Settings → Schedules).
+let schedFor = null, schedBot = null, schedAll = null, schedArmed = null;
+function askSchedules() {
+  if (schedFor && $("botDlg").open) send({ type: "list_schedules", bot: schedFor });
+  if ($("appDlg").open && !$("setSchedules").hidden) send({ type: "list_schedules" });
+}
+function onSchedules(m) {
+  if (m.bot) { if (m.bot === schedFor) { schedBot = m.schedules; renderScheduleList($("bdScheds"), schedBot, false); } }
+  else { schedAll = m.schedules; renderAllSchedules(); }
+}
+const OUTCOMES = { ok: "done", failed: "didn't finish", running: "running now", busy: "skipped: the bot was busy", limit: "skipped: an AI limit was reached", missed: "missed: the home computer was off or asleep", too_soon: "skipped: too soon after the last run", no_access: "paused: no longer allowed to use this bot" };
+function schedWhen(ms, tz) {
+  const opts = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  try { return new Date(ms).toLocaleString([], { ...opts, timeZone: tz }); } catch { return new Date(ms).toLocaleString([], opts); }
+}
+function scheduleRow(sc, withBot) {
+  const li = document.createElement("li"); li.className = "sched-row" + (sc.paused ? " paused" : "");
+  const name = document.createElement("span"); name.className = "name";
+  const what = document.createElement("span"); what.textContent = sc.text;
+  const meta = document.createElement("small");
+  const parts = [];
+  if (withBot) parts.push(`in ${sc.bot_name}`);
+  if (!sc.mine && sc.person) parts.push(`as ${sc.person}`);
+  parts.push(sc.paused ? "paused" : sc.next_run_ms ? `next ${schedWhen(sc.next_run_ms, sc.tz)}` : "done: it ran once");
+  if (sc.last_run_ms) parts.push(`last ${schedWhen(sc.last_run_ms, sc.tz)}${sc.last_outcome ? ", " + (OUTCOMES[sc.last_outcome] || sc.last_outcome) : ""}`);
+  meta.textContent = parts.join(" · ");
+  name.append(what, meta);
+  li.appendChild(name);
+  if (sc.can_change) {
+    const btns = div("btns");
+    const pause = document.createElement("button"); pause.type = "button"; pause.className = "ghost";
+    pause.textContent = sc.paused ? "Resume" : "Pause";
+    pause.onclick = () => send({ type: "pause_schedule", id: sc.id, paused: !sc.paused });
+    const del = document.createElement("button"); del.type = "button"; del.className = "ghost";
+    del.textContent = schedArmed === sc.id ? "Yes, delete" : "Delete";
+    del.onclick = () => {
+      if (schedArmed !== sc.id) { schedArmed = sc.id; renderScheduleList($("bdScheds"), schedBot, false); renderAllSchedules(); return; }
+      schedArmed = null; send({ type: "delete_schedule", id: sc.id });
+    };
+    btns.append(pause, del); li.appendChild(btns);
+  }
+  return li;
+}
+function renderScheduleList(ul, list, withBot) {
+  ul.textContent = "";
+  const note = (text) => { const li = document.createElement("li"); li.className = "hint"; li.textContent = text; ul.appendChild(li); };
+  if (!list) return note("Loading…");
+  if (!list.length) return note("None. Ask the bot for one (\"every Saturday at 6 PM, check…\") and press Create on its schedule card.");
+  for (const sc of list) ul.appendChild(scheduleRow(sc, withBot));
+}
+function renderAllSchedules() {
+  const box = $("schedAll"); box.textContent = "";
+  if (!schedAll) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "Loading…"; box.appendChild(p); return; }
+  if (!schedAll.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No schedules yet."; box.appendChild(p); return; }
+  // By person: yours first.
+  const groups = new Map();
+  for (const sc of schedAll) { const k = sc.mine ? "" : sc.person || "?"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(sc); }
+  const keys = [...groups.keys()].sort((x, y) => (x === "" ? -1 : y === "" ? 1 : x.localeCompare(y)));
+  for (const k of keys) {
+    const h = document.createElement("h4"); h.className = "sched-person"; h.textContent = k === "" ? "Yours" : k;
+    const ul = document.createElement("ul"); ul.className = "rules";
+    for (const sc of groups.get(k)) ul.appendChild(scheduleRow(sc, true));
+    box.append(h, ul);
+  }
+}
+$("schedulesTab").addEventListener("click", () => { schedAll = null; renderAllSchedules(); send({ type: "list_schedules" }); });
+
 // Where the card area shows the newest card from its heading down (the
 // bottom, when that card fits).
 function newestTop() {

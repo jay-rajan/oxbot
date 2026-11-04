@@ -198,6 +198,10 @@ pub struct Step {
     /// Stop oxbot and start it again on the same data, as after the Mac
     /// restarts (the stand-ins keep running; the page reconnects).
     pub restart: Option<bool>,
+    /// Move oxbot's scheduler clock forward (test mode only) and check
+    /// schedules at once: `"next run"` to just past the soonest schedule's
+    /// next run, or a number of minutes, e.g. `"90"`.
+    pub advance_clock: Option<String>,
     /// The test site (`*.example.test`) got exactly this many requests
     /// that would have changed something.
     pub expect_site_writes: Option<u32>,
@@ -214,6 +218,21 @@ pub struct Step {
     /// How long `wait_for` waits (ms; default 10 000), or `expect_js`
     /// (default 2 000).
     pub timeout_ms: Option<u64>,
+}
+
+/// What an `advance_clock` step says: `None` for the next run, else
+/// minutes.
+///
+/// # Errors
+/// Neither.
+pub fn clock_minutes(by: &str) -> anyhow::Result<Option<u32>> {
+    match by.trim() {
+        "next run" => Ok(None),
+        n => n
+            .parse()
+            .map(Some)
+            .map_err(|_| anyhow::anyhow!("advance_clock takes \"next run\" or minutes, not {n:?}")),
+    }
 }
 
 /// `expect_db = { query = "SELECT bounced FROM loop_checks", equals = "1" }`.
@@ -307,6 +326,9 @@ impl Step {
         if self.restart == Some(true) {
             parts.push("Restart oxbot".to_owned());
         }
+        if let Some(by) = &self.advance_clock {
+            parts.push(format!("Move the clock to {by}"));
+        }
         if let Some(n) = self.expect_site_writes {
             parts.push(format!("Expect the test site to have had {n} writes"));
         }
@@ -342,6 +364,7 @@ impl Step {
             self.expect_openrouter_not.is_some(),
             self.expect_openrouter_body.is_some(),
             self.restart.is_some(),
+            self.advance_clock.is_some(),
             self.expect_site_writes.is_some(),
             self.expect_site_pages.is_some(),
             self.expect_db.is_some(),
@@ -480,6 +503,11 @@ mod tests {
         assert_eq!(step.describe(), "Restart oxbot");
         let step: Step = toml::from_str("expect_openrouter_body = '\"zdr\":true'").unwrap();
         assert_eq!(step.actions(), 1);
+        let step: Step = toml::from_str("advance_clock = \"next run\"").unwrap();
+        assert_eq!(step.describe(), "Move the clock to next run");
+        assert_eq!(clock_minutes("next run").unwrap(), None);
+        assert_eq!(clock_minutes("90").unwrap(), Some(90));
+        assert!(clock_minutes("soon").is_err());
     }
 
     #[test]

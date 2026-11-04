@@ -5,6 +5,19 @@
 when = "hello"
 say = "Hello! I'm the stand-in bot."
 
+# A schedule's run (its message says so): before the request that made it,
+# whose words it repeats.
+[[reply]]
+when = "scheduled task they set up earlier"
+say = "Day 3 plan is ready."
+
+[[reply]]
+when = "every weekday at 8:15"
+tool = "schedule_task"
+args = { task = "Send me today's prep plan.", rule = { kind = "weekdays", time = "08:15" } }
+after = "{result}"
+denied = "Okay, no schedule."
+
 [[reply]]
 when = "make a bot"
 say = "I'll make that bot."

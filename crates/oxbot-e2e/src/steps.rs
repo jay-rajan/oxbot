@@ -146,6 +146,9 @@ async fn run_step(driver: &mut Driver, server: &mut Server, step: &Step) -> anyh
     if step.restart == Some(true) {
         server.restart().await.context("restarting oxbot")?;
     }
+    if let Some(by) = &step.advance_clock {
+        advance_clock(driver, by).await?;
+    }
     page_step(driver, server, step).await?;
     if let Some(ms) = step.wait_ms {
         tokio::time::sleep(Duration::from_millis(ms)).await;
@@ -154,6 +157,18 @@ async fn run_step(driver: &mut Driver, server: &mut Server, step: &Step) -> anyh
         close_sign_in_window(&server.home, step.timeout_ms.unwrap_or(10_000)).await?;
     }
     loop_steps(driver, server, step).await
+}
+
+/// Moves oxbot's scheduler clock through the page's own connection (oxbot
+/// takes it only in test mode).
+async fn advance_clock(driver: &mut Driver, by: &str) -> anyhow::Result<()> {
+    let msg = match crate::spec::clock_minutes(by)? {
+        Some(minutes) => json!({"type": "e2e_advance_clock", "minutes": minutes}),
+        None => json!({"type": "e2e_advance_clock"}),
+    };
+    js(driver, &format!("send({msg}), true")).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Ok(())
 }
 
 /// A step's actions on the page: open, click, type, send, wait and check.

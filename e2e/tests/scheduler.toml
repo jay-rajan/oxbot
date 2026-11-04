@@ -1,0 +1,83 @@
+name = "Schedules: made on their card, run on their own, paused in bot settings"
+about = "Asked in plain words, a bot proposes a schedule on a card (Create, Change, Don't) and nothing is scheduled before Create. When it's due (the test moves oxbot's clock), the run is a turn as its person: a line in the chat says it's scheduled, the answer lands there, and the person's devices get its first line. Pausing it in the bot's settings stops the next run. Settings → Schedules lists it under Yours."
+needs = ["codex"]
+covers = ["crates/oxbot-core/src/hub/schedules.rs", "crates/oxbot-core/src/schedule.rs", "crates/oxbot-core/src/store/schedules.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "every weekday at 8:15 send me today's prep plan"
+[[step]]
+wait_for = "wants to set up a schedule"
+timeout_ms = 60000
+[[step]]
+expect = "Every weekday at 8:15 AM: Send me today's prep plan."
+note = "The schedule card says when and what, in plain words"
+shot = "schedule-card"
+[[step]]
+expect_not = "Always allow"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM schedules", equals = "0" }
+note = "Nothing is scheduled before Create"
+[[step]]
+click = "Change"
+[[step]]
+expect = "What the bot does each time"
+note = "Change opens the schedule to edit on the card"
+shot = "schedule-change"
+[[step]]
+click = "Back"
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "Scheduled, id"
+timeout_ms = 60000
+[[step]]
+expect_db = { query = "SELECT task_text FROM schedules", equals = "Send me today's prep plan." }
+[[step]]
+advance_clock = "next run"
+note = "Just past its next run: oxbot checks at once"
+[[step]]
+wait_for = "Scheduled: Every weekday at 8:15 AM"
+timeout_ms = 30000
+[[step]]
+wait_for = "Recipes: Day 3 plan is ready."
+timeout_ms = 60000
+note = "The answer's first line goes to Jay's devices (here, this page)"
+shot = "scheduled-run"
+[[step]]
+expect_db = { query = "SELECT outcome FROM schedule_runs ORDER BY id DESC LIMIT 1", equals = "ok" }
+[[step]]
+expect_db = { query = "SELECT entry FROM turn_origins ORDER BY rowid DESC LIMIT 1", equals = "schedule" }
+note = "The run started as Jay's scheduled task, not as the home computer"
+[[step]]
+click = "Bot settings"
+[[step]]
+wait_for = "Pause"
+[[step]]
+expect = "Every weekday at 8:15 AM: Send me today's prep plan."
+shot = "bot-schedules"
+[[step]]
+click = "Pause"
+[[step]]
+wait_for = "Resume"
+[[step]]
+expect_db = { query = "SELECT paused FROM schedules", equals = "1" }
+[[step]]
+advance_clock = "next run"
+[[step]]
+wait_ms = 1500
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM schedule_runs", equals = "1" }
+note = "Paused, the next run didn't happen"
+[[step]]
+key = "Escape"
+[[step]]
+click = "Settings"
+[[step]]
+click = "Schedules"
+[[step]]
+wait_for = "Yours"
+[[step]]
+expect = "in Recipes"
+shot = "settings-schedules"
