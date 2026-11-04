@@ -153,18 +153,12 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .status { font-size: .8rem; color: var(--muted); }
 .head-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .engine-badge { font-size: .7rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; white-space: nowrap; }
-.engine-badge.claude { color: var(--rust); border-color: var(--rust); }
 .engine-note { margin: 0 max(18px, env(safe-area-inset-right)) 8px 18px; padding: 9px 12px; border-radius: 10px; background: var(--hover); border: 1px solid var(--line); font-size: .85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .engine-note span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
 .engine-note button { font-size: .82rem; padding: 5px 10px; }
 .engine-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
 .engine-pick legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
-.warn-hint { color: var(--danger-ink, var(--rust)); }
 .notice-text { margin: 0; font-size: .92rem; line-height: 1.45; }
-.engines-banner { border-left: 5px solid var(--rust); }
-.engines-banner .alert-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.engines-banner button { background: none; border: 0; color: inherit; padding: 2px 6px; border-radius: 6px; flex: none; }
-.engines-banner .alert-more { text-decoration: underline; }
 #setEngines:not([hidden]) { display: grid; gap: 18px; }
 .engine-prefs { display: grid; gap: 10px; padding: 0; }
 .paid-box { display: grid; gap: 8px; }
@@ -195,6 +189,8 @@ label select { font: inherit; color: var(--ink); background: var(--bg); border: 
 .msg a { color: var(--rust); }
 .tool { align-self: flex-start; font: 12.5px/1.4 var(--mono); color: var(--muted); padding-left: 6px; }
 .tool::before { content: "· "; color: var(--muted); }
+/* a plain line from oxbot about the bot, e.g. that it moved to Codex */
+.tool.note-line { font-family: inherit; font-size: .85rem; max-width: 640px; }
 .done { align-self: flex-start; font-size: .75rem; color: var(--muted); padding-left: 6px; margin-top: -4px; }
 .err { align-self: flex-start; background: var(--err-soft); color: var(--err); padding: 6px 12px; border-radius: 8px; font-size: .9rem; }
 .composer { display: flex; gap: 8px; align-items: flex-end; padding: 10px max(18px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) 18px; border-top: 1px solid var(--line); background: var(--surface); }
@@ -301,8 +297,6 @@ dialog.report-view[open] { display: flex; flex-direction: column; }
 .checks li > span:first-child { font-weight: 700; }
 .checks li.ok > span:first-child { color: var(--ok); } .checks li.opt > span:first-child { color: var(--muted); } .checks li.bad > span:first-child { color: var(--err); }
 .checks .fix { color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }
-.setup-run { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
-.setup-run .progress { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; min-width: 0; flex: 1 1 200px; }
 .checks .fix code { font-family: var(--mono); font-size: .8rem; background: var(--code-bg); padding: 1px 4px; border-radius: 4px; user-select: all; }
 
 /* dialog + toast */
@@ -329,14 +323,6 @@ dialog.wide { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48p
 .settings-head h2 { margin: 0; }
 .settings section { display: grid; gap: 10px; min-width: 0; }
 .settings h3 { margin: 0; font-size: .95rem; }
-.limits { display: grid; gap: 12px; }
-.limit { display: grid; gap: 4px; }
-.limit .row-top { display: flex; justify-content: space-between; gap: 12px; font-size: .88rem; flex-wrap: wrap; }
-.limit .when { color: var(--muted); font-size: .8rem; }
-.bar { height: 10px; border-radius: 99px; background: var(--code-bg); overflow: hidden; }
-.bar i { display: block; height: 100%; border-radius: 99px; background: var(--rust); }
-.bar.half i { background: var(--danger); }
-.bar.warn i { background: var(--err); }
 /* usage alert banner: the latest live alert, under the header */
 .alert-banner { border-left: 5px solid var(--danger); background: var(--danger-soft); color: var(--danger-ink); }
 .alert-banner .alert-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -421,7 +407,6 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div class="setup" id="setupBox" hidden><h3>oxbot needs a few things first</h3><ul class="checks" id="setupChecks"></ul><div class="btns"><button class="primary" type="button" id="setupAgain">Check again</button></div></div>
     <div class="offline" id="offline" role="status" hidden><span class="offline-dot" aria-hidden="true"></span><span id="offlineText">Not connected.</span></div>
     <div class="offline alert-banner" id="usageAlert" role="status" hidden><span class="alert-text" id="usageAlertText"></span><button type="button" class="alert-more" id="usageAlertMore">Details</button><button type="button" id="usageAlertClose" aria-label="Dismiss" title="Dismiss">✕</button></div>
-    <div class="offline engines-banner" id="enginesBanner" role="status" hidden><span class="alert-text"><b>Claude bots now take tasks only from you.</b> They run on your own Claude plan.</span><button type="button" class="alert-more" id="enginesReview">Review bots</button><button type="button" id="enginesBannerClose" aria-label="Dismiss" title="Dismiss">✕</button></div>
     <div class="log" id="log" aria-live="polite"></div>
     <div class="engine-note" id="engineNote" role="status" hidden><span id="engineNoteText"></span><button class="ghost" type="button" id="engineNoteBtn" hidden></button></div>
     <div class="cards" id="cards" aria-live="assertive"></div>
@@ -445,7 +430,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <label>Name<input id="nbName" required placeholder="Daily News" autocomplete="off"></label>
     <label>What should it do?<textarea id="nbInstr" placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."></textarea></label>
     <label class="check"><input type="checkbox" id="nbPrivate"> Private: only you and the Farm's owner can see and use it, with your own sign-ins</label>
-    <label>Engine<select id="nbEngine"><option value="openrouter">OpenRouter (free models)</option><option value="codex">Codex (open models)</option><option value="claude">Claude (only you)</option></select></label>
+    <label>Engine<select id="nbEngine"><option value="codex">Codex (open models)</option><option value="openrouter">OpenRouter (free models)</option></select></label>
     <p class="hint" id="nbEngineHint"></p>
     <p class="hint" id="nbHint">It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.</p>
     <div class="row"><button class="ghost" type="button" id="nbCancel">Cancel</button><button class="primary" type="submit">Create</button></div>
@@ -460,9 +445,8 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <label class="check"><input type="checkbox" id="bdPrivate"> Private</label>
     <p class="hint" id="bdHint"></p>
     <fieldset class="engine-pick" id="bdEngineBox"><legend>Engine</legend>
-      <label class="check"><input type="radio" name="bdEngine" value="openrouter"> OpenRouter (free models)</label>
       <label class="check" id="bdCodexRow"><input type="radio" name="bdEngine" value="codex"> Codex (open models)</label>
-      <label class="check" id="bdClaudeRow"><input type="radio" name="bdEngine" value="claude"> Claude (only you)</label>
+      <label class="check"><input type="radio" name="bdEngine" value="openrouter"> OpenRouter (free models)</label>
       <p class="hint" id="bdEngineHint"></p>
       <div class="manage" id="bdOrBox" hidden>
         <label>Model<select id="bdModel"><option value="">Auto (free models first)</option></select></label>
@@ -488,22 +472,11 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Sign-ins</button><button type="button" role="tab" data-tab="setGates" aria-selected="false" id="gatesTab" hidden>Gates</button><button type="button" role="tab" data-tab="setEngines" aria-selected="false" id="enginesTab">Engines</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
 
     <div id="setGeneral" role="tabpanel">
-    <section>
-      <h3>Claude usage</h3>
-      <p class="hint" id="limitsNote">Shows after a bot's first reply.</p>
-      <div class="limits" id="limits"></div>
-      <div class="tbl"><table class="usage">
-        <thead><tr><th>Bot</th><th>Replies</th><th>Tokens in</th><th>Tokens out</th><th title="Claude's figure at API prices. Your plan counts usage against the limits above instead.">API cost</th></tr></thead>
-        <tbody id="usageRows"></tbody>
-      </table></div>
-      <p class="hint">"Tokens in" counts new input plus prompt-cache reads and writes. "API cost" is what Claude says the API would charge; on a Claude plan, usage counts against the limits above instead.</p>
-    </section>
-
     <section id="notifySection">
       <h3>Notifications</h3>
-      <label class="check"><input type="checkbox" id="usageAlerts"> Tell me when Claude usage passes 50% and 80% of the 5-hour or weekly limit</label>
+      <label class="check"><input type="checkbox" id="usageAlerts"> Tell me when use passes 50% and 80% of the household's OpenRouter limits (free requests, spending, credit, each bot's requests)</label>
       <label class="check" id="whenHiddenRow" hidden><input type="checkbox" id="notifyWhenHidden"> Tell me when a bot is waiting for my OK or a sign-in while oxbot is hidden</label>
-      <p class="hint" id="notifyHint">Once per limit and level, as a banner here and a Mac notification. Usage is as Claude last reported it, after a bot's reply. Mac notifications need permission in System Settings → Notifications.</p>
+      <p class="hint" id="notifyHint">Once per limit and level, as a banner here and a Mac notification. Mac notifications need permission in System Settings → Notifications.</p>
     </section>
 
     <section>
@@ -586,13 +559,9 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 
     <div id="setEngines" role="tabpanel" hidden>
     <section>
-      <h3>Who can use which bots</h3>
+      <h3>Where bots run</h3>
       <p class="notice-text" id="enginesNotice"></p>
-      <p class="hint">Every bot runs on an engine. OpenRouter bots (the default) run oxbot's own agent loop on OpenRouter's models, free ones first; anyone in the household can give them tasks. Claude bots run Claude Code on the Farm owner's own Claude plan. Herder (the owner's) runs on Claude; everyone else's Herder runs on OpenRouter. Model calls go only to Anthropic (Claude bots), OpenRouter (OpenRouter bots), or a local model; nothing else.</p>
-    </section>
-    <section>
-      <h3>Claude</h3>
-      <ul class="checks" id="claudeStatus"></ul>
+      <p class="hint">Every bot runs on an engine. Codex bots (the default, and every Herder) run Codex CLI's agent loop; OpenRouter bots run oxbot's own loop. Both use OpenRouter's models with the household's account, free ones first, with oxbot's own tools, cards and limits, and anyone in the household can give them tasks. Codex talks only to oxbot's relay on this Mac, which sends its requests on to OpenRouter.</p>
     </section>
     <section id="cxSection" hidden>
       <h3>Codex</h3>
@@ -601,7 +570,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
         <label>Where the codex program is (empty: look for it)<input id="cxPath" autocomplete="off" spellcheck="false" placeholder="/opt/homebrew/bin/codex"></label>
         <div class="btns"><button class="ghost" type="submit">Check again</button></div>
       </form>
-      <p class="hint">Codex bots run Codex CLI's agent loop on OpenRouter's models, with oxbot's own tools and cards. Codex talks only to oxbot on this Mac, which sends its requests to OpenRouter with the household's key, without anything that says who you are. Anyone in the household can give Codex bots tasks.</p>
+      <p class="hint">Codex bots run Codex CLI's agent loop on OpenRouter's models, with oxbot's own tools and cards. Codex talks only to oxbot's relay on this Mac, which sends its requests to OpenRouter with the household's key, without anything that says who you are. Its analytics, plugins, web search and update checks are off, and it never uses your own Codex sign-in. Anyone in the household can give Codex bots tasks.</p>
     </section>
     <section id="orSection" hidden>
       <h3>OpenRouter</h3>
@@ -644,18 +613,10 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <h3>Comparison</h3>
       <form class="engine-prefs" id="cmpPrefsForm">
         <label>Free requests kept for live bots, in percent<input type="number" id="cmpReserve" min="0" max="90" step="1" required></label>
-        <label>Test runs wait when Claude's limits are used, in percent<input type="number" id="cmpPause" min="10" max="100" step="1" required></label>
         <label>Most shadow runs a day<input type="number" id="cmpShadows" min="0" max="500" step="1" required></label>
         <div class="btns"><button class="primary" type="submit">Save</button><button class="ghost" type="button" id="cmpDeleteRuns">Delete all test runs</button></div>
         <p class="hint">Test runs copy the sign-ins they need into their own browser, without history, and delete it when they end. A link that acts when opened (one-click unsubscribe, magic links) can't be told from a read, as in live runs.</p>
       </form>
-    </section>
-    <section id="reviewSection" hidden>
-      <h3>Claude bots other people used</h3>
-      <p class="hint">In the last 30 days, other people gave these bots tasks. They take tasks only from you now. Switch one to OpenRouter so others can use it again; its chat stays.</p>
-      <ul class="site-rows" id="reviewRows"></ul>
-      <div class="btns"><button class="primary" type="button" id="switchAll">Switch all to OpenRouter</button></div>
-      <p class="hint" id="reviewNote"></p>
     </section>
     </div>
 
@@ -693,10 +654,10 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div id="cmpScore" role="tabpanel">
     <section>
       <div class="tbl"><table class="usage">
-        <thead><tr><th>Engine · model</th><th>Runs</th><th title="Your marks first, then Claude's">Pass</th><th>Steps</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th><th>Time</th><th title="Steps a live run would have asked you about">Cards</th><th title="Expected steps it did">Match</th><th title="Steps you had said no to">Said no</th><th>Refused</th><th>Errors</th><th title="Writes the test browser blocked">Blocked</th><th title="Your marks and Claude's agreeing">Agree</th><th>👍 👎</th></tr></thead>
+        <thead><tr><th>Engine · model</th><th>Runs</th><th title="Your marks">Pass</th><th>Steps</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th><th>Time</th><th title="Steps a live run would have asked you about">Cards</th><th title="Expected steps it did">Match</th><th title="Steps you had said no to">Said no</th><th>Refused</th><th>Errors</th><th title="Writes the test browser blocked">Blocked</th><th title="Your marks and an earlier judge's agreeing">Agree</th><th>👍 👎</th></tr></thead>
         <tbody id="cmpScoreRows"></tbody>
       </table></div>
-      <p class="hint">Pass rate uses your marks first, then Claude's. Medians per run. "Good enough": at least 5 runs, within 10 points of Claude, and never a step you had said no to.</p>
+      <p class="hint">Pass rate uses your marks. Medians per run. "Good enough": at least 5 runs, within 10 points of Codex's best, and never a step you had said no to.</p>
     </section>
     </div>
     <div id="cmpCases" role="tabpanel" hidden>
@@ -762,14 +723,13 @@ const farmKey = (() => {
   } catch { /* storage blocked: the key works until this page reloads */ }
   return key;
 })();
-let startedMs = null, warnings = 0, settings = null, usage = null;
+let startedMs = null, warnings = 0, settings = null;
 const drafts = new Map(); // bot -> files waiting to be sent: { key, bot, name, size, state: uploading|ready|error, progress, att, error, xhr }
 let dictating = null;       // while dictating: { before, after } the cursor
 const usageAlerts = {};      // limit name -> its latest live usage alert
 let helloAt = 0;             // when this connection's hello came
 const approvals = new Map(); // id -> approval card
 const signIns = new Map();   // id -> sign-in request
-const setupRuns = new Map(); // setup action -> { text, running }
 const people = new Map();    // name -> color
 let setup = null, signOutArmed = null;
 let engines = null;          // Settings → Engines, as the server sent it
@@ -895,7 +855,6 @@ function onMessage(m) {
       helloAt = Date.now(); renderAlert();
       break;
     case "settings": settings = m; if (!m.dictation && dictating) { dictating = null; renderMic(); } renderSettings(); renderEngines(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
-    case "usage": usage = m; renderUsage(); break;
     case "usage_alert": {
       const known = usageAlerts[m.limit];
       const fresh = !known || known.level !== m.level || known.resets_at_ms !== m.resets_at_ms;
@@ -924,7 +883,6 @@ function onMessage(m) {
       if (m.owner) mySites = m.sites; else sites = m.sites;
       renderSiteRows(); renderSignedIn(); break;
     case "sections": setSections(m); break;
-    case "setup_progress": setupRuns.set(m.action, { text: m.text, running: m.running }); renderSetup(); break;
     case "bot_created": pendingSelect = m.id; if (bots.has(m.id)) { pendingSelect = null; select(m.id); } break;
     case "activity": {
       const b = bot(m.bot); b.activity = m.text;
@@ -947,7 +905,7 @@ function onMessage(m) {
         if (!(info.id in seen)) markSeen(info.id); // first time: old replies aren't new
         if (viewing(info.id)) markSeen(info.id);
       }
-      renderBots(); updateStatus(); renderCards(true); renderUsage();
+      renderBots(); updateStatus(); renderCards(true); renderAlert();
       const known = (id) => id && m.bots.some((x) => x.id === id);
       const want = [pendingSelect, current, store.get("oxbot.bot"), m.bots[0] && m.bots[0].id].find(known);
       if (want && want !== current && (!pendingSelect || want === pendingSelect)) { pendingSelect = null; select(want); }
@@ -1572,31 +1530,27 @@ function updateStatus() {
   $("botName").textContent = b.info.name || b.info.id;
   // Someone else's private bot: nothing to send, nothing to stop.
   const locked = isLocked(b);
-  // A Claude bot runs on the owner's own plan: only they give it tasks.
-  const ownerOnly = !locked && b.info.can_task === false;
-  const owner = ownerName();
-  $("input").disabled = locked || ownerOnly;
-  $("input").placeholder = locked ? "Private" : ownerOnly ? `Only ${owner} can give this bot tasks` : dictating ? "Listening…" : "Message";
-  $("attach").disabled = locked || ownerOnly; $("attach").hidden = ownerOnly;
-  $("mic").hidden = locked || ownerOnly || !(settings && settings.dictation);
+  $("input").disabled = locked;
+  $("input").placeholder = locked ? "Private" : dictating ? "Listening…" : "Message";
+  $("attach").disabled = locked;
+  $("mic").hidden = locked || !(settings && settings.dictation);
   if (locked) $("botStatus").textContent = `private to ${b.info.created_by || "someone"}`;
-  else if (ownerOnly && !b.busy) $("botStatus").textContent = "owner only · Claude";
   else if (dictating) $("botStatus").textContent = "Listening… (on this Mac)";
   $("botAvatar").classList.toggle("working", !!b.busy && !locked);
-  $("stop").hidden = !b.busy || locked || ownerOnly;
-  $("send").disabled = b.busy || locked || ownerOnly || !connected || uploading(current);
+  $("stop").hidden = !b.busy || locked;
+  $("send").disabled = b.busy || locked || !connected || uploading(current);
   renderEngineBadge(b);
-  renderEngineNote(b, ownerOnly);
+  renderEngineNote(b);
 }
 
 // ---------- engines: the badge in the header, the note above the message box
 function ownerName() { return (settings && settings.owner_name) || (engines && engines.owner) || "the Farm's owner"; }
 function engineLabel(info) {
-  if (info.engine === "openrouter") return info.model ? info.model.replace(/^.*\//, "").replace(/:free$/, "") : "OpenRouter";
-  if (info.engine === "codex") return info.model ? "Codex · " + info.model.replace(/^.*\//, "").replace(/:free$/, "") : "Codex";
-  return "Claude";
+  const model = info.model ? info.model.replace(/^.*\//, "").replace(/:free$/, "") : "";
+  if (info.engine === "openrouter") return model || "OpenRouter";
+  return model ? "Codex · " + model : "Codex";
 }
-/** Whether a bot's engine runs on OpenRouter's models (OpenRouter or Codex). */
+/** Whether a bot's engine runs on OpenRouter's models (both do). */
 function onOpenRouter(engine) { return engine === "openrouter" || engine === "codex"; }
 /** Whether bots on `engine` can run on this Mac now. */
 function engineReady(engine) { return !!(settings && (engine === "codex" ? settings.codex_ready : settings.openrouter_ready)); }
@@ -1605,24 +1559,21 @@ function renderEngineBadge(b) {
   badge.hidden = !b || isLocked(b);
   if (badge.hidden) return;
   badge.textContent = engineLabel(b.info);
-  badge.title = b.info.engine === "openrouter" ? "Runs on OpenRouter" : b.info.engine === "codex" ? "Runs on Codex, with OpenRouter's models" : `Runs on ${ownerName()}'s own Claude plan`;
-  badge.classList.toggle("claude", !onOpenRouter(b.info.engine));
+  badge.title = b.info.engine === "openrouter" ? "Runs on oxbot's own loop, with OpenRouter's models" : "Runs on Codex, with OpenRouter's models";
 }
 const KEYCHAIN_WAITING = "Waiting for Keychain access: allow oxbot in the dialog.";
-function renderEngineNote(b, ownerOnly) {
+function renderEngineNote(b) {
   const note = $("engineNote"), btn = $("engineNoteBtn");
   const owner = ownerName();
   let text = "", action = null;
-  if (ownerOnly) {
-    text = `Only ${owner} can give this bot tasks: ${b.info.name || b.info.id} runs on ${owner}'s own Claude plan. You can read what it shares.`;
-    if (canManage(b) && settings && settings.openrouter_ready) action = ["Switch to OpenRouter", () => send({ type: "set_engine", bot: b.info.id, engine: "openrouter" })];
+  // Both engines need the household's OpenRouter sign-in first.
+  if (!isLocked(b) && settings && !settings.openrouter_ready) {
+    if (settings.keychain_waiting) text = KEYCHAIN_WAITING;
+    else if (settings.farm) { text = "OpenRouter isn't set up on this Mac yet."; action = ["Sign in to OpenRouter", openEngines]; }
+    else text = `OpenRouter isn't set up on this Mac yet; ask ${owner}.`;
   } else if (!isLocked(b) && b.info.engine === "codex" && settings && !settings.codex_ready) {
     if (settings.farm) { text = "Codex isn't ready on this Mac."; action = ["Set up", openEngines]; }
     else text = `Codex isn't ready on this Mac; ask ${owner}.`;
-  } else if (!isLocked(b) && b.info.engine === "openrouter" && settings && !settings.openrouter_ready) {
-    if (settings.keychain_waiting) text = KEYCHAIN_WAITING;
-    else if (settings.farm) { text = "OpenRouter isn't set up on this Mac yet."; action = ["Set up", openEngines]; }
-    else text = `OpenRouter isn't set up on this Mac yet; ask ${owner}.`;
   }
   note.hidden = !text;
   $("engineNoteText").textContent = text;
@@ -1634,38 +1585,10 @@ function openEngines() {
   $("settingsBtn").onclick();
   $("enginesTab").click();
 }
-// Settings → Engines: the notice, Claude's setup, and (the Farm) the Claude
-// bots other people used, each with Switch to OpenRouter.
+// Settings → Engines: the notice, then (the Farm) Codex and OpenRouter.
 function renderEngines() {
   $("enginesNotice").textContent = (engines && engines.notice) || "";
-  const status = $("claudeStatus"); status.textContent = "";
-  const checks = setup ? setup.checks.filter((c) => /claude/i.test(c.id || c.name)) : [];
-  if (!checks.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "Checking…"; status.appendChild(li); }
-  for (const c of checks) {
-    const li = document.createElement("li"); li.className = c.ok ? "ok" : "bad";
-    const mark = document.createElement("span"); mark.textContent = c.ok ? "✓" : "✕";
-    const text = document.createElement("span"); text.textContent = `${c.name}: ${c.detail}`;
-    li.append(mark, text); status.appendChild(li);
-  }
-  const review = (engines && engines.review) || [];
-  $("reviewSection").hidden = !review.length;
-  const ready = !!(settings && settings.openrouter_ready);
-  const rows = $("reviewRows"); rows.textContent = "";
-  for (const r of review) {
-    const li = document.createElement("li"); li.className = "report-row";
-    const name = document.createElement("span"); name.className = "open";
-    const who = document.createElement("small"); who.textContent = `used by ${r.used_by.join(", ")}`;
-    const n = document.createElement("span"); n.textContent = r.name;
-    name.append(n, who);
-    const btn = document.createElement("button"); btn.type = "button"; btn.className = "ghost"; btn.textContent = "Switch to OpenRouter";
-    btn.disabled = !ready;
-    btn.onclick = () => send({ type: "set_engine", bot: r.bot, engine: "openrouter" });
-    li.append(name, btn); rows.appendChild(li);
-  }
   renderOpenRouter();
-  $("switchAll").disabled = !ready;
-  $("reviewNote").textContent = ready ? "" : "Sign in with OpenRouter first to switch them.";
-  $("enginesBanner").hidden = !(engines && engines.banner && settings && settings.farm);
 }
 // Settings → Engines → OpenRouter (the Farm): sign-in, the key's limits,
 // models, limits and privacy, and today's use.
@@ -1775,9 +1698,6 @@ function meterEl(m) {
   el.textContent = `· ${m.model.replace(/^.*\//, "")} · ${m.requests} request${m.requests === 1 ? "" : "s"} · ${money(m.cost_usd || 0)}`;
   return el;
 }
-$("switchAll").onclick = () => { for (const r of (engines && engines.review) || []) send({ type: "set_engine", bot: r.bot, engine: "openrouter" }); };
-$("enginesReview").onclick = () => { send({ type: "engines_notice_seen" }); openEngines(); };
-$("enginesBannerClose").onclick = () => { send({ type: "engines_notice_seen" }); $("enginesBanner").hidden = true; };
 
 // ---------- Settings tabs: General and Activity
 for (const t of document.querySelectorAll("#appDlg .tabs button")) {
@@ -1890,6 +1810,7 @@ function eventEl(e) {
     case "report": el = reportCard(e); break;
     case "blocked": el = div("redline"); el.textContent = `⚠ ${e.message}`; break;
     case "allowed_by_rule": el = div("tool"); el.textContent = `allowed by your rule: ${e.action} ${e.target} on ${e.site}`; break;
+    case "note": el = div("tool note-line"); el.textContent = e.text; break;
     case "sign_in": {
       el = div("signline");
       el.textContent = { done: `Signed in to ${e.site}`, cancelled: `Didn't sign in to ${e.site}`, timed_out: `No answer; didn't sign in to ${e.site}` }[e.outcome] || e.site;
@@ -2124,7 +2045,7 @@ function sentFiles(e) {
     if (farm) { chip.type = "button"; chip.title = "Open it on this Mac"; chip.onclick = () => send({ type: "open_file", bot: e.bot, seq: e.seq, id: f.id }); }
     else chip.title = "Files open on the Mac";
     const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = f.name;
-    const sm = document.createElement("small"); sm.textContent = f.kind === "video" ? `Claude can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size);
+    const sm = document.createElement("small"); sm.textContent = f.kind === "video" ? `Bots can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size);
     chip.append(nm, sm);
     row.appendChild(chip);
   }
@@ -2219,26 +2140,21 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("side"
 
 const NB_SHARED = "It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
 const NB_PRIVATE = "Only you and the Farm's owner see it. Your own Herder can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to sites even if home is signed in. Anything that sends, posts or deletes asks you first.";
-const NB_CLAUDE = "It runs on your own Claude plan, so only you can give it tasks. Others can read its chat and reports.";
+const NB_CODEX = "Codex runs it, on OpenRouter's models (free ones first), with oxbot's tools and cards. Anyone who can see it can give it tasks.";
 function nbEngineHint() {
-  const claude = $("nbEngine").value === "claude";
   const codex = $("nbEngine").value === "codex";
   const ready = !!(settings && settings.openrouter_ready);
-  $("nbEngineHint").textContent = claude ? NB_CLAUDE
-    : codex ? (engineReady("codex") ? "Codex runs it, on OpenRouter's models (free ones first), with oxbot's tools and cards. Anyone who can see it can give it tasks." : "Codex isn't ready on this Mac yet: see Settings → Engines.")
-    : ready ? "Free models first. Anyone who can see it can give it tasks."
-    : settings && settings.keychain_waiting ? KEYCHAIN_WAITING
-    : settings && settings.owner ? "OpenRouter isn't set up on this Mac yet: sign in under Settings → Engines first."
-    : `OpenRouter isn't set up on this Mac yet; ask ${ownerName()}.`;
+  $("nbEngineHint").textContent = !ready
+    ? (settings && settings.keychain_waiting ? KEYCHAIN_WAITING
+      : settings && settings.owner ? "OpenRouter isn't set up on this Mac yet: sign in under Settings → Engines first."
+      : `OpenRouter isn't set up on this Mac yet; ask ${ownerName()}.`)
+    : codex ? (engineReady("codex") ? NB_CODEX : "Codex isn't ready on this Mac yet: see Settings → Engines.")
+    : "oxbot's own loop runs it, on OpenRouter's models (free ones first). Anyone who can see it can give it tasks.";
 }
 $("newBot").onclick = () => {
   $("newForm").reset(); $("nbHint").textContent = NB_SHARED;
-  // Claude only for the Farm's owner; OpenRouter is the default once a key
-  // is kept (or still being read from the Keychain).
-  const owner = !!(settings && settings.owner);
-  const kept = !!(settings && (settings.openrouter_ready || settings.keychain_waiting));
-  $("nbEngine").querySelector('option[value="claude"]').hidden = !owner;
-  $("nbEngine").value = owner && !kept ? "claude" : "openrouter";
+  // Codex is the default engine.
+  $("nbEngine").value = "codex";
   nbEngineHint();
   $("newDlg").showModal(); $("nbName").focus();
 };
@@ -2273,20 +2189,19 @@ $("botMore").onclick = () => {
   $("bdPrivate").checked = !!b.info.private;
   $("bdPrivate").disabled = b.busy;
   $("bdHint").textContent = privacyHint(!!b.info.private, b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
-  // Engine: Herders' are fixed; Claude only for the Farm's owner.
-  const engine = onOpenRouter(b.info.engine) ? b.info.engine : "claude";
+  // Engine: Herders' are fixed.
+  const engine = b.info.engine;
   $("bdEngineBox").hidden = !manage || !!b.info.central;
-  $("bdClaudeRow").hidden = !(settings && settings.owner) && engine !== "claude";
   for (const r of document.querySelectorAll('input[name="bdEngine"]')) {
     r.checked = r.value === engine;
-    r.disabled = b.busy || (r.value === "claude" && !(settings && settings.owner));
+    r.disabled = b.busy;
   }
   bdEngineHint();
   const sel = $("bdModel"); sel.textContent = "";
   const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Auto (free models first)"; sel.appendChild(auto);
   const listed = (engines && engines.models) || [];
   for (const m of listed) { const o = document.createElement("option"); o.value = m.id; o.textContent = m.name || m.id; sel.appendChild(o); }
-  const pinned = onOpenRouter(b.info.engine) ? b.info.model || "" : "";
+  const pinned = b.info.model || "";
   if (pinned && !listed.some((m) => m.id === pinned)) { const o = document.createElement("option"); o.value = pinned; o.textContent = pinned; sel.appendChild(o); }
   sel.value = pinned;
   $("bdDaily").value = b.info.daily_requests == null ? "" : b.info.daily_requests;
@@ -2320,21 +2235,15 @@ $("bdPrivate").onchange = () => { const b = bots.get(current); if (b) $("bdHint"
 function bdEngine() { const r = document.querySelector('input[name="bdEngine"]:checked'); return r ? r.value : null; }
 function bdEngineHint() {
   const b = bots.get(current); if (!b) return;
-  const was = onOpenRouter(b.info.engine) ? b.info.engine : "claude", now = bdEngine();
-  const hint = $("bdEngineHint"); hint.classList.remove("warn-hint");
+  const was = b.info.engine, now = bdEngine();
+  const hint = $("bdEngineHint");
   $("bdOrBox").hidden = !onOpenRouter(now);
-  if (now === "claude" && was !== "claude") {
-    // Only the owner's own private bot stays as it was; anything others use becomes owner-only.
-    const onlyMine = $("bdPrivate").checked && b.info.created_by === (settings && settings.you);
-    hint.textContent = onlyMine ? NB_CLAUDE : `Switching ${b.info.name || b.info.id} to Claude makes it owner-only: only you can give it tasks. Others can still read its chat and reports.`;
-    hint.classList.toggle("warn-hint", !onlyMine);
-  } else if (now === "openrouter" && was !== "openrouter" && !(settings && settings.openrouter_ready)) {
+  if (now !== was && !(settings && settings.openrouter_ready)) {
     hint.textContent = settings && settings.keychain_waiting ? KEYCHAIN_WAITING : "OpenRouter isn't set up on this Mac yet: sign in under Settings → Engines first.";
   } else if (now === "codex" && was !== "codex" && !engineReady("codex")) {
     hint.textContent = "Codex isn't ready on this Mac yet: see Settings → Engines.";
-  } else hint.textContent = now === "claude" ? `Runs on ${ownerName()}'s own Claude plan: only ${ownerName()} can give it tasks.`
-    : now === "codex" ? "Codex runs it, on OpenRouter's models (free ones first), with oxbot's tools and cards. Anyone who can see it can give it tasks."
-    : "Runs on OpenRouter's models, free ones first. Anyone who can see it can give it tasks.";
+  } else hint.textContent = now === "codex" ? NB_CODEX
+    : "oxbot's own loop runs it, on OpenRouter's models (free ones first). Anyone who can see it can give it tasks.";
 }
 for (const r of document.querySelectorAll('input[name="bdEngine"]')) r.onchange = bdEngineHint;
 $("bdCancel").onclick = () => $("botDlg").close();
@@ -2352,10 +2261,9 @@ $("botForm").addEventListener("submit", (ev) => {
   const name = $("bdName").value.trim();
   renameBot(b.info.id, name);
   if ($("bdPrivate").checked !== !!b.info.private) setPrivate(b.info.id, $("bdPrivate").checked);
-  const engine = bdEngine(), was = onOpenRouter(b.info.engine) ? b.info.engine : "claude";
-  const model = $("bdModel").value, wasModel = onOpenRouter(was) ? b.info.model || "" : "";
-  // The dialog said what switching to Claude means: that's the confirmation.
-  if (!b.info.central && engine && engine !== was) send({ type: "set_engine", bot: b.info.id, engine, confirm_owner_only: engine === "claude", model: onOpenRouter(engine) ? model : null });
+  const engine = bdEngine(), was = b.info.engine;
+  const model = $("bdModel").value, wasModel = b.info.model || "";
+  if (!b.info.central && engine && engine !== was) send({ type: "set_engine", bot: b.info.id, engine, model });
   else if (!b.info.central && onOpenRouter(engine) && model !== wasModel) send({ type: "set_engine", bot: b.info.id, engine, model });
   if (!b.info.central && onOpenRouter(engine)) {
     const daily = $("bdDaily").value.trim(), n = daily ? Math.round(Number(daily)) : null;
@@ -2531,19 +2439,6 @@ function renderChecks(list, onlyMissing) {
       });
       body.appendChild(fix);
     }
-    if (c.action && !c.ok) {
-      // A step oxbot does for the user: a button, then its progress.
-      const run = setupRuns.get(c.action);
-      const row = div("setup-run");
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "primary";
-      b.textContent = { install_claude: "Install Claude Code", sign_in_claude: "Sign in to Claude" }[c.action] || "Do it";
-      b.disabled = !!(run && run.running);
-      b.onclick = () => { setupRuns.set(c.action, { text: "Starting…", running: true }); renderSetup(); send({ type: "run_setup", action: c.action }); };
-      row.appendChild(b);
-      if (run) { const p = document.createElement("span"); p.className = "progress"; p.textContent = run.text; row.appendChild(p); }
-      body.appendChild(row);
-    }
     li.append(mark, body); list.appendChild(li);
   }
 }
@@ -2579,7 +2474,7 @@ function showTyping() {
 // ---------- settings
 $("settingsBtn").onclick = () => {
   warnings = 0; $("warnBadge").hidden = true;
-  renderSettings(); renderUsage(); renderLogs();
+  renderSettings(); renderAlert(); renderLogs();
   $("appDlg").showModal();
 };
 // The bottom row's Signed in link: Settings → Sign-ins.
@@ -2620,20 +2515,19 @@ function renderSettings() {
   $("notifyWhenHidden").checked = !!settings.notify_when_hidden;
   $("notifyWhenHidden").disabled = !settings.farm;
   $("notifyHint").textContent = settings.farm
-    ? "Once per limit and level, as a banner here and a Mac notification. Usage is as Claude last reported it, after a bot's reply. Mac notifications need permission in System Settings → Notifications."
+    ? "Once per limit and level, as a banner here and a Mac notification. Mac notifications need permission in System Settings → Notifications."
     : "Set on the Farm. Usage alerts show here as a banner.";
   if (!alertsOn) { for (const k of Object.keys(usageAlerts)) delete usageAlerts[k]; }
   renderAlert();
 }
 
 // ---------- usage alert banner
-const ALERT_NAMES = { five_hour: "5-hour limit", seven_day: "Weekly limit" };
 const OR_ALERT_NAMES = { openrouter_free_daily: "OpenRouter's free requests today", openrouter_spend_daily: "Paid models' spending today", openrouter_credits: "OpenRouter's credit" };
-/** A limit's name in words: Claude's windows, OpenRouter's, or one bot's requests today. */
+/** A limit's name in words: OpenRouter's, or one bot's requests today. */
 function alertLabel(limit) {
   const bot = limit.startsWith("openrouter_bot_daily:") ? limit.slice("openrouter_bot_daily:".length) : null;
   if (bot !== null) return `${(bots.get(bot) || { info: { name: bot } }).info.name}'s requests today`;
-  return ALERT_NAMES[limit] || OR_ALERT_NAMES[limit] || limit.replace(/_/g, " ");
+  return OR_ALERT_NAMES[limit] || limit.replace(/_/g, " ");
 }
 const alertKey = (a) => `${a.limit}:${a.resets_at_ms}:${a.level}`;
 // The alert to show: a live one not dismissed here, the highest level
@@ -2655,11 +2549,9 @@ function renderAlert() {
   const parts = [`${alertLabel(a.limit)} at ${Math.round(a.used * 100)}%`];
   const when = resetsIn(a.resets_at_ms);
   if (when) parts.push(when);
-  // Claude's plan windows say which models use them; OpenRouter's don't.
-  if (!a.limit.startsWith("openrouter_")) parts.push(a.models.length ? `your bots use ${a.models.join(", ")}` : "your bots use Claude's default model");
   const text = $("usageAlertText"); text.textContent = "";
   const b = document.createElement("b"); b.textContent = parts[0];
-  text.append(b, document.createTextNode(" · " + parts.slice(1).join(" · ")));
+  text.append(b, document.createTextNode(parts.length > 1 ? " · " + parts.slice(1).join(" · ") : ""));
   box.title = a.message;
 }
 $("usageAlertClose").onclick = () => {
@@ -2671,14 +2563,10 @@ $("usageAlertClose").onclick = () => {
   store.set("oxbotAlertsDismissed", JSON.stringify(dismissed));
   renderAlert();
 };
-$("usageAlertMore").onclick = () => {
-  $("settingsBtn").onclick();
-  document.querySelector('.settings .tabs [data-tab="setGeneral"]').click();
-};
+$("usageAlertMore").onclick = () => openEngines();
 // A window that resets takes its alert away, and "resets in" keeps up.
 setInterval(renderAlert, 60000);
 
-const LIMIT_NAMES = { five_hour: "Current session (5 hours)", seven_day: "Weekly", seven_day_opus: "Weekly (Opus)", seven_day_sonnet: "Weekly (Sonnet)" };
 const money = (c) => c > 0 && c < 0.01 ? "<$0.01" : `$${c.toFixed(2)}`;
 const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
 function resetsIn(ms) {
@@ -2688,44 +2576,6 @@ function resetsIn(ms) {
   const when = new Date(ms).toLocaleString([], { weekday: mins > 24 * 60 ? "short" : undefined, hour: "numeric", minute: "2-digit" });
   return mins < 60 ? `resets in ${mins} min` : mins < 24 * 60 ? `resets in ${Math.floor(mins / 60)} h ${mins % 60} min (${when})` : `resets ${when}`;
 }
-function renderUsage() {
-  if (!usage) return;
-  const box = $("limits"); box.textContent = "";
-  for (const l of usage.limits) {
-    const pct = Math.round(l.used * 100);
-    const row = div("limit");
-    row.innerHTML = `<div class="row-top"><span class="name"></span><span><b class="pct"></b> used <span class="when"></span></span></div><div class="bar"><i></i></div>`;
-    row.querySelector(".name").textContent = LIMIT_NAMES[l.name] || l.name.replace(/_/g, " ");
-    row.querySelector(".pct").textContent = `${pct}%`;
-    row.querySelector(".when").textContent = `· ${resetsIn(l.resets_at_ms)}`;
-    // Amber from 50% (or when Claude warns), red from 80%: as the alerts go.
-    const red = pct >= 80 || l.status === "rejected";
-    row.querySelector(".bar").classList.toggle("warn", red);
-    row.querySelector(".bar").classList.toggle("half", !red && (pct >= 50 || l.status !== "allowed"));
-    row.querySelector("i").style.width = `${Math.min(100, Math.max(1, pct))}%`;
-    box.appendChild(row);
-  }
-  renderAlert();
-  $("limitsNote").textContent = usage.limits.length
-    ? `As Claude last reported, ${new Date(usage.limits_seen_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Shared with everything else on your Claude plan.`
-    : "Shows after a bot's first reply.";
-  const rows = $("usageRows"); rows.textContent = "";
-  let total = { turns: 0, inp: 0, out: 0, cost: 0 };
-  for (const u of usage.bots) {
-    const inp = u.input_tokens + u.cache_read_tokens + u.cache_write_tokens;
-    total.turns += u.turns; total.inp += inp; total.out += u.output_tokens; total.cost += u.cost_usd;
-    const tr = document.createElement("tr");
-    const name = (bots.get(u.bot) && bots.get(u.bot).info.name) || u.bot;
-    for (const v of [name, String(u.turns), fmt(inp), fmt(u.output_tokens), money(u.cost_usd)]) { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); }
-    rows.appendChild(tr);
-  }
-  if (usage.bots.length > 1) {
-    const tr = document.createElement("tr"); tr.className = "total";
-    for (const v of ["All bots", String(total.turns), fmt(total.inp), fmt(total.out), money(total.cost)]) { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); }
-    rows.appendChild(tr);
-  }
-}
-
 function addLog(line) {
   logLines.push(line); if (logLines.length > 300) logLines.shift();
   if (line.level !== "info" && !$("appDlg").open) { warnings++; $("warnBadge").textContent = warnings; $("warnBadge").hidden = false; }
@@ -2748,14 +2598,14 @@ const shadowRuns = new Map();  // bot -> Map(live user_message seq -> run)
 const turnStart = new Map();   // bot -> the user_message seq of the turn being drawn
 const cmp = { bot: null, cases: [], runs: [], rows: [], batch: null, detail: null, caseFor: null };
 let cmpPrefsAsked = false;
-const CLAUDE_MODELS = ["sonnet", "opus", "haiku"];
 function isOwner() { return !!(settings && settings.owner); }
 function comparable(b) { return !!(b && !b.info.central && !isLocked(b)); }
-function targetName(t) { return `${t.engine === "claude" ? "Claude" : "OpenRouter"} · ${t.model}`; }
+function targetName(t) { return `${t.engine === "codex" ? "Codex" : "OpenRouter"} · ${t.model}`; }
+/** Each free model on Codex, then on oxbot's own loop (Codex is the yardstick). */
 function targetChoices() {
-  const out = CLAUDE_MODELS.map((model) => ({ engine: "claude", model }));
-  if (settings && settings.openrouter_ready) for (const m of (engines && engines.models) || []) out.push({ engine: "openrouter", model: m.id });
-  return out;
+  const models = settings && settings.openrouter_ready ? (engines && engines.models) || [] : [];
+  const codex = engineReady("codex") ? models.map((m) => ({ engine: "codex", model: m.id })) : [];
+  return codex.concat(models.map((m) => ({ engine: "openrouter", model: m.id })));
 }
 function cmpMoney(x) { return x == null ? "–" : x === 0 ? "$0" : x < 0.01 ? "<$0.01" : `$${x.toFixed(2)}`; }
 function cmpNum(x, digits = 0) { return x == null ? "–" : Number(x).toLocaleString(undefined, { maximumFractionDigits: digits }); }
@@ -2811,7 +2661,7 @@ function onCompare(m) {
       return true;
     }
     case "compare_prefs":
-      $("cmpReserve").value = m.reserve_pct; $("cmpPause").value = m.claude_pause_pct; $("cmpShadows").value = m.shadows_a_day;
+      $("cmpReserve").value = m.reserve_pct; $("cmpShadows").value = m.shadows_a_day;
       $("cmpPrefsSection").hidden = false;
       return true;
     default: return false;
@@ -2900,7 +2750,7 @@ function cmpTab(id) {
 for (const t of document.querySelectorAll("#compareDlg .tabs button")) {
   t.onclick = () => {
     cmpTab(t.dataset.cmp);
-    // Fresh numbers each time (marks and the judge change them).
+    // Fresh numbers each time (marks change them).
     if (t.dataset.cmp === "cmpScore") send({ type: "scoreboard", bot: cmp.bot });
     if (t.dataset.cmp === "cmpCases") send({ type: "list_test_cases", bot: cmp.bot });
   };
@@ -2943,7 +2793,7 @@ function renderTargets() {
     const c = document.createElement("input"); c.type = "checkbox"; c.value = JSON.stringify(t); c.onchange = () => { $("cmpStart").disabled = true; $("cmpEstimate").textContent = ""; };
     l.append(c, document.createTextNode(targetName(t))); box.appendChild(l);
   }
-  if (!targetChoices().some((t) => t.engine === "openrouter")) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "OpenRouter models show here once OpenRouter is set up (Settings → Engines)."; box.appendChild(p); }
+  if (!targetChoices().length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "Models show here once OpenRouter is set up (Settings → Engines)."; box.appendChild(p); }
 }
 function picked() {
   const cases = [...document.querySelectorAll("#cmpCaseList input[type=checkbox]:checked")].map((c) => c.value);
@@ -2960,7 +2810,6 @@ function renderEstimate(e) {
   if (e.bot !== cmp.bot) return;
   const parts = [`${e.runs} run${e.runs === 1 ? "" : "s"}`];
   if (e.openrouter_requests) parts.push(`≈ ${e.openrouter_requests} OpenRouter requests${e.openrouter_left != null ? ` of ${e.openrouter_left} left today (${e.reserve} kept for live bots)` : ""}`);
-  if (e.claude_runs) parts.push(`${e.claude_runs} Claude run${e.claude_runs === 1 ? "" : "s"} on your plan`);
   parts.push(e.paid ? "paid models count against your daily limit" : "0 paid");
   let text = parts.join(" · ");
   if (e.refused.length) text += `. Not run: ${e.refused.join("; ")}.`;
@@ -2989,7 +2838,7 @@ function renderCmpCases() {
     const t = document.createElement("span"); t.textContent = c.title;
     const pill = document.createElement("span"); pill.className = `pill ${c.kind}`; pill.textContent = c.kind;
     const small = document.createElement("small");
-    small.textContent = [c.sites.join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : "", c.owner_started ? "" : "someone else's task: not on Claude"].filter(Boolean).join(" · ");
+    small.textContent = [c.sites.join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : ""].filter(Boolean).join(" · ");
     const dots = document.createElement("small");
     for (const r of c.last) { const d = document.createElement("span"); d.className = `vdot ${r.verdict || ""}`; d.title = `${targetName(r)}: ${r.verdict || r.status}`; dots.appendChild(d); }
     mid.append(t, " ", pill, small, dots);
@@ -3055,14 +2904,10 @@ function renderRunDetail() {
     b.onclick = () => send({ type: "set_run_verdict", run: d.run.id, verdict: d.run.owner_verdict === v ? null : v });
     verdicts.appendChild(b);
   }
-  if (d.run.kind !== "original") {
-    const j = document.createElement("button"); j.type = "button"; j.className = "ghost"; j.textContent = "Ask Claude to judge";
-    j.onclick = () => { send({ type: "judge_runs", runs: [d.run.id], local: false }); toast("Asked Claude to judge this run."); };
-    verdicts.appendChild(j);
-  }
+  // Runs judged before Claude left oxbot keep what the judge said.
   if (d.run.judge) {
     const p = document.createElement("p"); p.className = "hint";
-    p.textContent = d.run.judge.checks ? `Claude: ${VERDICT[d.run.judge.verdict]} (${d.run.judge.score}/100). ${d.run.judge.checks.map((c) => `${c.met === "yes" ? "✓" : c.met === "no" ? "✗" : "?"} ${c.check}`).join(" · ")} ${d.run.judge.notes || ""}` : "";
+    p.textContent = d.run.judge.checks ? `Judge: ${VERDICT[d.run.judge.verdict]} (${d.run.judge.score}/100). ${d.run.judge.checks.map((c) => `${c.met === "yes" ? "✓" : c.met === "no" ? "✗" : "?"} ${c.check}`).join(" · ")} ${d.run.judge.notes || ""}` : "";
     if (p.textContent) verdicts.appendChild(p);
   }
   side.insertBefore(verdicts, side.children[1]);
@@ -3072,7 +2917,7 @@ $("cmpRunBack").onclick = () => { cmp.detail = null; $("cmpRunDetail").hidden = 
 
 $("cmpPrefsForm").onsubmit = (ev) => {
   ev.preventDefault();
-  send({ type: "set_compare_prefs", reserve_pct: Number($("cmpReserve").value), claude_pause_pct: Number($("cmpPause").value), shadows_a_day: Number($("cmpShadows").value) });
+  send({ type: "set_compare_prefs", reserve_pct: Number($("cmpReserve").value), shadows_a_day: Number($("cmpShadows").value) });
   toast("Saved.");
 };
 $("cmpDeleteRuns").onclick = () => {
