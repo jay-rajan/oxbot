@@ -13,10 +13,14 @@ request, AI model, AI spending).
 
 History: that Claude + Codex plan was replaced. 2026-11-02 (Step 5, #17 and #18): Claude bots on
 the owner's own plan plus OpenRouter bots on oxbot's own loop. 2026-11-04 (Step 6 part 2): Claude
-is gone; every bot uses OpenRouter's models, and Codex runs the agent loop by default.
+is gone; every bot uses OpenRouter's models, and Codex runs the agent loop by default. Then (part
+3) oxbot's own loop retired as an engine: Codex is the only one, and what the loop had that Codex
+uses stays (the tool service, gate, page tools, rows, stored results, answer check, model
+gateway).
 
 ## The data rule, made precise (2026-11-04)
-Model calls go only to **OpenRouter**, through oxbot's relay or oxbot's own loop, with the home's
+Model calls go only to **OpenRouter**, through oxbot's relay (and, for a page question, oxbot's
+own request on the same routing, limits and meter), with the home's
 OpenRouter key; later also to a model on this computer. Nothing goes to Anthropic, and Codex
 never contacts OpenAI itself. A person's own `~/.codex` is never read.
 
@@ -43,23 +47,25 @@ Consequences:
  Desktop app / page (localhost) ────────────────────┤
                                                     ├─ Codex engine: one `codex app-server` per bot (JSON-RPC over stdio)
                                                     │     └─ model calls → oxbot's relay (127.0.0.1) → OpenRouter Responses API
-                                                    ├─ oxbot's own loop → OpenRouter chat API
-                                                    └─ one tool service + gate for both: browser, page tools, files, team tools, approval requests
+                                                    └─ one tool service + gate (oxbot-loop): browser, page tools, files, team tools, approval requests
 ```
 
-## Two engines, one trait
-Both plug into `oxbot-engine` (session, prompt, event stream, approval, cancel). People don't pick an engine; they see an **AI model** (free or paid models). The app no longer offers the engine choice; the API still does.
+## One engine, one trait
+Codex plugs into `oxbot-engine` (session, prompt, event stream, approval, cancel). People don't pick an engine; they see an **AI model** (free or paid models).
 
 | Engine | How oxbot drives it | Notes |
 |---|---|---|
-| **Codex** (default; every Assistant) | Codex CLI 0.148.x as `codex app-server`, one per bot; `thread/start|resume`, `turn/start|interrupt`; oxbot's tools as dynamic tools | Tools go through the same tool service and gate as the loop: same approval requests, Always allow, refusals, untrusted-text marks |
-| **oxbot's own loop** | Our runner on OpenRouter's chat API, one saved step at a time | Resumes a stopped task from its last saved step |
+| **Codex** (every bot) | Codex CLI 0.148.x as `codex app-server`, one per bot; `thread/start|resume`, `turn/start|interrupt`; oxbot's tools as dynamic tools | Tools go through oxbot's tool service and gate (`oxbot-loop`): approval requests, Always allow, refusals, untrusted-text marks, the answer check |
 
-Upgrade: bots that ran on Claude (`engine = "claude"`, or no engine) move to Codex at their first start, with one plain line in the chat; `bot.toml` is rewritten once (migration 22). Chats are kept; old Claude sessions aren't resumed. Without an OpenRouter sign-in, bots say the AI account isn't connected yet.
+oxbot's own loop (its runner, context window, compaction and progress notes) retired as an engine; `oxbot-loop` keeps the parts Codex uses, under their old names.
+
+Upgrade: bots that ran on Claude (`engine = "claude"`, or no engine) or on oxbot's own loop (`engine = "openrouter"`) move to Codex at their first start, with one plain line in the chat (one for each; noted in `engine_upgrades`, migration 22); `bot.toml` is rewritten once and keeps the bot's model. Chats are kept; old sessions aren't resumed, and a loop task that was running is stopped (migration 23). Without an OpenRouter sign-in, bots say the AI account isn't connected yet.
+
+Compare and Shadow compare **models** now (one row per model on the scoreboard, each measured against the best), on Codex in practice runs.
 
 Known gaps: pictures and PDFs reach the bot only as their text (Codex's dynamic tools take no image input yet); shipping `codex` inside oxbot.app comes later (installed separately for now).
 
-Mid-conversation switching between vendors (the 2026-10-27 idea: oxbot owns the transcript, hands a summary to the other backend) is not needed while both engines use the same OpenRouter models; the transcript in SQLite stays oxbot's own.
+Mid-conversation switching between vendors (the 2026-10-27 idea: oxbot owns the transcript, hands a summary to the other backend) is not needed with one engine; the transcript in SQLite stays oxbot's own.
 
 ## Devices (the phone app)
 Chosen: **Tauri 2, Android** (the Android app is only ever a device; see the README). The 2026-10-27 notes:

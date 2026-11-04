@@ -135,7 +135,7 @@
     {
       "id": "oxbot-loop",
       "label": "oxbot-loop",
-      "sub": "runner \u00b7 tool service \u00b7 page tools \u00b7 gate \u00b7 router \u00b7 meter",
+      "sub": "tool service \u00b7 page tools \u00b7 gate \u00b7 router \u00b7 meter",
       "kind": "crate",
       "status": "built",
       "m": "Step 5",
@@ -315,13 +315,13 @@
     {
       "from": "oxbot-loop",
       "to": "oxbot-engine",
-      "label": "impl.",
+      "label": "events",
       "status": "built"
     },
     {
       "from": "oxbot-loop",
       "to": "oxbot-llm",
-      "label": "chat",
+      "label": "page questions",
       "status": "built"
     },
     {
@@ -719,11 +719,12 @@
       "items": [
         "New crates: oxbot-codex (finds and checks codex 0.148.x, writes each bot's CODEX_HOME config at every start, one codex app-server per bot, JSON-RPC threads and turns, oxbot's tools as dynamic tools through oxbot-loop's tool service) and oxbot-relay (127.0.0.1 Responses relay: per-process token, strips ids, headers and metadata, the bot's model, privacy and limits, meter, what was sent kept 14 days)",
         "Codex's analytics, plugins, web search, update checks and shell off; any address but the relay goes to a refusing proxy; a person's own ~/.codex is never read",
-        "Codex is the default engine for new bots and every Herder; oxbot's own loop stays, chosen per bot through the API",
+        "Codex is the only engine",
         "Claude removed: the oxbot-claude crate, the Claude engine, the owner-only rule, Claude setup, Claude usage and its 5-hour/weekly alerts, the Claude judge. Usage alerts are OpenRouter's limits only",
         "Upgrade: bots on engine = \"claude\" (or none) move to Codex at first start with one line in the chat; bot.toml rewritten once (migration 22). Chats kept; Claude sessions not resumed",
-        "Comparing: replays and shadows on Codex and on the loop, scoreboard measured against Codex, the owner's marks only",
-        "Tests: oxbot-core::testing (feature test-bots) stand-in bots; e2e reply scripts in e2e/scripts/ drive the stand-in OpenRouter (chat and Responses) and browser tool; the suite needs codex (needs = [\"codex\"])"
+        "oxbot's own loop retires as an engine: its bots move to Codex once with a line in the chat, running loop turns stop (migration 23); oxbot-loop keeps the tool service, page tools, rows, results, answer check and gateway; its runner, context window and compactor are removed",
+        "Comparing: replays and shadows on Codex across models, one scoreboard row per model measured against the best, the owner's marks only",
+        "Tests: oxbot-core::testing (feature test-bots) stand-in bots on the real codex (skipped, saying why, without it); e2e reply scripts in e2e/scripts/ drive the stand-in OpenRouter and browser tool; the suite needs codex (needs = [\"codex\"])"
       ]
     }
   ],
@@ -739,8 +740,8 @@
         "id": "context",
         "title": "Level 1 \u00b7 System context",
         "intro": "oxbot from the outside: who uses it and what it talks to.",
-        "caption": "System context. People chat with oxbot on the home computer (the Farm) or from their phone (a device, a Gate in the code); the Assistant (Herder) runs the team. Each bot is shared or private to whoever made it, and anyone in the home may give tasks to a bot they may open. Every bot answers with OpenRouter's models on the home's key, free first, paid only if the owner allows, with daily limits per bot and person. Codex CLI runs each bot's agent loop (codex app-server, one per bot) and reaches OpenRouter only through oxbot's relay on 127.0.0.1; oxbot's own loop calls OpenRouter directly. Model calls go only to OpenRouter or, later, a local model on this computer; Codex's analytics, plugins and update checks are off, and no other AI company gets anything. The OpenRouter key is kept only in the macOS Keychain. oxbot drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The home computer sees everything; a phone pairs once on home Wi-Fi and sees only what its person may. npm only when running from source.",
-        "aria": "C4 level 1 system context: Jay, the owner, and others in the home use oxbot on the home computer or from a paired phone on home Wi-Fi, where the Assistant runs the team of bots. oxbot sends every bot's prompts to OpenRouter over HTTPS with the home's key, through its own relay for Codex bots or from its own loop; Jay signs in with OpenRouter once and oxbot keeps the key only in the macOS Keychain. oxbot drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. oxbot uses macOS on the same computer for notifications, video frames, on-device speech recognition and the Keychain. npm is used only when running from source. A local model is planned.",
+        "caption": "System context. People chat with oxbot on the home computer (the Farm) or from their phone (a device, a Gate in the code); the Assistant (Herder) runs the team. Each bot is shared or private to whoever made it, and anyone in the home may give tasks to a bot they may open. Every bot answers with OpenRouter's models on the home's key, free first, paid only if the owner allows, with daily limits per bot and person. Codex CLI runs every bot's agent loop (codex app-server, one per bot) and reaches OpenRouter only through oxbot's relay on 127.0.0.1. Model calls go only to OpenRouter or, later, a local model on this computer; Codex's analytics, plugins and update checks are off, and no other AI company gets anything. The OpenRouter key is kept only in the macOS Keychain. oxbot drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The home computer sees everything; a phone pairs once on home Wi-Fi and sees only what its person may. npm only when running from source.",
+        "aria": "C4 level 1 system context: Jay, the owner, and others in the home use oxbot on the home computer or from a paired phone on home Wi-Fi, where the Assistant runs the team of bots. oxbot sends every bot's prompts to OpenRouter over HTTPS with the home's key, through its own relay; Jay signs in with OpenRouter once and oxbot keeps the key only in the macOS Keychain. oxbot drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. oxbot uses macOS on the same computer for notifications, video frames, on-device speech recognition and the Keychain. npm is used only when running from source. A local model is planned.",
         "size": [
           960,
           790
@@ -998,8 +999,8 @@
         "id": "containers",
         "title": "Level 2 \u00b7 Containers",
         "intro": "The processes and data on the home computer, plus the phone app. Every arrow inside the box stays on 127.0.0.1, except the device door, which phones reach over home Wi-Fi.",
-        "caption": "Containers. Each bot runs on an engine, both on OpenRouter's models with the home's key. Codex (the default, and every Assistant): the server starts one codex app-server per bot with its own CODEX_HOME in the bot's folder and a config it writes at every start (analytics, plugins, web search, update checks and the shell off). Codex's only model provider is the relay on 127.0.0.1, which checks the process's token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, sends to OpenRouter's Responses API, meters each request and keeps what was sent for 14 days; any other address goes to a refusing proxy. oxbot's tools reach Codex as dynamic tools through the loop's tool service and gate. oxbot's own loop runs inside the server on OpenRouter's chat API, saving each step so a task resumes after a restart. The server starts chrome-devtools-mcp for both engines, attached to the bot's Chrome, and keeps its own CDP connection to each Chrome (the guard). Sign in with OpenRouter comes back to the server on 127.0.0.1; the key is kept only in the macOS Keychain and in memory. Files come in over POST /upload; the Mac helper makes still frames and dictates on-device. A local connection is the Farm only with the Farm key; a phone comes in through the device door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Model calls go only to OpenRouter or (planned) a local model.",
-        "aria": "C4 level 2 containers. On the home computer: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the Farm only with the Farm key. The Android app on a phone talks to the server's device door on port 7879 over home Wi-Fi. The server stores history, sessions, people, sites, rules, sections, reports, alerts, the loop's saved steps, model calls, Codex threads and what the relay sent in SQLite, and manages bot folders. For Codex bots it spawns one codex app-server per bot over JSON-RPC on stdio; Codex sends model requests to the model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. Loop bots call OpenRouter's chat API over HTTPS from the server. The server starts chrome-devtools-mcp for both engines; the OpenRouter key lives only in the macOS Keychain. It starts, shows and guards one Chrome per owner over CDP, and runs the Mac helper for video frames and dictation. npm is used only when running from source. Planned: local models.",
+        "caption": "Containers. Every bot runs on Codex, on OpenRouter's models with the home's key: the server starts one codex app-server per bot with its own CODEX_HOME in the bot's folder and a config it writes at every start (analytics, plugins, web search, update checks and the shell off). Codex's only model provider is the relay on 127.0.0.1, which checks the process's token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, sends to OpenRouter's Responses API, meters each request and keeps what was sent for 14 days; any other address goes to a refusing proxy. oxbot's tools reach Codex as dynamic tools through oxbot-loop's tool service and gate (oxbot's own loop retired as an engine). The server starts chrome-devtools-mcp for each browsing bot, attached to the bot's Chrome, and keeps its own CDP connection to each Chrome (the guard). Sign in with OpenRouter comes back to the server on 127.0.0.1; the key is kept only in the macOS Keychain and in memory. Files come in over POST /upload; the Mac helper makes still frames and dictates on-device. A local connection is the Farm only with the Farm key; a phone comes in through the device door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Model calls go only to OpenRouter or (planned) a local model.",
+        "aria": "C4 level 2 containers. On the home computer: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the Farm only with the Farm key. The Android app on a phone talks to the server's device door on port 7879 over home Wi-Fi. The server stores history, sessions, people, sites, rules, sections, reports, alerts, stored results, model calls, Codex threads and what the relay sent in SQLite, and manages bot folders. For Codex bots it spawns one codex app-server per bot over JSON-RPC on stdio; Codex sends model requests to the model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. Page questions go to OpenRouter's chat API over HTTPS from the server, on the same routing, limits and meter. The server starts chrome-devtools-mcp for each browsing bot; the OpenRouter key lives only in the macOS Keychain. It starts, shows and guards one Chrome per owner over CDP, and runs the Mac helper for video frames and dictation. npm is used only when running from source. Planned: local models.",
         "size": [
           1010,
           1236
@@ -1097,7 +1098,7 @@
             "h": 180,
             "name": "oxbot server",
             "tech": "Rust, tokio, axum \u00b7 oxbot serve",
-            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the Farm only with the Farm key; POST /upload for files and /openrouter/callback for Sign in with OpenRouter (this computer only). Device door on :7879. Holds the Hub: people by id, an Assistant (Herder) per person, a Chrome per owner, safety rules and Always allow on every tool, approval requests for their asker, reports, usage alerts. Engines: Codex (default) through one codex app-server per bot, or oxbot's own loop; both use the loop's tool service and gate. Free models first, 20 a minute, daily limits. The OpenRouter key only in the Keychain and memory."
+            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the Farm only with the Farm key; POST /upload for files and /openrouter/callback for Sign in with OpenRouter (this computer only). Device door on :7879. Holds the Hub: people by id, an Assistant (Herder) per person, a Chrome per owner, safety rules and Always allow on every tool, approval requests for their asker, reports, usage alerts. Every bot on Codex, through one codex app-server per bot and oxbot-loop's tool service and gate. Free models first, 20 a minute, daily limits. The OpenRouter key only in the Keychain and memory."
           },
           {
             "id": "folders",
@@ -1117,7 +1118,7 @@
             "h": 140,
             "name": "chrome-devtools-mcp",
             "tech": "Node, built in",
-            "desc": "One per browsing bot, MCP stdio, started by the server for both engines. Attaches to its bot's Chrome."
+            "desc": "One per browsing bot, MCP stdio, started by the server. Attaches to its bot's Chrome."
           },
           {
             "id": "chrome",
@@ -1494,7 +1495,7 @@
               956,
               1170
             ],
-            "label": "loop bots:\nchat API (HTTPS)",
+            "label": "page questions:\nchat API (HTTPS)",
             "label_at": [
               984,
               1078,
@@ -1599,8 +1600,8 @@
         "id": "components",
         "title": "Level 3 \u00b7 Components of the oxbot server",
         "intro": "Inside the server process: the crates and modules, and who calls whom. The Hub and Store are folders of files split by job; the Hub sits in the middle with its advisers on either side.",
-        "caption": "Components. The Hub is the center: the web server and the device door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book and the allow rules decide what a bot is told and which tools run, ask or are refused. Below it, Engines is the interface both engines plug into. The Codex engine runs one codex app-server per bot (own CODEX_HOME, a config written at every start with analytics, plugins, web search, update checks and the shell off) and hands it oxbot's tools as dynamic tools, answered through the Loop's tool service: the same gate, approval requests, Always allow, refusals and untrusted-text marks as loop bots. Codex's only model provider is the Model relay on 127.0.0.1: it checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, forwards to OpenRouter's Responses API with the household key, meters each request and keeps what was sent for 14 days. The Loop runs bots step by step on the chat API, picks free models with fallbacks on 429, paces to 20 requests a minute and saves each step. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a device (a Gate), never the Farm. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on Codex or the loop in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step an approval request would ask about, and feeds the scoreboard, measured against Codex.",
-        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the device door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks and the allow rules for Always allow. It starts sessions through Engines: the Codex engine spawns one codex app-server per bot over JSON-RPC on stdio and answers its tool calls through the Loop's tool service; codex app-server sends model requests to the Model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. The Loop runs loop bots, asking the Hub's gate before every tool, calls OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
+        "caption": "Components. The Hub is the center: the web server and the device door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book and the allow rules decide what a bot is told and which tools run, ask or are refused. Below it, Engines is the interface Codex plugs into. The Codex engine runs one codex app-server per bot (own CODEX_HOME, a config written at every start with analytics, plugins, web search, update checks and the shell off) and hands it oxbot's tools as dynamic tools, answered through the Loop's tool service: the gate, approval requests, Always allow, refusals and untrusted-text marks. Codex's only model provider is the Model relay on 127.0.0.1: it checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, forwards to OpenRouter's Responses API with the household key, meters each request and keeps what was sent for 14 days. The Loop (oxbot's own agent loop, retired as an engine) keeps what Codex uses: the tool service, page tools, rows, stored results, the answer check, and the gateway that picks free models with fallbacks on 429, paces to 20 requests a minute and meters. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a device (a Gate), never the Farm. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on the models picked, on Codex, in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step an approval request would ask about, and feeds the scoreboard, each model measured against the best.",
+        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the device door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks and the allow rules for Always allow. It starts sessions through Engines: the Codex engine spawns one codex app-server per bot over JSON-RPC on stdio and answers its tool calls through the Loop's tool service; codex app-server sends model requests to the Model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. The Loop's tool service asks the Hub's gate before every tool, sends page questions to OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
         "size": [
           1430,
           1750
@@ -1725,7 +1726,7 @@
             "h": 640,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, session, taint, seqs; elements, rules, sections, reports, alerts, uploads; engines, codex, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Assistant (Herder) per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs an approval request to task a private bot. A sign-in stays only with a new cookie. Approval requests: change and final clicks ask; an Always allow rule skips the request only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened. Alerts: OpenRouter's limits only (free requests, spending, credit, a bot's requests a day), once per level. Uploads: files wait per person and bot until sent, swept after an hour; their paths go in oxbot's note after the escaped words. Engines: each bot's engine from bot.toml, Codex by default and for every Herder; older bots move to Codex once, with a line in the chat (migration 22). gate() answers every tool on both engines with the same policy; limits per bot and person a day; turns pick up after a restart. Comparisons (owner only): test cases from finished turns, practice runs on Codex and the loop through the same gate with every approval request recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
+            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, session, taint, seqs; elements, rules, sections, reports, alerts, uploads; engines, codex, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Assistant (Herder) per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs an approval request to task a private bot. A sign-in stays only with a new cookie. Approval requests: change and final clicks ask; an Always allow rule skips the request only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened. Alerts: OpenRouter's limits only (free requests, spending, credit, a bot's requests a day), once per level. Uploads: files wait per person and bot until sent, swept after an hour; their paths go in oxbot's note after the escaped words. Engines: every bot on Codex; bots from Claude or oxbot's own loop move to Codex once, with a line in the chat (migrations 22, 23). gate() answers every tool with the same policy; limits per bot and person a day. Comparisons (owner only): test cases from finished turns, practice runs on the models picked through the same gate with every approval request recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
             "x": 286,
             "w": 610
           },
@@ -1748,7 +1749,7 @@
             "h": 130,
             "name": "Policy",
             "tech": "oxbot-core::policy",
-            "desc": "Every tool, both engines. Change, final and Enter: an approval request (recorded in practice runs). Passwords, scripts: refused.",
+            "desc": "Every tool. Change, final and Enter: an approval request (recorded in practice runs). Passwords, scripts: refused.",
             "y": 560
           },
           {
@@ -1792,7 +1793,7 @@
             "h": 140,
             "name": "Tools",
             "tech": "oxbot-core::tools",
-            "desc": "Same names on both engines. Every bot: request_sign_in. With the browser: save_report. Herder: team tools (list_bots, give_task\u2026).",
+            "desc": "Every bot: request_sign_in. With the browser: save_report. Herder: team tools (list_bots, give_task\u2026).",
             "y": 575
           },
           {
@@ -1856,7 +1857,7 @@
             "h": 160,
             "name": "Loop",
             "tech": "oxbot-loop",
-            "desc": "Runner (a step at a time, checkpoint each), tool service (both engines), context builder and compactor, page maps and page tools, gate check, router, pacer, meter, gateway.",
+            "desc": "Tool service (Codex's tools), page maps and page tools, rows, stored results, gate check, answer check, gateway: router, pacer, retries, meter. Its runner, context window and compactor retired with the loop engine.",
             "status": "built"
           },
           {
@@ -1897,7 +1898,7 @@
             "h": 90,
             "name": "chrome-devtools-mcp",
             "tech": "Node, MCP stdio",
-            "desc": "for both engines",
+            "desc": "for each browsing bot",
             "status": "built"
           },
           {
@@ -1972,7 +1973,7 @@
             "h": 140,
             "name": "Comparison runner",
             "tech": "oxbot-core::hub::trials, compare",
-            "desc": "Test cases replayed one at a time on Codex or the loop, with the models picked; steps an approval request would ask about are recorded."
+            "desc": "Test cases replayed one at a time on Codex, on the models picked; steps an approval request would ask about are recorded."
           },
           {
             "id": "scoreboard",
@@ -2531,7 +2532,7 @@
           {
             "from": "loop",
             "to": "engines",
-            "label": "implements",
+            "label": "events",
             "from_pt": [
               1000,
               1205
@@ -2549,7 +2550,7 @@
           {
             "from": "loop",
             "to": "llm",
-            "label": "chat",
+            "label": "page questions",
             "from_pt": [
               1166,
               1285
@@ -2895,11 +2896,11 @@
     ]
   },
   "changed": {
-    "intro": "Since Step 5: Step 6. Claude is gone; every bot uses OpenRouter's models with the household's key, through oxbot's relay (Codex, the default) or oxbot's own loop. Model calls go only to OpenRouter (or, later, a local model), and to no other AI company.",
+    "intro": "Since Step 5: Step 6. Claude is gone and oxbot's own loop retired as an engine; every bot runs on Codex with OpenRouter's models and the household's key, through oxbot's relay. Model calls go only to OpenRouter (or, later, a local model), and to no other AI company.",
     "items": [
       {
         "title": "Codex engine",
-        "text": "oxbot-codex runs one codex app-server per bot with its own CODEX_HOME and a config oxbot writes at every start (analytics, plugins, web search, update checks, shell off). oxbot's tools reach it as dynamic tools through oxbot-loop's tool service and the hub's gate: the same approval requests, Always allow, refusals and untrusted-text marks as the loop."
+        "text": "oxbot-codex runs one codex app-server per bot with its own CODEX_HOME and a config oxbot writes at every start (analytics, plugins, web search, update checks, shell off). oxbot's tools reach it as dynamic tools through oxbot-loop's tool service and the hub's gate: approval requests, Always allow, refusals and untrusted-text marks."
       },
       {
         "title": "Model relay",
@@ -2910,8 +2911,12 @@
         "text": "oxbot-claude, the Claude engine, the owner-only rule, Claude setup, Claude usage alerts and the Claude judge are removed. Bots that ran on Claude move to Codex once, with a line in their chat (migration 22)."
       },
       {
+        "title": "The loop retires",
+        "text": "oxbot's own loop is no longer an engine: its bots move to Codex once, with a line in their chat, and loop turns that were running stop (migration 23). oxbot-loop keeps what Codex uses: the tool service, page tools, rows, stored results, the answer check and the model gateway."
+      },
+      {
         "title": "Tests",
-        "text": "oxbot-core::testing (feature test-bots) gives stand-in bots for hub tests; e2e reply scripts (e2e/scripts/) drive the stand-in OpenRouter on both APIs, and the suite needs codex installed."
+        "text": "oxbot-core::testing (feature test-bots) gives stand-in bots for hub tests on the real codex; e2e reply scripts (e2e/scripts/) drive the stand-in OpenRouter, and the suite needs codex installed."
       }
     ]
   }

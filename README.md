@@ -127,23 +127,19 @@ Plan: https://claude.ai/artifact/32dqY3emzXCfBj9QGkF5rZ · Architecture: https:/
 
 Every bot answers with OpenRouter's models, using your home's OpenRouter key: free models first,
 paid ones only if the owner allows, with a daily number of questions per bot and per person.
-Anyone in the home may give tasks to a bot they can open. A bot runs on one of two engines (the
-app doesn't show the choice; it's an API setting for testing):
-
-- **Codex** (the default for new bots and every Assistant). Codex CLI 0.148.x runs the agent loop
-  as `codex app-server`, one process per bot with its own `CODEX_HOME` in the bot's folder
+Anyone in the home may give tasks to a bot they can open. Every bot runs on **Codex** (the app
+calls it the AI helper and never names it): Codex CLI 0.148.x runs the agent loop as
+`codex app-server`, one process per bot with its own `CODEX_HOME` in the bot's folder
   (`bots/<id>/codex`) and a config oxbot writes at every start: analytics, plugins, web search,
   update checks and its shell off, and no Codex instructions of its own. Its only model provider
   is oxbot's **relay** on 127.0.0.1, which checks the process's token, strips Codex's ids,
   headers and metadata, applies the bot's model, privacy and limits, sends the request to
   OpenRouter's Responses API with the home's key and meters it. Any other address Codex tries
-  goes to a proxy that refuses it. What the relay sent is kept for 14 days in the bot's
-  `context/relay` folder. A person's own `~/.codex` is never read.
-- **oxbot's own loop**: oxbot runs the agent loop itself, one step at a time, on OpenRouter's
-  chat API. A task that was running when oxbot stopped goes on from its last saved step when
-  oxbot starts again, without repeating a click.
+goes to a proxy that refuses it. What the relay sent is kept for 14 days in the bot's
+`context/relay` folder. A person's own `~/.codex` is never read.
 
-Both reach the same tools through the same tool service and the same checks: the browser
+Codex reaches oxbot's tools through oxbot's tool service (`oxbot-loop`, from oxbot's own agent
+loop, which retired as an engine), with oxbot's checks: the browser
 (chrome-devtools-mcp, in the same Chrome), the page tools, files in the bot's folder, the
 Assistant's team tools, save_report and request_sign_in. Each step is checked before it runs:
 approval requests, Always allow, refusing passwords, page scripts, pages on this computer or the
@@ -151,14 +147,18 @@ home network and files outside the bot's folder, and marking untrusted text (an 
 has read web pages still asks before tasking a private bot). Under each reply: the model, the
 questions it took and the cost.
 
-Bots made when oxbot also ran Claude move to Codex at their first start: one plain line in their
-chat ("This bot now uses free and paid AI models through your OpenRouter account. Its old Claude
-sessions can't be continued."), then `bot.toml` is rewritten once. Chats are kept. Until the
-owner signs in to OpenRouter, bots say the AI account isn't connected yet.
+Bots made when oxbot also ran Claude, or oxbot's own loop, move to Codex at their first start:
+one plain line in their chat, then `bot.toml` is rewritten once (a bot's model choice stays).
+From Claude: "This bot now uses free and paid AI models through your OpenRouter account. Its old
+Claude sessions can't be continued." From the loop: "This bot now uses free and paid AI models
+through your OpenRouter account, in a new way. It starts a new conversation: a task it was in the
+middle of can't be continued, so send it again if you still need it." Chats are kept; a loop task
+that was running when oxbot stopped is not picked up again. Until the owner signs in to
+OpenRouter, bots say the AI account isn't connected yet.
 
 Comparing (the owner only): under a finished reply, 👍/👎 and **Test case…** keep the task;
-**Compare…** in the bot's menu replays test cases on Codex and on oxbot's own loop with the
-models you pick, side by side with a scoreboard measured against Codex (your marks). A replay
+**Compare…** in the bot's menu replays test cases on the free models you pick, side by side with a
+scoreboard (your marks) where each model is measured against the best one. A replay
 never acts: every step that would send, post or change something is recorded instead (no
 approval request, nothing in the chat), in its own browser with a copy of the sign-ins it needs
 (no history, deleted when it ends) that blocks every request but reads, and WebSockets.
@@ -186,7 +186,7 @@ so until midnight UTC, or use paid models if the owner switched them on (up to t
 cap).
 
 What leaves the home computer: a bot's conversation (your messages, and the pages and files it
-reads) goes only to OpenRouter, through oxbot's relay (Codex) or oxbot's own loop, and on to the
+reads) goes only to OpenRouter, through oxbot's relay, and on to the
 provider OpenRouter routes it to; free providers may keep or learn from it. Private bots ask for
 providers that don't collect data and keep nothing (`data_collection: deny` and zero retention);
 if no free model qualifies, the bot says so instead of switching quietly (it may first drop zero
@@ -204,10 +204,10 @@ In the code the home computer is the **Farm**, a device is a **Gate** and the As
 |---|---|
 | `crates/oxbot-protocol` | Wire types shared by the server and the apps |
 | `crates/oxbot-core` | Bots, people (ids), store (`store/`), hub (`hub/`, split by job; engines and the upgrade from Claude), tool rules (policy), prompts, attachments; `testing` (feature `test-bots`): stand-in bots for tests (no networking) |
-| `crates/oxbot-engine` | The engine interface both engines plug into: `Engine`, `Session`, one event stream |
+| `crates/oxbot-engine` | The engine interface Codex plugs into: `Engine`, `Session`, one event stream |
 | `crates/oxbot-codex` | The Codex engine: finds and checks `codex`, writes its config, runs one `codex app-server` per bot, maps threads, turns and oxbot's tools (dynamic tools through oxbot-loop's tool service) onto its JSON-RPC |
 | `crates/oxbot-relay` | oxbot's model relay on 127.0.0.1 for Codex: token check, stripping, model/privacy/limits, OpenRouter's Responses API, meter and what-was-sent log |
-| `crates/oxbot-loop` | oxbot's own agent loop: runner, tool service and tools, gate check, model router, pacer, meter |
+| `crates/oxbot-loop` | What Codex bots share with oxbot (from oxbot's own agent loop, retired as an engine): tool service and tools (browser, page tools, rows, files, stored results), gate check, answer check, model gateway (router, pacer, retries, meter) |
 | `crates/oxbot-llm` | Model client for OpenAI-style chat APIs (OpenRouter now, local models later), the key, sign-in (PKCE) |
 | `crates/oxbot-browser` | A hidden Chrome per owner (home, or a person's own) with a kept profile, and its sign-in window |
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the device door (`src/door/`) |
@@ -273,9 +273,9 @@ microphone), and video goes to the real helper for real still frames. The runner
 `crates/oxbot-e2e`, starts a throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in
 hidden Chrome (and Safari, the app's engine, when "Allow Remote Automation" is on), screenshots
 every step, and checks the built Mac app. Bots run on the real Codex (0.148.x must be installed:
-`needs = ["codex"]` in `e2e/pr_test.toml`; without it every test is skipped, saying why) and on
-oxbot's own loop, against a stand-in OpenRouter (chat and Responses APIs; Codex reaches it
-through oxbot's relay) and a stand-in browser tool that follow the reply scripts; every test ends
+`needs = ["codex"]` in `e2e/pr_test.toml`; without it every test is skipped, saying why),
+against a stand-in OpenRouter (the Responses API through oxbot's relay, and chat for page
+questions) and a stand-in browser tool that follow the reply scripts; every test ends
 by checking that the stand-in's key (a canary) is in none of oxbot's files, its log or the page.
 Steps can check what was sent (`expect_openrouter`, `expect_openrouter_body`) and restart oxbot
 mid-test (`restart = true`).
