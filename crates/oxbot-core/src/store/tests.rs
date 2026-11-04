@@ -1687,7 +1687,7 @@ fn a_version_19_database_gets_the_answer_checks() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
-    assert_eq!(MIGRATIONS.len(), 20);
+    assert!(MIGRATIONS.len() >= 20);
     assert!(
         !tmp.path().join("oxbot.db.v19.bak").exists(),
         "a new table needs no copy"
@@ -1735,4 +1735,49 @@ fn a_version_19_database_gets_the_answer_checks() {
         .query_row("SELECT COUNT(*) FROM loop_checks", [], |r| r.get(0))
         .unwrap();
     assert_eq!(left, 0);
+}
+
+#[test]
+fn a_version_20_database_gets_codex_threads_the_relay_log_and_engines() {
+    use oxbot_loop::LoopStore as _;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("oxbot.db");
+    Store::open_at_version(&path, 20).unwrap();
+    let store = Store::open(&path).unwrap();
+    let version: i64 = store
+        .conn()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(version).unwrap(), MIGRATIONS.len());
+    assert_eq!(MIGRATIONS.len(), 21);
+    let record = oxbot_engine::CallRecord {
+        bot: "scout".into(),
+        provider: "openrouter".into(),
+        engine: "codex".into(),
+        outcome: "ok".into(),
+        ..oxbot_engine::CallRecord::default()
+    };
+    store.record_call(&record).unwrap();
+    let engine: String = store
+        .conn()
+        .query_row("SELECT engine FROM model_calls", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(engine, "codex");
+    for table in ["codex_threads", "relay_log"] {
+        let n: i64 = store
+            .conn()
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "{table}");
+    }
+    // Running it again changes nothing.
+    drop(store);
+    let mut conn = Connection::open(&path).unwrap();
+    let tx = conn.transaction().unwrap();
+    if let migrations::Step::Rust(step) = &MIGRATIONS[20] {
+        step(&tx).unwrap();
+    } else {
+        panic!("migration 21 is Rust");
+    }
+    tx.commit().unwrap();
 }

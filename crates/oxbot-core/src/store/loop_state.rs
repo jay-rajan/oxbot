@@ -314,9 +314,9 @@ impl LoopStore for Store {
                 "INSERT INTO model_calls
                    (ts_ms, day, bot, person, session, turn, step, provider, requested, model, free,
                     private, generation_id, prompt_tokens, completion_tokens, cached_tokens,
-                    cost_usd, latency_ms, outcome, kind)
+                    cost_usd, latency_ms, outcome, kind, engine)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                         ?17, ?18, ?19, ?20)",
+                         ?17, ?18, ?19, ?20, ?21)",
                 params![
                     c.ts_ms,
                     c.day,
@@ -338,6 +338,7 @@ impl LoopStore for Store {
                     to_i64(c.latency_ms),
                     c.outcome,
                     c.kind.as_str(),
+                    c.engine,
                 ],
             )
             .map_err(err)?;

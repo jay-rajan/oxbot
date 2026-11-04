@@ -338,7 +338,52 @@ pub(super) const MIGRATIONS: &[Step] = &[
             PRIMARY KEY (session, turn)
         );",
     ),
+    // 21: the Codex engine (step 6): each bot session's Codex thread, so a
+    // session goes on after a restart; what oxbot's relay sent to the model
+    // provider for each request (the body is a file in the bot's context
+    // folder); and which engine made each model request.
+    Step::Rust(codex_engine),
 ];
+
+/// Migration 21: Codex threads, the relay's log, and the engine of each
+/// model request (added only where it's missing, so the step can run
+/// again).
+fn codex_engine(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS codex_threads (
+            bot        TEXT    NOT NULL,
+            session    TEXT    NOT NULL,             -- sessions.claude_session
+            thread_id  TEXT    NOT NULL,             -- Codex's own id
+            model      TEXT    NOT NULL DEFAULT '',  -- the model it was started for
+            window     INTEGER NOT NULL DEFAULT 0,   -- the window Codex was told
+            turns      INTEGER NOT NULL DEFAULT 0,   -- turns so far
+            created_ms INTEGER NOT NULL,
+            updated_ms INTEGER NOT NULL,
+            PRIMARY KEY (bot, session)
+        );
+        CREATE TABLE IF NOT EXISTS relay_log (
+            id        INTEGER PRIMARY KEY,
+            ts_ms     INTEGER NOT NULL,
+            bot       TEXT    NOT NULL,
+            session   TEXT,
+            turn      INTEGER,
+            model     TEXT    NOT NULL,
+            bytes     INTEGER NOT NULL,
+            body_path TEXT    NOT NULL               -- under the bot's context folder
+        );
+        CREATE INDEX IF NOT EXISTS relay_log_bot ON relay_log (bot, ts_ms);
+        CREATE INDEX IF NOT EXISTS relay_log_ts ON relay_log (ts_ms);",
+    )?;
+    let has_engine: bool = tx.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('model_calls') WHERE name = 'engine'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_engine {
+        tx.execute_batch("ALTER TABLE model_calls ADD COLUMN engine TEXT NOT NULL DEFAULT ''")?;
+    }
+    Ok(())
+}
 
 /// Migration 18. Skips what is already there, as 15 does.
 pub(super) fn comparisons(tx: &Transaction<'_>) -> Result<(), StoreError> {
