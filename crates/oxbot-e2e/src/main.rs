@@ -227,7 +227,10 @@ async fn run(
             .unwrap_or("asked for")
             .to_owned();
         eprintln!("▶ {} ({})", test.name, engine.name());
-        let run = run_one(repo, &config, out, engine, &mut driver, &test, reason).await?;
+        let run = match missing(&test, scratch.path()).await {
+            Some(why) => skipped(repo, &config, engine, &test, why),
+            None => run_one(repo, &config, out, engine, &mut driver, &test, reason).await?,
+        };
         eprintln!("  {}", run.status);
         if run.status == "broken" {
             broken += 1;
@@ -247,6 +250,61 @@ async fn run(
     }
     driver.stop().await;
     Ok(broken)
+}
+
+/// Why `test` can't run on this Mac (a program it needs is missing), if
+/// it can't.
+async fn missing(test: &Test, scratch: &Path) -> Option<String> {
+    for need in &test.needs {
+        match need.as_str() {
+            "codex" => {
+                let configured = std::env::var_os("OXBOT_CODEX").map(PathBuf::from);
+                let path = std::env::var("PATH").ok();
+                let found = oxbot_codex::binary::find(
+                    configured.as_deref(),
+                    path.as_deref(),
+                    &scratch.join("codex-probe"),
+                )
+                .await;
+                if let Some(why) = found.problem() {
+                    return Some(format!("skipped: needs Codex on this Mac ({why})"));
+                }
+            }
+            other => {
+                return Some(format!(
+                    "skipped: needs {other}, which the runner doesn't know"
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// A test that didn't run, and why.
+fn skipped(repo: &Path, config: &Config, engine: Engine, test: &Test, why: String) -> TestRun {
+    eprintln!("  {why}");
+    TestRun {
+        id: test.id(),
+        file: test
+            .file
+            .strip_prefix(repo)
+            .unwrap_or(&test.file)
+            .display()
+            .to_string(),
+        name: test.name.clone(),
+        about: test.about.clone(),
+        why,
+        engine: engine.name().to_owned(),
+        as_person: test
+            .as_person
+            .clone()
+            .unwrap_or_else(|| format!("{} (the Farm)", config.person)),
+        size: String::new(),
+        status: "skipped".to_owned(),
+        ms: 0,
+        steps: Vec::new(),
+        log: None,
+    }
 }
 
 /// Runs one test on a fresh seeded oxbot.

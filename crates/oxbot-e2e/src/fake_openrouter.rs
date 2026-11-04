@@ -37,6 +37,12 @@
 //!   is given, and the log says `"checked": true`.
 //!   Free requests count against a daily limit (`OXBOT_FAKE_OR_DAILY`,
 //!   default 1000); past it, 429 "free-models-per-day".
+//! - `POST /responses` (`OpenAI`'s Responses API, which oxbot's relay sends
+//!   for Codex bots): the same replies as `/chat/completions`, read from
+//!   the request turned into chat messages, answered as Responses events.
+//!   Tool calls go by the request's own tool names (Codex's short ones).
+//!   The log also lists the request's header names (never values), so a
+//!   test can check what the relay stripped.
 //! - `GET /key`: the key's limits, with the free daily count.
 //! - `POST /auth/keys`: the PKCE exchange; gives the canary key.
 //!
@@ -271,6 +277,7 @@ pub fn router(config: Config) -> Router {
         .route("/api/v1/models", get(models))
         .route("/api/v1/key", get(key))
         .route("/api/v1/chat/completions", post(chat))
+        .route("/api/v1/responses", post(responses))
         .route("/api/v1/auth/keys", post(auth_keys))
         .route("/count", get(count))
         .route("/auth", get(auth_page))
@@ -813,8 +820,9 @@ impl Fake {
             .collect();
         let step = next_step(after_user, results.len());
         let needs_page = |name: &str| {
+            let own = name.rsplit("__").next().unwrap_or(name);
             tools.iter().any(|t| {
-                t["function"]["name"] == name
+                (t["function"]["name"] == name || t["function"]["name"] == own)
                     && t["function"]["parameters"]["required"]
                         .as_array()
                         .is_some_and(|r| r.iter().any(|k| k == "pageId"))
@@ -1383,6 +1391,243 @@ async fn auth_keys(State(fake): State<Arc<Fake>>, body: Bytes) -> Response {
     axum::Json(json!({ "key": fake.config.canary, "user_id": "user_e2e" })).into_response()
 }
 
+/// A Responses API request as chat messages: its instructions as the
+/// system message, each input item as the message it stands for, and its
+/// function tools in chat's shape.
+#[must_use]
+pub fn responses_as_chat(req: &Value) -> Value {
+    let mut messages = Vec::new();
+    if let Some(sys) = req["instructions"].as_str() {
+        messages.push(json!({"role": "system", "content": sys}));
+    }
+    for item in req["input"].as_array().into_iter().flatten() {
+        match item["type"].as_str() {
+            Some("message") | None => {
+                let role = item["role"].as_str().unwrap_or("user");
+                let role = if role == "developer" { "system" } else { role };
+                let text = match &item["content"] {
+                    Value::String(s) => s.clone(),
+                    Value::Array(parts) => parts
+                        .iter()
+                        .filter_map(|p| p["text"].as_str())
+                        .collect::<Vec<_>>()
+                        .join(""),
+                    _ => String::new(),
+                };
+                messages.push(json!({"role": role, "content": text}));
+            }
+            Some("function_call") => {
+                messages.push(
+                    json!({"role": "assistant", "content": null, "tool_calls": [{
+                        "id": item["call_id"], "type": "function",
+                        "function": {"name": item["name"], "arguments": item["arguments"]}
+                    }]}),
+                );
+            }
+            Some("function_call_output") => {
+                let output = match &item["output"] {
+                    Value::String(s) => s.clone(),
+                    other => content_text(other),
+                };
+                messages.push(
+                    json!({"role": "tool", "tool_call_id": item["call_id"], "content": output}),
+                );
+            }
+            _ => {}
+        }
+    }
+    let tools: Vec<Value> = req["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| t["type"] == "function")
+        .map(|t| {
+            json!({"type": "function", "function": {
+            "name": t["name"], "description": t["description"], "parameters": t["parameters"]}})
+        })
+        .collect();
+    let mut chat = json!({
+        "model": req["model"],
+        "messages": messages,
+        "stream": req["stream"],
+        "tools": tools,
+    });
+    for key in [
+        "models",
+        "provider",
+        "tool_choice",
+        "parallel_tool_calls",
+        "temperature",
+        "top_p",
+    ] {
+        if let Some(v) = req.get(key) {
+            chat[key] = v.clone();
+        }
+    }
+    chat
+}
+
+/// The request's tool that a planned call names: the same name, or its
+/// own name (`click` for `mcp__chrome-devtools__click`).
+fn requested_name(req: &Value, planned: &str) -> String {
+    let own = planned.rsplit("__").next().unwrap_or(planned);
+    let names: Vec<&str> = req["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    if names.contains(&planned) {
+        planned.to_owned()
+    } else if names.contains(&own) {
+        own.to_owned()
+    } else {
+        planned.to_owned()
+    }
+}
+
+async fn responses(State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Response {
+    let bearer = fake.bearer(&headers);
+    let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let mut header_names: Vec<String> = headers.keys().map(|k| k.as_str().to_owned()).collect();
+    header_names.sort();
+    let tools: Vec<&str> = req["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    let mut entry = json!({
+        "path": "/responses",
+        "bearer": bearer.name(),
+        "model": req["model"],
+        "models": req["models"],
+        "stream": req["stream"].as_bool().unwrap_or(false),
+        "provider": req["provider"],
+        "tools": tools,
+        "headers": header_names,
+        "user_agent": headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()),
+        "keys": req.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()),
+        "input": req["input"].as_array().map_or(0, Vec::len),
+    });
+    if let Ok(mut c) = fake.counts.lock() {
+        c.chat += 1;
+    }
+    if bearer != Bearer::Ok {
+        entry["status"] = json!(401);
+        fake.log(entry);
+        return unauthorized(bearer);
+    }
+    fake.record_body(&req);
+    let chat = responses_as_chat(&req);
+    let mut answer = match fake.answer(&chat, body.len()) {
+        Ok(a) => a,
+        Err(err) => {
+            entry["status"] = json!(err.status.as_u16());
+            entry["error"] = json!(err.message);
+            fake.log(entry);
+            return err.into_response();
+        }
+    };
+    if let Some(call) = &mut answer.call {
+        call.1 = requested_name(&req, &call.1);
+    }
+    entry["status"] = json!(200);
+    entry["routed"] = json!(answer.model);
+    entry["when"] = json!(answer.when);
+    entry["step"] = json!(answer.step);
+    entry["called"] = json!(answer.call.as_ref().map(|c| &c.1));
+    entry["checked"] = json!(answer.checked);
+    fake.log(entry);
+    if let Ok(mut c) = fake.counts.lock() {
+        c.ok += 1;
+        *c.by_model.entry(answer.model.clone()).or_default() += 1;
+    }
+    if answer.delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(answer.delay_ms)).await;
+    }
+    if answer.stall {
+        tokio::time::sleep(STALL).await;
+    }
+    let id = format!(
+        "gen-e2e-{}",
+        fake.generations.fetch_add(1, Ordering::SeqCst) + 1
+    );
+    let (items, response) = responses_output(&id, &answer);
+    if !req["stream"].as_bool().unwrap_or(false) {
+        return axum::Json(response).into_response();
+    }
+    responses_stream(&id, &answer.model, &items, &response)
+}
+
+/// A Responses answer as its stream of events.
+fn responses_stream(id: &str, model: &str, items: &[Value], response: &Value) -> Response {
+    let mut events =
+        vec![json!({"type": "response.created", "response": {"id": id, "model": model}})];
+    for item in items {
+        if item["type"] == "message" {
+            let empty =
+                json!({"type": "message", "id": item["id"], "role": "assistant", "content": []});
+            events.push(json!({"type": "response.output_item.added", "item": empty}));
+            let text = item["content"][0]["text"].as_str().unwrap_or("");
+            for piece in pieces(text, 3) {
+                events.push(json!({"type": "response.output_text.delta", "item_id": item["id"], "delta": piece}));
+            }
+        } else {
+            events.push(json!({"type": "response.output_item.added", "item": item}));
+        }
+        events.push(json!({"type": "response.output_item.done", "item": item}));
+    }
+    events.push(json!({"type": "response.completed", "response": response}));
+    let parts: Vec<String> = events
+        .iter()
+        .map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap_or("")))
+        .collect();
+    let stream = futures_util::stream::unfold(parts.into_iter(), |mut rest| async move {
+        let next = rest.next()?;
+        tokio::time::sleep(Duration::from_millis(3)).await;
+        Some((Ok::<_, std::convert::Infallible>(Bytes::from(next)), rest))
+    });
+    let mut response = Body::from_stream(stream).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    response
+}
+
+/// An answer as Responses output items, and the whole response object.
+fn responses_output(id: &str, answer: &Answer) -> (Vec<Value>, Value) {
+    let mut items = Vec::new();
+    if let Some(text) = answer.text.as_deref().filter(|t| !t.is_empty()) {
+        items.push(json!({"type": "message", "id": format!("msg_{id}"), "role": "assistant",
+            "status": "completed", "content": [{"type": "output_text", "text": text, "annotations": []}]}));
+    }
+    if let Some((call_id, name, args)) = &answer.call {
+        items.push(
+            json!({"type": "function_call", "id": format!("fc_{call_id}"), "call_id": call_id,
+            "name": name, "arguments": args, "status": "completed"}),
+        );
+    }
+    let u = answer.usage;
+    let response = json!({
+        "id": id,
+        "object": "response",
+        "status": "completed",
+        "model": answer.model,
+        "output": items,
+        "usage": {
+            "input_tokens": u.prompt,
+            "output_tokens": u.completion,
+            "total_tokens": u.prompt + u.completion,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "cost": u.cost,
+        }
+    });
+    (items, response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1535,5 +1780,35 @@ mod tests {
             json!({"role":"assistant","tool_calls":[{"id":"a","type":"function","function":{"name":"Read","arguments":{}}}]}),
         ];
         assert!(check_messages(&object_args).is_err());
+    }
+
+    #[test]
+    fn a_responses_request_reads_as_its_chat_messages() {
+        let req = json!({
+            "model": "e2e/tool-model:free", "stream": true, "instructions": "rules",
+            "input": [
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "search jobs"}]},
+                {"type": "function_call", "call_id": "call_e2e_1_0", "name": "navigate_page", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "call_e2e_1_0", "output": "ok"}
+            ],
+            "tools": [{"type": "function", "name": "navigate_page", "parameters": {"type": "object"}}],
+            "provider": {"require_parameters": true}
+        });
+        let chat = responses_as_chat(&req);
+        assert_eq!(
+            chat["messages"][0],
+            json!({"role": "system", "content": "rules"})
+        );
+        assert_eq!(chat["messages"][1]["content"], "search jobs");
+        assert_eq!(chat["messages"][2]["tool_calls"][0]["id"], "call_e2e_1_0");
+        assert_eq!(chat["messages"][3]["tool_call_id"], "call_e2e_1_0");
+        assert_eq!(chat["tools"][0]["function"]["name"], "navigate_page");
+        assert_eq!(chat["provider"]["require_parameters"], true);
+        assert!(check_messages(chat["messages"].as_array().unwrap()).is_ok());
+        assert_eq!(
+            requested_name(&req, "mcp__chrome-devtools__navigate_page"),
+            "navigate_page"
+        );
+        assert_eq!(requested_name(&req, "save_report"), "save_report");
     }
 }

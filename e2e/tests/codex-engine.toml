@@ -1,0 +1,89 @@
+name = "A bot on Codex browses through oxbot's gate"
+about = "A new bot made on Codex (open models) runs Codex CLI's agent loop with oxbot's own tools: asked to search jobs, it opens the page, reads it and clicks Search through the browser tool, each step in the chat, and answers with the model and request count under it. A click that posts shows the red card first, and Deny is respected. Codex is never offered page scripts, its requests reach the stand-in OpenRouter only through oxbot's relay with Codex's ids and headers stripped, and every request is metered and logged. Skipped on a Mac without Codex 0.148."
+needs = ["codex"]
+covers = ["crates/oxbot-codex/**", "crates/oxbot-relay/**", "crates/oxbot-loop/src/service.rs", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-llm/src/client.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui/**"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+expect_js = "(() => { const s = document.getElementById('nbEngine'); s.value = 'codex'; s.dispatchEvent(new Event('change')); return true; })()"
+note = "Pick Codex (open models)"
+[[step]]
+expect = "Codex runs it"
+note = "The dialog says Codex is ready"
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+expect_js = "document.getElementById('engineBadge').textContent === 'Codex'"
+note = "The bot runs on Codex"
+[[step]]
+send = "search jobs"
+[[step]]
+wait_for = "Searched the jobs."
+timeout_ms = 60000
+[[step]]
+expect = "browser navigate_page https://jobs.example.com/"
+note = "Each of Codex's tool calls is a line in the chat, under oxbot's own tool names"
+[[step]]
+expect = "browser take_snapshot"
+[[step]]
+expect = "browser click"
+[[step]]
+expect_not = "Allow once"
+note = "Search needs no OK, as on the other engines"
+[[step]]
+expect = "tool-model:free · 5 requests"
+note = "The model and the requests the task took (the last one answers oxbot's check of the answer)"
+shot = "browsed"
+[[step]]
+expect_openrouter = '"path":"/responses"'
+note = "Codex's requests came through oxbot's relay to OpenRouter's Responses API"
+[[step]]
+expect_openrouter = '"user_agent":"oxbot"'
+[[step]]
+expect_openrouter_not = "x-codex"
+note = "None of Codex's own headers or ids left the Mac"
+[[step]]
+expect_openrouter_not = "originator"
+[[step]]
+expect_openrouter_not = "session-id"
+[[step]]
+expect_openrouter_not = "prompt_cache_key"
+[[step]]
+expect_openrouter_not = "client_metadata"
+[[step]]
+expect_openrouter_not = "installation_id"
+[[step]]
+expect_openrouter_not = "evaluate_script"
+note = "Page scripts are never offered"
+[[step]]
+expect_openrouter_body = '"require_parameters":true'
+note = "The bot's provider rules went with each request"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) >= 5 FROM model_calls WHERE engine = 'codex' AND provider = 'openrouter' AND bot = 'scout'", equals = "1" }
+note = "Every request is metered as Codex's"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) >= 5 FROM relay_log WHERE bot = 'scout'", equals = "1" }
+note = "What was sent is kept"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM codex_threads WHERE bot = 'scout'", equals = "1" }
+[[step]]
+send = "post it"
+[[step]]
+wait_for = "Allow once"
+timeout_ms = 60000
+note = "The card, before the click"
+[[step]]
+expect = "Post"
+shot = "card"
+[[step]]
+click = "Deny"
+[[step]]
+wait_for = "Okay, I didn't post it."
+timeout_ms = 60000
+note = "Codex was told oxbot said no, and the post never happened"
+shot = "denied"

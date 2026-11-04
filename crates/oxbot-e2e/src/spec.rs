@@ -108,6 +108,10 @@ pub struct Test {
     /// "hears" a sentence when asked).
     #[serde(default)]
     pub dictation: bool,
+    /// Programs the test needs on this Mac (`codex`): without one it's
+    /// skipped, saying why, not failed.
+    #[serde(default)]
+    pub needs: Vec<String>,
     /// The steps, in order.
     #[serde(rename = "step")]
     pub steps: Vec<Step>,
