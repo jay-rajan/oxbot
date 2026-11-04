@@ -30,4 +30,5 @@ expect = "acting task: shadow is a dry run"
 note = "The shadow recorded the post"
 shot = "shadow-card"
 [[step]]
-expect_site_writes = 0
+expect_site_writes = 2
+note = "Only the two the page makes by itself when the live turn's browser opens it; the shadow's test browser blocked its own"

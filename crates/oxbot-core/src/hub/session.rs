@@ -347,6 +347,7 @@ impl Hub {
                 if let Some(meter) = meter {
                     self.announce_meter(bot, &meter.model, meter.requests, meter.cost_usd);
                 }
+                self.cue_data_policy();
                 self.announce_bots().await;
             }
             EngineEvent::Activity(activity) => {

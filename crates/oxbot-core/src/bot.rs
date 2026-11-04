@@ -528,7 +528,9 @@ impl Bot {
             &self.dir,
             &BotFile {
                 name: self.name.clone(),
-                engine: Some(self.engine.as_str().to_owned()),
+                // Until the hub has moved it (and told its chat), a bot from
+                // Claude's days keeps its file's old engine, whoever saves it.
+                engine: (!self.from_claude).then(|| self.engine.as_str().to_owned()),
                 owner: self.owner.as_ref().map(ToString::to_string),
                 created_by: self.created_by.clone(),
                 private: self.private,
@@ -804,8 +806,13 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let old = "name = \"News\"\nmodel = \"haiku\"\nowner = \"p_0123456789abcdef\"\ncreated_by = \"Sam\"\nprivate = true\n";
         fs::write(dir.join("bot.toml"), old).unwrap();
-        let bot = Bot::load(&dir).unwrap();
+        let mut bot = Bot::load(&dir).unwrap();
         assert_eq!((bot.engine, bot.from_claude), (EngineKind::Codex, true));
+        // Saved for another reason first (a rename, say): still Claude's
+        // until the hub moves it.
+        bot.save().unwrap();
+        assert!(Bot::load(&dir).unwrap().from_claude, "still to be moved");
+        bot.from_claude = false;
         bot.save().unwrap();
         let text = fs::read_to_string(dir.join("bot.toml")).unwrap();
         assert_eq!(

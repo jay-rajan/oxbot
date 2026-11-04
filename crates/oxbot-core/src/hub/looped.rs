@@ -327,6 +327,13 @@ impl Hub {
         if !windows.is_empty() {
             self.check_limit_alerts(&windows);
         }
+        self.cue_data_policy();
+    }
+
+    /// Tells viewers when the `OpenRouter` account's privacy settings
+    /// started or stopped ruling out the free models. A failed request
+    /// leaves no meter row, so this runs at each turn's end too.
+    pub(super) fn cue_data_policy(&self) {
         let blocked = self.openrouter_data_policy_blocked();
         let shown = self
             .data_policy_shown

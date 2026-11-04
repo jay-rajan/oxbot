@@ -14,8 +14,8 @@ click = "Allow once"
 [[step]]
 wait_for = "Posted the nurse job."
 [[step]]
-expect_site_writes = 0
-note = "The live turn's stand-in never opened the site"
+expect_site_writes = 2
+note = "The live turn's browser really opened the page, which posts twice by itself as it loads (a fetch and a form); the bot's own click asked first"
 [[step]]
 expect_js = "(() => { const b = [...document.querySelectorAll('#log .rate-row button')].filter((b) => b.textContent === 'Test case…').pop(); b.click(); return true; })()"
 note = "Test case… under the reply that just ended"
@@ -66,22 +66,22 @@ timeout_ms = 90000
 note = "One run at a time, each in its own test browser"
 [[step]]
 expect_js = "!document.querySelector('#cards .card')"
-note = "No card appeared"
+note = "No approval request appeared"
 [[step]]
 expect_js = "document.querySelectorAll('#log > *').length === window.__chat"
 note = "The chat gained nothing"
 [[step]]
-expect_site_pages = 1
-note = "The OpenRouter run's test browser really loaded the site's page"
+expect_site_pages = 2
+note = "The runs' test browsers really loaded the site's page too (after the live turn's one)"
 [[step]]
-expect_site_writes = 0
-note = "…and every write the page tried was blocked"
+expect_site_writes = 2
+note = "…and every write the page tried in them was blocked: still only the live turn's two"
 [[step]]
 click = "Runs"
 [[step]]
-wait_for = "OpenRouter · e2e/tool-model:free"
+wait_for = "e2e/tool-model:free (classic)"
 [[step]]
-click = "post the nurse job · OpenRouter · e2e/tool-model:free"
+click = "post the nurse job · e2e/tool-model:free (classic)"
 [[step]]
 wait_for = "✓ matched: click button \"Post\" on jobs.example.test"
 [[step]]

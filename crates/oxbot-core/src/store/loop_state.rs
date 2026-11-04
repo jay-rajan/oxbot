@@ -899,6 +899,37 @@ mod tests {
     }
 
     #[test]
+    fn a_codex_turns_use_is_its_meter_rows_in_its_time() {
+        let store = Store::open_in_memory().unwrap();
+        let at = |ts_ms, model: &str, engine: &str| CallRecord {
+            ts_ms,
+            engine: engine.into(),
+            ..call("scout", None, model, "ok", 0.0)
+        };
+        for c in [
+            at(1_000, "a:free", "codex"),
+            at(2_000, "a:free", "codex"),
+            at(2_500, "b:free", "codex"),
+            at(2_600, "b:free", "openrouter"),
+            at(9_000, "b:free", "codex"),
+        ] {
+            store.record_call(&c).unwrap();
+        }
+        let (requests, input, output, _, _, model) = store
+            .engine_calls_totals("scout", "codex", 1_000, 3_000)
+            .unwrap();
+        assert_eq!((requests, input, output), (3, 300, 30));
+        assert_eq!(model, "a:free", "the model that answered most");
+        assert_eq!(
+            store
+                .engine_calls_totals("news", "codex", 0, 9_000)
+                .unwrap()
+                .0,
+            0
+        );
+    }
+
+    #[test]
     fn sums_for_limits_and_usage() {
         let store = Store::open_in_memory().unwrap();
         for c in [

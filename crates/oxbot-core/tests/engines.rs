@@ -390,7 +390,10 @@ fn pre_upgrade_folder(dir: &Path) -> std::path::PathBuf {
 async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() {
     let tmp = tempfile::tempdir().unwrap();
     let bots = pre_upgrade_folder(tmp.path());
+    // As the app starts: the Assistant's file is brought up to date (its
+    // name) before the hub loads the bots, and must still be moved then.
     let start = || {
+        oxbot_core::bot::ensure_default(&bots).unwrap();
         Hub::new(
             oxbot_core::bot::load_all(&bots).unwrap(),
             Store::open(&tmp.path().join("oxbot.db")).unwrap(),

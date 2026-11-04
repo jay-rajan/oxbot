@@ -263,12 +263,14 @@ pub(super) fn upgrade_from_claude(bots: &mut [Bot], store: &Store) {
                 continue;
             }
         }
+        bot.from_claude = false;
         match bot.save() {
-            Ok(()) => {
-                bot.from_claude = false;
-                tracing::info!(bot = %bot.id, "moved a bot from Claude to Codex");
+            Ok(()) => tracing::info!(bot = %bot.id, "moved a bot from Claude to Codex"),
+            Err(err) => {
+                // Tried again at the next start (its line isn't added twice).
+                bot.from_claude = true;
+                tracing::warn!(bot = %bot.id, %err, "couldn't upgrade a bot's file");
             }
-            Err(err) => tracing::warn!(bot = %bot.id, %err, "couldn't upgrade a bot's file"),
         }
     }
 }

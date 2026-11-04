@@ -784,6 +784,41 @@ impl Store {
         Ok(runs)
     }
 
+    /// What `bot`'s requests on `engine` between `from_ms` and `to_ms`
+    /// used, as [`Self::loop_turn_totals`] tells it: a Codex turn keeps no
+    /// loop turn, only the relay's meter rows.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn engine_calls_totals(
+        &self,
+        bot: &str,
+        engine: &str,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> Result<(u32, u64, u64, u64, f64, String), StoreError> {
+        Ok(self.conn().query_row(
+            "SELECT COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(cost_usd), 0),
+                    COALESCE((SELECT model FROM model_calls m2 WHERE m2.bot = ?1 AND m2.engine = ?2
+                        AND m2.ts_ms BETWEEN ?3 AND ?4 AND m2.model != ''
+                        GROUP BY model ORDER BY COUNT(*) DESC, model LIMIT 1), '')
+             FROM model_calls WHERE bot = ?1 AND engine = ?2 AND ts_ms BETWEEN ?3 AND ?4
+                AND outcome != 'cancelled'",
+            params![bot, engine, from_ms, to_ms],
+            |r| {
+                Ok((
+                    u32_of(r.get(0)?),
+                    from_sql(r.get(1)?),
+                    from_sql(r.get(2)?),
+                    from_sql(r.get(3)?),
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )?)
+    }
+
     /// What the loop turn `turn` of `session` used: requests, input,
     /// output and cached tokens, dollars, and the model that answered most.
     ///

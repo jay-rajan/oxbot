@@ -13,7 +13,8 @@
 //!   says which call is next, so replies are stateless and a resumed turn
 //!   gets the same next step. When the calls are done it answers in text:
 //!   `denied` (or "I didn't: …") after `[oxbot said no]`, "That didn't
-//!   work: …" after `[tool error]`, else `after` with `{result}`. Models in
+//!   work: …" after `[tool error]`, `dry` after a practice run's
+//!   `[test run]`, else `after` with `{result}`. Models in
 //!   the reply's `busy` answer 429 (`Retry-After: 1`); the first model not
 //!   busy from `model` then `models` answers (`OpenRouter`'s own fallback).
 //!   Models in the reply's `data_policy` have no endpoint the account's
@@ -890,6 +891,9 @@ fn final_text(reply: &crate::script::Reply, text: &str, no_calls: bool, last: &s
             .unwrap_or_else(|| format!("I didn't: {}", why.trim()))
     } else if let Some(what) = broke {
         format!("That didn't work: {}", what.trim())
+    } else if let Some(dry) = reply.dry.as_ref().filter(|_| last.contains("[test run]")) {
+        // A practice run recorded the step instead of doing it.
+        dry.clone()
     } else {
         reply
             .after

@@ -61,6 +61,21 @@ fn first_line(text: &str) -> String {
     }
 }
 
+/// A turn's meter totals (requests, input, output and cached tokens,
+/// dollars, model) as a run's use.
+fn used_of(
+    (requests, input, output, cached, cost, _): (u32, u64, u64, u64, f64, String),
+) -> TrialRunRecord {
+    TrialRunRecord {
+        requests,
+        input_tokens: input,
+        output_tokens: output,
+        cached_tokens: cached,
+        cost_usd: cost,
+        ..TrialRunRecord::default()
+    }
+}
+
 /// A finished turn read from a bot's chat.
 struct Turn {
     user: BotEvent,
@@ -241,7 +256,8 @@ impl Hub {
     /// The engine and model that ran a live turn, as the scoreboard names
     /// them (a turn from before Claude left oxbot keeps `claude`, which the
     /// scoreboard leaves out), with what it used when the loop ran it.
-    fn turn_model(&self, bot: &Bot, user_seq: u64) -> (String, String, Option<TrialRunRecord>) {
+    fn turn_model(&self, bot: &Bot, turn: &Turn) -> (String, String, Option<TrialRunRecord>) {
+        let user_seq = turn.user.seq;
         let recorded = self
             .store
             .turn_origin(&bot.id, user_seq)
@@ -259,15 +275,27 @@ impl Hub {
         };
         let name = engine.as_str().to_owned();
         match engine {
-            // Codex keeps no loop turns: its requests are in the meter.
-            EngineKind::Codex => (
-                name,
-                bot.loop_settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "auto".to_owned()),
-                None,
-            ),
+            // Codex keeps no loop turns: its requests are the meter's rows
+            // from the message to the reply's end.
+            EngineKind::Codex => {
+                let totals = self
+                    .store
+                    .engine_calls_totals(
+                        bot.id.as_str(),
+                        engine.as_str(),
+                        turn.user.ts_ms,
+                        turn.done_ms,
+                    )
+                    .ok()
+                    .filter(|t| t.0 > 0);
+                let model = totals
+                    .as_ref()
+                    .map(|t| t.5.clone())
+                    .filter(|m| !m.is_empty())
+                    .or_else(|| bot.loop_settings.model.clone())
+                    .unwrap_or_else(|| "auto".to_owned());
+                (name, model, totals.map(used_of))
+            }
             EngineKind::OpenRouter => {
                 let row = self
                     .store
@@ -283,18 +311,7 @@ impl Hub {
                     .filter(|m| !m.is_empty())
                     .or_else(|| row.and_then(|r| r.model))
                     .unwrap_or_else(|| "auto".to_owned());
-                let used =
-                    totals.map(
-                        |(requests, input, output, cached, cost, _)| TrialRunRecord {
-                            requests,
-                            input_tokens: input,
-                            output_tokens: output,
-                            cached_tokens: cached,
-                            cost_usd: cost,
-                            ..TrialRunRecord::default()
-                        },
-                    );
-                (name, model, used)
+                (name, model, totals.map(used_of))
             }
         }
     }
@@ -307,7 +324,7 @@ impl Hub {
         case: Option<&str>,
         batch: Option<&str>,
     ) -> TrialRunRecord {
-        let (engine, model, used) = self.turn_model(bot, turn.user.seq);
+        let (engine, model, used) = self.turn_model(bot, turn);
         let used = used.unwrap_or_default();
         let is = |k: &'static str| {
             move |e: &EventKind| match e {
@@ -355,7 +372,7 @@ impl Hub {
         self.owner_only(viewer)?;
         let bot = self.bot_for(id, viewer)?;
         let turn = self.finished_turn(&bot.id, seq)?;
-        let (engine, model, _) = self.turn_model(&bot, turn.user.seq);
+        let (engine, model, _) = self.turn_model(&bot, &turn);
         self.store.set_rating(&bot.id, seq, up, &engine, &model)?;
         Ok(())
     }

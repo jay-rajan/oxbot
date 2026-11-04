@@ -12,6 +12,12 @@ click = "Create"
 [[step]]
 wait_for = "@scout"
 [[step]]
+expect_js = "(() => { send({ type: 'set_engine', bot: 'scout', engine: 'openrouter' }); return true; })()"
+note = "New bots run on Codex: this test is about oxbot's own loop, so Scout moves there"
+[[step]]
+expect_js = "bots.get('scout').info.engine === 'openrouter'"
+timeout_ms = 5000
+[[step]]
 send = "which is the tallest finished tower?"
 [[step]]
 wait_for = "The tallest finished tower is First Place, 298.3 m (1975)."
