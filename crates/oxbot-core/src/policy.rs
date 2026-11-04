@@ -674,6 +674,13 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
     if matches!(role, "textbox" | "searchbox" | "combobox") {
         return Click::Plain;
     }
+    // A card or headline link: its name is the item's text, so words in
+    // it ("Save Recipe", "Delete your account in 5 steps") don't say what
+    // a click does. A link is a GET; a link that changes something has a
+    // short action name ("Unsubscribe", "Log out").
+    if role == "link" && name_words(name) > CARD_LINK_WORDS {
+        return Click::Plain;
+    }
     let words = click_words(name);
     match words {
         Words::Final => return Click::Final,
@@ -693,6 +700,16 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
         (_, Some(f)) if method == Some("post") && f.filled_fields > 0 => Click::Change,
         _ => Click::Plain,
     }
+}
+
+/// A link named with more words than this is a card or headline link.
+const CARD_LINK_WORDS: usize = 5;
+
+/// Words in a name (runs with a letter or digit; `…` and `|` don't count).
+fn name_words(name: &str) -> usize {
+    name.split_whitespace()
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .count()
 }
 
 /// Whether reading the element itself could change what a click on `label`
@@ -1675,6 +1692,35 @@ mod tests {
         ] {
             assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
         }
+    }
+
+    #[test]
+    fn card_links_navigate_whatever_words_they_hold() {
+        // A recipe card: the link's name is the whole card, "Save" included.
+        for label in [
+            "link \"Sliced banana bread loaf … Save Recipe BANANA NUT BREAD RECIP…\" url=\"https://recipes.example.com/r/42\"",
+            "link \"How to delete your account in 5 steps\"",
+            "link \"Book now: three nights by the lake from $199\"",
+            "link \"Sam shared a post about the new library hours\"",
+        ] {
+            assert_eq!(click(label, None), Verdict::Allow, "{label}");
+        }
+        // Short links with a change word still ask, as do buttons.
+        for label in [
+            "link \"Unsubscribe\"",
+            "link \"Save recipe\"",
+            "link \"Log out\"",
+            "link \"Unsubscribe from all emails now\"",
+            "button \"Save Recipe for banana nut bread loaf\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Change), "{label}");
+        }
+        assert_eq!(
+            asks(&click("link \"Delete\"", None)),
+            Some(Click::Final),
+            "a short can't-undo link"
+        );
+        assert_eq!(name_words("Save … Recipe |"), 2);
     }
 
     #[test]
