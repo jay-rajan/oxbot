@@ -204,6 +204,7 @@ impl AppState {
             });
         OpenRouterView {
             signed_in: account.is_some_and(crate::openrouter_auth::OpenRouter::signed_in),
+            key_in_file: account.is_some_and(crate::openrouter_auth::OpenRouter::key_in_file),
             key,
             paid_models,
             filtered_out,
@@ -3110,6 +3111,8 @@ mod tests {
         assert!(state.engines_for(&sam).openrouter.is_none());
         let view = state.engines_for(&farm);
         assert!(view.openrouter.as_ref().unwrap().signed_in);
+        // A memory store is no key file: the page keeps the Keychain words.
+        assert!(!view.openrouter.as_ref().unwrap().key_in_file);
         for json in [
             serde_json::to_string(&ServerMsg::Engines(view)).unwrap(),
             serde_json::to_string(&ServerMsg::Settings(state.settings_for(&farm))).unwrap(),

@@ -199,9 +199,9 @@ impl fmt::Debug for KeyCell {
     }
 }
 
-/// Where the key is kept between runs: the macOS Keychain in the app,
-/// memory (or a test file) in tests. Never a plain file, a log or the
-/// database.
+/// Where the key is kept between runs: the macOS Keychain in the app, a
+/// private key file in a dev or test copy's own data folder, memory (or a
+/// test file) in tests. Never a log or the database.
 pub trait SecretStore: Send + Sync + fmt::Debug {
     /// The key kept, if any.
     ///
@@ -218,6 +218,12 @@ pub trait SecretStore: Send + Sync + fmt::Debug {
     /// # Errors
     /// The store couldn't be changed.
     fn delete(&self) -> Result<(), SecretError>;
+    /// Whether the key is kept in a private file in the data folder (a dev
+    /// or test copy's key file) rather than the Keychain, so Settings can
+    /// say where it is.
+    fn in_file(&self) -> bool {
+        false
+    }
 }
 
 /// A secret store failed. The text never holds the key.

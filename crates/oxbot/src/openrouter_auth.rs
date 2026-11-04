@@ -169,7 +169,14 @@ impl OpenRouter {
         &self.client
     }
 
-    /// Whether there is a key.
+    /// Whether the key is kept in this data folder's key file, not the
+    /// Keychain (a dev or test copy).
+    #[must_use]
+    pub fn key_in_file(&self) -> bool {
+        self.secrets.in_file()
+    }
+
+    /// Whether a key is kept (signed in).
     #[must_use]
     pub fn signed_in(&self) -> bool {
         self.key.is_set()

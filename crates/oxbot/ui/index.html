@@ -599,7 +599,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <p class="notice-text" id="orPolicy" hidden></p>
       <div class="btns"><button class="primary" type="button" id="orSignIn">Sign in with OpenRouter</button><button class="ghost" type="button" id="orSignOut" hidden>Sign out</button><button class="ghost" type="button" id="orRefresh">Refresh</button></div>
       <p class="hint" id="orLink" hidden>If no window opened, <a id="orLinkA" href="#" target="_blank" rel="noopener noreferrer">open this link</a>.</p>
-      <p class="hint" id="orAbout">One OpenRouter key for the household. It stays in this Mac's Keychain: never in a file, the log or the page. Signing in opens OpenRouter in your browser; it comes back to oxbot on this Mac.</p>
+      <p class="hint" id="orAbout">One OpenRouter key for the household. <span id="orWhere">It stays in this Mac's Keychain: never in a file, the log or the page.</span> Signing in opens OpenRouter in your browser; it comes back to oxbot on this Mac.</p>
       <dl class="about" id="orKey" hidden></dl>
     </section>
     <section id="orModelsSection" hidden>
@@ -1658,6 +1658,10 @@ function renderOpenRouter() {
   $("orStatus").textContent = waiting ? KEYCHAIN_WAITING : !or.signed_in ? "Not signed in." : ready ? "Signed in. OpenRouter bots are ready." : "Signed in.";
   $("orSignIn").hidden = or.signed_in || waiting; $("orSignOut").hidden = !or.signed_in;
   $("orPolicy").hidden = !or.data_policy; $("orPolicy").textContent = or.data_policy || "";
+  // Where the key is (the server says which store; never the key itself).
+  $("orWhere").textContent = or.key_in_file
+    ? "This test copy keeps its key in a private file in its data folder."
+    : "It stays in this Mac's Keychain: never in a file, the log or the page.";
   $("orLink").hidden = or.signed_in || !orAuthUrl;
   if (orAuthUrl) $("orLinkA").href = orAuthUrl;
   if (or.signed_in) orAuthUrl = null;

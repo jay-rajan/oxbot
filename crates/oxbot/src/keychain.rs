@@ -177,6 +177,10 @@ impl SecretStore for KeyFile {
         Ok(())
     }
 
+    fn in_file(&self) -> bool {
+        true
+    }
+
     fn delete(&self) -> Result<(), SecretError> {
         match std::fs::remove_file(&self.path) {
             Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
@@ -412,6 +416,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = KeyFile::in_data_dir(tmp.path());
         assert!(!format!("{store:?}").contains("secrets"));
+        // Settings says where the key is; the Keychain's stores say no file.
+        assert!(store.in_file());
+        assert!(!Keychain::for_data_dir(tmp.path()).in_file());
         assert!(store.load().unwrap().is_none());
         store.save(&ApiKey::new(FAKE.to_owned()).unwrap()).unwrap();
         assert_eq!(std::fs::read_to_string(store.path()).unwrap(), FAKE);

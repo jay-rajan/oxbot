@@ -611,6 +611,10 @@ pub struct EnginesView {
 pub struct OpenRouterView {
     /// Signed in: oxbot has a key.
     pub signed_in: bool,
+    /// The key is kept in a private file in the data folder (a test copy),
+    /// not the Keychain. Where it is, never the key.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub key_in_file: bool,
     /// The key's limits and today's use, once read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyLimits>,
