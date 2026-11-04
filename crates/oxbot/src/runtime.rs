@@ -183,11 +183,18 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             openrouter.client(),
             openrouter.key_cell(),
         )),
+        // Codex bots: their requests reach OpenRouter's Responses API
+        // through oxbot's relay, on the same client and key.
+        codex: Some(oxbot_core::CodexParts {
+            upstream: Arc::new(openrouter.client().clone()),
+            program: std::env::var_os("OXBOT_CODEX").map(PathBuf::from),
+        }),
         // Practice runs and test cases' files.
         data_dir: home.root().to_path_buf(),
         ..HubConfig::for_app(home.bots_dir())
     };
     let hub = Hub::new(bots, store, config);
+    hub.start_codex().await;
 
     let farm_key =
         crate::secret::farm_key(home.root()).context("couldn't make or read the Farm secret")?;

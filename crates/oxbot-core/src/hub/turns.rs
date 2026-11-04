@@ -304,6 +304,9 @@ impl Hub {
         for shared in self.all_browsers() {
             shared.browser.shutdown().await;
         }
+        if let Some(codex) = self.codex_engine() {
+            codex.shutdown().await;
+        }
     }
 
     pub(super) async fn stop_claude(&self, bot: &BotId) {

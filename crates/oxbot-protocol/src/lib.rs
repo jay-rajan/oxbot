@@ -186,6 +186,13 @@ pub enum ClientMsg {
     /// Read `OpenRouter`'s model list (and the key's limits) again. The Farm
     /// only.
     RefreshModels,
+    /// Look for Codex again, at `path` if given (else `OXBOT_CODEX`, then
+    /// `PATH` and Homebrew's folders), and keep that choice. The Farm only.
+    FindCodex {
+        /// Where the `codex` program is; empty to look for it.
+        #[serde(default)]
+        path: String,
+    },
     /// Change the household's engine settings. The Farm only.
     SetEnginePrefs {
         /// All of them.
@@ -607,6 +614,29 @@ pub struct EnginesView {
     /// The Farm only: the `OpenRouter` account, models, limits and use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openrouter: Option<OpenRouterView>,
+    /// Whether Codex bots can run on this Mac now.
+    #[serde(default)]
+    pub codex_ready: bool,
+    /// The Farm only: what was found of Codex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexView>,
+}
+
+/// Settings → Engines → Codex, for the Farm.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexView {
+    /// Where the `codex` program is, if it was found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Its version, if it said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Why Codex bots can't run, if they can't.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
+    /// The path the owner set, if any (else it's looked for).
+    #[serde(default)]
+    pub configured: String,
 }
 
 /// Settings → Engines → `OpenRouter`, for the Farm.
@@ -1117,6 +1147,9 @@ pub struct AppSettings {
     /// Whether `OpenRouter` bots can run on this Mac now.
     #[serde(default)]
     pub openrouter_ready: bool,
+    /// Whether Codex bots can run on this Mac now.
+    #[serde(default)]
+    pub codex_ready: bool,
     /// The `OpenRouter` key is still being read: the Mac's Keychain may be
     /// asking the person to allow oxbot.
     #[serde(default)]
@@ -1856,6 +1889,8 @@ mod tests {
             );
         }
         let view = ServerMsg::Engines(EnginesView {
+            codex: None,
+            codex_ready: false,
             notice: "n".into(),
             owner: "Jay".into(),
             openrouter_ready: false,
@@ -2221,6 +2256,7 @@ mod tests {
     #[test]
     fn settings_say_when_launch_at_login_is_unavailable() {
         let json = serde_json::to_string(&ServerMsg::Settings(AppSettings {
+            codex_ready: false,
             version: "0.1.0".into(),
             data_dir: "/d".into(),
             launch_at_login: None,

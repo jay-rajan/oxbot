@@ -135,6 +135,18 @@ becomes owner-only. Bots made before engines stay on Claude: on the first start 
 banner, and Settings → Engines lists the Claude bots other people used in the last 30 days, each
 with **Switch to OpenRouter** (or **Switch all**).
 
+**Codex** (a test engine for now) runs Codex CLI's agent loop (`codex app-server`, version
+0.148.x, installed separately: oxbot looks in `PATH`, `/opt/homebrew/bin` and `/usr/local/bin`,
+or where `OXBOT_CODEX` or Settings → Engines → Codex says) on the same OpenRouter models, with
+oxbot's own tools, cards and limits; anyone in the household can give these bots tasks. Each bot
+gets its own Codex process with its own `CODEX_HOME` in its folder (`bots/<id>/codex`) and a
+config oxbot writes at every start: no update checks, telemetry, plugins, web search, shell or
+Codex instructions of its own, and its only model provider is oxbot's relay on 127.0.0.1, which
+checks the process's token, strips Codex's ids and metadata, applies the bot's model, privacy and
+limits, sends the request to OpenRouter with the household key and meters it. Any other address
+Codex tried would go to a proxy that refuses it. What the relay sent is kept for 14 days in the
+bot's `context/relay` folder. A person's own `~/.codex` is never read.
+
 Comparing engines (the owner only): under a finished reply, 👍/👎 and **Test case…** keep the
 task; **Compare…** in the bot's menu replays test cases on Claude and on OpenRouter models, side
 by side with a scoreboard (your marks, or Claude as judge on request). A replay never acts: every
@@ -193,6 +205,8 @@ else leaves the Mac.
 | `crates/oxbot-engine` | The engine interface both engines plug into: `Engine`, `Session`, one event stream |
 | `crates/oxbot-claude` | Runs `claude -p` with privacy settings (Claude bots) |
 | `crates/oxbot-loop` | oxbot's own agent loop (OpenRouter bots): runner, tools, gate check, model router, pacer, meter |
+| `crates/oxbot-codex` | The Codex engine: finds and checks `codex`, writes its config, runs one `codex app-server` per bot, maps threads, turns and oxbot's tools onto its JSON-RPC |
+| `crates/oxbot-relay` | oxbot's model relay on 127.0.0.1 for Codex: token check, stripping, routing, limits, meter and what-was-sent log |
 | `crates/oxbot-llm` | Model client for OpenAI-style chat APIs (OpenRouter now, local models later), the key, sign-in (PKCE) |
 | `crates/oxbot-browser` | A hidden Chrome per owner (home, or a person's own) with a kept profile, and its sign-in window |
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the Gate door (`src/door/`) |

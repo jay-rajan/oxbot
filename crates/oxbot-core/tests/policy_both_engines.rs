@@ -3,6 +3,7 @@
 //! model and browser), and must raise the same cards and refusals.
 #![allow(clippy::unwrap_used, reason = "test helpers may panic")]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -237,4 +238,137 @@ async fn passwords_files_outside_and_local_pages_are_refused() {
     // Inside its own folder a file tool runs without asking.
     let inside = on_loop("Write", json!({"file_path": "notes.md", "content": "x"})).await;
     assert_eq!(inside, Vec::<String>::new());
+}
+
+/// Codex's model, behind oxbot's relay: read the page, make `call` (by
+/// Codex's name for it), then answer. Plays the Responses API.
+#[derive(Debug)]
+struct CodexModel {
+    call: (String, Value),
+}
+
+impl oxbot_relay::Upstream for CodexModel {
+    fn send(
+        &self,
+        body: Vec<u8>,
+        _stream: bool,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> futures_util::future::BoxFuture<'static, Result<oxbot_llm::RawAnswer, oxbot_llm::LlmError>>
+    {
+        use futures_util::StreamExt as _;
+        let req: Value = serde_json::from_slice(&body).unwrap();
+        let input = req["input"].as_array().cloned().unwrap_or_default();
+        let user = input.iter().rposition(|i| i["role"] == "user").unwrap_or(0);
+        let done = input[user..]
+            .iter()
+            .filter(|i| i["type"] == "function_call_output")
+            .count();
+        let item = |id: &str, name: &str, args: &Value| {
+            json!({"type": "function_call", "id": format!("fc_{id}"), "call_id": id,
+                "name": name, "arguments": args.to_string()})
+        };
+        let out = match done {
+            0 => item("c1", "take_snapshot", &json!({})),
+            1 => item("c2", &self.call.0, &self.call.1),
+            _ => json!({"type": "message", "id": "m", "role": "assistant",
+                "content": [{"type": "output_text", "text": "Okay."}]}),
+        };
+        let events = [
+            json!({"type": "response.created", "response": {"id": "r"}}),
+            json!({"type": "response.output_item.added", "item": out}),
+            json!({"type": "response.output_item.done", "item": out}),
+            json!({"type": "response.completed", "response": {"id": "r", "model": "m:free",
+                "usage": {"input_tokens": 10, "output_tokens": 1, "total_tokens": 11}}}),
+        ];
+        let mut text = String::new();
+        for e in &events {
+            let _ = write!(
+                text,
+                "event: {}\ndata: {e}\n\n",
+                e["type"].as_str().unwrap()
+            );
+        }
+        Box::pin(async move {
+            let chunks: Vec<Result<bytes::Bytes, oxbot_llm::LlmError>> =
+                vec![Ok(bytes::Bytes::from(text))];
+            Ok(oxbot_llm::RawAnswer {
+                content_type: "text/event-stream".into(),
+                body: futures_util::stream::iter(chunks).boxed(),
+            })
+        })
+    }
+}
+
+/// The same case on Codex (the real `codex`, if installed): `None` when it
+/// isn't, after saying so.
+async fn on_codex(call: &str, args: Value) -> Option<Vec<String>> {
+    let program = std::env::var_os("OXBOT_CODEX")
+        .map(PathBuf::from)
+        .or_else(|| oxbot_codex::binary::locate(None, std::env::var("PATH").ok().as_deref()));
+    let Some(program) = program else {
+        eprintln!("SKIPPED on Codex: the codex program isn't installed");
+        return None;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let bots = dir.join("bots");
+    std::fs::create_dir_all(&bots).unwrap();
+    let mut bot = Bot::create(&bots, BotId::new("poster").unwrap(), "poster", "").unwrap();
+    bot.engine = EngineKind::Codex;
+    bot.save().unwrap();
+    let browser = ScriptedBrowser::with_snapshot(SNAPSHOT);
+    let codex_name = call.rsplit("__").next().unwrap().to_owned();
+    let config = HubConfig {
+        browser: Some(tools(dir)),
+        approval_timeout: Duration::from_secs(5),
+        openrouter: Some(LoopParts {
+            browser: Some(Arc::new(SameBrowser(browser))),
+            free_per_minute: 1000,
+            ..LoopParts::new(Arc::new(ScriptedModel::new()), None, None)
+        }),
+        codex: Some(oxbot_core::CodexParts {
+            upstream: Arc::new(CodexModel {
+                call: (codex_name, args),
+            }),
+            program: Some(program),
+        }),
+        data_dir: dir.join("data"),
+        pre_engine_tests: false,
+        ..HubConfig::for_app(&bots)
+    };
+    let hub = Hub::new(vec![bot], Store::open_in_memory().unwrap(), config);
+    let catalog = json!({"models": [{"id": "m:free", "name": "M", "context_length": 128_000,
+        "max_completion": null, "prompt_usd_per_token": 0.0, "completion_usd_per_token": 0.0,
+        "tools": true, "images_in": false, "text_io": true, "free": true}]});
+    hub.set_model_catalog(&catalog.to_string(), 1).unwrap();
+    hub.start_codex().await;
+    if let Err(why) = hub.engine_ready(EngineKind::Codex) {
+        eprintln!("SKIPPED on Codex: {why}");
+        return None;
+    }
+    let seen = run(&hub, "poster").await;
+    hub.shutdown().await;
+    Some(seen)
+}
+
+#[tokio::test]
+async fn codex_reaches_the_same_cards_and_refusals_as_the_loop() {
+    let post = ("mcp__chrome-devtools__click", json!({"uid": "1_3"}));
+    let Some(on_codex_post) = on_codex(post.0, post.1.clone()).await else {
+        return;
+    };
+    assert_eq!(on_codex_post, on_loop(post.0, post.1).await);
+    assert!(
+        on_codex_post[0].starts_with("card Change click"),
+        "{on_codex_post:?}"
+    );
+    let password = (
+        "mcp__chrome-devtools__fill",
+        json!({"uid": "1_4", "value": "x"}),
+    );
+    let on_codex_password = on_codex(password.0, password.1.clone()).await.unwrap();
+    assert_eq!(on_codex_password, on_loop(password.0, password.1).await);
+    assert!(
+        on_codex_password[0].starts_with("oxbot refused: oxbot never lets bots type passwords")
+    );
 }

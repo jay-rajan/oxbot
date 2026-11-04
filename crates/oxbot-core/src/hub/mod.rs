@@ -26,6 +26,7 @@ mod alerts;
 mod approvals;
 mod browsers;
 mod claude;
+mod codex;
 mod compare;
 mod elements;
 mod engine_prefs;
@@ -45,6 +46,7 @@ mod uploads;
 
 pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS, pretty_model};
 pub use approvals::answers;
+pub use codex::CodexParts;
 pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::ENGINES_NOTICE;
 pub use engines::{ChainOrigin, Entry};
@@ -120,6 +122,9 @@ pub struct HubConfig {
     /// Most loop turns that may run at the same time (they wait for the
     /// model pacer, so they don't hold Claude's slots).
     pub max_loop_turns: usize,
+    /// The Codex engine's parts (needs `openrouter` too). `None`: bots on
+    /// Codex can't run here.
+    pub codex: Option<CodexParts>,
     /// oxbot's data folder: practice runs (`trials/`) and test cases'
     /// files (`cases/`) live here. Defaults to a folder inside `bots_dir`
     /// that isn't a bot; the app gives its data folder.
@@ -158,6 +163,7 @@ impl HubConfig {
             e2e: false,
             openrouter: None,
             max_loop_turns: 4,
+            codex: None,
             #[cfg(any(test, feature = "test-people"))]
             enrol_named_viewers: true,
             #[cfg(any(test, feature = "test-people"))]
@@ -313,6 +319,8 @@ pub struct Hub {
     loop_engine: Option<Arc<oxbot_loop::LoopEngine>>,
     /// Turns the loop may run at once.
     loop_turns: Arc<Semaphore>,
+    /// The Codex engine, once started ([`Hub::start_codex`]).
+    codex: std::sync::OnceLock<Arc<oxbot_codex::CodexEngine>>,
     /// Whether the page was last told the `OpenRouter` account's privacy
     /// settings rule out the free models.
     data_policy_shown: std::sync::atomic::AtomicBool,
@@ -394,6 +402,7 @@ impl Hub {
                 .as_ref()
                 .map(|parts| looped::build_engine(parts, &store, &config, me.clone())),
             loop_turns: Arc::new(Semaphore::new(config.max_loop_turns.max(1))),
+            codex: std::sync::OnceLock::new(),
             data_policy_shown: std::sync::atomic::AtomicBool::new(false),
             context_swept: std::sync::atomic::AtomicI64::new(0),
             store,

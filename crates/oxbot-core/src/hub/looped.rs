@@ -249,6 +249,7 @@ impl Hub {
             .values()
             .map(|b| (b.id.clone(), b.dir.join("context")))
             .collect();
+        self.sweep_relay_log(&bots, now);
         for (bot, dir) in bots {
             let keep: Vec<String> = self
                 .store
@@ -258,11 +259,14 @@ impl Hub {
                 .map(|s| s.id)
                 .into_iter()
                 .collect();
+            // The relay's log has its own sweep (above), by age.
+            let mut keep_folders = keep.clone();
+            keep_folders.push(oxbot_relay::LOG_DIR.to_owned());
             let last = |session: &str| self.store.loop_session_last_ms(session).ok().flatten();
             let gone = oxbot_loop::results::sweep(
                 &dir,
                 &last,
-                &keep,
+                &keep_folders,
                 now,
                 oxbot_loop::results::MAX_BOT_BYTES,
             );
@@ -346,6 +350,8 @@ impl Hub {
         if blocked != shown {
             // A cue: each viewer gets their own engines view.
             self.announce(ServerMsg::Engines(EnginesView {
+                codex: None,
+                codex_ready: false,
                 notice: super::ENGINES_NOTICE.to_owned(),
                 owner: self.owner_display_name(),
                 openrouter_ready: self.engine_ready(EngineKind::OpenRouter).is_ok(),

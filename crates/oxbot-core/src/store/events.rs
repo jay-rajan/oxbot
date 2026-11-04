@@ -102,7 +102,8 @@ impl Store {
     /// Forgets everything about a deleted bot: its history, session, usage,
     /// "Always allow" rules, reports, the pages its session opened, who
     /// started its turns, its loop conversations and turns, its test cases,
-    /// practice runs, oxbot-tool calls and thumbs, and
+    /// practice runs, oxbot-tool calls and thumbs, its Codex threads and
+    /// what the relay sent for it, and
     /// where anyone filed it in their sections (a new bot can get its id).
     /// Returns the people whose sections it was in.
     ///
@@ -120,6 +121,10 @@ impl Store {
             )?;
         }
         tx.execute("DELETE FROM loop_sessions WHERE bot = ?1", [bot.as_str()])?;
+        tx.execute(
+            "DELETE FROM loop_checks WHERE session IN (SELECT session FROM codex_threads WHERE bot = ?1)",
+            [bot.as_str()],
+        )?;
         let filed: Vec<String> = {
             let mut stmt =
                 tx.prepare("SELECT DISTINCT person_id FROM bot_sections WHERE bot = ?1")?;
@@ -146,6 +151,8 @@ impl Store {
             "trial_batches",
             "trial_runs",
             "turn_ratings",
+            "codex_threads",
+            "relay_log",
         ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE bot = ?1"),

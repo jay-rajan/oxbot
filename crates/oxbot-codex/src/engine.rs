@@ -95,9 +95,31 @@ struct Shared {
     loop_engine: Arc<LoopEngine>,
     store: Arc<dyn CodexStore>,
     found: RwLock<Found>,
-    supervisor: Option<Supervisor>,
+    supervisor: RwLock<Option<Arc<Supervisor>>>,
+    relay: Arc<Relay>,
+    idle_stop: Duration,
     max_turn: Duration,
     guard: RefuseProxy,
+}
+
+impl Shared {
+    fn supervisor(&self) -> Option<Arc<Supervisor>> {
+        self.supervisor
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn supervisor_for(&self, found: &Found) -> Option<Arc<Supervisor>> {
+        found.binary().map(|b| {
+            Arc::new(Supervisor::new(
+                b.clone(),
+                Arc::clone(&self.relay),
+                self.guard.url().to_owned(),
+                self.idle_stop,
+            ))
+        })
+    }
 }
 
 /// The Codex engine. One per hub.
@@ -128,28 +150,27 @@ impl CodexEngine {
     /// The refusing proxy couldn't start.
     pub async fn new(setup: CodexSetup) -> std::io::Result<Self> {
         let guard = RefuseProxy::start().await?;
-        let supervisor = setup.found.binary().map(|b| {
-            Supervisor::new(
-                b.clone(),
-                Arc::clone(&setup.relay),
-                guard.url().to_owned(),
-                setup.idle_stop,
-            )
-        });
         let shared = Arc::new(Shared {
             loop_engine: setup.loop_engine,
             store: setup.store,
-            found: RwLock::new(setup.found),
-            supervisor,
+            found: RwLock::new(Found::Unusable {
+                path: None,
+                version: None,
+                why: String::new(),
+            }),
+            supervisor: RwLock::new(None),
+            relay: setup.relay,
+            idle_stop: setup.idle_stop,
             max_turn: setup.max_turn,
             guard,
         });
+        set_found(&shared, setup.found);
         let weak = Arc::downgrade(&shared);
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_mins(1)).await;
                 let Some(shared) = weak.upgrade() else { return };
-                if let Some(s) = &shared.supervisor {
+                if let Some(s) = shared.supervisor() {
                     s.stop_idle().await;
                 }
             }
@@ -169,12 +190,27 @@ impl CodexEngine {
         self.shared.guard.refused()
     }
 
+    /// Uses what `found` says from now on (Codex was looked for again):
+    /// new sessions start on it; running ones finish on what they had.
+    pub fn use_found(&self, found: Found) {
+        set_found(&self.shared, found);
+    }
+
     /// Stops every Codex process.
     pub async fn shutdown(&self) {
-        if let Some(s) = &self.shared.supervisor {
+        if let Some(s) = self.shared.supervisor() {
             s.stop_all().await;
         }
     }
+}
+
+fn set_found(shared: &Shared, found: Found) {
+    let supervisor = shared.supervisor_for(&found);
+    *shared
+        .supervisor
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = supervisor;
+    *shared.found.write().unwrap_or_else(PoisonError::into_inner) = found;
 }
 
 impl Engine for CodexEngine {
@@ -212,6 +248,8 @@ struct ThreadState {
 /// What a session's turns share.
 struct Core {
     shared: Arc<Shared>,
+    /// The supervisor this session's process belongs to.
+    supervisor: Arc<Supervisor>,
     spec: SessionSpec,
     key: ProcessKey,
     tools: ToolService,
@@ -230,7 +268,7 @@ pub struct CodexSession {
 
 impl CodexSession {
     async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Started, EngineError> {
-        let Some(supervisor) = &shared.supervisor else {
+        let Some(supervisor) = shared.supervisor() else {
             return Err(EngineError::NotReady(NotReady(
                 "Codex isn't installed on this Mac.".to_owned(),
             )));
@@ -244,6 +282,7 @@ impl CodexSession {
         let key = process_key(&spec);
         supervisor.hold(&key).await;
         let core = Arc::new(Core {
+            supervisor,
             shared: Arc::clone(&shared),
             key,
             names,
@@ -302,9 +341,7 @@ impl Session for CodexSession {
                 }
             }
             core.tools.shutdown().await;
-            if let Some(s) = &core.shared.supervisor {
-                s.release(&core.key).await;
-            }
+            core.supervisor.release(&core.key).await;
         })
     }
 }
@@ -399,9 +436,7 @@ struct Turn {
 
 impl Turn {
     async fn run(core: &Arc<Core>, input: &TurnInput, cancel: &CancellationToken) -> End {
-        let Some(supervisor) = &core.shared.supervisor else {
-            return End::Failed("Codex isn't installed on this Mac.".to_owned());
-        };
+        let supervisor = &core.supervisor;
         let info = ClientInfo {
             bot: core.spec.bot.clone(),
             context_dir: core.spec.context_dir.clone(),

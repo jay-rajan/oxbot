@@ -154,11 +154,20 @@ impl Hub {
                     )));
                 }
             },
-            EngineKind::Codex => {
-                return Err(HubError::EngineNotReady(
-                    "Codex isn't set up on this Mac.".to_owned(),
-                ));
-            }
+            EngineKind::Codex => match self.codex_engine() {
+                Some(engine) => engine as Arc<dyn Engine>,
+                None if self.loop_engine.is_none() => {
+                    return Err(HubError::EngineNotReady(format!(
+                        "Codex bots need OpenRouter, which isn't set up on this Mac yet; ask {}.",
+                        self.owner_name()
+                    )));
+                }
+                None => {
+                    return Err(HubError::EngineNotReady(
+                        "Codex isn't set up on this Mac.".to_owned(),
+                    ));
+                }
+            },
         };
         engine
             .ready()

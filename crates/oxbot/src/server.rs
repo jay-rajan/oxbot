@@ -111,6 +111,7 @@ impl AppState {
     #[must_use]
     pub fn settings_for(&self, viewer: &Viewer) -> AppSettings {
         AppSettings {
+            codex_ready: self.hub.engine_ready(EngineKind::Codex).is_ok(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             data_dir: self.data_dir.display().to_string(),
             launch_at_login: self.app.as_ref().and_then(|a| a.launch_at_login()),
@@ -158,6 +159,8 @@ impl AppState {
             .unwrap_or_default();
         let openrouter = farm.then(|| self.openrouter_view(catalog.as_ref()));
         EnginesView {
+            codex: farm.then(|| self.hub.codex_view()),
+            codex_ready: self.hub.engine_ready(EngineKind::Codex).is_ok(),
             notice: oxbot_core::hub::ENGINES_NOTICE.to_owned(),
             owner: self.hub.owner_display_name(),
             openrouter_ready: self.hub.engine_ready(EngineKind::OpenRouter).is_ok(),
@@ -1501,6 +1504,13 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
         | ClientMsg::OpenRouterSignOut
         | ClientMsg::RefreshModels
         | ClientMsg::SetEnginePrefs { .. } => handle_openrouter(msg, state).await,
+        ClientMsg::FindCodex { path } => match state.hub.find_codex(&path).await {
+            Ok(()) => {
+                state.openrouter_changed();
+                Vec::new()
+            }
+            Err(e) => error(&e),
+        },
         ClientMsg::RunSetup { action } => {
             if state
                 .setup_running
@@ -1636,6 +1646,8 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::OpenRouterSignOut
             | ClientMsg::RefreshModels
             | ClientMsg::SetEnginePrefs { .. }
+            // Which program runs Codex bots on this Mac.
+            | ClientMsg::FindCodex { .. }
             // The Mac's own microphone, and opening files on its screen.
             | ClientMsg::Dictate { .. }
             | ClientMsg::OpenFile { .. }
@@ -3096,6 +3108,9 @@ mod tests {
             ClientMsg::RefreshModels,
             ClientMsg::SetEnginePrefs {
                 prefs: oxbot_protocol::EnginePrefs::default(),
+            },
+            ClientMsg::FindCodex {
+                path: "/tmp/not-codex".into(),
             },
         ] {
             assert!(farm_only(&msg));

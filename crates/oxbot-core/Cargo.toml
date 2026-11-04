@@ -15,10 +15,12 @@ dirs.workspace = true
 infer.workspace = true
 oxbot-browser.workspace = true
 oxbot-claude.workspace = true
+oxbot-codex.workspace = true
 oxbot-engine.workspace = true
 oxbot-llm.workspace = true
 oxbot-loop.workspace = true
 oxbot-protocol.workspace = true
+oxbot-relay.workspace = true
 # Migration 9's frozen copy of `site_of` names sites with it.
 psl.workspace = true
 # Renders research reports (see `report`).
@@ -50,6 +52,9 @@ oxbot-core = { path = ".", features = ["test-people", "test-support"] }
 oxbot-llm = { workspace = true, features = ["test-model"] }
 oxbot-loop = { workspace = true, features = ["test-tools"] }
 tempfile.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+tokio-util.workspace = true
 
 [lints]
 workspace = true

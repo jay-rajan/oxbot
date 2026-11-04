@@ -11,6 +11,7 @@
 //! comparisons of engines and models (test cases and practice runs).
 
 mod alerts;
+mod codex;
 pub use alerts::{AlertChange, LimitAlert};
 mod compare;
 pub use compare::{

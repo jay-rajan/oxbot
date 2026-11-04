@@ -445,7 +445,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <label>Name<input id="nbName" required placeholder="Daily News" autocomplete="off"></label>
     <label>What should it do?<textarea id="nbInstr" placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."></textarea></label>
     <label class="check"><input type="checkbox" id="nbPrivate"> Private: only you and the Farm's owner can see and use it, with your own sign-ins</label>
-    <label>Engine<select id="nbEngine"><option value="openrouter">OpenRouter (free models)</option><option value="claude">Claude (only you)</option></select></label>
+    <label>Engine<select id="nbEngine"><option value="openrouter">OpenRouter (free models)</option><option value="codex">Codex (open models)</option><option value="claude">Claude (only you)</option></select></label>
     <p class="hint" id="nbEngineHint"></p>
     <p class="hint" id="nbHint">It browses in the home browser, which stays signed in to the sites signed in there, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.</p>
     <div class="row"><button class="ghost" type="button" id="nbCancel">Cancel</button><button class="primary" type="submit">Create</button></div>
@@ -461,6 +461,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <p class="hint" id="bdHint"></p>
     <fieldset class="engine-pick" id="bdEngineBox"><legend>Engine</legend>
       <label class="check"><input type="radio" name="bdEngine" value="openrouter"> OpenRouter (free models)</label>
+      <label class="check" id="bdCodexRow"><input type="radio" name="bdEngine" value="codex"> Codex (open models)</label>
       <label class="check" id="bdClaudeRow"><input type="radio" name="bdEngine" value="claude"> Claude (only you)</label>
       <p class="hint" id="bdEngineHint"></p>
       <div class="manage" id="bdOrBox" hidden>
@@ -592,6 +593,15 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <section>
       <h3>Claude</h3>
       <ul class="checks" id="claudeStatus"></ul>
+    </section>
+    <section id="cxSection" hidden>
+      <h3>Codex</h3>
+      <p class="door-status"><i class="gate-dot" id="cxDot" aria-hidden="true"></i><span id="cxStatus">Looking for Codex…</span></p>
+      <form class="engine-prefs" id="cxForm">
+        <label>Where the codex program is (empty: look for it)<input id="cxPath" autocomplete="off" spellcheck="false" placeholder="/opt/homebrew/bin/codex"></label>
+        <div class="btns"><button class="ghost" type="submit">Check again</button></div>
+      </form>
+      <p class="hint">Codex bots run Codex CLI's agent loop on OpenRouter's models, with oxbot's own tools and cards. Codex talks only to oxbot on this Mac, which sends its requests to OpenRouter with the household's key, without anything that says who you are. Anyone in the household can give Codex bots tasks.</p>
     </section>
     <section id="orSection" hidden>
       <h3>OpenRouter</h3>
@@ -1583,15 +1593,20 @@ function updateStatus() {
 function ownerName() { return (settings && settings.owner_name) || (engines && engines.owner) || "the Farm's owner"; }
 function engineLabel(info) {
   if (info.engine === "openrouter") return info.model ? info.model.replace(/^.*\//, "").replace(/:free$/, "") : "OpenRouter";
+  if (info.engine === "codex") return info.model ? "Codex · " + info.model.replace(/^.*\//, "").replace(/:free$/, "") : "Codex";
   return "Claude";
 }
+/** Whether a bot's engine runs on OpenRouter's models (OpenRouter or Codex). */
+function onOpenRouter(engine) { return engine === "openrouter" || engine === "codex"; }
+/** Whether bots on `engine` can run on this Mac now. */
+function engineReady(engine) { return !!(settings && (engine === "codex" ? settings.codex_ready : settings.openrouter_ready)); }
 function renderEngineBadge(b) {
   const badge = $("engineBadge");
   badge.hidden = !b || isLocked(b);
   if (badge.hidden) return;
   badge.textContent = engineLabel(b.info);
-  badge.title = b.info.engine === "openrouter" ? "Runs on OpenRouter" : `Runs on ${ownerName()}'s own Claude plan`;
-  badge.classList.toggle("claude", b.info.engine !== "openrouter");
+  badge.title = b.info.engine === "openrouter" ? "Runs on OpenRouter" : b.info.engine === "codex" ? "Runs on Codex, with OpenRouter's models" : `Runs on ${ownerName()}'s own Claude plan`;
+  badge.classList.toggle("claude", !onOpenRouter(b.info.engine));
 }
 const KEYCHAIN_WAITING = "Waiting for Keychain access: allow oxbot in the dialog.";
 function renderEngineNote(b, ownerOnly) {
@@ -1601,6 +1616,9 @@ function renderEngineNote(b, ownerOnly) {
   if (ownerOnly) {
     text = `Only ${owner} can give this bot tasks: ${b.info.name || b.info.id} runs on ${owner}'s own Claude plan. You can read what it shares.`;
     if (canManage(b) && settings && settings.openrouter_ready) action = ["Switch to OpenRouter", () => send({ type: "set_engine", bot: b.info.id, engine: "openrouter" })];
+  } else if (!isLocked(b) && b.info.engine === "codex" && settings && !settings.codex_ready) {
+    if (settings.farm) { text = "Codex isn't ready on this Mac."; action = ["Set up", openEngines]; }
+    else text = `Codex isn't ready on this Mac; ask ${owner}.`;
   } else if (!isLocked(b) && b.info.engine === "openrouter" && settings && !settings.openrouter_ready) {
     if (settings.keychain_waiting) text = KEYCHAIN_WAITING;
     else if (settings.farm) { text = "OpenRouter isn't set up on this Mac yet."; action = ["Set up", openEngines]; }
@@ -1651,7 +1669,19 @@ function renderEngines() {
 }
 // Settings → Engines → OpenRouter (the Farm): sign-in, the key's limits,
 // models, limits and privacy, and today's use.
+function renderCodex() {
+  const cx = engines && engines.codex;
+  $("cxSection").hidden = !cx;
+  if (!cx) return;
+  const ready = !!(settings && settings.codex_ready);
+  $("cxDot").classList.toggle("on", ready);
+  $("cxStatus").textContent = ready ? `Codex ${cx.version} is ready${cx.path ? " (" + cx.path + ")" : ""}.`
+    : cx.problem || (settings && !settings.openrouter_ready ? "Codex bots need OpenRouter: sign in below." : "Codex isn't ready.");
+  if (document.activeElement !== $("cxPath")) $("cxPath").value = cx.configured || "";
+}
+$("cxForm").addEventListener("submit", (ev) => { ev.preventDefault(); $("cxStatus").textContent = "Looking for Codex…"; send({ type: "find_codex", path: $("cxPath").value.trim() }); });
 function renderOpenRouter() {
+  renderCodex();
   const or = engines && engines.openrouter;
   for (const id of ["orSection", "orModelsSection", "orPrefsSection", "orUsageSection"]) $(id).hidden = !or;
   if (!or) return;
@@ -2192,8 +2222,10 @@ const NB_PRIVATE = "Only you and the Farm's owner see it. Your own Herder can gi
 const NB_CLAUDE = "It runs on your own Claude plan, so only you can give it tasks. Others can read its chat and reports.";
 function nbEngineHint() {
   const claude = $("nbEngine").value === "claude";
+  const codex = $("nbEngine").value === "codex";
   const ready = !!(settings && settings.openrouter_ready);
   $("nbEngineHint").textContent = claude ? NB_CLAUDE
+    : codex ? (engineReady("codex") ? "Codex runs it, on OpenRouter's models (free ones first), with oxbot's tools and cards. Anyone who can see it can give it tasks." : "Codex isn't ready on this Mac yet: see Settings → Engines.")
     : ready ? "Free models first. Anyone who can see it can give it tasks."
     : settings && settings.keychain_waiting ? KEYCHAIN_WAITING
     : settings && settings.owner ? "OpenRouter isn't set up on this Mac yet: sign in under Settings → Engines first."
@@ -2242,7 +2274,7 @@ $("botMore").onclick = () => {
   $("bdPrivate").disabled = b.busy;
   $("bdHint").textContent = privacyHint(!!b.info.private, b) + (b.busy ? " (Wait until it's done working to change this.)" : "");
   // Engine: Herders' are fixed; Claude only for the Farm's owner.
-  const engine = b.info.engine === "openrouter" ? "openrouter" : "claude";
+  const engine = onOpenRouter(b.info.engine) ? b.info.engine : "claude";
   $("bdEngineBox").hidden = !manage || !!b.info.central;
   $("bdClaudeRow").hidden = !(settings && settings.owner) && engine !== "claude";
   for (const r of document.querySelectorAll('input[name="bdEngine"]')) {
@@ -2254,7 +2286,7 @@ $("botMore").onclick = () => {
   const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Auto (free models first)"; sel.appendChild(auto);
   const listed = (engines && engines.models) || [];
   for (const m of listed) { const o = document.createElement("option"); o.value = m.id; o.textContent = m.name || m.id; sel.appendChild(o); }
-  const pinned = b.info.engine === "openrouter" ? b.info.model || "" : "";
+  const pinned = onOpenRouter(b.info.engine) ? b.info.model || "" : "";
   if (pinned && !listed.some((m) => m.id === pinned)) { const o = document.createElement("option"); o.value = pinned; o.textContent = pinned; sel.appendChild(o); }
   sel.value = pinned;
   $("bdDaily").value = b.info.daily_requests == null ? "" : b.info.daily_requests;
@@ -2288,9 +2320,9 @@ $("bdPrivate").onchange = () => { const b = bots.get(current); if (b) $("bdHint"
 function bdEngine() { const r = document.querySelector('input[name="bdEngine"]:checked'); return r ? r.value : null; }
 function bdEngineHint() {
   const b = bots.get(current); if (!b) return;
-  const was = b.info.engine === "openrouter" ? "openrouter" : "claude", now = bdEngine();
+  const was = onOpenRouter(b.info.engine) ? b.info.engine : "claude", now = bdEngine();
   const hint = $("bdEngineHint"); hint.classList.remove("warn-hint");
-  $("bdOrBox").hidden = now !== "openrouter";
+  $("bdOrBox").hidden = !onOpenRouter(now);
   if (now === "claude" && was !== "claude") {
     // Only the owner's own private bot stays as it was; anything others use becomes owner-only.
     const onlyMine = $("bdPrivate").checked && b.info.created_by === (settings && settings.you);
@@ -2298,7 +2330,11 @@ function bdEngineHint() {
     hint.classList.toggle("warn-hint", !onlyMine);
   } else if (now === "openrouter" && was !== "openrouter" && !(settings && settings.openrouter_ready)) {
     hint.textContent = settings && settings.keychain_waiting ? KEYCHAIN_WAITING : "OpenRouter isn't set up on this Mac yet: sign in under Settings → Engines first.";
-  } else hint.textContent = now === "claude" ? `Runs on ${ownerName()}'s own Claude plan: only ${ownerName()} can give it tasks.` : "Runs on OpenRouter's models, free ones first. Anyone who can see it can give it tasks.";
+  } else if (now === "codex" && was !== "codex" && !engineReady("codex")) {
+    hint.textContent = "Codex isn't ready on this Mac yet: see Settings → Engines.";
+  } else hint.textContent = now === "claude" ? `Runs on ${ownerName()}'s own Claude plan: only ${ownerName()} can give it tasks.`
+    : now === "codex" ? "Codex runs it, on OpenRouter's models (free ones first), with oxbot's tools and cards. Anyone who can see it can give it tasks."
+    : "Runs on OpenRouter's models, free ones first. Anyone who can see it can give it tasks.";
 }
 for (const r of document.querySelectorAll('input[name="bdEngine"]')) r.onchange = bdEngineHint;
 $("bdCancel").onclick = () => $("botDlg").close();
@@ -2316,12 +2352,12 @@ $("botForm").addEventListener("submit", (ev) => {
   const name = $("bdName").value.trim();
   renameBot(b.info.id, name);
   if ($("bdPrivate").checked !== !!b.info.private) setPrivate(b.info.id, $("bdPrivate").checked);
-  const engine = bdEngine(), was = b.info.engine === "openrouter" ? "openrouter" : "claude";
-  const model = $("bdModel").value, wasModel = was === "openrouter" ? b.info.model || "" : "";
+  const engine = bdEngine(), was = onOpenRouter(b.info.engine) ? b.info.engine : "claude";
+  const model = $("bdModel").value, wasModel = onOpenRouter(was) ? b.info.model || "" : "";
   // The dialog said what switching to Claude means: that's the confirmation.
-  if (!b.info.central && engine && engine !== was) send({ type: "set_engine", bot: b.info.id, engine, confirm_owner_only: engine === "claude", model: engine === "openrouter" ? model : null });
-  else if (!b.info.central && engine === "openrouter" && model !== wasModel) send({ type: "set_engine", bot: b.info.id, engine, model });
-  if (!b.info.central && engine === "openrouter") {
+  if (!b.info.central && engine && engine !== was) send({ type: "set_engine", bot: b.info.id, engine, confirm_owner_only: engine === "claude", model: onOpenRouter(engine) ? model : null });
+  else if (!b.info.central && onOpenRouter(engine) && model !== wasModel) send({ type: "set_engine", bot: b.info.id, engine, model });
+  if (!b.info.central && onOpenRouter(engine)) {
     const daily = $("bdDaily").value.trim(), n = daily ? Math.round(Number(daily)) : null;
     if (n !== (b.info.daily_requests == null ? null : b.info.daily_requests)) send({ type: "set_bot_daily_limit", bot: b.info.id, daily_requests: n });
   }

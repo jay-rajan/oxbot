@@ -3221,16 +3221,20 @@ dependencies = [
 name = "oxbot-core"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "calamine",
  "dirs 7.0.0",
+ "futures-util",
  "infer",
  "oxbot-browser",
  "oxbot-claude",
+ "oxbot-codex",
  "oxbot-core",
  "oxbot-engine",
  "oxbot-llm",
  "oxbot-loop",
  "oxbot-protocol",
+ "oxbot-relay",
  "psl",
  "pulldown-cmark",
  "quick-xml",
@@ -3240,6 +3244,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "toml 1.1.8+spec-1.1.0",
  "tracing",
  "uuid",
