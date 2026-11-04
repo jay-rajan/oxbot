@@ -1,5 +1,5 @@
-name = "A replay on two engines changes nothing and shows scores"
-about = "The owner keeps a finished post as a test case and replays it on a free model with the AI helper (Codex) and with oxbot's own loop (classic): the post is recorded, never done (no approval request, nothing in the chat, no write reaches the site even though the test browser really loads its page), and the scoreboard shows both."
+name = "A replay changes nothing and shows scores"
+about = "The owner keeps a finished post as a test case and replays it on a free model: the post is recorded, never done (no approval request, nothing in the chat, no write reaches the site even though the test browser really loads its page), and the scoreboard shows the model with the original and the replay."
 covers = ["crates/oxbot-core/src/hub/trials.rs", "crates/oxbot-core/src/hub/compare.rs", "crates/oxbot-core/src/compare.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-browser/src/netguard.rs", "crates/oxbot-browser/src/trial.rs", "crates/oxbot/src/compare.rs", "crates/oxbot/ui/**"]
 
 [[step]]
@@ -43,27 +43,26 @@ wait_for = "post the nurse job"
 [[step]]
 expect_js = "(() => { const box = document.querySelector('#cmpCaseList input[type=checkbox]'); box.click(); return box.checked; })()"
 [[step]]
-wait_for = "e2e/tool-model:free (classic)"
+wait_for = "e2e/tool-model:free"
 [[step]]
 click = "e2e/tool-model:free"
-[[step]]
-click = "e2e/tool-model:free (classic)"
+note = "The model to replay it on"
 [[step]]
 click = "Estimate"
 [[step]]
-wait_for = "2 runs"
+wait_for = "1 run"
 shot = "estimate"
 [[step]]
 click = "Start"
 [[step]]
 wait_for = "running"
-note = "Starting shows the runs"
+note = "Starting shows the run"
 [[step]]
 click = "Test cases"
 [[step]]
-wait_for = "2 of 2 · done"
+wait_for = "1 of 1 · done"
 timeout_ms = 90000
-note = "One run at a time, each in its own test browser"
+note = "The run has its own test browser"
 [[step]]
 expect_js = "!document.querySelector('#cards .card')"
 note = "No approval request appeared"
@@ -72,18 +71,20 @@ expect_js = "document.querySelectorAll('#log > *').length === window.__chat"
 note = "The chat gained nothing"
 [[step]]
 expect_site_pages = 2
-note = "The runs' test browsers really loaded the site's page too (after the live turn's one)"
+note = "The run's test browser really loaded the site's page too (after the live turn's one)"
 [[step]]
 expect_site_writes = 2
-note = "…and every write the page tried in them was blocked: still only the live turn's two"
+note = "…and every write the page tried in it was blocked: still only the live turn's two"
 [[step]]
 click = "Runs"
 [[step]]
-wait_for = "e2e/tool-model:free (classic)"
-[[step]]
-click = "post the nurse job · e2e/tool-model:free (classic)"
+expect_js = "(() => { const li = [...document.querySelectorAll('#cmpRunList li')].find((l) => l.querySelector('span').textContent === 'post the nurse job · e2e/tool-model:free' && l.querySelector('small').textContent.startsWith('replay')); if (!li) return false; li.click(); return true; })()"
+timeout_ms = 10000
+note = "The replay (the original, on the same model, is listed too)"
 [[step]]
 wait_for = "✓ matched: click button \"Post\" on jobs.example.test"
+[[step]]
+expect = "Posted the nurse job (test run)."
 [[step]]
 expect = "blocked"
 note = "The run shows what its browser blocked"
@@ -93,19 +94,10 @@ click = "✓"
 [[step]]
 click = "← Runs"
 [[step]]
-expect_js = "(() => { const li = [...document.querySelectorAll('#cmpRunList li')].find((l) => l.querySelector('span').textContent === 'post the nurse job · e2e/tool-model:free' && l.querySelector('small').textContent.startsWith('replay')); if (!li) return false; li.click(); return true; })()"
-note = "The Codex replay (the original, on the same model, is listed too)"
-[[step]]
-wait_for = "✓ matched: click button \"Post\" on jobs.example.test"
-[[step]]
-expect = "Posted the nurse job (test run)."
-[[step]]
-click = "← Runs"
-[[step]]
 click = "Scoreboard"
 [[step]]
-wait_for = "e2e/tool-model:free (classic)"
+wait_for = "e2e/tool-model:free"
 [[step]]
-expect_js = "(() => { const rows = [...document.querySelectorAll('#cmpScoreRows tr')].map((r) => r.textContent); return rows.length >= 2 && rows[0].startsWith('e2e/tool-model:free') && !rows[0].includes('(classic)') && rows.some((r) => r.startsWith('e2e/tool-model:free (classic)1100%')); })()"
-note = "Both, the AI helper first (the original ran on it too); the marked classic run passes"
+expect_js = "(() => { const rows = [...document.querySelectorAll('#cmpScoreRows tr')].map((r) => r.textContent); return rows.length === 1 && rows[0].startsWith('e2e/tool-model:free2100%'); })()"
+note = "One row for the model: the original and the replay, the marked replay passes"
 shot = "scoreboard"

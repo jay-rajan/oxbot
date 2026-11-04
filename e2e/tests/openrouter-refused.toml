@@ -1,5 +1,5 @@
 name = "A bot on OpenRouter can't type passwords or leave its folder"
-about = "oxbot's own loop refuses what Codex bots can't do either: typing into a password box, and reading a file outside the bot's folder; paying still asks, and never offers Always allow."
+about = "oxbot refuses what no bot may do: typing into a password box, and reading a file outside the bot's folder; paying still asks, and never offers Always allow."
 covers = ["crates/oxbot-loop/src/gate.rs", "crates/oxbot-loop/src/tools/**", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot/ui/**"]
 
 [[step]]

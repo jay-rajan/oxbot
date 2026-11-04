@@ -11,12 +11,6 @@ click = "Create"
 [[step]]
 wait_for = "@scout"
 [[step]]
-expect_js = "(() => { send({ type: 'set_engine', bot: 'scout', engine: 'openrouter' }); return true; })()"
-note = "New bots run on Codex: this test is about oxbot's own loop, so Scout moves there"
-[[step]]
-expect_js = "bots.get('scout').info.engine === 'openrouter'"
-timeout_ms = 5000
-[[step]]
 send = "everyone's busy"
 [[step]]
 wait_for = "Answered by the backup."
@@ -31,5 +25,5 @@ note = "Nothing the backup can't take was sent"
 [[step]]
 expect_openrouter_not = '"parallel_tool_calls":false'
 [[step]]
-expect_openrouter_body = '"max_tokens":'
+expect_openrouter_body = '"max_output_tokens":'
 note = "What both models take still goes"
