@@ -596,21 +596,36 @@ fn write_private(dir: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// Deletes kept request bodies in `context_dir` older than `cutoff_ms`.
-/// Returns how many went.
+/// Most bytes of kept request bodies per bot; the oldest go first.
+pub const MAX_LOG_BYTES: u64 = 200 * 1024 * 1024;
+
+/// Deletes kept request bodies in `context_dir` older than `cutoff_ms`,
+/// then the oldest while they take more than `max_bytes`. Returns how
+/// many went.
 #[must_use]
-pub fn sweep(context_dir: &Path, cutoff_ms: i64) -> usize {
+pub fn sweep(context_dir: &Path, cutoff_ms: i64, max_bytes: u64) -> usize {
     let Ok(entries) = std::fs::read_dir(context_dir.join(LOG_DIR)) else {
         return 0;
     };
+    let mut files: Vec<(i64, u64, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter_map(|e| {
+            let ts = e
+                .file_name()
+                .to_str()
+                .and_then(|n| n.split('-').next())
+                .and_then(|t| t.parse::<i64>().ok())?;
+            let bytes = e.metadata().map_or(0, |m| m.len());
+            Some((ts, bytes, e.path()))
+        })
+        .collect();
+    files.sort();
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
     let mut gone = 0;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let ts = name
-            .to_str()
-            .and_then(|n| n.split('-').next())
-            .and_then(|t| t.parse::<i64>().ok());
-        if ts.is_some_and(|ts| ts < cutoff_ms) && std::fs::remove_file(entry.path()).is_ok() {
+    for (ts, bytes, path) in files {
+        if (ts < cutoff_ms || total > max_bytes) && std::fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(bytes);
             gone += 1;
         }
     }

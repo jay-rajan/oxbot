@@ -37,6 +37,17 @@ const HERDER_RULES: &str = "\nYou're Herder, the central bot: the user comes to 
 /// has no built-in habits the way Claude Code has).
 #[must_use]
 pub fn loop_rules(caps: Capabilities) -> String {
+    rules(caps, false)
+}
+
+/// The same rules for a bot on Codex, which keeps every result until it
+/// summarizes and has no progress notes.
+#[must_use]
+pub fn codex_rules(caps: Capabilities) -> String {
+    rules(caps, true)
+}
+
+fn rules(caps: Capabilities, codex: bool) -> String {
     let mut p = String::from(
         "\nHow you work here:\n\
          - You act only by calling tools, one at a time; wait for each result. When the task is done, or \
@@ -48,10 +59,16 @@ pub fn loop_rules(caps: Capabilities) -> String {
          only.\n\
          - A result that starts with \"[oxbot said no]\" means oxbot or the person refused: don't try \
          another way; tell the person what you wanted to do, and stop.\n\
-         - Big results are stored with a handle like r12 and shown in part, and old ones may become \
-         one-line stubs: read_result reads them again. For a task with several parts, keep a to-do \
-         list with update_todo; on a long one, note_progress where you are.\n",
+         - Big results are stored with a handle like r12 and shown in part",
     );
+    p.push_str(if codex {
+        ": read_result reads them again. For a task with several parts, keep a to-do list with \
+         update_todo.\n"
+    } else {
+        ", and old ones may become one-line stubs: read_result reads them again. For a task with \
+         several parts, keep a to-do list with update_todo; on a long one, note_progress where you \
+         are.\n"
+    });
     if caps.browser {
         p.push_str(
             "- Before you click or type, call take_snapshot and use a uid from it. If a tool needs a \
@@ -260,5 +277,17 @@ mod tests {
         assert!(!with.contains("202"), "no dates");
         let without = loop_rules(Capabilities { browser: false });
         assert!(!without.contains("Browsing:") && without.contains("read_result"));
+    }
+
+    #[test]
+    fn codex_gets_the_same_rules_without_what_only_the_loop_does() {
+        let caps = Capabilities { browser: true };
+        let (looped, codex) = (loop_rules(caps), codex_rules(caps));
+        assert!(looped.contains("note_progress") && looped.contains("one-line stubs"));
+        assert!(!codex.contains("note_progress") && !codex.contains("stubs"));
+        assert!(codex.contains("read_result reads them again") && codex.contains("update_todo"));
+        // Everything else is word for word the same.
+        let tail = |s: &str| s[s.find("- Before you click").unwrap()..].to_owned();
+        assert_eq!(tail(&looped), tail(&codex));
     }
 }

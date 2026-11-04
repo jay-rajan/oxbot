@@ -72,6 +72,8 @@ const MAX_BAD_CALLS: u32 = 3;
 const CHECKING: &str = "Checking its answer";
 /// What a skipped call tells the model.
 const SKIPPED: &str = "[skipped] An earlier call in this step was refused, so this one didn't run.";
+/// Longest wait for Codex to say a turn it was asked to stop has stopped.
+const STOP_WAIT: Duration = Duration::from_secs(10);
 /// Most times a thread start drops a tool whose schema Codex refuses.
 const MAX_DROPPED_TOOLS: usize = 8;
 
@@ -428,6 +430,10 @@ struct Turn {
     in_calls: usize,
     /// Why oxbot stopped the turn, if it did.
     stopped_for: Option<End>,
+    /// The person stopped it: tool calls stop too.
+    cancel: CancellationToken,
+    /// When oxbot asked Codex to stop the turn.
+    stopping_since: Option<Instant>,
     bounced: bool,
     ungrounded_before: Option<Vec<String>>,
     bounced_at: Option<Instant>,
@@ -492,6 +498,8 @@ impl Turn {
             announced: HashSet::new(),
             in_calls: 0,
             stopped_for: None,
+            cancel: cancel.clone(),
+            stopping_since: None,
             bounced: false,
             ungrounded_before: None,
             bounced_at: None,
@@ -580,6 +588,12 @@ impl Turn {
                     }
                 }
                 _ = tick.tick() => {
+                    // Codex didn't say the turn stopped: it's over anyway.
+                    if self.stopping_since.is_some_and(|at| at.elapsed() >= STOP_WAIT)
+                        && let Some(end) = self.stopped_for.take()
+                    {
+                        return end;
+                    }
                     if self.in_calls == 0 && self.stopped_for.is_none() {
                         worked += Duration::from_secs(1);
                         if worked >= core.shared.max_turn {
@@ -627,6 +641,7 @@ impl Turn {
             return;
         }
         self.stopped_for = Some(why);
+        self.stopping_since = Some(Instant::now());
         if let Err(err) = running
             .process
             .request(
@@ -859,6 +874,7 @@ impl Turn {
                     budget: self.budget,
                     person: input.person.clone(),
                     stopped: self.stopped_for.is_some(),
+                    cancel: self.cancel.child_token(),
                 };
                 let done = done.clone();
                 tokio::spawn(async move {
@@ -947,11 +963,13 @@ struct CallJob {
     budget: TokenBudget,
     person: Option<String>,
     stopped: bool,
+    /// Fires when the person stops the turn.
+    cancel: CancellationToken,
 }
 
 impl CallJob {
     async fn run(self) -> CallDone {
-        let cancel = CancellationToken::new();
+        let cancel = self.cancel.clone();
         // A call Codex gave up on (the turn was stopped) stops too.
         let gone = self.process.clone();
         let watch = cancel.clone();
@@ -1259,5 +1277,40 @@ async fn start_thread(
             }
             Err(err) => return Err(format!("Codex couldn't start the conversation: {err}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_s_errors_read_in_plain_words() {
+        assert_eq!(
+            plain_error(
+                r#"{"error": {"message": "Scout has used its 200 requests for today.", "code": "oxbot"}}"#
+            ),
+            "Scout has used its 200 requests for today."
+        );
+        assert_eq!(plain_error("stream disconnected"), "stream disconnected");
+    }
+
+    #[test]
+    fn what_a_turn_read_grounds_its_answer() {
+        let calls = CallState {
+            read: vec!["Toronto: 2,794,356 people (2021)".to_owned()],
+            ..CallState::default()
+        };
+        let mut said = Evidence::new();
+        said.add("[Sam] Toronto's population in 2021");
+        let claims: Vec<String> = numbers::claims("It had 2,794,356 people in 2021, up 42%.")
+            .into_iter()
+            .filter(|c| !said.has(c))
+            .collect();
+        let mut read = Evidence::new();
+        for t in &calls.read {
+            read.add(t);
+        }
+        assert_eq!(read.missing(&claims, MAX_NAMED), ["42"]);
     }
 }

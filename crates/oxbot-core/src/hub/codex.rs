@@ -169,7 +169,7 @@ impl Hub {
     pub(super) fn sweep_relay_log(&self, bots: &[(crate::id::BotId, PathBuf)], now_ms: i64) {
         let cutoff = now_ms - oxbot_loop::results::KEEP_DAYS * 86_400_000;
         for (bot, dir) in bots {
-            let gone = oxbot_relay::sweep(dir, cutoff);
+            let gone = oxbot_relay::sweep(dir, cutoff, oxbot_relay::MAX_LOG_BYTES);
             if gone > 0 {
                 tracing::info!(%bot, gone, "deleted what the relay sent long ago");
             }

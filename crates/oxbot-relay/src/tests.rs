@@ -301,6 +301,14 @@ async fn what_was_sent_is_kept_owner_only_and_swept() {
     );
     let kept: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     assert_eq!(kept, h.upstream.bodies.lock().unwrap()[0]);
-    assert_eq!(sweep(h.dir.path(), 0), 0);
-    assert_eq!(sweep(h.dir.path(), now_ms() + 1), 1);
+    assert_eq!(sweep(h.dir.path(), 0, MAX_LOG_BYTES), 0);
+    // Over the size cap, the oldest go even when they're new.
+    assert_eq!(sweep(h.dir.path(), 0, 1), 1);
+    assert_eq!(
+        post(h.relay.addr(), "/v1/responses", Some(&token), REQUEST)
+            .await
+            .0,
+        200
+    );
+    assert_eq!(sweep(h.dir.path(), now_ms() + 1, MAX_LOG_BYTES), 1);
 }

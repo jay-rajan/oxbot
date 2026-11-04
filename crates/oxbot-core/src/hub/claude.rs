@@ -76,8 +76,10 @@ impl Hub {
         };
         let mut prompt = system_prompt(bot, caps);
         // Codex runs oxbot's tools too: the loop's rules, not Codex's own.
-        if kind.uses_openrouter() {
-            prompt.push_str(&crate::prompt::loop_rules(caps));
+        match kind {
+            EngineKind::OpenRouter => prompt.push_str(&crate::prompt::loop_rules(caps)),
+            EngineKind::Codex => prompt.push_str(&crate::prompt::codex_rules(caps)),
+            EngineKind::Claude => {}
         }
         let resume = self.resume_for(bot, kind, &prompt, overrides.ephemeral)?;
         // A resumed session still remembers what it read and opened.
