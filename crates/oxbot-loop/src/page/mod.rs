@@ -20,18 +20,20 @@ mod find;
 mod map;
 mod parse;
 mod render;
+mod rows;
 mod shape;
 mod trim;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_golden;
+pub(crate) mod tests_golden;
 
 use std::collections::BTreeMap;
 
 pub use diff::diff;
 pub use parse::{origin_path, page_news};
+pub use rows::Found;
 pub use trim::Trimmed;
 
 /// Token estimate used everywhere (the loop's own).

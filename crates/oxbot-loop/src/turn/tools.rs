@@ -1,6 +1,7 @@
 //! A step's tool calls, in order: checked, asked of the gate, run, and
 //! saved. The loop's own tools run here, where their state is: the to-do
-//! list and progress notes, stored results read back, and the page tools.
+//! list and progress notes, stored results read back, and the page tools
+//! (rows included).
 //!
 //! Two guards keep a model from going round in circles: a read-only loop
 //! tool asked the same thing twice in a turn gets a pointer to the first
@@ -291,9 +292,12 @@ impl Turn {
                 }
                 Err(why) => error(why),
             },
-            READ_RESULT | page::FIND_IN_PAGE | page::READ_SECTION | page::ASK_PAGE => {
-                self.read_only(core, conv, caller, call, kind, cancel).await
-            }
+            READ_RESULT
+            | page::FIND_IN_PAGE
+            | page::READ_SECTION
+            | page::ASK_PAGE
+            | page::EXTRACT_ROWS
+            | page::QUERY_ROWS => self.read_only(core, conv, caller, call, kind, cancel).await,
             other => error(format!("unknown tool {other}")),
         }
     }
@@ -309,20 +313,7 @@ impl Turn {
         kind: ToolKind,
         cancel: &CancellationToken,
     ) -> ToolOutcome {
-        let mut args = call.arguments.clone();
-        if kind == ToolKind::Page
-            && args.get("page").and_then(Value::as_str).is_none()
-            && let (Some(map), Some(latest)) = (
-                args.as_object_mut(),
-                core.pages
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .latest()
-                    .map(str::to_owned),
-            )
-        {
-            map.insert("page".to_owned(), Value::String(latest));
-        }
+        let args = with_default_page(core, call, kind);
         let (key, wanted) = repeat_key(&call.name, &args);
         // Only while the first answer is still there to see: not once it's
         // a stub or out of the window (its stub says to ask again).
@@ -353,6 +344,8 @@ impl Turn {
                 strictness: core.shared.setup.strictness.as_ref(),
                 budget: self.budget,
                 helper: &helper,
+                turn: self.number,
+                step: self.step,
             };
             match page::run(&call.name, &args, &env).await {
                 Ok(answer) => {
@@ -414,6 +407,27 @@ impl Turn {
         }
         outcome
     }
+}
+
+/// A page tool's arguments with the latest page filled in when none is
+/// named (a dataset names itself).
+fn with_default_page(core: &Core, call: &ToolCall, kind: ToolKind) -> Value {
+    let mut args = call.arguments.clone();
+    if kind == ToolKind::Page
+        && call.name != page::QUERY_ROWS
+        && args.get("page").and_then(Value::as_str).is_none()
+        && let (Some(map), Some(latest)) = (
+            args.as_object_mut(),
+            core.pages
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .latest()
+                .map(str::to_owned),
+        )
+    {
+        map.insert("page".to_owned(), Value::String(latest));
+    }
+    args
 }
 
 /// What a read-only call asks for, to spot repeats: a key and the lines

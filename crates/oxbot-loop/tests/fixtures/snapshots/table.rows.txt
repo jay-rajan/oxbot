@@ -1,0 +1,21 @@
+### extract_rows {}
+<web_page url="https://data.example.com/reports/sales?year=2026" saved="r7">d1 · table · 400 rows · columns: Region | Month | Units | Revenue · section: main › "Sales by region, 2026" · caption: Sales by region
+| Region | Month | Units | Revenue |
+|---|---|---|---|
+| North | Jan | 100 | $1,200 |
+| South | Jan | 153 | $1,836 |
+| East | Jan | 206 | $2,472 |
+| West | Jan | 259 | $3,108 |
+| Central | Jan | 312 | $3,744 |
+(395 more rows)
+
+Use query_rows on d1 to filter, sort and count; don't count by eye.</web_page>
+
+### query_rows {"data":"d1","limit":3,"sort":[{"col":"Revenue","desc":true}]}
+<web_page url="https://data.example.com/reports/sales?year=2026" saved="d1">400 of 400 rows of d1 match (sorted by Revenue desc, first 3).
+| # | Region | Month | Units | Revenue |
+|---|---|---|---|---|
+| 1 | North | Sep | 970 | $11,640 |
+| 2 | West | May | 969 | $11,628 |
+| 3 | South | Feb | 968 | $11,616 |
+(From r7 · main › "Sales by region, 2026")</web_page>

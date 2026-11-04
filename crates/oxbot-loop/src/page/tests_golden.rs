@@ -22,14 +22,14 @@ fn dir() -> PathBuf {
 }
 
 /// The raw text of fixture `name`.
-pub(super) fn fixture(name: &str) -> String {
+pub(crate) fn fixture(name: &str) -> String {
     let path = dir().join(format!("{name}.txt"));
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
 /// Compares `actual` with `<name>.<kind>.txt`, or rewrites it when
 /// `UPDATE_GOLDEN=1`.
-pub(super) fn golden(name: &str, kind: &str, actual: &str) {
+pub(crate) fn golden(name: &str, kind: &str, actual: &str) {
     let path = dir().join(format!("{name}.{kind}.txt"));
     if std::env::var("UPDATE_GOLDEN").is_ok_and(|v| v == "1") {
         std::fs::write(&path, actual).unwrap();
@@ -54,7 +54,7 @@ pub(super) fn golden(name: &str, kind: &str, actual: &str) {
 }
 
 /// A strictness function like the gate's: paying beats everything.
-pub(super) fn strict(label: &str) -> u8 {
+pub(crate) fn strict(label: &str) -> u8 {
     let l = label.to_lowercase();
     if l.contains("pay") || l.contains("buy") || l.contains("delete") {
         2

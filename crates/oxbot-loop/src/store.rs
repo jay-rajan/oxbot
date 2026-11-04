@@ -163,6 +163,9 @@ pub enum ResultKind {
     Page,
     /// Any other text.
     Text,
+    /// A table or list read off a page (`extract_rows`), as JSON; its
+    /// handle is `d<N>`.
+    Rows,
 }
 
 impl ResultKind {
@@ -172,16 +175,17 @@ impl ResultKind {
         match self {
             Self::Page => "page",
             Self::Text => "text",
+            Self::Rows => "rows",
         }
     }
 
     /// The kind called `name` (anything unknown is text).
     #[must_use]
     pub fn parse(name: &str) -> Self {
-        if name == "page" {
-            Self::Page
-        } else {
-            Self::Text
+        match name {
+            "page" => Self::Page,
+            "rows" => Self::Rows,
+            _ => Self::Text,
         }
     }
 }
@@ -340,11 +344,12 @@ pub trait LoopStore: Send + Sync {
     /// The database failed.
     fn result(&self, session: &str, handle: &str) -> Result<Option<ResultRow>, LoopStoreError>;
 
-    /// The highest result number `session` has used (0 for none).
+    /// The highest number `session` has used for handles starting with
+    /// `prefix` (`r` for results, `d` for datasets; 0 for none).
     ///
     /// # Errors
     /// The database failed.
-    fn last_result_number(&self, session: &str) -> Result<u32, LoopStoreError>;
+    fn last_result_number(&self, session: &str, prefix: char) -> Result<u32, LoopStoreError>;
 
     /// Saves a progress note.
     ///
@@ -652,13 +657,13 @@ mod memory {
                 .cloned())
         }
 
-        fn last_result_number(&self, session: &str) -> Result<u32, LoopStoreError> {
+        fn last_result_number(&self, session: &str, prefix: char) -> Result<u32, LoopStoreError> {
             Ok(self
                 .inner()
                 .results
                 .keys()
                 .filter(|(s, _)| s == session)
-                .filter_map(|(_, h)| h.strip_prefix('r')?.parse().ok())
+                .filter_map(|(_, h)| h.strip_prefix(prefix)?.parse().ok())
                 .max()
                 .unwrap_or(0))
         }

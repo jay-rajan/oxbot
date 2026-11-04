@@ -1,0 +1,34 @@
+## Pages
+1: Tall buildings - Wiki (https://wiki.example.com/wiki/Tall_buildings) [selected]
+## Latest page snapshot
+uid=10_0 RootWebArea "Tall buildings - Wiki" url="https://wiki.example.com/wiki/Tall_buildings"
+  uid=10_1 main
+    uid=10_2 heading "Tall buildings" level="1"
+    uid=10_3 heading "Completed" level="2"
+    uid=10_4 table
+      uid=10_5 row "Name Height m Year"
+        uid=10_6 columnheader "Name"
+        uid=10_7 columnheader "Height m"
+        uid=10_8 columnheader "Year"
+      uid=10_9 row "First Place 298.3 1975"
+        uid=10_10 cell "First Place"
+        uid=10_11 cell "298.3"
+        uid=10_12 cell "1975"
+      uid=10_13 row "Harbour Tower 276.9 2009"
+        uid=10_14 cell "Harbour Tower"
+        uid=10_15 cell "276.9"
+        uid=10_16 cell "2009"
+    uid=10_17 heading "Under construction" level="2"
+    uid=10_18 table
+      uid=10_19 row "Name Height m Expected"
+        uid=10_20 columnheader "Name"
+        uid=10_21 columnheader "Height m"
+        uid=10_22 columnheader "Expected"
+      uid=10_23 row "Sky Spire 351.8 2027"
+        uid=10_24 cell "Sky Spire"
+        uid=10_25 cell "351.8"
+        uid=10_26 cell "2027"
+      uid=10_27 row "West Gate 308.9 2028"
+        uid=10_28 cell "West Gate"
+        uid=10_29 cell "308.9"
+        uid=10_30 cell "2028"

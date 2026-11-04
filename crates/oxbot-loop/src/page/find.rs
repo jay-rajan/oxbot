@@ -271,7 +271,7 @@ impl Trimmed {
     }
 
     /// The node range `near` points at, and the anchor node.
-    fn near_scope(&self, near: &str) -> Result<(Range<usize>, usize), String> {
+    pub(super) fn near_scope(&self, near: &str) -> Result<(Range<usize>, usize), String> {
         let needle = near.to_lowercase();
         let anchors = || {
             (0..self.nodes.len())

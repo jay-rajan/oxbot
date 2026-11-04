@@ -313,13 +313,15 @@ pub const ASK_USER_TOOL: &str = "ask_user";
 /// to-do list and progress notes, stored results read back, and the page
 /// tools over stored snapshots. They change nothing outside oxbot, so they
 /// run; the gate still sees every call.
-pub const LOOP_CONTEXT_TOOLS: [&str; 6] = [
+pub const LOOP_CONTEXT_TOOLS: [&str; 8] = [
     "update_todo",
     "note_progress",
     "read_result",
     "find_in_page",
     "read_section",
     "ask_page",
+    "extract_rows",
+    "query_rows",
 ];
 
 /// The browser tools oxbot's own loop offers models (their own names). None

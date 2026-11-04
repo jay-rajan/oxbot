@@ -101,7 +101,7 @@ async fn a_big_page_comes_as_a_map_and_the_page_tools_look_inside() {
     assert!(find.untrusted);
     assert_eq!(find.handle.as_deref(), Some("r1"));
     // Only the snapshot was stored.
-    assert_eq!(h.store.last_result_number("s1").unwrap(), 1);
+    assert_eq!(h.store.last_result_number("s1", 'r').unwrap(), 1);
 }
 
 #[tokio::test]
@@ -224,7 +224,7 @@ async fn the_todo_list_notes_and_stored_results() {
         "Noted. It's shown again if the conversation starts over."
     );
     // Read back, never stored again; it keeps the file's trust.
-    assert_eq!(h.store.last_result_number("s1").unwrap(), 1);
+    assert_eq!(h.store.last_result_number("s1", 'r').unwrap(), 1);
     let msgs = h.store.messages("s1").unwrap();
     let back = msgs
         .iter()

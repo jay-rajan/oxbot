@@ -255,6 +255,8 @@ async fn a_plain_answer() {
             "mcp__oxbot__find_in_page",
             "mcp__oxbot__read_section",
             "mcp__oxbot__ask_page",
+            "mcp__oxbot__extract_rows",
+            "mcp__oxbot__query_rows",
         ]
     );
     // The window header rides in front of the message: the day only.

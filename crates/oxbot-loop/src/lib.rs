@@ -28,6 +28,7 @@ pub mod pacer;
 pub mod page;
 pub mod results;
 pub mod router;
+pub mod rows;
 mod runner;
 mod session;
 pub mod store;

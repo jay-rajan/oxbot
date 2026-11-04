@@ -1233,6 +1233,8 @@ mod tests {
             "Searching the page…"
         );
         assert_eq!(tool_label("mcp__oxbot__ask_page"), "page question");
+        assert_eq!(tool_label("mcp__oxbot__extract_rows"), "page tables");
+        assert_eq!(tool_label("mcp__oxbot__query_rows"), "table query");
         assert_eq!(tool_label("mcp__oxbot__read_result"), "saved result");
         assert_eq!(
             activity_label(&Activity::UsingTool(

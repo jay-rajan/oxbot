@@ -1,0 +1,16 @@
+### extract_rows {"near":"Under construction"}
+<web_page url="https://wiki.example.com/wiki/Tall_buildings" saved="r7">d1 · table · 2 rows · columns: Name | Height m | Expected · section: main › "Under construction"
+| Name | Height m | Expected |
+|---|---|---|
+| Sky Spire | 351.8 | 2027 |
+| West Gate | 308.9 | 2028 |
+
+Use query_rows on d1 to filter, sort and count; don't count by eye.</web_page>
+
+### query_rows {"data":"d1","sort":[{"col":"Height m","desc":true}]}
+<web_page url="https://wiki.example.com/wiki/Tall_buildings" saved="d1">2 of 2 rows of d1 match (sorted by Height m desc, first 20).
+| # | Name | Height m | Expected |
+|---|---|---|---|
+| 1 | Sky Spire | 351.8 | 2027 |
+| 2 | West Gate | 308.9 | 2028 |
+(From r7 · main › "Under construction")</web_page>

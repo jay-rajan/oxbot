@@ -54,6 +54,8 @@ fn order_is_fixed_and_side_effects_known() {
             "mcp__oxbot__find_in_page",
             "mcp__oxbot__read_section",
             "mcp__oxbot__ask_page",
+            "mcp__oxbot__extract_rows",
+            "mcp__oxbot__query_rows",
         ]
     );
     assert!(r.get("mcp__oxbot__give_task").unwrap().side_effect);

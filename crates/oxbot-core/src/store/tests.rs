@@ -1613,10 +1613,22 @@ fn a_version_18_database_gets_the_loops_context_tables() {
             ..row.clone()
         })
         .unwrap();
-    assert_eq!(store.result("s1", "r7").unwrap(), Some(row));
+    assert_eq!(store.result("s1", "r7").unwrap(), Some(row.clone()));
     assert_eq!(store.result("s2", "r7").unwrap(), None);
-    assert_eq!(store.last_result_number("s1").unwrap(), 12);
-    assert_eq!(store.last_result_number("s2").unwrap(), 0);
+    store
+        .save_result(&ResultRow {
+            handle: "d30".into(),
+            kind: ResultKind::Rows,
+            ..row.clone()
+        })
+        .unwrap();
+    assert_eq!(store.last_result_number("s1", 'r').unwrap(), 12);
+    assert_eq!(store.last_result_number("s1", 'd').unwrap(), 30);
+    assert_eq!(
+        store.result("s1", "d30").unwrap().unwrap().kind,
+        ResultKind::Rows
+    );
+    assert_eq!(store.last_result_number("s2", 'r').unwrap(), 0);
     for (turn, note) in [(1, "a"), (1, "b"), (2, "c")] {
         store
             .add_progress(

@@ -58,11 +58,13 @@ pub fn loop_rules(caps: Capabilities) -> String {
              pageId, get it from list_pages.\n\
              - Never type passwords, codes or card numbers; call request_sign_in instead.\n\
              \nBrowsing:\n\
-             - When a site's search puts the words and filters in its address, open that address \
-             directly instead of typing and clicking.\n\
-             - Small pages come whole, and a second look shows what changed. Big pages arrive as a \
-             map: look inside with find_in_page or read_section, or ask_page with what the task needs.\n\
-             - Stop as soon as you have what was asked, and say what you didn't check.\n",
+             - If a site's search puts the words and filters in its address, open that address \
+             instead of typing and clicking.\n\
+             - Small pages come whole; a second look shows what changed. Big pages come as a map: \
+             look inside with find_in_page, read_section or ask_page.\n\
+             - For tables and lists, use extract_rows then query_rows to filter, sort and count; \
+             never count or rank by reading.\n\
+             - Stop once you have what was asked; say what you didn't check.\n",
         );
     }
     p.push_str("- If an action fails twice, stop and say what happened instead of repeating it.\n");
@@ -240,10 +242,18 @@ mod tests {
     fn the_loops_rules_are_general_short_and_have_no_clock() {
         let with = loop_rules(Capabilities { browser: true });
         let browsing = &with[with.find("\nBrowsing:\n").unwrap()..];
-        // About 150 tokens at most, and the same bytes every time.
-        assert!(browsing.len() / 3 <= 160, "{}", browsing.len());
+        // The block itself (the general rule after it isn't part of it).
+        let browsing = &browsing[..browsing.find("- If an action fails").unwrap()];
+        // About 170 tokens at most, and the same bytes every time.
+        assert!(browsing.len() / 3 <= 170, "{}", browsing.len());
         assert_eq!(with, loop_rules(Capabilities { browser: true }));
-        for tool in ["find_in_page", "read_section", "ask_page"] {
+        for tool in [
+            "find_in_page",
+            "read_section",
+            "ask_page",
+            "extract_rows",
+            "query_rows",
+        ] {
             assert!(browsing.contains(tool), "{tool}");
         }
         assert!(!with.contains("http"), "no site names");

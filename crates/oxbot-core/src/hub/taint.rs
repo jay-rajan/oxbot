@@ -56,7 +56,12 @@ pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Opt
     // The loop's page tools hand back the stored page's text.
     let page_tool = name
         .strip_prefix(crate::engine::trust::HOST_TOOL_PREFIX)
-        .is_some_and(|t| matches!(t, "find_in_page" | "read_section" | "ask_page"));
+        .is_some_and(|t| {
+            matches!(
+                t,
+                "find_in_page" | "read_section" | "ask_page" | "extract_rows" | "query_rows"
+            )
+        });
     if page_tool || name.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")) {
         return Some(match page {
             Some((_, url)) if !url.is_empty() => format!("a web page ({url})"),
@@ -147,7 +152,13 @@ mod tests {
             assert!(untrusted_tool(t, None).is_some(), "{t}");
         }
         // The loop's page tools hand back web text; its notes and list don't.
-        for t in ["find_in_page", "read_section", "ask_page"] {
+        for t in [
+            "find_in_page",
+            "read_section",
+            "ask_page",
+            "extract_rows",
+            "query_rows",
+        ] {
             assert_eq!(
                 untrusted_tool(&tools::full_name(t), Some(&page)).as_deref(),
                 Some("a web page (https://jobs.example.com)")

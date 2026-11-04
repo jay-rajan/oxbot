@@ -432,13 +432,13 @@ impl LoopStore for Store {
             .map_err(err)
     }
 
-    fn last_result_number(&self, session: &str) -> Result<u32, LoopStoreError> {
+    fn last_result_number(&self, session: &str, prefix: char) -> Result<u32, LoopStoreError> {
         let n: Option<i64> = self
             .conn()
             .query_row(
                 "SELECT MAX(CAST(SUBSTR(handle, 2) AS INTEGER)) FROM loop_results
-                 WHERE session = ?1",
-                [session],
+                 WHERE session = ?1 AND SUBSTR(handle, 1, 1) = ?2",
+                params![session, prefix.to_string()],
                 |r| r.get(0),
             )
             .map_err(err)?;

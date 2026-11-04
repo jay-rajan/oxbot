@@ -155,6 +155,12 @@ pub fn read_result(
         .unwrap_or_default()
         .trim();
     let (row, text) = results.get(handle)?;
+    if row.kind == ResultKind::Rows {
+        return Err(format!(
+            "{} is a table read off a page; use query_rows(data: \"{}\") to see its rows.",
+            row.handle, row.handle
+        ));
+    }
     let lines: Vec<&str> = text.lines().collect();
     let find = args
         .get("find")

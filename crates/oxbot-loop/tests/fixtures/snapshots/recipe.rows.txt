@@ -1,0 +1,22 @@
+### extract_rows {}
+<web_page url="https://recipes.example.com/banana-bread" saved="r7">d1 · list · 9 rows · columns: text · section: main › "Ingredients"
+| text |
+|---|
+| 3 ripe bananas, mashed |
+| 1/3 cup melted butter |
+| 1 teaspoon baking soda |
+| pinch of salt |
+| 3/4 cup sugar |
+(4 more rows)
+
+Use query_rows on d1 to filter, sort and count; don't count by eye.</web_page>
+
+### query_rows {"data":"d1","where":[{"col":"text","op":"contains","value":"cup"}]}
+<web_page url="https://recipes.example.com/banana-bread" saved="d1">4 of 9 rows of d1 match (where text contains "cup", first 20).
+| # | text |
+|---|---|
+| 1 | 1/3 cup melted butter |
+| 2 | 3/4 cup sugar |
+| 3 | 1 1/2 cups all-purpose flour |
+| 4 | 1/2 cup chopped walnuts |
+(From r7 · main › "Ingredients")</web_page>

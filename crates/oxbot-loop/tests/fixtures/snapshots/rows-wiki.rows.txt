@@ -1,0 +1,22 @@
+### extract_rows {}
+<web_page url="https://wiki.example.com/wiki/Tallest_buildings" saved="r7">d1 · table · 5 rows · columns: Rank | Name | Height m | Height ft | Floors | Year · section: main › "Tallest buildings" · caption: Completed buildings over 250 m
+1 row is short; its values may be shifted.
+| Rank | Name | Height m | Height ft | Floors | Year |
+|---|---|---|---|---|---|
+| 1 | First Place | 298.3 | 979 | 72 | 1975 |
+| 2 | Harbour Tower | 276.9 | 908 | 68 | 2009 |
+| =3 | Plaza North | 275 | 902 | 68 | 1988 |
+| Plaza South | 275 | 902 | 68 |   |   |
+| 5 | Aura | 271.9 | 892 | 78 | 2014 |
+
+Use query_rows on d1 to filter, sort and count; don't count by eye.</web_page>
+
+### query_rows {"columns":["Name","Height m","Year"],"data":"d1","sort":[{"col":"Height m","desc":true}],"where":[{"col":"Year","op":"not_empty"}]}
+<web_page url="https://wiki.example.com/wiki/Tallest_buildings" saved="d1">4 of 5 rows of d1 match (where Year not_empty, sorted by Height m desc, first 20).
+| # | Name | Height m | Year |
+|---|---|---|---|
+| 1 | First Place | 298.3 | 1975 |
+| 2 | Harbour Tower | 276.9 | 2009 |
+| 3 | Plaza North | 275 | 1988 |
+| 4 | Aura | 271.9 | 2014 |
+(From r7 · main › "Tallest buildings")</web_page>

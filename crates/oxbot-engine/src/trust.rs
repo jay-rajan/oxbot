@@ -65,6 +65,8 @@ mod tests {
             "mcp__oxbot__unknown",
             "mcp__oxbot__find_in_page",
             "mcp__oxbot__ask_page",
+            "mcp__oxbot__extract_rows",
+            "mcp__oxbot__query_rows",
         ] {
             assert!(!is_trusted_tool(t), "{t}");
         }

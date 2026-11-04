@@ -1,0 +1,39 @@
+## Pages
+1: 7-day forecast - Weather (https://weather.example.com/forecast) [selected]
+## Latest page snapshot
+uid=11_0 RootWebArea "7-day forecast - Weather" url="https://weather.example.com/forecast"
+  uid=11_1 navigation "Site"
+    uid=11_2 list
+      uid=11_3 listitem
+        uid=11_4 link "Today" url="https://weather.example.com/"
+      uid=11_5 listitem
+        uid=11_6 link "Hourly" url="https://weather.example.com/hourly"
+      uid=11_7 listitem
+        uid=11_8 link "7 days" url="https://weather.example.com/forecast"
+  uid=11_9 main
+    uid=11_10 heading "7-day forecast" level="1"
+    uid=11_11 list "Forecast"
+      uid=11_12 listitem
+        uid=11_13 generic
+          uid=11_14 StaticText "Tonight"
+        uid=11_15 image "Clear"
+        uid=11_16 generic
+          uid=11_17 StaticText "Low 13°"
+      uid=11_18 listitem
+        uid=11_19 generic
+          uid=11_20 StaticText "Wednesday"
+        uid=11_21 image "Rain"
+        uid=11_22 generic
+          uid=11_23 StaticText "High 21°"
+      uid=11_24 listitem
+        uid=11_25 generic
+          uid=11_26 StaticText "Wednesday night"
+        uid=11_27 image "Cloudy"
+        uid=11_28 generic
+          uid=11_29 StaticText "Low 15°"
+      uid=11_30 listitem
+        uid=11_31 generic
+          uid=11_32 StaticText "Thursday"
+        uid=11_33 image "Sunny"
+        uid=11_34 generic
+          uid=11_35 StaticText "High 24°"

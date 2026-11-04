@@ -1,0 +1,65 @@
+## Pages
+1: List of tallest buildings in Example City - Wiki (https://wiki.example.com/wiki/Tallest_buildings) [selected]
+## Latest page snapshot
+uid=9_0 RootWebArea "List of tallest buildings in Example City - Wiki" url="https://wiki.example.com/wiki/Tallest_buildings"
+  uid=9_1 main
+    uid=9_2 heading "List of tallest buildings in Example City" level="1"
+    uid=9_3 heading "Tallest buildings" level="2"
+    uid=9_4 table
+      uid=9_5 caption
+        uid=9_6 StaticText "Completed buildings over 250 m"
+      uid=9_7 rowgroup
+        uid=9_8 row "Rank Name Height m Height ft Floors Year"
+          uid=9_9 columnheader "Rank"
+          uid=9_10 columnheader "Name"
+          uid=9_11 columnheader "Height m"
+          uid=9_12 columnheader "Height ft"
+          uid=9_13 columnheader "Floors"
+          uid=9_14 columnheader "Year"
+        uid=9_15 row "1 First Place 298.3[3] 979 72 1975"
+          uid=9_16 cell "1"
+          uid=9_17 cell "First Place"
+            uid=9_18 link "First Place" url="https://wiki.example.com/wiki/First_Place"
+          uid=9_19 cell "298.3[3]"
+            uid=9_20 StaticText "298.3"
+            uid=9_21 superscript
+              uid=9_22 link "[3]" url="https://wiki.example.com/wiki/Tallest_buildings#cite_note-3"
+          uid=9_23 cell "979"
+          uid=9_24 cell "72"
+          uid=9_25 cell "1975"
+        uid=9_26 row "2 Harbour Tower 276.9 908 68 2009[a]"
+          uid=9_27 cell "2"
+          uid=9_28 cell "Harbour Tower"
+            uid=9_29 link "Harbour Tower" url="https://wiki.example.com/wiki/Harbour_Tower"
+          uid=9_30 cell "276.9"
+          uid=9_31 cell "908"
+          uid=9_32 cell "68"
+          uid=9_33 cell "2009[a]"
+            uid=9_34 StaticText "2009"
+            uid=9_35 superscript
+              uid=9_36 link "[a]" url="https://wiki.example.com/wiki/Tallest_buildings#cite_note-a"
+        uid=9_37 row "=3 Plaza North 275 902 68 1988"
+          uid=9_38 rowheader "=3"
+          uid=9_39 cell "Plaza North"
+          uid=9_40 cell "275"
+          uid=9_41 cell "902"
+          uid=9_42 cell "68"
+          uid=9_43 cell "1988"
+        uid=9_44 row "Plaza South 275 902 68"
+          uid=9_45 cell "Plaza South"
+          uid=9_46 cell "275"
+          uid=9_47 cell "902"
+          uid=9_48 cell "68"
+        uid=9_49 row "5 Aura 271.9 892 78 2014"
+          uid=9_50 cell "5"
+          uid=9_51 cell "Aura"
+          uid=9_52 cell "271.9"
+          uid=9_53 cell "892"
+          uid=9_54 cell "78"
+          uid=9_55 cell "2014"
+    uid=9_56 heading "References" level="2"
+    uid=9_57 list
+      uid=9_58 listitem
+        uid=9_59 StaticText "Example City skyline report, 2020."
+      uid=9_60 listitem
+        uid=9_61 StaticText "Harbour Tower press release."

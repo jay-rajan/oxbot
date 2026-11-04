@@ -1,0 +1,25 @@
+### extract_rows {}
+<web_page url="https://weather.example.com/forecast" saved="r7">d1 · list · 4 rows · columns: text | part1 | part2 | part3 · section: main › "7-day forecast" · caption: Forecast
+| text | part1 | part2 | part3 |
+|---|---|---|---|
+| Tonight Clear Low 13° | Tonight | Clear | Low 13° |
+| Wednesday Rain High 21° | Wednesday | Rain | High 21° |
+| Wednesday night Cloudy Low 15° | Wednesday night | Cloudy | Low 15° |
+| Thursday Sunny High 24° | Thursday | Sunny | High 24° |
+
+d2 · list · 3 rows · columns: text | link · section: navigation "Site"
+| text | link |
+|---|---|
+| Today | Today |
+| Hourly | Hourly |
+| 7 days | 7 days |
+
+Use query_rows on d1 … d2 to filter, sort and count; don't count by eye.</web_page>
+
+### query_rows {"columns":["part1","part3"],"data":"d1","where":[{"col":"part1","op":"contains","value":"night"}]}
+<web_page url="https://weather.example.com/forecast" saved="d1">2 of 4 rows of d1 match (where part1 contains "night", first 20).
+| # | part1 | part3 |
+|---|---|---|
+| 1 | Tonight | Low 13° |
+| 2 | Wednesday night | Low 15° |
+(From r7 · main › "7-day forecast")</web_page>

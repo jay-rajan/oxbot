@@ -671,6 +671,8 @@ fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
         "find_in_page" => ("page search", "Searching the page…"),
         "read_section" => ("page section", "Reading part of the page…"),
         "ask_page" => ("page question", "Asking about the page…"),
+        "extract_rows" => ("page tables", "Reading the page's tables…"),
+        "query_rows" => ("table query", "Sorting and counting rows…"),
         "read_result" => ("saved result", "Reading a saved result…"),
         "update_todo" => ("to-do list", "Updating its to-do list…"),
         "note_progress" => ("progress note", "Noting where it is…"),

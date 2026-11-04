@@ -1,6 +1,8 @@
 //! Stored tool results: whole page snapshots and big results go to
 //! `<context_dir>/<session>/r<N>.txt` with an index row, and the model
 //! gets a short head with the handle (`r12`) to read more on demand.
+//! Tables and lists read off a page (`extract_rows`) are stored the same
+//! way as `d<N>.txt` (JSON), numbered on their own.
 //!
 //! The folder is outside `work/`, so the bot's file tools can't change a
 //! stored result. Handles are looked up through the index (session,
@@ -18,12 +20,19 @@ pub const KEEP_DAYS: i64 = 14;
 /// Most bytes of stored results per bot; the oldest sessions go first.
 pub const MAX_BOT_BYTES: u64 = 200 * 1024 * 1024;
 
-/// Whether `handle` looks like one oxbot made: `r` and 1 to 6 digits.
+/// Whether `handle` looks like one oxbot made: `r` (a result) or `d` (a
+/// dataset) and 1 to 6 digits.
 #[must_use]
 pub fn valid_handle(handle: &str) -> bool {
     handle
-        .strip_prefix('r')
+        .strip_prefix(['r', 'd'])
         .is_some_and(|n| (1..=6).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Whether `handle` names a dataset (`d12`).
+#[must_use]
+pub fn is_dataset(handle: &str) -> bool {
+    handle.starts_with('d') && valid_handle(handle)
 }
 
 /// What to store with a result.
@@ -54,6 +63,8 @@ pub struct ResultStore {
     session: String,
     dir: PathBuf,
     next: AtomicU32,
+    /// The next dataset number.
+    next_data: AtomicU32,
     /// Serializes writes (the counter and the file).
     write: Mutex<()>,
 }
@@ -71,16 +82,22 @@ impl ResultStore {
     /// The results of `session` of `bot`, under `context_dir/<session>/`.
     #[must_use]
     pub fn new(store: Arc<dyn LoopStore>, bot: &str, session: &str, context_dir: &Path) -> Self {
-        let last = store.last_result_number(session).unwrap_or_else(|err| {
-            tracing::warn!(%err, "couldn't read the stored results' numbers");
-            0
-        });
+        let last = |prefix| {
+            store
+                .last_result_number(session, prefix)
+                .unwrap_or_else(|err| {
+                    tracing::warn!(%err, "couldn't read the stored results' numbers");
+                    0
+                })
+        };
+        let (results, datasets) = (last('r'), last('d'));
         Self {
             dir: context_dir.join(folder_name(session)),
             store,
             bot: bot.to_owned(),
             session: session.to_owned(),
-            next: AtomicU32::new(last + 1),
+            next: AtomicU32::new(results + 1),
+            next_data: AtomicU32::new(datasets + 1),
             write: Mutex::new(()),
         }
     }
@@ -91,14 +108,18 @@ impl ResultStore {
         &self.dir
     }
 
-    /// Stores `new` and returns its row (with the handle).
+    /// Stores `new` and returns its row (with the handle: `d<N>` for a
+    /// dataset, else `r<N>`).
     ///
     /// # Errors
     /// The disk or the database failed.
     pub fn put(&self, new: &NewResult<'_>) -> Result<ResultRow, String> {
         let _guard = self.write.lock().unwrap_or_else(PoisonError::into_inner);
-        let n = self.next.fetch_add(1, Ordering::Relaxed);
-        let handle = format!("r{n}");
+        let handle = if new.kind == ResultKind::Rows {
+            format!("d{}", self.next_data.fetch_add(1, Ordering::Relaxed))
+        } else {
+            format!("r{}", self.next.fetch_add(1, Ordering::Relaxed))
+        };
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         std::fs::write(self.dir.join(format!("{handle}.txt")), new.text)
             .map_err(|e| e.to_string())?;
@@ -307,7 +328,9 @@ mod tests {
     #[test]
     fn handles_are_checked_and_never_paths() {
         assert!(valid_handle("r1") && valid_handle("r123456"));
-        for bad in ["", "r", "r1234567", "R1", "r1a", "../r1", "r-1", "1", "r 1"] {
+        for bad in [
+            "", "r", "r1234567", "R1", "r1a", "../r1", "r-1", "1", "r 1", "d", "x1",
+        ] {
             assert!(!valid_handle(bad), "{bad}");
         }
         let tmp = tempfile::tempdir().unwrap();
@@ -315,6 +338,25 @@ mod tests {
         let results = ResultStore::new(store.clone(), "scout", "s/1", tmp.path());
         let row = put(&results, "hello");
         assert_eq!(row.handle, "r1");
+        // Datasets count on their own.
+        let data = results
+            .put(&NewResult {
+                kind: ResultKind::Rows,
+                ..NewResult {
+                    turn: 0,
+                    step: 1,
+                    tool: "mcp__oxbot__extract_rows",
+                    kind: ResultKind::Page,
+                    page_url: None,
+                    page_title: None,
+                    tainted_by: None,
+                    text: "{}",
+                }
+            })
+            .unwrap();
+        assert_eq!(data.handle, "d1");
+        assert!(is_dataset("d1") && !is_dataset("r1") && valid_handle("d1"));
+        assert_eq!(results.get("d1").unwrap().0.kind, ResultKind::Rows);
         assert_eq!(put(&results, "again").handle, "r2");
         // The folder name is made safe; the file is outside any work folder.
         assert_eq!(results.dir(), tmp.path().join("s_1"));

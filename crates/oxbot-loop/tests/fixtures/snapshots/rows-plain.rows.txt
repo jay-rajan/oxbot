@@ -1,0 +1,18 @@
+### extract_rows {}
+<web_page url="https://library.example.com/hours" saved="r7">d1 · table · 3 rows · columns: col1 | col2 | col3 · section: main › "Opening hours"
+1 row is short; its values may be shifted.
+| col1 | col2 | col3 |
+|---|---|---|
+| Monday | 9:00 | 17:00 |
+| Tuesday | 9:00 | 20:00 |
+| Sunday | Closed |   |
+
+Use query_rows on d1 to filter, sort and count; don't count by eye.</web_page>
+
+### query_rows {"data":"d1","where":[{"col":"col3","op":"empty"}]}
+<web_page url="https://library.example.com/hours" saved="d1">1 of 3 rows of d1 match (where col3 empty, first 20).
+| # | col1 | col2 | col3 |
+|---|---|---|---|
+| 1 | Sunday | Closed |   |
+1 of these rows is short; values may be shifted.
+(From r7 · main › "Opening hours")</web_page>
