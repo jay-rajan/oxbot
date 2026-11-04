@@ -430,6 +430,102 @@ impl OpenAiClient {
     }
 }
 
+/// An answer the Responses API began: its type and its body as it comes.
+pub struct RawAnswer {
+    /// Its `Content-Type`.
+    pub content_type: String,
+    /// The body, chunk by chunk (stops at the client's timeouts).
+    pub body: BoxStream<'static, Result<Bytes, LlmError>>,
+}
+
+impl fmt::Debug for RawAnswer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RawAnswer")
+            .field("content_type", &self.content_type)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The only User-Agent oxbot sends with a relayed request.
+pub const RELAY_USER_AGENT: &str = "oxbot";
+
+impl OpenAiClient {
+    /// POSTs `body` (a Responses API request, already checked by the
+    /// caller) to `responses` under the API base with the key, and gives
+    /// back the answer as it streams. Only the key, the content type and
+    /// a fixed User-Agent go with it: no other header.
+    ///
+    /// # Errors
+    /// Not signed in, the service refused the request (its error, with
+    /// `Retry-After`), or it couldn't be reached.
+    pub async fn post_responses(
+        &self,
+        body: Vec<u8>,
+        stream: bool,
+        cancel: &CancellationToken,
+    ) -> Result<RawAnswer, LlmError> {
+        if cancel.is_cancelled() {
+            return Err(LlmError::cancelled());
+        }
+        let t = self.config.timeouts;
+        let accept = if stream {
+            "text/event-stream"
+        } else {
+            "application/json"
+        };
+        let mut builder = self
+            .http
+            .post(self.config.endpoint.url("responses"))
+            .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, accept)
+            .header(reqwest::header::USER_AGENT, RELAY_USER_AGENT)
+            .timeout(t.total)
+            .body(body);
+        if let Auth::Key(_) = &self.config.auth {
+            builder = builder.header(reqwest::header::AUTHORIZATION, self.bearer()?);
+        }
+        let response = tokio::select! {
+            () = cancel.cancelled() => return Err(LlmError::cancelled()),
+            sent = tokio::time::timeout(t.first_byte, builder.send()) => {
+                sent.map_err(|_| timed_out(false))?.map_err(|e| from_reqwest(&e, false))?
+            }
+        };
+        let status = response.status();
+        if !status.is_success() {
+            let retry_after = retry_after(response.headers());
+            let body = tokio::select! {
+                () = cancel.cancelled() => return Err(LlmError::cancelled()),
+                body = read_body(response, MAX_ERROR_BODY, t.between_chunks) => body?,
+            };
+            return Err(error_response(status, retry_after, &body));
+        }
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let between = t.between_chunks;
+        let deadline = Instant::now() + t.total;
+        let body = response.bytes_stream();
+        let chunks = stream::unfold(Some(body), move |body| async move {
+            let mut body = body?;
+            let wait = between.min(deadline.saturating_duration_since(Instant::now()));
+            match tokio::time::timeout(wait, body.next()).await {
+                Err(_) => Some((Err(timed_out(true)), None)),
+                Ok(Some(Ok(bytes))) => Some((Ok(bytes), Some(body))),
+                Ok(Some(Err(err))) => Some((Err(from_reqwest(&err, true)), None)),
+                Ok(None) => None,
+            }
+        })
+        .boxed();
+        Ok(RawAnswer {
+            content_type,
+            body: chunks,
+        })
+    }
+}
+
 impl ChatModel for OpenAiClient {
     fn provider(&self) -> Provider {
         self.config.endpoint.provider()

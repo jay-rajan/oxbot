@@ -21,6 +21,7 @@ oxbot-browser = { path = "crates/oxbot-browser" }
 oxbot-gate = { path = "crates/oxbot-gate" }
 oxbot-llm = { path = "crates/oxbot-llm" }
 oxbot-loop = { path = "crates/oxbot-loop" }
+oxbot-relay = { path = "crates/oxbot-relay" }
 
 # External crates (versions checked 2026-10-27)
 anyhow = "1.0.104"

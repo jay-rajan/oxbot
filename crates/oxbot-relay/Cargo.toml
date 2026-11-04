@@ -1,0 +1,31 @@
+[package]
+name = "oxbot-relay"
+description = "oxbot's model relay on 127.0.0.1: the only place a Codex process may send model requests. It checks each request's per-process token, strips what identifies anyone, applies the bot's model, privacy and limits through the loop's gateway, forwards to OpenRouter's Responses API with the household key, meters and logs it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+oxbot-engine.workspace = true
+oxbot-llm.workspace = true
+oxbot-loop.workspace = true
+ring.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+oxbot-llm = { workspace = true, features = ["test-model"] }
+oxbot-loop = { workspace = true, features = ["test-tools"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

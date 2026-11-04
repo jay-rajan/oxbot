@@ -3353,6 +3353,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxbot-relay"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures-util",
+ "oxbot-engine",
+ "oxbot-llm",
+ "oxbot-loop",
+ "ring",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
