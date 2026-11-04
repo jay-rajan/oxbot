@@ -21,6 +21,12 @@ use crate::pacer::Lane;
 use crate::router::{Pick, Route, TurnRouting};
 use crate::runner::{Answered, Caller, Next, Sending, Stop};
 
+/// The longest answer a request through the gateway may ask for (or the
+/// model's own limit, if lower). Reasoning models spend output on thinking,
+/// and an engine like Codex can't continue an answer that was cut off, so the
+/// loop's 4,096 is too small here.
+const GATEWAY_MAX_OUTPUT: u32 = 32_768;
+
 /// Who a request is for, as the host knows it (never from the request).
 #[derive(Debug, Clone)]
 pub struct Asker {
@@ -233,7 +239,11 @@ impl Gateway {
                     let attempt = Attempt {
                         model: route.primary.id.clone(),
                         fallbacks: route.fallbacks.clone(),
-                        max_tokens: route.max_tokens,
+                        max_tokens: route
+                            .primary
+                            .info
+                            .as_ref()
+                            .map_or(GATEWAY_MAX_OUTPUT, |m| m.max_tokens(GATEWAY_MAX_OUTPUT)),
                         supported: route.primary.info.as_ref().map(|_| route.supported.clone()),
                         provider: sending.provider.clone(),
                         free: route.primary.free,
@@ -364,6 +374,22 @@ mod tests {
         assert_eq!(calls[1].prompt_tokens, 10);
         assert_eq!(calls[1].person.as_deref(), Some("p1"));
         assert_eq!(routing.sticky.as_deref(), Some(opened.value.as_str()));
+    }
+
+    #[tokio::test]
+    async fn an_engine_may_ask_for_the_models_whole_answer_length() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let gateway = engine(store).gateway();
+        let mut routing = TurnRouting::default();
+        let cancel = CancellationToken::new();
+        let opened = gateway
+            .request(&asker(), &mut routing, &cancel, |a| async move {
+                Ok::<_, LlmError>(a)
+            })
+            .await
+            .unwrap();
+        // The model's own limit (8000), not the loop's 4096.
+        assert_eq!(opened.value.max_tokens, 8000);
     }
 
     #[tokio::test]
