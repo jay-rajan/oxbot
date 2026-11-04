@@ -225,6 +225,14 @@ impl ToolRegistry {
         Self { entries }
     }
 
+    /// The same tools without those called `names`.
+    #[must_use]
+    pub fn without(mut self, names: &[&str]) -> Self {
+        self.entries
+            .retain(|e| !names.contains(&e.spec.name.as_str()));
+        self
+    }
+
     /// The tools as the model sees them, in order.
     #[must_use]
     pub fn specs(&self) -> Vec<ToolSpec> {

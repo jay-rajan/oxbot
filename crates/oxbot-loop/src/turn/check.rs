@@ -32,9 +32,9 @@ use crate::store::{CheckRow, StoredMessage};
 use crate::tools::page::ASK_PAGE;
 
 /// Tool calls a turn needs before its answer is checked.
-pub(super) const CHECK_AFTER_CALLS: usize = 2;
+pub const CHECK_AFTER_CALLS: usize = 2;
 /// Most ungrounded values named.
-const MAX_NAMED: usize = 8;
+pub const MAX_NAMED: usize = 8;
 /// Most characters of the task quoted back.
 const MAX_GOAL: usize = 600;
 /// What the chat shows while the bot checks.
@@ -52,7 +52,7 @@ pub(super) enum Checked {
 /// nothing read had (if any), and the checklist. `browser`: name the page
 /// tools; else the stored results and files.
 #[must_use]
-pub(super) fn note(goal: &str, ungrounded: &[String], browser: bool) -> String {
+pub fn note(goal: &str, ungrounded: &[String], browser: bool) -> String {
     let goal = goal.trim();
     let goal = match goal.char_indices().nth(MAX_GOAL) {
         Some((cut, _)) => format!("{}…", &goal[..cut]),
@@ -137,7 +137,7 @@ impl Turn {
         }
         self.bounced = true;
         self.bounced_at = Some(Instant::now());
-        let note = note(goal, &missing, core.browser.is_some());
+        let note = note(goal, &missing, core.tools.has_browser());
         self.ungrounded_before = Some(missing);
         Checked::Bounce(note)
     }
@@ -206,7 +206,7 @@ fn evidence(core: &Core, conv: &Conv, turn: u32) -> Evidence {
         if let Some(handle) = m.handle.as_deref()
             && crate::results::valid_handle(handle)
             && stored.insert(handle)
-            && let Ok((_, text)) = core.results.get(handle)
+            && let Ok((_, text)) = core.tools.results().get(handle)
         {
             read.add(&text);
         }

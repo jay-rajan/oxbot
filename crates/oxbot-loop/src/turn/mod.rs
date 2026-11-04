@@ -10,10 +10,10 @@
 //! picks a turn up after its last saved step.
 
 mod check;
+pub use check::{CHECK_AFTER_CALLS, MAX_NAMED, note as check_note};
 mod tools;
 mod windows;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use oxbot_engine::{Activity, CallKind, EngineEvent, GateMode, ToolUse, TurnInput};
@@ -132,11 +132,10 @@ pub(crate) struct Turn {
     window_checked: bool,
     /// The budget of the last request (tool results are cut to it).
     budget: TokenBudget,
-    /// Read-only loop calls already made this turn: key → (step, the
-    /// result's message, first and last line shown).
-    seen: HashMap<String, (u32, u32, usize, usize)>,
-    /// Calls that failed this turn: key → times.
-    failures: HashMap<String, u32>,
+    /// Read-only loop calls already made this turn.
+    seen: crate::service::RepeatGuard,
+    /// Calls that failed this turn.
+    failures: crate::service::Failures,
     /// The step budget's wrap-up note was given.
     nudged: bool,
     /// The note to add to this step's last result, if it's due now.
@@ -220,8 +219,8 @@ impl Turn {
             idle_ms,
             window_checked: false,
             budget: TokenBudget::for_model(64_000, None),
-            seen: HashMap::new(),
-            failures: HashMap::new(),
+            seen: crate::service::RepeatGuard::default(),
+            failures: crate::service::Failures::default(),
             nudged: false,
             wrap_up: None,
             bounced: false,
@@ -377,7 +376,7 @@ impl Turn {
             // note, up to twice; the broken answer isn't kept (so it isn't
             // copied). Then it goes on as a tool error.
             if reasks < MAX_REASKS
-                && let Some(note) = core.tools.reask_note(&resp.message.tool_calls)
+                && let Some(note) = core.tools.registry().reask_note(&resp.message.tool_calls)
             {
                 reasks += 1;
                 self.reask = vec![Message::user(note)];
@@ -469,6 +468,7 @@ impl Turn {
             privacy: core.privacy,
             lane,
             kind: CallKind::Chat,
+            engine: "openrouter",
             events: Some(&core.events),
             meter: Some(&core.events),
             cancel,
@@ -478,6 +478,7 @@ impl Turn {
                 sticky: self.model.clone(),
                 excluded: conv.excluded.clone(),
                 no_provider: std::collections::HashSet::new(),
+                min_window: None,
             },
             zdr_dropped: false,
             same_retries: 0,
@@ -550,7 +551,7 @@ impl Turn {
                 .await?;
             let mut messages = built.messages.clone();
             messages.extend(self.reask.iter().cloned());
-            with_tail(&mut messages, core.browser.is_some());
+            with_tail(&mut messages, core.tools.has_browser());
             let estimated: u64 =
                 messages.iter().map(est_message).sum::<u64>() + est_tools(&core.specs);
             match caller.send(&route, messages, core.specs.clone()).await {

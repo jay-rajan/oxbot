@@ -296,6 +296,7 @@ impl Reader {
             turn: None,
             step: Some(requests.step),
             provider: super::CLAUDE_PROVIDER.to_owned(),
+            engine: "claude".to_owned(),
             requested: model.clone(),
             model,
             free: false,

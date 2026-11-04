@@ -23,6 +23,7 @@ pub mod budget;
 pub mod compact;
 pub mod context;
 pub mod gate;
+pub mod gateway;
 pub mod meter;
 pub mod numbers;
 pub mod pacer;
@@ -31,6 +32,7 @@ pub mod results;
 pub mod router;
 pub mod rows;
 mod runner;
+pub mod service;
 mod session;
 pub mod store;
 pub mod tools;
@@ -52,11 +54,14 @@ pub use context::{
 pub use meter::{GuardQuery, LimitHit, NoLimits, UsageGuard};
 pub use pacer::{Account, Lane, Pacer};
 pub use router::{CatalogCache, Router};
+pub use runner::Stop;
+pub use service::{CallCtx, Dispatched, Failures, OwnTools, RepeatGuard, ToolService, TurnHooks};
 pub use store::{LoopStore, LoopStoreError, StoredMessage, TurnRow, TurnStatus};
 pub use tools::browser::{BrowserFactory, BrowserOutput, BrowserTools};
 pub use tools::mcp::McpBrowserFactory;
 pub use tools::page::ASK_PAGE_V1;
 pub use tools::{ToolOutcome, ToolRegistry};
+pub use turn::{CHECK_AFTER_CALLS, MAX_NAMED, check_note};
 
 /// Household settings for the loop, changed by the owner.
 #[derive(Debug, Clone, PartialEq)]
@@ -283,6 +288,25 @@ impl LoopEngine {
                 data_policy: DataPolicyFlag::default(),
             }),
         }
+    }
+
+    /// The loop's routing, limits, pacer and meter, for engines that send
+    /// their own requests (Codex, through oxbot's relay).
+    #[must_use]
+    pub fn gateway(&self) -> gateway::Gateway {
+        gateway::Gateway::new(Arc::clone(&self.shared))
+    }
+
+    /// A session's tools for another engine (Codex): the same tools,
+    /// gate, stored results and page tools as the loop's, asking the gate
+    /// and sending results through `events`.
+    pub async fn open_tools(
+        &self,
+        spec: &SessionSpec,
+        events: tokio::sync::mpsc::Sender<oxbot_engine::EngineEvent>,
+        own: OwnTools,
+    ) -> ToolService {
+        ToolService::open(Arc::clone(&self.shared), spec, events, own).await
     }
 
     /// The household settings (to change them).

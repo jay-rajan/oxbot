@@ -119,6 +119,10 @@ pub struct TurnRouting {
     pub excluded: HashSet<String>,
     /// Models with no provider for this turn's data rules.
     pub no_provider: HashSet<String>,
+    /// Only models whose window is at least this (an engine that was told
+    /// a window must never get a smaller one). Models the list doesn't
+    /// describe are kept.
+    pub min_window: Option<u64>,
 }
 
 struct Cooling {
@@ -304,6 +308,13 @@ impl Router {
         let usable: Vec<&Candidate> = candidates
             .iter()
             .filter(|c| !turn.excluded.contains(&c.id) && !turn.no_provider.contains(&c.id))
+            .filter(|c| {
+                turn.min_window.is_none_or(|min| {
+                    c.info
+                        .as_ref()
+                        .is_none_or(|m| u64::from(m.context_length) >= min)
+                })
+            })
             .filter(|c| free_ok || !c.free)
             .collect();
         let ready: Vec<&Candidate> = usable

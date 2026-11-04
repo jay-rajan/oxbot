@@ -8,6 +8,10 @@ use crate::reply::{Decision, Reply, ToolReply};
 /// What an engine reports, in order. Mirrors Claude's output event for
 /// event, plus what only oxbot's own loop reports.
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "a meter row per model request; events are few and short-lived"
+)]
 pub enum EngineEvent {
     /// A turn started on `model` (Claude: every turn).
     Started {
@@ -213,6 +217,10 @@ pub struct CallRecord {
     /// What the request was for.
     #[serde(default)]
     pub kind: CallKind,
+    /// The engine that made it: `openrouter` (oxbot's loop), `codex`,
+    /// `claude` (empty: from before engines were recorded).
+    #[serde(default)]
+    pub engine: String,
 }
 
 /// What a model request was for.

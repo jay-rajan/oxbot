@@ -36,9 +36,26 @@ pub(crate) const RESTARTED_MID_CALL: &str = "oxbot restarted while this was runn
 pub(crate) const SKIPPED: &str =
     "[skipped] An earlier call in this step was refused, so this one didn't run.";
 
+/// A request on its way: its provider rules and when it went out.
+#[derive(Debug, Clone)]
+pub(crate) struct Sending {
+    pub provider: Option<ProviderPrefs>,
+    pub private: bool,
+    pub ts_ms: i64,
+    pub started: Instant,
+}
+
+/// What answered a request, for the meter.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Answered {
+    pub model: String,
+    pub generation_id: Option<String>,
+    pub usage: oxbot_llm::CallUsage,
+}
+
 /// Why a turn ends early.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Stop {
+pub enum Stop {
     /// Stopped by the person (or the session is stopping).
     Cancelled,
     /// Failed: tell the person this.
@@ -65,6 +82,8 @@ pub(crate) struct Caller<'a> {
     pub privacy: Privacy,
     pub lane: Lane,
     pub kind: CallKind,
+    /// The engine that asked, for the meter (`openrouter`: the loop).
+    pub engine: &'a str,
     /// Live text and status go here (a turn's own requests only).
     pub events: Option<&'a mpsc::Sender<EngineEvent>>,
     /// Each request's meter record goes here too (a turn's requests and
@@ -245,13 +264,12 @@ impl Caller<'_> {
         }
     }
 
-    /// Sends one request on `route`, metering it either way.
-    pub(crate) async fn send(
-        &mut self,
-        route: &Route,
-        messages: Vec<Message>,
-        tools: Vec<ToolSpec>,
-    ) -> Result<ChatResponse, LlmError> {
+    /// Waits for the pacer (free models) and says a request is going out:
+    /// what's needed to send on `route` and meter it after.
+    ///
+    /// # Errors
+    /// Stopped, or the free daily requests are used up.
+    pub(crate) async fn begin(&mut self, route: &Route) -> Result<Sending, LlmError> {
         if route.primary.free {
             match self
                 .shared
@@ -275,6 +293,28 @@ impl Caller<'_> {
         let private = provider
             .as_ref()
             .is_some_and(ProviderPrefs::denies_data_collection);
+        Ok(Sending {
+            provider,
+            private,
+            ts_ms: now_ms(),
+            started: Instant::now(),
+        })
+    }
+
+    /// Sends one request on `route`, metering it either way.
+    pub(crate) async fn send(
+        &mut self,
+        route: &Route,
+        messages: Vec<Message>,
+        tools: Vec<ToolSpec>,
+    ) -> Result<ChatResponse, LlmError> {
+        let sending = self.begin(route).await?;
+        let Sending {
+            provider,
+            private,
+            ts_ms,
+            started,
+        } = sending;
         let req = ChatRequest {
             fallbacks: route.fallbacks.clone(),
             tools,
@@ -283,8 +323,6 @@ impl Caller<'_> {
             supported: Some(route.supported.clone()),
             ..ChatRequest::new(route.primary.id.clone(), messages)
         };
-        let ts_ms = now_ms();
-        let started = Instant::now();
         let events = self.events;
         let mut writing = false;
         let result = complete(self.model.as_ref(), req, self.cancel.clone(), |delta| {
@@ -297,10 +335,34 @@ impl Caller<'_> {
             }
         })
         .await;
-        let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let mut record = CallRecord {
+        let sending = Sending {
+            provider: None,
+            private,
             ts_ms,
-            day: utc_day(ts_ms),
+            started,
+        };
+        let answered = result.as_ref().map(|resp| Answered {
+            model: resp.model.clone(),
+            generation_id: resp.generation_id.clone(),
+            usage: resp.usage,
+        });
+        self.record(route, &sending, answered.as_ref().map_err(|e| (*e).clone()))
+            .await;
+        result
+    }
+
+    /// Meters one request that `sending` began on `route`: what answered,
+    /// or how it failed.
+    pub(crate) async fn record(
+        &self,
+        route: &Route,
+        sending: &Sending,
+        result: Result<&Answered, LlmError>,
+    ) -> CallRecord {
+        let latency_ms = u64::try_from(sending.started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let mut record = CallRecord {
+            ts_ms: sending.ts_ms,
+            day: utc_day(sending.ts_ms),
             bot: self.bot.to_owned(),
             person: self.person.map(str::to_owned),
             session: self.session.map(str::to_owned),
@@ -309,19 +371,20 @@ impl Caller<'_> {
             provider: self.model.provider().as_str().to_owned(),
             requested: route.primary.id.clone(),
             free: route.primary.free,
-            private,
+            private: sending.private,
             latency_ms,
             kind: self.kind,
+            engine: self.engine.to_owned(),
             ..CallRecord::default()
         };
         match &result {
-            Ok(resp) => {
-                record.model.clone_from(&resp.model);
-                record.generation_id.clone_from(&resp.generation_id);
-                record.prompt_tokens = resp.usage.prompt_tokens;
-                record.completion_tokens = resp.usage.completion_tokens;
-                record.cached_tokens = resp.usage.cached_tokens;
-                record.cost_usd = self.cost(route, resp);
+            Ok(answered) => {
+                record.model.clone_from(&answered.model);
+                record.generation_id.clone_from(&answered.generation_id);
+                record.prompt_tokens = answered.usage.prompt_tokens;
+                record.completion_tokens = answered.usage.completion_tokens;
+                record.cached_tokens = answered.usage.cached_tokens;
+                record.cost_usd = self.cost(route, answered);
                 "ok".clone_into(&mut record.outcome);
             }
             Err(err) => {
@@ -341,31 +404,36 @@ impl Caller<'_> {
             tracing::warn!(%err, "couldn't save a model request");
         }
         if let Some(meter) = self.meter {
-            let _ = meter.send(EngineEvent::ModelCall(record)).await;
+            let _ = meter.send(EngineEvent::ModelCall(record.clone())).await;
         }
-        result
+        record
     }
 
     /// What a request cost: as the service says, else from the list's
     /// prices.
     #[allow(clippy::cast_precision_loss)]
-    fn cost(&self, route: &Route, resp: &ChatResponse) -> f64 {
-        if let Some(cost) = resp.usage.cost_usd {
+    fn cost(&self, route: &Route, answered: &Answered) -> f64 {
+        if let Some(cost) = answered.usage.cost_usd {
             return cost;
         }
         let catalog = self.shared.router.catalog();
         let info = catalog
-            .get(&resp.model)
+            .get(&answered.model)
             .or(route.primary.info.as_ref())
             .filter(|m| !m.free);
         info.map_or(0.0, |m| {
-            m.prompt_usd_per_token * resp.usage.prompt_tokens as f64
-                + m.completion_usd_per_token * resp.usage.completion_tokens as f64
+            m.prompt_usd_per_token * answered.usage.prompt_tokens as f64
+                + m.completion_usd_per_token * answered.usage.completion_tokens as f64
         })
     }
 
     /// A request on `route` answered.
     pub(crate) fn answered(&mut self, route: &Route, resp: &ChatResponse) {
+        self.answered_by(route, &resp.model);
+    }
+
+    /// A request on `route` answered, by `model` (empty: unknown).
+    pub(crate) fn answered_by(&mut self, route: &Route, model: &str) {
         self.shared.router.ok(&route.primary.id);
         if route.primary.free && !self.private() {
             // Free models answer requests without "deny" again.
@@ -373,10 +441,10 @@ impl Caller<'_> {
         }
         self.same_retries = 0;
         self.cooled_for = Duration::ZERO;
-        let answered = if resp.model.is_empty() {
+        let answered = if model.is_empty() {
             route.primary.id.clone()
         } else {
-            resp.model.clone()
+            model.to_owned()
         };
         let known = std::iter::once(&route.primary.id)
             .chain(&route.fallbacks)
@@ -507,6 +575,7 @@ impl ModelCaller for HelperCaller<'_> {
                 privacy: self.privacy,
                 lane: self.lane,
                 kind,
+                engine: "openrouter",
                 events: None,
                 meter: self.meter,
                 cancel: self.cancel,
@@ -601,6 +670,7 @@ pub(crate) async fn one_shot(shared: &Shared, req: OneShot) -> Result<String, St
         privacy: req.privacy,
         lane: Lane::Live,
         kind: req.kind,
+        engine: "openrouter",
         events: None,
         meter: None,
         cancel: &cancel,

@@ -2,7 +2,6 @@
 //! runs its current turn.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -20,12 +19,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::context::LastCall;
 use crate::context::state::WindowState;
-use crate::gate::GateCheck;
-use crate::results::ResultStore;
+use crate::service::{OwnTools, ToolService};
 use crate::store::{StoredMessage, TurnRow};
-use crate::tools::ToolRegistry;
-use crate::tools::browser::{BrowserTools, model_specs};
-use crate::tools::pages::PageTracker;
 use crate::{Shared, prefix_hash, turn};
 
 /// Room for events the hub hasn't read yet.
@@ -57,21 +52,15 @@ pub(crate) struct Core {
     pub shared: Arc<Shared>,
     pub bot: String,
     pub id: String,
-    pub work_dir: PathBuf,
     pub system: String,
-    pub tools: ToolRegistry,
+    /// The session's tools (shared with every engine that runs them).
+    pub tools: ToolService,
     pub specs: Vec<ToolSpec>,
     pub privacy: Privacy,
     pub gate_mode: GateMode,
     pub choice: ModelChoice,
     pub central: bool,
     pub events: mpsc::Sender<EngineEvent>,
-    pub gate: GateCheck,
-    pub browser: Option<Arc<dyn BrowserTools>>,
-    /// The browser's tabs, as the session last saw them.
-    pub pages: Mutex<PageTracker>,
-    /// Stored tool results.
-    pub results: ResultStore,
     pub conv: tokio::sync::Mutex<Conv>,
     /// A turn that was running when oxbot stopped, to go on with.
     pub resume: Mutex<Option<TurnRow>>,
@@ -93,29 +82,15 @@ impl Core {
 
     /// The selected tab's address, if known.
     pub fn current_url(&self) -> Option<String> {
-        self.pages
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .current()
-            .map(|p| p.url)
-            .filter(|u| !u.is_empty())
+        self.tools.current_url()
     }
 }
 
 /// Starts a session for `spec`.
 pub(crate) async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Started, EngineError> {
     let setup = &shared.setup;
-    let (browser, browser_specs) = open_browser(&shared, &spec).await;
-    let host = spec
-        .host_tool_specs
-        .iter()
-        .map(|t| ToolSpec {
-            name: t.name.clone(),
-            description: t.description.clone(),
-            parameters: t.parameters.clone(),
-        })
-        .collect();
-    let tools = ToolRegistry::new(host, browser_specs);
+    let (events, events_rx) = mpsc::channel(EVENT_ROOM);
+    let tools = ToolService::open(Arc::clone(&shared), &spec, events.clone(), OwnTools::All).await;
     let specs = tools.specs();
     let hash = prefix_hash(&spec.system_prompt, &specs);
     let store = &setup.store;
@@ -173,11 +148,9 @@ pub(crate) async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Star
         question: t.question.clone(),
     });
 
-    let (events, events_rx) = mpsc::channel(EVENT_ROOM);
     let core = Arc::new(Core {
         bot: spec.bot.clone(),
         id: id.clone(),
-        work_dir: spec.work_dir.clone(),
         system: spec.system_prompt.clone(),
         tools,
         specs,
@@ -185,11 +158,7 @@ pub(crate) async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Star
         gate_mode: spec.gate_mode,
         choice: spec.model.clone(),
         central: spec.host_tools.central,
-        gate: GateCheck::new(events.clone()),
         events,
-        browser,
-        pages: Mutex::new(PageTracker::default()),
-        results: ResultStore::new(Arc::clone(store), &spec.bot, &id, &spec.context_dir),
         conv: tokio::sync::Mutex::new(Conv {
             messages,
             context,
@@ -207,29 +176,6 @@ pub(crate) async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Star
         events: events_rx,
         resumed_turn,
     })
-}
-
-/// The session's browser tool and its tools as the model sees them.
-async fn open_browser(
-    shared: &Shared,
-    spec: &SessionSpec,
-) -> (Option<Arc<dyn BrowserTools>>, Vec<ToolSpec>) {
-    let setup = &shared.setup;
-    let browser = match (&spec.browser, &setup.browser) {
-        (Some(b), Some(factory)) => Some(factory.open(b, &spec.env)),
-        _ => None,
-    };
-    let specs = match &browser {
-        Some(tools) => match tools.specs().await {
-            Ok(list) => model_specs(list, &setup.browser_allow),
-            Err(err) => {
-                tracing::warn!(bot = %spec.bot, %err, "the browser tool couldn't list its tools");
-                Vec::new()
-            }
-        },
-        None => Vec::new(),
-    };
-    (browser, specs)
 }
 
 /// A running loop session.
@@ -279,9 +225,7 @@ impl Session for LoopSession {
                     tracing::warn!(bot = %core.bot, "a loop turn didn't stop in time");
                 }
             }
-            if let Some(browser) = &core.browser {
-                browser.shutdown().await;
-            }
+            core.tools.shutdown().await;
         })
     }
 }
@@ -294,7 +238,7 @@ impl Drop for LoopSession {
         }
         // Dropped without `shutdown`: stop the browser tool too.
         if !was_stopping
-            && let Some(browser) = self.core.browser.clone()
+            && let Some(browser) = self.core.tools.browser()
             && let Ok(rt) = tokio::runtime::Handle::try_current()
         {
             rt.spawn(async move { browser.shutdown().await });
