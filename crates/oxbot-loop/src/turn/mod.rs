@@ -31,11 +31,13 @@ use crate::pacer::Lane;
 use crate::router::TurnRouting;
 use crate::runner::{Caller, HelperCaller, Next, Stop};
 use crate::session::{Conv, Core};
-use crate::store::{PendingCall, StoredMessage, TurnRow, TurnState, TurnStatus};
+use crate::store::{CheckRow, PendingCall, StoredMessage, TurnRow, TurnState, TurnStatus};
 use crate::{KnowledgeBlock, KnowledgeQuery};
 
 /// What a turn's question is saved as, at most.
 const MAX_QUESTION: usize = 2_000;
+/// Times a request is asked again after a tool call that couldn't be used.
+const MAX_REASKS: u32 = 2;
 
 /// How a turn ends.
 pub(crate) enum End {
@@ -145,6 +147,9 @@ pub(crate) struct Turn {
     bounced_at: Option<Instant>,
     /// Values the first answer had that nothing read had.
     ungrounded_before: Option<Vec<String>>,
+    /// Notes added to the end of the next request only (asking again
+    /// after a tool call that couldn't be used), never saved.
+    reask: Vec<Message>,
 }
 
 impl Turn {
@@ -222,6 +227,7 @@ impl Turn {
             bounced: false,
             bounced_at: None,
             ungrounded_before: None,
+            reask: Vec::new(),
         }
     }
 
@@ -331,6 +337,7 @@ impl Turn {
         let person = input.person.as_deref();
         let mut caller = self.caller(core, conv, person, lane, cancel);
         let mut bad_calls = 0;
+        let mut reasks = 0;
         if !self.leftover.is_empty() {
             let calls = std::mem::take(&mut self.leftover);
             if let Some(end) = self
@@ -352,22 +359,7 @@ impl Turn {
                 return End::Stopped;
             }
             if self.step >= max_steps {
-                // Said in the conversation too, so the next message reads as
-                // a new one, not as more steps of this task.
-                let stop = Message::assistant(
-                    format!(
-                        "(I stopped here: this task reached its limit of {max_steps} steps before \
-                         I finished it.)"
-                    ),
-                    Vec::new(),
-                );
-                if let Err(stop) = self.save(core, conv, vec![ToSave::plain(stop)], None) {
-                    return stop.into();
-                }
-                return End::Failed(format!(
-                    "This task took {max_steps} steps without finishing, so it stopped. Send \
-                     what's left as a new, smaller request."
-                ));
+                return self.step_limit(core, conv, max_steps);
             }
             caller.step = self.step;
             let resp = match self
@@ -381,6 +373,18 @@ impl Turn {
                 }
             };
             conv.excluded.clone_from(&caller.routing.excluded);
+            // A call that can't be used: the same request again with a
+            // note, up to twice; the broken answer isn't kept (so it isn't
+            // copied). Then it goes on as a tool error.
+            if reasks < MAX_REASKS
+                && let Some(note) = core.tools.reask_note(&resp.message.tool_calls)
+            {
+                reasks += 1;
+                self.reask = vec![Message::user(note)];
+                continue;
+            }
+            reasks = 0;
+            self.reask.clear();
             self.step += 1;
             self.model.clone_from(&caller.routing.sticky);
             let message = resp.message;
@@ -395,21 +399,11 @@ impl Turn {
             }
             if calls.is_empty() {
                 match self.answer_check(core, conv, &input.text, &text, max_steps) {
-                    check::Checked::Bounce(note) => {
-                        if let Err(stop) = self.bounce(core, conv, note) {
-                            return stop.into();
-                        }
-                        continue;
-                    }
-                    check::Checked::Accept(row) => {
-                        if let Some(row) = row
-                            && let Err(err) = core.shared.setup.store.record_check(&row)
-                        {
-                            tracing::warn!(%err, "couldn't save a turn's answer check");
-                        }
-                        send_assistant(core, &text, &calls).await;
-                        return End::Done(text);
-                    }
+                    check::Checked::Bounce(note) => match self.bounce(core, conv, note) {
+                        Ok(()) => continue,
+                        Err(stop) => return stop.into(),
+                    },
+                    check::Checked::Accept(row) => return self.accept(core, text, row).await,
                 }
             }
             let calls = calls.into_iter().map(|c| (c, None)).collect();
@@ -421,6 +415,38 @@ impl Turn {
                 return end;
             }
         }
+    }
+
+    /// Ends the turn at its step limit, saying so in the conversation too,
+    /// so the next message reads as a new one, not as more steps of this
+    /// task.
+    fn step_limit(&self, core: &Core, conv: &mut Conv, max_steps: u32) -> End {
+        let stop = Message::assistant(
+            format!(
+                "(I stopped here: this task reached its limit of {max_steps} steps before I \
+                 finished it.)"
+            ),
+            Vec::new(),
+        );
+        if let Err(stop) = self.save(core, conv, vec![ToSave::plain(stop)], None) {
+            return stop.into();
+        }
+        End::Failed(format!(
+            "This task took {max_steps} steps without finishing, so it stopped. Send what's \
+             left as a new, smaller request."
+        ))
+    }
+
+    /// Accepts the final answer `text`: records its check and tells the
+    /// hub.
+    async fn accept(&self, core: &Core, text: String, row: Option<CheckRow>) -> End {
+        if let Some(row) = row
+            && let Err(err) = core.shared.setup.store.record_check(&row)
+        {
+            tracing::warn!(%err, "couldn't save a turn's answer check");
+        }
+        send_assistant(core, &text, &[]).await;
+        End::Done(text)
     }
 
     /// The turn's model caller.
@@ -523,6 +549,7 @@ impl Turn {
                 )
                 .await?;
             let mut messages = built.messages.clone();
+            messages.extend(self.reask.iter().cloned());
             with_tail(&mut messages, core.browser.is_some());
             let estimated: u64 =
                 messages.iter().map(est_message).sum::<u64>() + est_tools(&core.specs);

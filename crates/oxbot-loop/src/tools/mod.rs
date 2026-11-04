@@ -262,27 +262,49 @@ impl ToolRegistry {
                 shorten(&call.name, 80)
             ));
         };
-        if let Some(why) = call.arguments_error() {
-            return Err(format!(
+        match argument_problem(entry, call) {
+            Some(ArgProblem::Unreadable(why)) => Err(format!(
                 "Your call to {} couldn't be read ({why}). You sent: {}",
                 call.name,
                 shorten(&call.raw, 500)
-            ));
+            )),
+            Some(ArgProblem::Missing(field)) => Err(format!("{} needs {field}.", call.name)),
+            None => Ok(entry),
         }
-        let required = entry
-            .spec
-            .parameters
-            .get("required")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str);
-        for field in required {
-            if call.arguments.get(field).is_none_or(Value::is_null) {
-                return Err(format!("{} needs {field}.", call.name));
-            }
+    }
+
+    /// For calls to known tools whose arguments can't be used (not a JSON
+    /// object, or a required field missing): a short note for asking the
+    /// model again, naming each tool, what was wrong and its required
+    /// fields. `None` when every call can be used (or names an unknown
+    /// tool: [`Self::validate`] says which one is meant).
+    #[must_use]
+    pub fn reask_note(&self, calls: &[ToolCall]) -> Option<String> {
+        let lines: Vec<String> = calls
+            .iter()
+            .filter_map(|call| {
+                let entry = self.get(&call.name)?;
+                let why = match argument_problem(entry, call)? {
+                    ArgProblem::Unreadable(why) => why,
+                    ArgProblem::Missing(field) => format!("{field} is missing"),
+                };
+                let required = required_fields(entry);
+                let needs = if required.is_empty() {
+                    "It has no required fields".to_owned()
+                } else {
+                    format!("It needs {}", required.join(", "))
+                };
+                Some(format!(
+                    "Your call to {} couldn't be used: {why}. {needs}; send its arguments as one \
+                     JSON object.",
+                    call.name
+                ))
+            })
+            .collect();
+        if lines.is_empty() {
+            return None;
         }
-        Ok(entry)
+        Some(format!("[oxbot] {} Call it again.", lines.join(" ")))
     }
 
     /// Runs a host, browser or file call the gate allowed (the loop's own
@@ -304,6 +326,37 @@ impl ToolRegistry {
         let untrusted = untrusted || raw.taints;
         finish(raw, &call.name, untrusted, env)
     }
+}
+
+/// What is wrong with a known tool's arguments.
+enum ArgProblem {
+    /// Not a JSON object.
+    Unreadable(String),
+    /// A required field isn't there.
+    Missing(String),
+}
+
+/// The tool's required fields, in its schema's order.
+fn required_fields(entry: &ToolEntry) -> Vec<&str> {
+    entry
+        .spec
+        .parameters
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+fn argument_problem(entry: &ToolEntry, call: &ToolCall) -> Option<ArgProblem> {
+    if let Some(why) = call.arguments_error() {
+        return Some(ArgProblem::Unreadable(why));
+    }
+    required_fields(entry)
+        .into_iter()
+        .find(|field| call.arguments.get(*field).is_none_or(Value::is_null))
+        .map(|field| ArgProblem::Missing(field.to_owned()))
 }
 
 /// A result before it's wrapped and cut for the model.

@@ -459,6 +459,9 @@ async fn a_practice_run_records_instead_of_running() {
 async fn broken_calls_are_shown_back_then_stop() {
     let h = Harness::new(
         ScriptedModel::new()
+            // Asked again twice, then a tool error.
+            .then(Step::broken_tool("mcp__chrome-devtools__click", "{uid: "))
+            .then(Step::broken_tool("mcp__chrome-devtools__click", "{uid: "))
             .then(Step::broken_tool("mcp__chrome-devtools__click", "{uid: "))
             .then(Step::tool("Bash", json!({"command": "ls"})))
             .then(Step::tool(
@@ -480,11 +483,86 @@ async fn broken_calls_are_shown_back_then_stop() {
             "The model kept making tool calls oxbot couldn't run, so the task stopped.".into()
         )
     );
-    let req = &h.requests()[1];
+    let req = &h.requests()[3];
     let last = req.messages.last().unwrap().text();
     assert!(
         last.starts_with("[tool error] Your call to mcp__chrome-devtools__click couldn't be read"),
         "{last}"
+    );
+    // The re-asks weren't kept: one broken call in the conversation.
+    let msgs = h.store.messages("s1").unwrap();
+    let broken = msgs
+        .iter()
+        .filter(|m| m.message.tool_calls.iter().any(|c| c.raw == "{uid: "))
+        .count();
+    assert_eq!(broken, 1);
+}
+
+#[tokio::test]
+async fn a_call_that_cant_be_used_is_asked_again_and_never_kept() {
+    let h = Harness::new(
+        ScriptedModel::new()
+            .then(Step::broken_tool(
+                "mcp__chrome-devtools__click",
+                "{\"uid\": \"1_2\"",
+            ))
+            .then(Step::tool("mcp__oxbot__give_task", json!({"bot": "news"})))
+            .then(Step::tool(
+                "mcp__chrome-devtools__click",
+                json!({"uid": "1_2"}),
+            ))
+            .then(Step::text("Clicked.")),
+    );
+    let seen = h
+        .turn(h.spec(new_session()), "click search", HubScript::default())
+        .await;
+    assert_eq!(seen.last().unwrap(), &Seen::Done(true, "Clicked.".into()));
+    // The hub never saw the broken ones.
+    let shown: Vec<&Seen> = seen
+        .iter()
+        .filter(|s| matches!(s, Seen::Assistant(_, calls) if !calls.is_empty()))
+        .collect();
+    assert_eq!(shown.len(), 1, "{seen:?}");
+    let reqs = h.requests();
+    // The same request again, with a note naming the tool, what was
+    // wrong and what it needs.
+    assert_eq!(reqs[1].messages.len(), reqs[0].messages.len() + 1);
+    assert_eq!(
+        reqs[1].messages[..reqs[0].messages.len()],
+        reqs[0].messages[..]
+    );
+    let note = reqs[1].messages.last().unwrap();
+    assert_eq!(note.role, Role::User);
+    assert!(
+        note.text().starts_with(
+            "[oxbot] Your call to mcp__chrome-devtools__click couldn't be used: the arguments \
+             aren't valid JSON"
+        ),
+        "{}",
+        note.text()
+    );
+    assert!(note.text().ends_with(
+        "It has no required fields; send its arguments as one JSON object. Call it again."
+    ));
+    // Asked again a second time: the first note is gone, the new one is.
+    assert_eq!(reqs[2].messages.len(), reqs[1].messages.len());
+    assert_eq!(
+        reqs[2].messages.last().unwrap().text(),
+        "[oxbot] Your call to mcp__oxbot__give_task couldn't be used: task is missing. It needs \
+         bot, task; send its arguments as one JSON object. Call it again."
+    );
+    // Then the good call ran, and the conversation has only it.
+    assert_eq!(h.browser.calls().len(), 1);
+    let msgs = h.store.messages("s1").unwrap();
+    assert!(
+        msgs.iter()
+            .all(|m| !m.message.text().contains("couldn't be used"))
+    );
+    assert_eq!(
+        msgs.iter()
+            .filter(|m| m.message.role == Role::Assistant && !m.message.tool_calls.is_empty())
+            .count(),
+        1
     );
 }
 
