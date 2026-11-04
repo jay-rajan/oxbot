@@ -253,7 +253,11 @@ async fn a_phone_pairs_once_and_then_acts_as_its_person() {
         },
     ] {
         send(&mut phone, &farm_only).await;
-        assert!(error(&mut phone).await.contains("Only the Farm"));
+        assert!(
+            error(&mut phone)
+                .await
+                .contains("only be done on the home computer")
+        );
     }
     send(
         &mut phone,

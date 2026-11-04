@@ -38,7 +38,7 @@ impl Hub {
         let label = card.rule.clone().filter(|_| self.can_always(card, viewer));
         let Some(label) = label else {
             return Err(HubError::NotAllowed(
-                "Always allow isn't offered for this card.".to_owned(),
+                "Always allow isn't offered for this approval request.".to_owned(),
             ));
         };
         let bot = self.bot(&card.bot)?;

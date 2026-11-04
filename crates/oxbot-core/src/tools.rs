@@ -107,8 +107,8 @@ pub fn check_call(tool: &str, arguments: &Value, set: ToolSet) -> Result<(), Str
 fn tools(set: ToolSet) -> Vec<Value> {
     let mut list = vec![json!({
         "name": SIGN_IN_TOOL,
-        "description": "Ask the user to sign in to a website in the shared browser. oxbot shows them a card; \
-            they open the page in a normal Chrome window on their Mac and sign in themselves. Waits (up to \
+        "description": "Ask the user to sign in to a website in the shared browser. oxbot shows them an approval \
+            request; they open the page in a normal Chrome window on the home computer and sign in themselves. Waits (up to \
             about 10 minutes) until they're done. Use it whenever a site shows a sign-in page, a CAPTCHA or a \
             2-step prompt. Every bot then stays signed in. Afterwards, reload the page and carry on.",
         "inputSchema": {
@@ -133,8 +133,8 @@ fn tools(set: ToolSet) -> Vec<Value> {
             }),
             json!({
                 "name": CREATE_BOT_TOOL,
-                "description": "Create a new bot. oxbot shows the user a card with the name and instructions, \
-                    and creates it only if they press Create. Create one only for a job that will repeat or \
+                "description": "Create a new bot. oxbot shows the user an approval request with the name and \
+                    instructions, and creates it only if they press Create. Create one only for a job that will repeat or \
                     needs its own memory; do one-off work yourself. Returns the new bot's id.",
                 "inputSchema": {
                     "type": "object",
@@ -190,7 +190,7 @@ fn save_report_schema() -> Value {
             "type": "object",
             "properties": {
                 "title": { "type": "string", "maxLength": crate::report::MAX_TITLE, "description": "A short title, e.g. \"Coffee near home\"." },
-                "summary": { "type": "string", "maxLength": crate::report::MAX_SUMMARY, "description": "One line: the answer in brief, shown on the card." },
+                "summary": { "type": "string", "maxLength": crate::report::MAX_SUMMARY, "description": "One line: the answer in brief, shown in the chat." },
                 "markdown": { "type": "string", "description": "The report in Markdown: the short answer first, then sections; a table when comparing options (e.g. price, rating, distance). Cite facts as [1], [2]. No images or HTML." },
                 "sources": {
                     "type": "array",

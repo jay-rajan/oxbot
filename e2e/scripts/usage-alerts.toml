@@ -1,24 +1,5 @@
-# The stand-in Claude for the usage alert tests: each reply reports the
-# plan's usage first, as Claude does mid-turn. The first `when` found in
-# the message wins, so "still half" comes before "half".
+# The stand-in bots for the usage alert tests: every message gets one
+# plain answer, one model request each.
 
 [[reply]]
-when = "still half"
-say = "Still about half."
-limits = { five_hour = 0.6, seven_day = 0.2 }
-model = "claude-sonnet-4-5-20250929"
-
-[[reply]]
-when = "half"
-say = "About half."
-limits = { five_hour = 0.55, seven_day = 0.2 }
-model = "claude-sonnet-4-5-20250929"
-
-[[reply]]
-when = "most"
-say = "Most of it."
-limits = { five_hour = 0.85, seven_day = 0.2 }
-model = "claude-sonnet-4-5-20250929"
-
-[[reply]]
-say = "Hello from the stand-in."
+say = "Noted."

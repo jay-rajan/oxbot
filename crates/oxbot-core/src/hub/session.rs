@@ -276,7 +276,7 @@ impl Hub {
         if was_busy {
             let message = match engine {
                 EngineKind::OpenRouter => "The bot's session stopped unexpectedly.",
-                EngineKind::Codex => "Codex stopped unexpectedly.",
+                EngineKind::Codex => "The bot's AI helper stopped unexpectedly.",
             };
             let _ = self.turn_failed(&bot, message);
         }

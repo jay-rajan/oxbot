@@ -1,11 +1,11 @@
 name = "Signing in for your private bots only"
-about = "Settings → Sign-ins can sign in for your own browser; the site lands under Yours, not Home."
+about = "Settings → Websites can sign in for your own browser; the site lands under Yours, not Home."
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/store.rs", "crates/oxbot-browser/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "Settings"
 [[step]]
-click = "Sign-ins"
+click = "Websites"
 [[step]]
 expect = "wikipedia.org"
 [[step]]

@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! bots/assistant/
-//!   bot.toml          name = "Herder", engine, owner, created_by, private,
+//!   bot.toml          name = "Assistant", engine, owner, created_by, private,
 //!                     [openrouter] settings (its model and daily limit)
 //!   instructions.md   appended to the bot's system prompt
 //!   work/             the bot's working folder: the only place it may touch
@@ -23,12 +23,12 @@ use serde::{Deserialize, Serialize};
 use crate::engine::EngineKind;
 use crate::id::{BotId, BotIdError, BrowserOwner, PersonId};
 
-/// The central bot's id. It's Herder: created on first run, kept if
+/// The central bot's id. It's the Assistant: created on first run, kept if
 /// missing, and the only bot that can create other bots and give them tasks.
-/// (The id stays `assistant`, its name before it was called Herder.)
+/// (The id stays `assistant`; for a while the bot was called Herder.)
 pub const DEFAULT_BOT: &str = "assistant";
 /// The central bot's name.
-pub const CENTRAL_NAME: &str = "Herder";
+pub const CENTRAL_NAME: &str = "Assistant";
 /// How a person's own Herder's id starts: `assistant--sam-1a2b3c`. Ids made
 /// from names never have two dashes in a row, so no other bot gets one.
 pub const PERSONAL_HERDER_PREFIX: &str = "assistant--";
@@ -82,17 +82,19 @@ pub fn personal_herder_id_for(person: &str, id: &PersonId) -> BotId {
     };
     BotId::new(id).unwrap_or_else(|_| unreachable!("only a-z, 0-9 and dashes, at most 40 long"))
 }
-/// Names and instructions the central bot had before it was Herder.
-const OLD_NAMES: &[&str] = &["Assistant"];
+/// Names and default instructions the central bot had before: it was
+/// "Assistant", then "Herder", and is the Assistant again.
+const OLD_NAMES: &[&str] = &["Herder"];
 const OLD_INSTRUCTIONS: &[&str] = &[
+    "You are Herder, oxbot's lead bot on the user's Mac. The user comes to you\nfirst: answer what you can, and guide their herd of bots for the rest.\nKeep replies short: the user may be reading on a phone.",
     "You are oxbot's assistant, running on the user's Mac.\nKeep replies short: the user may be reading on a phone.\nYou can read and write files in your working folder.",
     "You are oxbot's Assistant, running on the user's Mac. You are the user's\nfirst stop: answer what you can, and run the team of bots for the rest.\nKeep replies short: the user may be reading on a phone.",
 ];
 
 const DEFAULT_INSTRUCTIONS: &str = "\
-You are Herder, oxbot's lead bot on the user's Mac. The user comes to you
-first: answer what you can, and guide their herd of bots for the rest.
-Keep replies short: the user may be reading on a phone.";
+You are the Assistant, oxbot's lead bot on the user's home computer. The
+user comes to you first: answer what you can, and hand the rest to their
+other bots. Keep replies short: the user may be reading on a phone.";
 
 /// Who is asking: a person, and whether they're on the Farm itself.
 ///
@@ -605,26 +607,27 @@ pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
     rename_old_central(bots_dir)
 }
 
-/// A central bot still called "Assistant" (with its old default
-/// instructions) becomes Herder, once: a marker file in its folder means it
-/// was renamed already, so a name the user put back by hand stays.
-/// Instructions the user wrote are kept.
+/// A central bot (the main one or a person's own) still called "Herder"
+/// becomes the Assistant, and old default instructions become the new
+/// ones, once: a marker file in its folder means it was done already, so a
+/// name the user picked by hand stays. Instructions the user wrote are kept.
 fn rename_old_central(bots_dir: &Path) -> Result<(), BotError> {
-    let Some(mut bot) = load_all(bots_dir)?.into_iter().find(Bot::is_main_herder) else {
-        return Ok(());
-    };
-    let marker = bot.dir.join(".renamed-to-herder");
-    if marker.exists() || !OLD_NAMES.contains(&bot.name.as_str()) {
-        return Ok(());
+    for mut bot in load_all(bots_dir)?.into_iter().filter(Bot::is_central) {
+        let marker = bot.dir.join(".renamed-to-assistant");
+        if marker.exists() {
+            continue;
+        }
+        if OLD_NAMES.contains(&bot.name.as_str()) {
+            CENTRAL_NAME.clone_into(&mut bot.name);
+            bot.save()?;
+            tracing::info!(bot = %bot.id, "Herder is now called {CENTRAL_NAME}");
+        }
+        if bot.is_main_herder() && OLD_INSTRUCTIONS.contains(&bot.instructions.trim()) {
+            let path = bot.dir.join("instructions.md");
+            fs::write(&path, DEFAULT_INSTRUCTIONS).map_err(io_err(&path))?;
+        }
+        fs::write(&marker, "").map_err(io_err(&marker))?;
     }
-    CENTRAL_NAME.clone_into(&mut bot.name);
-    bot.save()?;
-    if OLD_INSTRUCTIONS.contains(&bot.instructions.trim()) {
-        let path = bot.dir.join("instructions.md");
-        fs::write(&path, DEFAULT_INSTRUCTIONS).map_err(io_err(&path))?;
-    }
-    fs::write(&marker, "").map_err(io_err(&marker))?;
-    tracing::info!("the Assistant is now called {CENTRAL_NAME}");
     Ok(())
 }
 
@@ -660,34 +663,45 @@ mod tests {
     }
 
     #[test]
-    fn the_old_assistant_becomes_herder_and_keeps_its_own_instructions() {
+    fn herder_becomes_the_assistant_and_keeps_its_own_instructions() {
         let tmp = tempfile::tempdir().unwrap();
         let id = BotId::new(DEFAULT_BOT).unwrap();
-        let old = Bot::create(tmp.path(), id, "Assistant", OLD_INSTRUCTIONS[1]).unwrap();
+        let old = Bot::create(tmp.path(), id, "Herder", OLD_INSTRUCTIONS[0]).unwrap();
         fs::write(
             old.dir.join("bot.toml"),
-            "name = \"Assistant\"\nmodel = \"haiku\"\n",
+            "name = \"Herder\"\nmodel = \"haiku\"\n",
         )
         .unwrap();
+        let theirs = Bot::create(tmp.path(), personal_herder_id("Ann"), "Herder", "").unwrap();
         ensure_default(tmp.path()).unwrap();
         let bot = Bot::load(&old.dir).unwrap();
-        assert_eq!(bot.name, "Herder");
-        assert!(bot.instructions.contains("You are Herder"));
+        assert_eq!(bot.name, "Assistant");
+        assert!(bot.instructions.contains("You are the Assistant"));
+        assert_eq!(Bot::load(&theirs.dir).unwrap().name, "Assistant");
 
         // It's renamed once: a name put back by hand stays.
-        fs::write(old.dir.join("bot.toml"), "name = \"Assistant\"\n").unwrap();
+        fs::write(old.dir.join("bot.toml"), "name = \"Herder\"\n").unwrap();
         ensure_default(tmp.path()).unwrap();
-        assert_eq!(Bot::load(&old.dir).unwrap().name, "Assistant");
+        assert_eq!(Bot::load(&old.dir).unwrap().name, "Herder");
 
         // Instructions the user wrote stay (an install never renamed yet).
-        fs::remove_file(old.dir.join(".renamed-to-herder")).unwrap();
+        fs::remove_file(old.dir.join(".renamed-to-assistant")).unwrap();
         fs::write(old.dir.join("instructions.md"), "Mine.").unwrap();
         ensure_default(tmp.path()).unwrap();
         let bot = Bot::load(&old.dir).unwrap();
         assert_eq!(
             (bot.name.as_str(), bot.instructions.as_str()),
-            ("Herder", "Mine.")
+            ("Assistant", "Mine.")
         );
+
+        // An install from before Herder, still on an old default, gets the new one.
+        let tmp = tempfile::tempdir().unwrap();
+        let id = BotId::new(DEFAULT_BOT).unwrap();
+        let older = Bot::create(tmp.path(), id, "Assistant", OLD_INSTRUCTIONS[2]).unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let bot = Bot::load(&older.dir).unwrap();
+        assert_eq!(bot.name, "Assistant");
+        assert!(bot.instructions.contains("You are the Assistant"));
     }
 
     #[test]

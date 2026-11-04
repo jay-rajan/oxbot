@@ -135,7 +135,9 @@ impl MacTools {
         size: u32,
     ) -> Result<Frames, String> {
         let Some(helper) = self.helper.as_ref().filter(|h| h.exists()) else {
-            return Err("taking still frames from video isn't available on this Mac.".to_owned());
+            return Err(
+                "taking still frames from video isn't available on the home computer.".to_owned(),
+            );
         };
         // oxbot's own program: it keeps oxbot's environment.
         let out = run_helper(

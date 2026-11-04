@@ -1,5 +1,5 @@
 name = "Searching and filtering need no OK"
-about = "A bot clicks search, filters and an element oxbot can't name without a card; a booking still asks."
+about = "A bot clicks search, filters and an element oxbot can't name without an approval request; a booking still asks."
 covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-browser/src/**"]
 
 [[step]]
@@ -35,6 +35,6 @@ shot = "booking-asks"
 [[step]]
 expect = "Book now"
 [[step]]
-click = "Deny"
+click = "Don't allow"
 [[step]]
 wait_for = "didn't book it"

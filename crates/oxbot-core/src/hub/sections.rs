@@ -107,7 +107,9 @@ impl Hub {
         if !self.opens(&bot, &self.resolve(viewer)) {
             return Err(HubError::UnknownBot(id.to_owned()));
         }
-        Err(HubError::NotAllowed("Herder stays at the top.".to_owned()))
+        Err(HubError::NotAllowed(
+            "The Assistant stays at the top.".to_owned(),
+        ))
     }
 
     /// Makes a section for `viewer`, last in their list, with `bot` in it
@@ -321,7 +323,7 @@ mod tests {
 
         // Herder stays at the top; unknown bots aren't filed.
         let herder = hub.move_bot("assistant", Some(&mine), &Viewer::farm("Jay"));
-        assert!(matches!(herder, Err(HubError::NotAllowed(ref m)) if m.contains("Herder")));
+        assert!(matches!(herder, Err(HubError::NotAllowed(ref m)) if m.contains("Assistant")));
         let sams_herder = hub.herder_for("Sam").unwrap();
         assert!(
             hub.move_bot(sams_herder.as_str(), Some(&mine), &sam)

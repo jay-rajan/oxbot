@@ -1,6 +1,6 @@
 name = "Research comes back as a report"
 about = "A research question gets a short reply and a report card; the report opens in a sandboxed frame with sections, a table and numbered sources; the ··· menu lists it and deletes it; a hostile title shows as text; a report citing a page the bot never opened isn't saved."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot-core/src/store/reports.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-protocol/**", "crates/oxbot-browser/src/web.rs"]
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/store/reports.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-protocol/**", "crates/oxbot-browser/src/web.rs"]
 
 [[step]]
 click = "Recipes"
@@ -11,7 +11,7 @@ wait_for = "Full comparison in the report."
 note = "A short reply, not a wall of text"
 [[step]]
 expect = "Coffee near home"
-note = "…and a card with the report's title"
+note = "…and an approval request with the report's title"
 [[step]]
 expect = "2 sources"
 shot = "report-card"
@@ -52,7 +52,7 @@ click = "Cancel"
 click = "Coffee near home"
 [[step]]
 wait_for = "That report was deleted."
-note = "Its card stays, and says so"
+note = "Its approval request stays, and says so"
 [[step]]
 send = "research tea"
 [[step]]

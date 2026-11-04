@@ -124,18 +124,18 @@ fn usage_alert(a: &LimitAlert, now_ms: i64, bot_name: &dyn Fn(&str) -> String) -
         .unwrap_or_default();
     let message = if let Some(bot) = a.name.strip_prefix(BOT_DAILY) {
         format!(
-            "{}'s requests for today are at {pct}%.{reset}",
+            "{}'s AI questions today are at {pct}%.{reset}",
             bot_name(bot)
         )
     } else {
         match a.name.as_str() {
             "openrouter_free_daily" => {
-                format!("OpenRouter's free daily requests are at {pct}%.{reset}")
+                format!("Free AI questions today are at {pct}%.{reset}")
             }
             "openrouter_spend_daily" => {
-                format!("Paid models have used {pct}% of today's spending limit.{reset}")
+                format!("Paid AI spending today is at {pct}% of the limit.{reset}")
             }
-            _ => format!("OpenRouter's credit is {pct}% used."),
+            _ => format!("The AI account's credit is {pct}% used."),
         }
     };
     UsageAlert {
@@ -342,7 +342,7 @@ mod tests {
         let alert = usage_alert(&a, NOW, &|_| "Scout".to_owned());
         assert_eq!(
             alert.message,
-            "Scout's requests for today are at 100%. Resets in 3 h 0 min."
+            "Scout's AI questions today are at 100%. Resets in 3 h 0 min."
         );
         // Unknown names never alert, nor Claude's old windows.
         for name in ["openrouter_other", "five_hour", "seven_day"] {
@@ -358,7 +358,7 @@ mod tests {
         assert!(
             usage_alert(&free, NOW, &|id| id.to_owned())
                 .message
-                .starts_with("OpenRouter's free daily requests are at 100%.")
+                .starts_with("Free AI questions today are at 100%.")
         );
     }
 
@@ -417,7 +417,7 @@ mod tests {
         };
         assert_eq!(
             usage_alert(&a, NOW, &|id| id.to_owned()).message,
-            "Paid models have used 52% of today's spending limit. Resets in 2 h 10 min."
+            "Paid AI spending today is at 52% of the limit. Resets in 2 h 10 min."
         );
         let credit = LimitAlert {
             name: "openrouter_credits".to_owned(),
@@ -428,7 +428,7 @@ mod tests {
         };
         assert_eq!(
             usage_alert(&credit, NOW, &|id| id.to_owned()).message,
-            "OpenRouter's credit is 81% used."
+            "The AI account's credit is 81% used."
         );
         assert_eq!(
             resets_in(NOW + (3 * 1440 + 4 * 60) * 60 * 1000, NOW).as_deref(),

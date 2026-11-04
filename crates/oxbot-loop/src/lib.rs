@@ -208,7 +208,7 @@ pub const DATA_POLICY_HELP: &str = "OpenRouter's privacy settings for this accou
     free models oxbot tried: their providers may train on what they're sent. To use them, the \
     owner can open openrouter.ai/settings/privacy and switch on \u{201c}Enable free endpoints \
     that may train on inputs\u{201d} (and switch off \u{201c}ZDR Endpoints only\u{201d} if it's \
-    on), or switch on paid models in Settings \u{2192} Engines. Private bots never use those \
+    on), or switch on paid models in Settings \u{2192} AI models. Private bots never use those \
     providers either way.";
 
 /// Whether the account's data policy ruled out free models lately (set
@@ -396,8 +396,8 @@ impl Engine for LoopEngine {
         match &self.shared.setup.key {
             Some(key) if key.is_loading() => Err(NotReady(oxbot_llm::KEYCHAIN_WAITING.to_owned())),
             Some(key) if !key.is_set() => Err(NotReady(
-                "OpenRouter isn't signed in on this Mac yet. The owner can sign in under \
-                 Settings → Engines."
+                "The home's AI account (OpenRouter) isn't connected yet. The owner can connect it \
+                 under Settings → AI models."
                     .to_owned(),
             )),
             _ => Ok(()),

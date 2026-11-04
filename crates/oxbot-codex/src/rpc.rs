@@ -66,7 +66,7 @@ pub enum Incoming {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RpcError {
     /// Codex answered with an error.
-    #[error("Codex said: {0}")]
+    #[error("The AI helper said: {0}")]
     Codex(String),
     /// The process stopped, or didn't answer in time.
     #[error("{0}")]
@@ -141,7 +141,7 @@ impl Process {
     /// It couldn't start, or didn't answer.
     pub async fn start(launch: &Launch, bot: &str) -> Result<Arc<Self>, RpcError> {
         std::fs::create_dir_all(launch.home.join("tmp"))
-            .map_err(|e| RpcError::Gone(format!("couldn't make Codex's folder: {e}")))?;
+            .map_err(|e| RpcError::Gone(format!("couldn't make the AI helper's folder: {e}")))?;
         let mut cmd = Command::new(&launch.program);
         cmd.args(["app-server", "--listen", "stdio://"])
             .env_clear()
@@ -154,11 +154,13 @@ impl Process {
             .kill_on_drop(true);
         let mut child = cmd
             .spawn()
-            .map_err(|e| RpcError::Gone(format!("couldn't start Codex: {e}")))?;
+            .map_err(|e| RpcError::Gone(format!("couldn't start the AI helper: {e}")))?;
         let (Some(stdin), Some(stdout), Some(stderr)) =
             (child.stdin.take(), child.stdout.take(), child.stderr.take())
         else {
-            return Err(RpcError::Gone("Codex started without its pipes".to_owned()));
+            return Err(RpcError::Gone(
+                "The AI helper started without its pipes".to_owned(),
+            ));
         };
         let process = Arc::new(Self {
             stdin: tokio::sync::Mutex::new(stdin),
@@ -221,7 +223,7 @@ impl Process {
         }
         self.gone.cancel();
         for (_, tx) in lock(&self.waiting).drain() {
-            let _ = tx.send(Err(RpcError::Gone("Codex stopped.".to_owned())));
+            let _ = tx.send(Err(RpcError::Gone("The AI helper stopped.".to_owned())));
         }
         for (_, tx) in lock(&self.threads).drain() {
             let _ = tx.send(Incoming::Gone);
@@ -320,11 +322,11 @@ impl Process {
         stdin
             .write_all(&line)
             .await
-            .map_err(|_| RpcError::Gone("Codex stopped.".to_owned()))?;
+            .map_err(|_| RpcError::Gone("The AI helper stopped.".to_owned()))?;
         stdin
             .flush()
             .await
-            .map_err(|_| RpcError::Gone("Codex stopped.".to_owned()))
+            .map_err(|_| RpcError::Gone("The AI helper stopped.".to_owned()))
     }
 
     /// Sends a request and waits for its answer.
@@ -337,7 +339,7 @@ impl Process {
         lock(&self.waiting).insert(id, tx);
         if self.is_gone() {
             lock(&self.waiting).remove(&id);
-            return Err(RpcError::Gone("Codex stopped.".to_owned()));
+            return Err(RpcError::Gone("The AI helper stopped.".to_owned()));
         }
         let sent = self
             .write(&json!({"id": id, "method": method, "params": params}))
@@ -348,11 +350,11 @@ impl Process {
         }
         match tokio::time::timeout(ANSWER_LIMIT, rx).await {
             Ok(Ok(answer)) => answer,
-            Ok(Err(_)) => Err(RpcError::Gone("Codex stopped.".to_owned())),
+            Ok(Err(_)) => Err(RpcError::Gone("The AI helper stopped.".to_owned())),
             Err(_) => {
                 lock(&self.waiting).remove(&id);
                 Err(RpcError::Gone(format!(
-                    "Codex didn't answer {method} in time."
+                    "The AI helper didn't answer {method} in time."
                 )))
             }
         }
@@ -432,7 +434,7 @@ async fn read_line(
         out.extend_from_slice(buf);
         reader.consume(n);
         if out.len() > MAX_LINE {
-            return Err("a line from Codex was too long");
+            return Err("a line from the AI helper was too long");
         }
     }
 }

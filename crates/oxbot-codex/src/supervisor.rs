@@ -155,7 +155,7 @@ impl Supervisor {
         }
         let (relay, token) = self.relay.register(info.clone())?;
         config::write(&key.home, &config::config_toml(&self.relay.base_url()))
-            .map_err(|e| format!("couldn't write Codex's settings: {e}"))?;
+            .map_err(|e| format!("couldn't write the AI helper's settings: {e}"))?;
         let launch = Launch {
             program: self.binary.path.clone(),
             home: key.home.clone(),
@@ -186,7 +186,7 @@ impl Supervisor {
                     .saturating_mul(2u32.saturating_pow(slot.crashes.saturating_sub(1)))
                     .min(MAX_BACKOFF);
                 slot.not_before = Some(Instant::now() + wait);
-                Err(format!("Codex couldn't start: {err}"))
+                Err(format!("The AI helper couldn't start: {err}"))
             }
         }
     }

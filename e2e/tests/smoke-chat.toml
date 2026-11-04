@@ -1,19 +1,19 @@
-name = "The app opens and Herder replies"
-about = "The page loads with every bot, Herder leads the list, and a message gets a reply."
+name = "The app opens and Assistant replies"
+about = "The page loads with every bot, Assistant leads the list, and a message gets a reply."
 smoke = true
 covers = []
 
 [[step]]
-expect = "Herder"
-note = "Herder is pinned first"
+expect = "Assistant"
+note = "Assistant is pinned first"
 [[step]]
 expect = "leads your bots"
 [[step]]
-click = "Herder"
+click = "Assistant"
 [[step]]
 send = "hello there"
 [[step]]
-wait_for = "Hello! I'm the stand-in Claude."
+wait_for = "Hello! I'm the stand-in bot."
 note = "The reply arrives"
 [[step]]
 expect = "Jay"

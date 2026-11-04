@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use oxbot_core::engine::EngineKind;
-use oxbot_core::hub::MOVED_TO_CODEX;
+use oxbot_core::hub::MOVED_FROM_CLAUDE;
 use oxbot_core::testing::{self, FakeBots, On, Tool};
 use oxbot_core::{Bot, BotId, Hub, HubConfig, HubError, LoopParts, Store, Viewer};
 use oxbot_llm::{ScriptedModel, Step};
@@ -159,7 +159,7 @@ async fn without_an_openrouter_sign_in_every_bot_says_so() {
         assert!(matches!(err, HubError::EngineNotReady(_)), "{err}");
         assert_eq!(
             err.to_string(),
-            "OpenRouter isn't set up on this Mac yet; ask Jay."
+            "The home's AI account (OpenRouter) isn't connected yet; ask Jay."
         );
         assert_eq!(hub.history(bot, 0).unwrap(), [], "{bot}: nothing recorded");
     }
@@ -263,14 +263,20 @@ async fn whoever_manages_a_bot_switches_its_engine_but_never_a_herders() {
         .set_engine("notes", EngineKind::Codex, None, &owner)
         .await
         .unwrap_err();
-    assert_eq!(err.to_string(), "Codex isn't set up on this Mac.");
+    assert_eq!(
+        err.to_string(),
+        "The AI helper isn't set up on the home computer."
+    );
     assert_eq!(hub.bot("notes").unwrap().engine, EngineKind::OpenRouter);
     // Herders' engines are fixed.
     let err = hub
         .set_engine("assistant", EngineKind::OpenRouter, None, &owner)
         .await
         .unwrap_err();
-    assert_eq!(err.to_string(), "Herder's engine is fixed.");
+    assert_eq!(
+        err.to_string(),
+        "The Assistant's AI model is set by the owner."
+    );
 }
 
 #[tokio::test]
@@ -418,6 +424,10 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
             && file("journal").contains("private = true")
     );
     assert!(file("assistant").contains("engine = \"codex\""));
+    assert!(
+        file("assistant").contains("name = \"Assistant\""),
+        "Herder is the Assistant now"
+    );
     assert!(file("assistant--ann-1a2b3c").contains("engine = \"codex\""));
     assert!(
         file("scout").contains("engine = \"openrouter\""),
@@ -429,7 +439,7 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
         hub.history(id, 0)
             .unwrap()
             .into_iter()
-            .filter(|e| matches!(&e.kind, EventKind::Note { text } if text == MOVED_TO_CODEX))
+            .filter(|e| matches!(&e.kind, EventKind::Note { text } if text == MOVED_FROM_CLAUDE))
             .count()
     };
     for id in ["assistant", "recipes", "journal"] {
@@ -443,8 +453,8 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
     assert_eq!(note(&hub, "scout"), 0, "it never ran on Claude");
     assert_eq!(note(&hub, "assistant--ann-1a2b3c"), 0, "it ran on the loop");
     assert_eq!(
-        MOVED_TO_CODEX,
-        "This bot now runs on Codex (open models) through your OpenRouter account. Its old \
+        MOVED_FROM_CLAUDE,
+        "This bot now uses free and paid AI models through your OpenRouter account. Its old \
          Claude sessions can't be continued."
     );
     for id in ["assistant", "recipes", "journal", "assistant--ann-1a2b3c"] {
@@ -465,7 +475,7 @@ async fn bots_from_before_claude_left_move_to_codex_once_and_keep_their_chats() 
         .unwrap_err();
     assert_eq!(
         err.to_string(),
-        "OpenRouter isn't set up on this Mac yet; ask Jay."
+        "The home's AI account (OpenRouter) isn't connected yet; ask Jay."
     );
     // Claude's window alert never shows again.
     assert_eq!(hub.live_usage_alerts(), []);

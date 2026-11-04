@@ -169,7 +169,7 @@ impl Hub {
             Ok(())
         } else {
             Err(HubError::NotAllowed(format!(
-                "Only {} compares engines and models.",
+                "Only {} compares AI models.",
                 self.owner_name()
             )))
         }
@@ -188,7 +188,8 @@ impl Hub {
         }
         if bot.is_central() {
             return Err(HubError::NotAllowed(
-                "Herder's tasks pass work to other bots, so they can't be compared yet.".to_owned(),
+                "The Assistant's tasks pass work to other bots, so they can't be compared yet."
+                    .to_owned(),
             ));
         }
         Ok(bot)
@@ -706,7 +707,7 @@ impl Hub {
             for case in &found {
                 if case.local_only {
                     refused.push(format!(
-                        "{name} for \"{}\": the bot keeps its data on this Mac",
+                        "{name} for \"{}\": the bot keeps its data on the home computer",
                         case.title
                     ));
                     continue;
@@ -797,7 +798,7 @@ impl Hub {
             return Err(HubError::NotAllowed(if estimate.runs == 0 {
                 format!("Nothing can run: {}", estimate.refused.join("; "))
             } else {
-                "That's more than today's free requests allow (some are kept for live bots), or \
+                "That's more than today's free AI questions allow (some are kept for live bots), or \
                  more than 60 runs. Pick fewer cases or models."
                     .to_owned()
             }));

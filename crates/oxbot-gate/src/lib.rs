@@ -44,20 +44,22 @@ const MAX_BODY: usize = 8 * 1024 * 1024;
 #[derive(Debug, thiserror::Error)]
 pub enum GateError {
     /// The scanned or pasted link isn't an oxbot pairing link.
-    #[error("That isn't an oxbot pairing code. Scan the QR code in the Farm's Settings → Gates.")]
+    #[error(
+        "That isn't an oxbot pairing code. Scan the QR code in Settings → Devices on the home computer."
+    )]
     BadLink,
     /// None of the Farm's addresses answered.
     #[error(
-        "Can't reach the Farm. Check that this phone is on the same Wi-Fi as the Mac and oxbot is running there."
+        "Can't reach the home computer. Check that this phone is on the same Wi-Fi as the home computer and oxbot is running there."
     )]
     Unreachable,
     /// Something answered, but its certificate isn't the Farm's.
     #[error(
-        "Something on this Wi-Fi answered as the Farm but isn't it (its certificate doesn't match), so oxbot didn't connect."
+        "Something on this Wi-Fi answered as the home computer but isn't it (its certificate doesn't match), so oxbot didn't connect."
     )]
     WrongFarm,
     /// The Farm doesn't know this Gate's key (it was removed).
-    #[error("The Farm doesn't know this phone any more (it was removed). Pair it again.")]
+    #[error("The home computer doesn't know this phone any more (it was removed). Pair it again.")]
     Unpaired,
     /// The Farm couldn't answer just now (it's still paired); try again.
     #[error("{0}")]
@@ -66,7 +68,7 @@ pub enum GateError {
     #[error("{0}")]
     Refused(String),
     /// The Farm's answer made no sense.
-    #[error("The Farm's answer couldn't be read: {0}")]
+    #[error("The home computer's answer couldn't be read: {0}")]
     BadReply(String),
     /// The WebSocket failed.
     #[error("connection: {0}")]
@@ -271,7 +273,7 @@ async fn request(
     };
     let (status, body) = tokio::time::timeout(ANSWER_TIMEOUT, answer)
         .await
-        .map_err(|_| bad(&"the Farm took too long to answer"))??;
+        .map_err(|_| bad(&"the home computer took too long to answer"))??;
     match status {
         200 => Ok((host, body)),
         401 => Err(GateError::Unpaired),
@@ -362,7 +364,7 @@ impl ServerCertVerifier for Pinned {
             Ok(ServerCertVerified::assertion())
         } else {
             Err(rustls::Error::General(
-                "not the pinned Farm certificate".to_owned(),
+                "not the home computer's pinned certificate".to_owned(),
             ))
         }
     }

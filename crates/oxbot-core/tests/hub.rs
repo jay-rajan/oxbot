@@ -622,7 +622,7 @@ async fn only_the_maker_or_the_farm_can_change_or_delete_a_bot() {
         .unwrap();
     assert_eq!(hub.bot("recipes").unwrap().name, "Sam's Recipes");
     // One line, not too long, not taken.
-    for bad in ["two\nlines", &"x".repeat(61), "herder"] {
+    for bad in ["two\nlines", &"x".repeat(61), "assistant"] {
         assert!(
             matches!(
                 hub.rename_bot("recipes", bad, &sam).await,
@@ -701,7 +701,7 @@ async fn herder_never_relays_a_private_bot() {
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
     assert!(
-        said.starts_with("tool_ok=false helper is private. Herder doesn't pass"),
+        said.starts_with("tool_ok=false helper is private. The Assistant doesn't pass"),
         "{said}"
     );
     assert!(
@@ -783,7 +783,7 @@ async fn after_reading_the_web_herder_asks_before_tasking_a_private_bot() {
     assert_eq!(asked.kind, ApprovalKind::GiveTask);
     assert_eq!(asked.bot, "assistant");
     assert_eq!(asked.action, "give a task to");
-    assert_eq!(asked.target, "helper (private, Jay's sign-ins)");
+    assert_eq!(asked.target, "helper (private, signed in as Jay)");
     assert_eq!(asked.site, "oxbot");
     assert_eq!(asked.detail.as_deref(), Some("say hi"));
     assert_eq!(asked.asker.as_deref(), Some("Jay"));
@@ -1555,7 +1555,7 @@ async fn usage_alerts_come_once_per_level_per_window_even_after_a_restart() {
     assert!(
         alerts[0]
             .message
-            .starts_with("poster's requests for today are at 60%. Resets in "),
+            .starts_with("poster's AI questions today are at 60%. Resets in "),
         "{}",
         alerts[0].message
     );

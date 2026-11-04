@@ -1,6 +1,6 @@
 [package]
 name = "oxbot"
-description = "oxbot: always-on Claude bots on your Mac, reachable from your phone."
+description = "oxbot: always-on bots on your home computer, reachable from your phone and other devices."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

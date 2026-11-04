@@ -272,7 +272,7 @@ impl CodexSession {
     async fn start(shared: Arc<Shared>, spec: SessionSpec) -> Result<Started, EngineError> {
         let Some(supervisor) = shared.supervisor() else {
             return Err(EngineError::NotReady(NotReady(
-                "Codex isn't installed on this Mac.".to_owned(),
+                "The AI helper isn't installed on the home computer.".to_owned(),
             )));
         };
         let (events, events_rx) = mpsc::channel(EVENT_ROOM);
@@ -536,7 +536,7 @@ impl Turn {
                 }),
             )
             .await
-            .map_err(|e| format!("Codex didn't take the message: {e}"))?;
+            .map_err(|e| format!("The AI helper didn't take the message: {e}"))?;
         answer["turn"]["id"]
             .as_str()
             .unwrap_or_default()
@@ -607,13 +607,13 @@ impl Turn {
                 }
                 incoming = rx.recv() => {
                     let Some(incoming) = incoming else {
-                        return End::Failed("Codex stopped unexpectedly. Send the message again.".to_owned());
+                        return End::Failed("The bot's AI helper stopped unexpectedly. Send the message again.".to_owned());
                     };
                     match incoming {
                         Incoming::Gone => {
                             core.thread.lock().await.loaded = None;
                             return self.stopped_for.take().unwrap_or_else(|| End::Failed(
-                                "Codex stopped unexpectedly. Send the message again.".to_owned(),
+                                "The bot's AI helper stopped unexpectedly. Send the message again.".to_owned(),
                             ));
                         }
                         Incoming::Request { id, method, params } => {
@@ -746,7 +746,9 @@ impl Turn {
             Some("completed") => {}
             Some("interrupted") => return Some(End::Stopped),
             _ => {
-                let raw = turn["error"]["message"].as_str().unwrap_or("Codex failed.");
+                let raw = turn["error"]["message"]
+                    .as_str()
+                    .unwrap_or("The AI helper failed.");
                 return Some(End::Failed(plain_error(raw)));
             }
         }
@@ -1148,7 +1150,7 @@ fn next_turn(core: &Core, thread: &str) -> Result<u32, String> {
     let mut row = store
         .thread(bot, session)?
         .filter(|r| r.thread_id == thread)
-        .ok_or_else(|| "the session's Codex thread wasn't saved".to_owned())?;
+        .ok_or_else(|| "the session's AI helper conversation wasn't saved".to_owned())?;
     let number = row.turns;
     row.turns += 1;
     row.updated_ms = oxbot_loop::meter::now_ms();
@@ -1274,19 +1276,27 @@ async fn start_thread(
                 return answer["thread"]["id"]
                     .as_str()
                     .map(str::to_owned)
-                    .ok_or_else(|| "Codex started a thread without an id".to_owned());
+                    .ok_or_else(|| {
+                        "The AI helper started a conversation without an id".to_owned()
+                    });
             }
             Err(RpcError::Codex(why)) if dropped.len() < MAX_DROPPED_TOOLS => {
                 let Some(tool) = why
                     .strip_prefix("dynamic tool input schema is not supported for ")
                     .and_then(|rest| rest.split(':').next())
                 else {
-                    return Err(format!("Codex couldn't start the conversation: {why}"));
+                    return Err(format!(
+                        "The AI helper couldn't start the conversation: {why}"
+                    ));
                 };
                 tracing::warn!(bot = %core.spec.bot, tool, why, "Codex can't take this tool; leaving it out");
                 dropped.push(tool.to_owned());
             }
-            Err(err) => return Err(format!("Codex couldn't start the conversation: {err}")),
+            Err(err) => {
+                return Err(format!(
+                    "The AI helper couldn't start the conversation: {err}"
+                ));
+            }
         }
     }
 }

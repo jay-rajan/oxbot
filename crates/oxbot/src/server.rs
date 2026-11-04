@@ -1124,7 +1124,7 @@ async fn handle(
         }]
     };
     if !viewer.farm && farm_only(&msg) {
-        return error(&"Only the Farm can do that.");
+        return error(&"That can only be done on the home computer.");
     }
     // Comparing engines and models: the owner's only (the hub checks).
     let msg = match crate::compare::handle(msg, &state.hub, &viewer).await {
@@ -1398,7 +1398,7 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
         | ClientMsg::RemoveDoorNetwork { .. }
         | ClientMsg::SetDoorName { .. } => {
             let Some(door) = &state.door else {
-                return Ok(error(&"This oxbot has no Gate door."));
+                return Ok(error(&"This oxbot can't connect devices."));
             };
             match handle_door(msg, door).await {
                 Ok(reply) => reply,
@@ -1589,7 +1589,7 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
                 });
             }
             vec![ServerMsg::Notice {
-                message: format!("Opening {} on this Mac.", file.name),
+                message: format!("Opening {} on the home computer.", file.name),
                 owner: None,
                 owner_id: None,
             }]
@@ -1636,7 +1636,7 @@ async fn create_bot(
         && let Err(e) = state.hub.set_engine(&info.id, wanted, None, &viewer).await
     {
         out.push(ServerMsg::Error {
-            message: format!("Made {}, but couldn't switch its engine: {e}", info.name),
+            message: format!("Made {}, but couldn't switch its AI model: {e}", info.name),
         });
     }
     let info = match state.hub.bots().await {
@@ -1692,7 +1692,7 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
     // changes it or opens its sites. Anyone may use their own.
     let home_only_farm = |mine: bool| {
         (!mine && !viewer.farm).then(|| ServerMsg::Error {
-            message: "Only the Farm can change the home browser's sign-ins.".to_owned(),
+            message: "The websites everyone's bots are signed in to can only be changed on the home computer.".to_owned(),
         })
     };
     match msg {
@@ -2515,7 +2515,7 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("Herder")),
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("Assistant")),
             "{replies:?}"
         );
     }
@@ -2779,7 +2779,7 @@ mod tests {
         assert!(!farm_only(&to_codex));
         let replies = handle(to_codex, &state, &mut client, &out).await;
         assert!(
-            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("OpenRouter isn't set up")),
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("The home's AI account (OpenRouter) isn't connected")),
             "{replies:?}"
         );
         assert_eq!(
@@ -2794,7 +2794,7 @@ mod tests {
         };
         let replies = handle(make, &state, &mut client, &out).await;
         assert!(
-            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("OpenRouter isn't set up")),
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("The home's AI account (OpenRouter) isn't connected")),
             "{replies:?}"
         );
         assert!(state.hub.bot("diary").is_err(), "nothing made");
@@ -2804,7 +2804,7 @@ mod tests {
         assert_eq!(view.notice, oxbot_core::hub::ENGINES_NOTICE);
         assert!(
             view.notice
-                .contains("only to OpenRouter through oxbot's relay")
+                .contains("goes only to OpenRouter (or a model on this computer)")
         );
         assert!(
             view.codex.is_none() && view.openrouter.is_none(),
@@ -2943,7 +2943,7 @@ mod tests {
             );
             let replies = handle(msg, &state, &mut client, &out).await;
             assert!(
-                matches!(&replies[..], [ServerMsg::Error { message }] if message == "Only the Farm can do that."),
+                matches!(&replies[..], [ServerMsg::Error { message }] if message == "That can only be done on the home computer."),
                 "{replies:?}"
             );
         }

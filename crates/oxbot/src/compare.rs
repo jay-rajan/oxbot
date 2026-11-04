@@ -56,7 +56,7 @@ pub async fn handle(
     }
     if !hub.is_owner_viewer(viewer) {
         return Ok(error(&HubError::NotAllowed(format!(
-            "Only {} compares engines and models.",
+            "Only {} compares AI models.",
             hub.owner_display_name()
         ))));
     }

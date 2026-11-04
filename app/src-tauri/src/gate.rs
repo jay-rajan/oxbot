@@ -387,7 +387,7 @@ async fn gate_open(
                                 break "the page went away".to_owned();
                             }
                         }
-                        Some(Ok(Message::Close(_))) | None => break "the Farm closed the connection".to_owned(),
+                        Some(Ok(Message::Close(_))) | None => break "the home computer closed the connection".to_owned(),
                         Some(Err(e)) => break e.to_string(),
                         Some(Ok(_)) => {}
                     }
@@ -403,7 +403,7 @@ async fn gate_open(
                 },
                 _ = beat.tick() => {
                     if heard.elapsed() > SILENCE {
-                        break "the Farm stopped answering".to_owned();
+                        break "the home computer stopped answering".to_owned();
                     }
                     if let Err(e) = sink.send(Message::Ping(Vec::new().into())).await {
                         break e.to_string();

@@ -21,4 +21,4 @@ note = "No colored dot next to the maker"
 [[step]]
 send = "hello"
 [[step]]
-wait_for = "Hello! I'm the stand-in Claude."
+wait_for = "Hello! I'm the stand-in bot."

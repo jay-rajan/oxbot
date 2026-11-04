@@ -49,7 +49,7 @@ pub use approvals::answers;
 pub use codex::CodexParts;
 pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::ENGINES_NOTICE;
-pub use engines::{ChainOrigin, Entry, MOVED_TO_CODEX};
+pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE};
 pub use looped::LoopParts;
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
@@ -333,7 +333,14 @@ const MAX_NAME: usize = 60;
 /// The longest person's name, in characters.
 pub const MAX_PERSON: usize = 40;
 /// Names oxbot uses itself, which no person may take.
-const RESERVED_PEOPLE: &[&str] = &[crate::bot::CENTRAL_NAME, "Farm", "oxbot", "home", "Gate"];
+const RESERVED_PEOPLE: &[&str] = &[
+    crate::bot::CENTRAL_NAME,
+    "Herder",
+    "Farm",
+    "oxbot",
+    "home",
+    "Gate",
+];
 
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -564,6 +571,7 @@ mod tests {
             "[Jay]",
             "a\\b",
             "herder",
+            "assistant",
             "Farm",
             &"x".repeat(41),
         ] {

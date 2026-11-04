@@ -6,7 +6,7 @@ openrouter_signed_in = false
 [[step]]
 click = "Settings"
 [[step]]
-click = "Engines"
+click = "AI models"
 [[step]]
 click = "Sign in with OpenRouter"
 [[step]]
@@ -24,6 +24,6 @@ open = "/"
 [[step]]
 click = "Settings"
 [[step]]
-click = "Engines"
+click = "AI models"
 [[step]]
 expect = "Not signed in."

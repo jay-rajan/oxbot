@@ -13,29 +13,29 @@ wait_for = "@scout"
 [[step]]
 click = "Bot settings"
 [[step]]
-type = { into = "Model requests a day", text = "2" }
+type = { into = "Questions a day", text = "2" }
 [[step]]
 click = "Save"
 [[step]]
 send = "hello"
 [[step]]
-wait_for = "1 request"
+wait_for = "1 question"
 [[step]]
 send = "hello again"
 [[step]]
-wait_for = "Hello! I'm the stand-in Claude."
+wait_for = "Hello! I'm the stand-in bot."
 [[step]]
-expect_js = "[...document.querySelectorAll('#log *')].filter(e => e.children.length === 0 && e.textContent.includes(\"Hello! I'm the stand-in Claude.\")).length === 2"
+expect_js = "[...document.querySelectorAll('#log *')].filter(e => e.children.length === 0 && e.textContent.includes(\"Hello! I'm the stand-in bot.\")).length === 2"
 note = "Two answers"
 [[step]]
 send = "and once more"
 [[step]]
-wait_for = "Scout has used its 2 requests for today."
+wait_for = "Scout has used its 2 AI questions for today."
 note = "The third is stopped, and says why"
 [[step]]
-expect = "the owner can raise the limit (Settings → Engines)"
+expect = "the owner can raise the limit (Settings → AI models)"
 [[step]]
-expect = "Scout's requests today at 100%"
+expect = "Scout's questions today at 100%"
 note = "The usage banner names the bot's limit"
 shot = "limit-reached"
 [[step]]

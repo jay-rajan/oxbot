@@ -1,17 +1,15 @@
 name = "Settings opens on each tab"
-about = "The gear opens Settings; General, Sign-ins and Activity each show their content."
+about = "The gear opens Settings; General, Websites and Activity each show their content."
 smoke = true
 covers = []
 
 [[step]]
 click = "Settings"
 [[step]]
-expect = "Claude usage"
-[[step]]
 expect = "Notifications"
 note = "Usage alerts can be switched here"
 [[step]]
-click = "Sign-ins"
+click = "Websites"
 [[step]]
 expect = "wikipedia.org"
 note = "The home sign-in from the seed"

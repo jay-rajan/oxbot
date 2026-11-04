@@ -14,12 +14,12 @@ wait_for = "@scout"
 [[step]]
 send = "hello"
 [[step]]
-wait_for = "Hello! I'm the stand-in Claude."
+wait_for = "Hello! I'm the stand-in bot."
 [[step]]
 send = "hello again"
 [[step]]
-wait_for = "OpenRouter's free daily requests are used up; they reset at midnight UTC."
+wait_for = "Today's free AI questions are used up; they reset at midnight UTC."
 [[step]]
-expect = "OpenRouter's free requests today at 100%"
+expect = "Free AI questions today at 100%"
 note = "The usage banner"
 shot = "used-up"

@@ -1,22 +1,22 @@
-name = "Herder asks before tasking your private bot after reading the web"
-about = "After Herder reads a web page, passing a task to your own private bot shows a card with the whole task; no stops it, yes sends it."
-covers = ["crates/oxbot-core/src/hub/team.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+name = "Assistant asks before tasking your private bot after reading the web"
+about = "After the Assistant reads a web page, passing a task to your own private bot shows an approval request with the whole task; no stops it, yes sends it."
+covers = ["crates/oxbot-core/src/hub/team.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
 
 [[step]]
-click = "Herder"
+click = "Assistant"
 [[step]]
 send = "read the page, then ask journal to note it"
 [[step]]
 wait_for = "Give the task"
 [[step]]
-expect = "Journal (private, Jay's sign-ins)"
-note = "The card names the private bot and whose sign-ins it uses"
+expect = "Journal (private, signed in as Jay)"
+note = "The approval request names the private bot and whose sign-ins it uses"
 [[step]]
 expect = "Write down: call the plumber"
 note = "The whole task, word for word"
 [[step]]
 expect_js = "![...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
-note = "Herder's cards never offer Always allow"
+note = "The Assistant's approval requests never offer Always allow"
 [[step]]
 click = "Don't give it"
 [[step]]

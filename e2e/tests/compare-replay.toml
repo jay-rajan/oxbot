@@ -1,5 +1,5 @@
 name = "A replay on two engines changes nothing and shows scores"
-about = "The owner keeps a finished post as a test case and replays it on Claude and on an OpenRouter model: the post is recorded, never done (no card, nothing in the chat, no write reaches the site even though the test browser really loads its page), and the scoreboard shows both."
+about = "The owner keeps a finished post as a test case and replays it on a free model with the AI helper (Codex) and with oxbot's own loop (classic): the post is recorded, never done (no approval request, nothing in the chat, no write reaches the site even though the test browser really loads its page), and the scoreboard shows both."
 covers = ["crates/oxbot-core/src/hub/trials.rs", "crates/oxbot-core/src/hub/compare.rs", "crates/oxbot-core/src/compare.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-browser/src/netguard.rs", "crates/oxbot-browser/src/trial.rs", "crates/oxbot/src/compare.rs", "crates/oxbot/ui/**"]
 
 [[step]]
@@ -43,11 +43,11 @@ wait_for = "post the nurse job"
 [[step]]
 expect_js = "(() => { const box = document.querySelector('#cmpCaseList input[type=checkbox]'); box.click(); return box.checked; })()"
 [[step]]
-wait_for = "OpenRouter · e2e/tool-model:free"
+wait_for = "e2e/tool-model:free (classic)"
 [[step]]
-click = "Claude · sonnet"
+click = "e2e/tool-model:free"
 [[step]]
-click = "OpenRouter · e2e/tool-model:free"
+click = "e2e/tool-model:free (classic)"
 [[step]]
 click = "Estimate"
 [[step]]
@@ -93,7 +93,8 @@ click = "✓"
 [[step]]
 click = "← Runs"
 [[step]]
-click = "post the nurse job · Claude · sonnet"
+expect_js = "(() => { const li = [...document.querySelectorAll('#cmpRunList li')].find((l) => l.querySelector('span').textContent === 'post the nurse job · e2e/tool-model:free' && l.querySelector('small').textContent.startsWith('replay')); if (!li) return false; li.click(); return true; })()"
+note = "The Codex replay (the original, on the same model, is listed too)"
 [[step]]
 wait_for = "✓ matched: click button \"Post\" on jobs.example.test"
 [[step]]
@@ -103,8 +104,8 @@ click = "← Runs"
 [[step]]
 click = "Scoreboard"
 [[step]]
-wait_for = "Claude · sonnet"
+wait_for = "e2e/tool-model:free (classic)"
 [[step]]
-expect_js = "(() => { const rows = [...document.querySelectorAll('#cmpScoreRows tr')].map((r) => r.textContent); return rows.length >= 3 && rows[0].startsWith('Claude') && rows.some((r) => r.startsWith('OpenRouter · e2e/tool-model:free1100%')); })()"
-note = "Both engines (and the original) on the scoreboard; the marked run passes"
+expect_js = "(() => { const rows = [...document.querySelectorAll('#cmpScoreRows tr')].map((r) => r.textContent); return rows.length >= 2 && rows[0].startsWith('e2e/tool-model:free') && !rows[0].includes('(classic)') && rows.some((r) => r.startsWith('e2e/tool-model:free (classic)1100%')); })()"
+note = "Both, the AI helper first (the original ran on it too); the marked classic run passes"
 shot = "scoreboard"

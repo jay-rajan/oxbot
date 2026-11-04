@@ -140,7 +140,7 @@ pub async fn find(configured: Option<&Path>, path_var: Option<&str>, scratch: &P
         return Found::Unusable {
             path: None,
             version: None,
-            why: "Codex isn't installed on this Mac (oxbot looks in PATH, /opt/homebrew/bin and \
+            why: "The AI helper isn't installed on the home computer (oxbot looks in PATH, /opt/homebrew/bin and \
                   /usr/local/bin, or OXBOT_CODEX)."
                 .to_owned(),
         };
@@ -161,14 +161,14 @@ pub async fn find(configured: Option<&Path>, path_var: Option<&str>, scratch: &P
             return Found::Unusable {
                 path: Some(program),
                 version: None,
-                why: "Codex didn't say its version.".to_owned(),
+                why: "The AI helper didn't say its version.".to_owned(),
             };
         }
         Ok(Err(err)) => {
             return Found::Unusable {
                 path: Some(program),
                 version: None,
-                why: format!("Codex couldn't start: {err}"),
+                why: format!("The AI helper couldn't start: {err}"),
             };
         }
     };
@@ -176,14 +176,14 @@ pub async fn find(configured: Option<&Path>, path_var: Option<&str>, scratch: &P
         return Found::Unusable {
             path: Some(program),
             version: None,
-            why: "Codex didn't say its version.".to_owned(),
+            why: "The AI helper didn't say its version.".to_owned(),
         };
     };
     if !supported(&version) {
         return Found::Unusable {
             path: Some(program),
             why: format!(
-                "Codex {version} isn't supported yet: oxbot works with Codex {}.{}.x.",
+                "The AI helper {version} isn't supported yet: oxbot works with version {}.{}.x.",
                 SUPPORTED.0, SUPPORTED.1
             ),
             version: Some(version),
@@ -264,7 +264,7 @@ mod tests {
         let wrong = find(Some(&fake), None, &tmp.path().join("s")).await;
         assert_eq!(
             wrong.problem(),
-            Some("Codex 0.200.1 isn't supported yet: oxbot works with Codex 0.148.x.")
+            Some("The AI helper 0.200.1 isn't supported yet: oxbot works with version 0.148.x.")
         );
         std::fs::write(&fake, "#!/bin/sh\necho codex-cli 0.148.3\n").unwrap();
         let ok = find(Some(&fake), None, &tmp.path().join("s")).await;

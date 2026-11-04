@@ -196,11 +196,11 @@ impl Hub {
             let you = if b.is_central() { " (you)" } else { "" };
             let maker = match (&maker, b.private) {
                 (Some(who), true) if own => format!(
-                    ", private to {who} (uses their sign-ins; you may give it tasks for them, \
+                    ", private to {who} (uses the websites they're signed in to; you may give it tasks for them, \
                      which they may be asked to OK)"
                 ),
                 (Some(who), true) => format!(
-                    ", private to {who} (only they open it; only their own Herder gives it tasks)"
+                    ", private to {who} (only they open it; only their own Assistant gives it tasks)"
                 ),
                 (Some(who), false) => format!(", made by {who}"),
                 (None, _) => String::new(),
@@ -377,7 +377,7 @@ impl Hub {
             ..policy::Ask::new(
                 ApprovalKind::GiveTask,
                 "give a task to",
-                format!("{} (private, {owner}'s sign-ins)", to.name),
+                format!("{} (private, signed in as {owner})", to.name),
                 "oxbot",
             )
         };
@@ -519,7 +519,7 @@ fn bot_reply(bot: &BotId, text: &str) -> String {
 /// chat holds what its own person asked and what was passed on for them.
 fn herder_message(bot: &Bot) -> String {
     format!(
-        "{} is someone's Herder, not a team member. You can't give it tasks or read its \
+        "{} is someone's Assistant, not a team member. You can't give it tasks or read its \
          replies.",
         bot.id
     )
@@ -531,8 +531,8 @@ fn herder_message(bot: &Bot) -> String {
 fn private_message(bot: &Bot) -> Option<String> {
     bot.private.then(|| {
         format!(
-            "{} is private. Herder doesn't pass tasks to it from here: only its maker's own \
-             Herder can, and that asks them first if it has read web content or other bots' \
+            "{} is private. The Assistant doesn't pass tasks to it from here: only its maker's \
+             own Assistant can, and that asks them first if it has read web content or other bots' \
              replies. Tell the user to open {} in the sidebar and ask it there.",
             bot.name, bot.name
         )

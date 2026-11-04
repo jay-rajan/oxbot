@@ -36,7 +36,7 @@ send = "research unopened"
 expect_openrouter_body = "Not saved: these sources weren't opened in the browser"
 note = "A report citing a page the bot never opened isn't saved, and the model is told why"
 [[step]]
-wait_for = "2 requests"
+wait_for = "2 questions"
 [[step]]
 expect_not = "Made up"
-note = "No card for it"
+note = "No approval request for it"

@@ -143,12 +143,12 @@ impl Hub {
     pub(super) fn bot_to_manage(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
         let bot = self.bot_for(id, viewer)?;
         if !bot.manageable_by(viewer) {
-            let who = maker_name(&bot, &self.person_names())
-                .unwrap_or_else(|| "the Farm's owner".to_owned());
-            return Err(HubError::NotAllowed(format!(
-                "Only {who} or the Farm can change {}.",
-                bot.name
-            )));
+            return Err(HubError::NotAllowed(
+                match maker_name(&bot, &self.person_names()) {
+                    Some(who) => format!("Only {who} or the owner can change {}.", bot.name),
+                    None => format!("Only the owner can change {}.", bot.name),
+                },
+            ));
         }
         Ok(bot)
     }
@@ -189,7 +189,7 @@ impl Hub {
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
             return Err(HubError::NotAllowed(
-                "Herder is shared by everyone.".to_owned(),
+                "The Assistant is shared by everyone.".to_owned(),
             ));
         }
         if bot.private == private {
@@ -231,7 +231,9 @@ impl Hub {
         let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
-            return Err(HubError::NotAllowed("Herder keeps its name.".to_owned()));
+            return Err(HubError::NotAllowed(
+                "The Assistant keeps its name.".to_owned(),
+            ));
         }
         let name = name.trim();
         if name.is_empty() {
@@ -270,7 +272,9 @@ impl Hub {
         let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
-            return Err(HubError::NotAllowed("Herder can't be deleted.".to_owned()));
+            return Err(HubError::NotAllowed(
+                "The Assistant can't be deleted.".to_owned(),
+            ));
         }
         // No message may start it while it's being deleted.
         self.claim(&bot.id).await?;

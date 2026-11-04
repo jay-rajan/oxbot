@@ -31,10 +31,9 @@ const MAX_PAID_DAILY_CENTS: u32 = 10_000;
 
 /// The notice in Settings → Engines and the README: where bots' model
 /// calls go.
-pub const ENGINES_NOTICE: &str = "Bots run on OpenRouter's models with the household's account, \
-     free ones first; anyone in the household can give them tasks. Model calls go only to \
-     OpenRouter through oxbot's relay, or a local model; Codex's analytics, plugins and update \
-     checks are off.";
+pub const ENGINES_NOTICE: &str = "Bots use AI models through the home's OpenRouter account, \
+     free ones first; anyone at home can give them tasks. What a task sends goes only to \
+     OpenRouter (or a model on this computer), never anywhere else.";
 
 impl Hub {
     /// Whether `viewer` is the Farm's owner: the Farm connection, or the
@@ -179,14 +178,14 @@ impl Hub {
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
             return Err(HubError::NotAllowed(
-                "Herder's limits are the household's.".to_owned(),
+                "The Assistant's limits are the home's.".to_owned(),
             ));
         }
         if let Some(n) = daily_requests
             && !(1..=MAX_DAILY_REQUESTS).contains(&n)
         {
             return Err(HubError::NotAllowed(format!(
-                "A daily limit is 1 to {MAX_DAILY_REQUESTS} requests."
+                "A daily limit is 1 to {MAX_DAILY_REQUESTS} AI questions."
             )));
         }
         self.update_bot(&bot.id, |b| b.loop_settings.daily_requests = daily_requests)?;
@@ -245,7 +244,7 @@ fn checked_prefs(mut prefs: EnginePrefs) -> Result<EnginePrefs, HubError> {
             .is_some_and(|n| !(1..=MAX_DAILY_REQUESTS).contains(&n))
     {
         return refuse(format!(
-            "A daily limit is 1 to {MAX_DAILY_REQUESTS} requests."
+            "A daily limit is 1 to {MAX_DAILY_REQUESTS} AI questions."
         ));
     }
     if prefs.paid_daily_cents > MAX_PAID_DAILY_CENTS {

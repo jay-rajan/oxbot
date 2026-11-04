@@ -15,7 +15,7 @@ send = "everyone's busy"
 [[step]]
 wait_for = "Answered by the backup."
 [[step]]
-expect = "backup:free · 1 request"
+expect = "backup:free · 1 question"
 note = "The footer names the model that answered"
 shot = "fallback"
 [[step]]

@@ -1,5 +1,5 @@
 name = "Right-click a bot: rename, private, shared, delete"
-about = "On the Farm, a bot's right-click menu renames it, makes it private and shared again (sharing asks twice), and deletes it after a second press. Herder has no menu."
+about = "On the home computer, a bot's right-click menu renames it, makes it private and shared again (sharing asks twice), and deletes it after a second press. Assistant has no menu."
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
@@ -46,7 +46,7 @@ click = "Yes, delete Family Recipes"
 expect_js = "![...document.querySelectorAll('.bot-item')].some((r) => r.innerText.includes('Family Recipes'))"
 note = "Gone from the list"
 [[step]]
-right_click = "Herder leads your bots"
+right_click = "Assistant leads your bots"
 [[step]]
 expect_js = "document.getElementById('botMenu').hidden"
-note = "Herder has no menu"
+note = "Assistant has no menu"

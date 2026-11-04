@@ -142,8 +142,8 @@ async fn a_bots_daily_limit_stops_it_with_an_alert() {
     assert_eq!(replies[1], "ok");
     assert_eq!(
         replies[2],
-        "Scout has used its 2 requests for today. It can go on tomorrow, or the owner can raise \
-         the limit (Settings → Engines)."
+        "Scout has used its 2 AI questions for today. It can go on tomorrow, or the owner can \
+         raise the limit (Settings → AI models)."
     );
     assert_eq!(model.requests().len(), 2, "nothing went out the third time");
     let all: Vec<u8> = hub.live_usage_alerts().iter().map(|a| a.level).collect();

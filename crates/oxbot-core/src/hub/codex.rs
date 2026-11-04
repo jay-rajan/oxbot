@@ -136,9 +136,9 @@ impl Hub {
                 path: None,
                 version: None,
                 problem: Some(if self.loop_engine.is_none() {
-                    "Codex bots need OpenRouter, which isn't set up here.".to_owned()
+                    "The AI helper needs the home's AI account (OpenRouter), which isn't connected yet.".to_owned()
                 } else {
-                    "Codex is still being looked for.".to_owned()
+                    "The AI helper is still being looked for.".to_owned()
                 }),
                 configured,
             };

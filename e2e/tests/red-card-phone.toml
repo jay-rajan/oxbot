@@ -1,5 +1,5 @@
 name = "A post needs your OK, on a phone"
-about = "On a phone-size screen the red card sits right above the message box, and both stay on screen."
+about = "On a phone-size screen an approval request sits right above the message box, and both stay on screen."
 covers = ["crates/oxbot/ui/**"]
 viewport = { width = 390, height = 844 }
 
@@ -14,12 +14,12 @@ click = "Recipes"
 send = "post it"
 [[step]]
 wait_for = "Allow once"
-note = "The card appears"
+note = "The approval request appears"
 [[step]]
 expect_js = "(() => { const c = document.getElementById('cards').getBoundingClientRect(), f = document.getElementById('composer').getBoundingClientRect(); return Math.abs(c.bottom - f.top) < 1 && c.top >= 0 && f.bottom <= innerHeight && c.height <= 0.38 * innerHeight + 1; })()"
-note = "Card and message box are both on screen, the card area at most 38% of the height"
+note = "The approval request and message box are both on screen, the approval request area at most 38% of the height"
 shot = "phone-card-above-box"
 [[step]]
-click = "Deny"
+click = "Don't allow"
 [[step]]
 wait_for = "didn't post it"

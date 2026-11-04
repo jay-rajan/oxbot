@@ -74,7 +74,7 @@ impl Dictation {
         let (ok, why) = match &self.helper {
             None => (
                 false,
-                "this oxbot was built without its Mac helper".to_owned(),
+                "this oxbot was built without its dictation helper".to_owned(),
             ),
             Some(helper) => ask_helper(helper).await,
         };
@@ -95,7 +95,7 @@ impl Dictation {
             error: Some(error.to_owned()),
         };
         let Some(helper) = self.helper.clone().filter(|_| self.available()) else {
-            let _ = out.try_send(done("Dictation isn't available on this Mac."));
+            let _ = out.try_send(done("Dictation isn't available on the home computer."));
             return;
         };
         let (stop, stopped) = oneshot::channel();
@@ -121,7 +121,7 @@ impl Dictation {
             }
             Err(err) => {
                 tracing::warn!(%err, "couldn't start dictation");
-                let _ = out.try_send(done("Dictation couldn't start on this Mac."));
+                let _ = out.try_send(done("Dictation couldn't start on the home computer."));
                 self.finished(id);
             }
         }
@@ -165,12 +165,16 @@ async fn ask_helper(helper: &PathBuf) -> (bool, String) {
             let ok = reply["ok"].as_bool().unwrap_or(false);
             let why = reply["why"]
                 .as_str()
-                .unwrap_or(if ok { "" } else { "the Mac helper didn't say" })
+                .unwrap_or(if ok {
+                    ""
+                } else {
+                    "the dictation helper didn't say"
+                })
                 .to_owned();
             (ok, why)
         }
-        Ok(Err(err)) => (false, format!("the Mac helper didn't start: {err}")),
-        Err(_) => (false, "the Mac helper didn't answer".to_owned()),
+        Ok(Err(err)) => (false, format!("the dictation helper didn't start: {err}")),
+        Err(_) => (false, "the dictation helper didn't answer".to_owned()),
     }
 }
 

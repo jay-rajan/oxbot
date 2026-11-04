@@ -1,6 +1,6 @@
 name = "A big page comes as a map, and the page tools look inside"
 about = "A bot on OpenRouter opens a big results page: the model gets a small map of it instead of the page, searches it with find_in_page, and asks a helper about it with ask_page, which gets the page with a fixed prompt."
-covers = ["crates/oxbot-loop/src/page/**", "crates/oxbot-loop/src/tools/**", "crates/oxbot-loop/src/turn/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/claude.rs", "crates/oxbot-e2e/src/fake_openrouter.rs", "crates/oxbot-e2e/src/pages.rs"]
+covers = ["crates/oxbot-loop/src/page/**", "crates/oxbot-loop/src/tools/**", "crates/oxbot-loop/src/turn/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-e2e/src/fake_openrouter.rs", "crates/oxbot-e2e/src/pages.rs"]
 script = "context.toml"
 
 [[step]]

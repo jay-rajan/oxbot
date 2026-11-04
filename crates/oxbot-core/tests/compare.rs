@@ -242,7 +242,7 @@ async fn only_the_owner_compares_and_a_replay_repeats_a_no() {
         .unwrap();
     assert_eq!(estimate.runs, 0);
     assert!(
-        estimate.refused[0].contains("Codex isn't set up on this Mac"),
+        estimate.refused[0].contains("The AI helper isn't set up on the home computer"),
         "{estimate:?}"
     );
 

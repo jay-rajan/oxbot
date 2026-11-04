@@ -1,5 +1,5 @@
-name = "Right-click as a Gate person: the same rules as ···"
-about = "Sam (on a Gate) can only file Jay's shared bot (into a section of Sam's own); renaming, privacy and deleting show only on Sam's own bot, exactly where ··· offers them (elsewhere ··· only lists reports)."
+name = "Right-click on a device: the same rules as ···"
+about = "Sam (on a device) can only file Jay's shared bot (into a section of Sam's own); renaming, privacy and deleting show only on Sam's own bot, exactly where ··· offers them (elsewhere ··· only lists reports)."
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
 as = "Sam"
 

@@ -459,7 +459,7 @@ async fn video_without_the_mac_helper_says_it_isnt_available() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, AttachError::Unsupported(why) if why.contains("isn't available on this Mac")),
+        matches!(&err, AttachError::Unsupported(why) if why.contains("isn't available on the home computer")),
         "{err:?}"
     );
     assert_eq!(files_in(&tmp.path().join("work")), Vec::<PathBuf>::new());

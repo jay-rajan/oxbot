@@ -13,7 +13,7 @@ wait_for = "@scout"
 [[step]]
 send = "hello"
 [[step]]
-wait_for = "Hello! I'm the stand-in Claude."
+wait_for = "Hello! I'm the stand-in bot."
 [[step]]
 expect_openrouter_not = "data_collection"
 note = "A shared bot: OpenRouter's defaults"
@@ -30,7 +30,7 @@ wait_for = "private · @diary"
 [[step]]
 send = "hello"
 [[step]]
-wait_for = "Hello! I'm the stand-in Claude."
+wait_for = "Hello! I'm the stand-in bot."
 [[step]]
 expect_openrouter_body = '"data_collection":"deny"'
 note = "The private bot's request asks providers not to keep data"

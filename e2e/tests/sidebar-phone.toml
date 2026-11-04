@@ -11,7 +11,7 @@ expect_js = "__e2e.shown(document.getElementById('botSearch')) && __e2e.shown(do
 note = "Search and group by are in the drawer"
 [[step]]
 expect_js = "(() => { const side = document.getElementById('side').getBoundingClientRect(); const items = [...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden); return items.length === 2 && items.every((b) => b.getBoundingClientRect().right <= side.right + 0.5); })()"
-note = "A Gate's bottom row: Settings and Signed in, inside the drawer"
+note = "A device's bottom row: Settings and Websites, inside the drawer"
 [[step]]
 right_click = "Bank by Sam"
 [[step]]
@@ -21,6 +21,6 @@ shot = "menu"
 [[step]]
 key = "Escape"
 [[step]]
-click = "Signed in"
+click = "Websites"
 [[step]]
-expect = "Sign in to a site"
+expect = "Sign in to a website"

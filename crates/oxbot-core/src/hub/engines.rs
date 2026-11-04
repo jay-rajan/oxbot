@@ -149,7 +149,7 @@ impl Hub {
             }
             _ => {
                 return Err(HubError::EngineNotReady(format!(
-                    "OpenRouter isn't set up on this Mac yet; ask {}.",
+                    "The home's AI account (OpenRouter) isn't connected yet; ask {}.",
                     self.owner_name()
                 )));
             }
@@ -160,7 +160,7 @@ impl Hub {
                 Some(engine) => engine,
                 None => {
                     return Err(HubError::EngineNotReady(
-                        "Codex isn't set up on this Mac.".to_owned(),
+                        "The AI helper isn't set up on the home computer.".to_owned(),
                     ));
                 }
             },
@@ -207,7 +207,9 @@ impl Hub {
         let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         if bot.is_central() {
-            return Err(HubError::NotAllowed("Herder's engine is fixed.".to_owned()));
+            return Err(HubError::NotAllowed(
+                "The Assistant's AI model is set by the owner.".to_owned(),
+            ));
         }
         self.engine(engine)?;
         let model = model.map(|m| m.trim().to_owned());
@@ -234,17 +236,17 @@ impl Hub {
     pub(super) fn owner_name(&self) -> String {
         self.farm_id()
             .and_then(|id| self.person_name(&id))
-            .unwrap_or_else(|| "the Farm's owner".to_owned())
+            .unwrap_or_else(|| "the owner".to_owned())
     }
 }
 
 /// The line a bot that ran on Claude gets in its chat, once, when it
 /// moves to Codex.
-pub const MOVED_TO_CODEX: &str = "This bot now runs on Codex (open models) through your \
+pub const MOVED_FROM_CLAUDE: &str = "This bot now uses free and paid AI models through your \
      OpenRouter account. Its old Claude sessions can't be continued.";
 
 /// Bots whose files still say Claude (or no engine: made before engines)
-/// run on Codex from now on: each gets [`MOVED_TO_CODEX`] in its chat
+/// run on Codex from now on: each gets [`MOVED_FROM_CLAUDE`] in its chat
 /// once, then its `bot.toml` is rewritten (atomically) to say Codex. Its
 /// chat and history stay; its Claude session is never resumed (no engine
 /// goes on with a `claude` session). A person's own Herder ran on oxbot's
@@ -254,7 +256,7 @@ pub(super) fn upgrade_from_claude(bots: &mut [Bot], store: &Store) {
     for bot in bots.iter_mut().filter(|b| b.from_claude) {
         if !is_personal_herder(bot.id.as_str()) {
             let note = EventKind::Note {
-                text: MOVED_TO_CODEX.to_owned(),
+                text: MOVED_FROM_CLAUDE.to_owned(),
             };
             if let Err(err) = store.note_engine_upgrade(&bot.id, "claude", EngineKind::Codex, note)
             {

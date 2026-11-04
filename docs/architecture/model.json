@@ -1,11 +1,11 @@
 {
-  "milestone": "Step 5",
-  "updated": "2026-11-02",
+  "milestone": "Step 6",
+  "updated": "2026-11-04",
   "components": [
     {
       "id": "desktop",
       "label": "oxbot.app",
-      "sub": "Tauri 2 \u00b7 menu bar \u00b7 the Farm",
+      "sub": "Tauri 2 \u00b7 menu bar \u00b7 home computer",
       "kind": "app",
       "status": "built",
       "m": 2,
@@ -20,16 +20,16 @@
       "status": "built",
       "m": 2,
       "x": 20,
-      "y": 225
+      "y": 240
     },
     {
       "id": "phone",
-      "label": "Gate app",
-      "sub": "Android \u00b7 Tauri 2 \u00b7 home Wi-Fi",
+      "label": "Android app",
+      "sub": "device \u00b7 Android \u00b7 home Wi-Fi",
       "kind": "app",
       "status": "built",
       "m": "Farm 2",
-      "x": 480,
+      "x": 740,
       "y": 18
     },
     {
@@ -39,28 +39,28 @@
       "kind": "crate",
       "status": "built",
       "m": "Farm 2",
-      "x": 250,
+      "x": 490,
       "y": 18
     },
     {
       "id": "door",
-      "label": "Gate door",
+      "label": "device door",
       "sub": "in oxbot \u00b7 TLS :7879 \u00b7 pairing",
       "kind": "module",
       "status": "built",
       "m": "Farm 2",
-      "x": 480,
-      "y": 128
+      "x": 490,
+      "y": 135
     },
     {
       "id": "oxbot",
       "label": "oxbot",
-      "sub": "serve \u00b7 page \u00b7 chat \u00b7 Gate door \u00b7 OpenRouter sign-in",
+      "sub": "serve \u00b7 page \u00b7 chat \u00b7 device door \u00b7 OpenRouter sign-in",
       "kind": "crate",
       "status": "built",
       "m": 2,
       "x": 250,
-      "y": 150
+      "y": 135
     },
     {
       "id": "oxbot-protocol",
@@ -75,22 +75,12 @@
     {
       "id": "oxbot-core",
       "label": "oxbot-core",
-      "sub": "hub/ \u00b7 store/ \u00b7 owner-only rule \u00b7 policy \u00b7 Claude engine",
+      "sub": "hub/ \u00b7 store/ \u00b7 policy \u00b7 Codex upgrade \u00b7 testing",
       "kind": "crate",
       "status": "built",
       "m": 2,
-      "x": 330,
-      "y": 330
-    },
-    {
-      "id": "oxbot-claude",
-      "label": "oxbot-claude",
-      "sub": "runs claude -p (Claude bots)",
-      "kind": "crate",
-      "status": "built",
-      "m": 2,
-      "x": 520,
-      "y": 330
+      "x": 250,
+      "y": 240
     },
     {
       "id": "oxbot-browser",
@@ -99,38 +89,18 @@
       "kind": "crate",
       "status": "built",
       "m": 2,
-      "x": 520,
-      "y": 460
+      "x": 20,
+      "y": 450
     },
     {
       "id": "sqlite",
       "label": "SQLite",
-      "sub": "history, people, sites, reports, turn origins, loop steps, model calls",
+      "sub": "history, people, sites, reports, loop steps, Codex threads, relay log",
       "kind": "store",
       "status": "built",
       "m": 2,
-      "x": 140,
-      "y": 590
-    },
-    {
-      "id": "claude",
-      "label": "claude CLI",
-      "sub": "the owner's Claude login",
-      "kind": "external",
-      "status": "built",
-      "m": 2,
-      "x": 730,
+      "x": 20,
       "y": 330
-    },
-    {
-      "id": "anthropic",
-      "label": "Anthropic",
-      "sub": "cloud: Claude (Claude bots)",
-      "kind": "cloud",
-      "status": "built",
-      "m": 2,
-      "x": 730,
-      "y": 18
     },
     {
       "id": "chrome",
@@ -139,8 +109,8 @@
       "kind": "external",
       "status": "built",
       "m": 2,
-      "x": 730,
-      "y": 460
+      "x": 250,
+      "y": 450
     },
     {
       "id": "web",
@@ -149,8 +119,8 @@
       "kind": "cloud",
       "status": "built",
       "m": 2,
-      "x": 730,
-      "y": 700
+      "x": 250,
+      "y": 590
     },
     {
       "id": "oxbot-engine",
@@ -159,18 +129,18 @@
       "kind": "crate",
       "status": "built",
       "m": "Step 5",
-      "x": 330,
-      "y": 460
+      "x": 275,
+      "y": 345
     },
     {
       "id": "oxbot-loop",
       "label": "oxbot-loop",
-      "sub": "runner · context · page tools · gate · router · meter",
+      "sub": "runner \u00b7 tool service \u00b7 page tools \u00b7 gate \u00b7 router \u00b7 meter",
       "kind": "crate",
       "status": "built",
       "m": "Step 5",
-      "x": 330,
-      "y": 590
+      "x": 490,
+      "y": 345
     },
     {
       "id": "oxbot-llm",
@@ -179,8 +149,8 @@
       "kind": "crate",
       "status": "built",
       "m": "Step 5",
-      "x": 520,
-      "y": 590
+      "x": 490,
+      "y": 450
     },
     {
       "id": "keychain",
@@ -189,18 +159,48 @@
       "kind": "store",
       "status": "built",
       "m": "Step 5",
-      "x": 20,
-      "y": 460
+      "x": 250,
+      "y": 18
     },
     {
       "id": "openrouter",
       "label": "OpenRouter",
-      "sub": "cloud: free models first",
+      "sub": "cloud: the only model host",
       "kind": "cloud",
       "status": "built",
       "m": "Step 5",
-      "x": 520,
-      "y": 700
+      "x": 740,
+      "y": 590
+    },
+    {
+      "id": "oxbot-codex",
+      "label": "oxbot-codex",
+      "sub": "Codex engine \u00b7 config \u00b7 JSON-RPC \u00b7 tools",
+      "kind": "crate",
+      "status": "built",
+      "m": "Step 6",
+      "x": 490,
+      "y": 240
+    },
+    {
+      "id": "codex",
+      "label": "codex app-server",
+      "sub": "one per bot \u00b7 own CODEX_HOME",
+      "kind": "external",
+      "status": "built",
+      "m": "Step 6",
+      "x": 740,
+      "y": 240
+    },
+    {
+      "id": "oxbot-relay",
+      "label": "oxbot-relay",
+      "sub": "127.0.0.1 \u00b7 token \u00b7 strip \u00b7 limits \u00b7 log",
+      "kind": "crate",
+      "status": "built",
+      "m": "Step 6",
+      "x": 740,
+      "y": 345
     }
   ],
   "edges": [
@@ -236,50 +236,14 @@
     },
     {
       "from": "oxbot",
-      "to": "oxbot-core",
-      "label": "uses",
+      "to": "keychain",
+      "label": "key",
       "status": "built"
     },
     {
-      "from": "oxbot",
-      "to": "oxbot-claude",
-      "label": "uses",
-      "status": "built"
-    },
-    {
-      "from": "oxbot",
-      "to": "oxbot-browser",
-      "label": "uses",
-      "status": "built"
-    },
-    {
-      "from": "oxbot-core",
-      "to": "sqlite",
-      "label": "reads/writes \u00b7 migrations",
-      "status": "built"
-    },
-    {
-      "from": "oxbot-claude",
-      "to": "claude",
-      "label": "spawn \u00b7 stream-json",
-      "status": "built"
-    },
-    {
-      "from": "claude",
-      "to": "anthropic",
-      "label": "prompts",
-      "status": "built"
-    },
-    {
-      "from": "claude",
-      "to": "chrome",
-      "label": "browser tool",
-      "status": "built"
-    },
-    {
-      "from": "oxbot-browser",
-      "to": "chrome",
-      "label": "launch",
+      "from": "desktop",
+      "to": "oxbot",
+      "label": "runs it",
       "status": "built"
     },
     {
@@ -289,27 +253,21 @@
       "status": "built"
     },
     {
+      "from": "oxbot",
+      "to": "oxbot-core",
+      "label": "uses",
+      "status": "built"
+    },
+    {
       "from": "oxbot-core",
-      "to": "oxbot-claude",
-      "label": "one child per bot \u00b7 sdk MCP",
+      "to": "sqlite",
+      "label": "SQL",
       "status": "built"
     },
     {
       "from": "oxbot-core",
       "to": "oxbot-browser",
-      "label": "turns, sign-in",
-      "status": "built"
-    },
-    {
-      "from": "chrome",
-      "to": "web",
-      "label": "HTTPS",
-      "status": "built"
-    },
-    {
-      "from": "desktop",
-      "to": "oxbot",
-      "label": "runs it inside",
+      "label": "sign-in",
       "status": "built"
     },
     {
@@ -319,9 +277,45 @@
       "status": "built"
     },
     {
-      "from": "oxbot-loop",
+      "from": "oxbot-core",
+      "to": "oxbot-codex",
+      "label": "starts",
+      "status": "built"
+    },
+    {
+      "from": "oxbot-codex",
       "to": "oxbot-engine",
       "label": "implements",
+      "status": "built"
+    },
+    {
+      "from": "oxbot-codex",
+      "to": "codex",
+      "label": "JSON-RPC",
+      "status": "built"
+    },
+    {
+      "from": "codex",
+      "to": "oxbot-relay",
+      "label": "/v1/responses",
+      "status": "built"
+    },
+    {
+      "from": "oxbot-relay",
+      "to": "openrouter",
+      "label": "HTTPS \u00b7 household key",
+      "status": "built"
+    },
+    {
+      "from": "oxbot-codex",
+      "to": "oxbot-loop",
+      "label": "tool service",
+      "status": "built"
+    },
+    {
+      "from": "oxbot-loop",
+      "to": "oxbot-engine",
+      "label": "impl.",
       "status": "built"
     },
     {
@@ -343,9 +337,15 @@
       "status": "built"
     },
     {
-      "from": "oxbot",
-      "to": "keychain",
-      "label": "key",
+      "from": "oxbot-browser",
+      "to": "chrome",
+      "label": "launch",
+      "status": "built"
+    },
+    {
+      "from": "chrome",
+      "to": "web",
+      "label": "HTTPS",
       "status": "built"
     }
   ],
@@ -711,12 +711,26 @@
         "Migration 18: turn_tools, test_cases, trial_batches, trial_runs, trial_events, turn_ratings",
         "Page: thumbs and Test case\u2026 under replies, Compare\u2026 (scoreboard, cases, runs side by side), Shadow chip; e2e test site proves replays write nothing"
       ]
+    },
+    {
+      "m": "Step 6",
+      "date": "2026-11-04",
+      "title": "Codex runs the bots on OpenRouter; Claude leaves oxbot",
+      "items": [
+        "New crates: oxbot-codex (finds and checks codex 0.148.x, writes each bot's CODEX_HOME config at every start, one codex app-server per bot, JSON-RPC threads and turns, oxbot's tools as dynamic tools through oxbot-loop's tool service) and oxbot-relay (127.0.0.1 Responses relay: per-process token, strips ids, headers and metadata, the bot's model, privacy and limits, meter, what was sent kept 14 days)",
+        "Codex's analytics, plugins, web search, update checks and shell off; any address but the relay goes to a refusing proxy; a person's own ~/.codex is never read",
+        "Codex is the default engine for new bots and every Herder; oxbot's own loop stays, chosen per bot through the API",
+        "Claude removed: the oxbot-claude crate, the Claude engine, the owner-only rule, Claude setup, Claude usage and its 5-hour/weekly alerts, the Claude judge. Usage alerts are OpenRouter's limits only",
+        "Upgrade: bots on engine = \"claude\" (or none) move to Codex at first start with one line in the chat; bot.toml rewritten once (migration 22). Chats kept; Claude sessions not resumed",
+        "Comparing: replays and shadows on Codex and on the loop, scoreboard measured against Codex, the owner's marks only",
+        "Tests: oxbot-core::testing (feature test-bots) stand-in bots; e2e reply scripts in e2e/scripts/ drive the stand-in OpenRouter (chat and Responses) and browser tool; the suite needs codex (needs = [\"codex\"])"
+      ]
     }
   ],
   "next": {
-    "m": "Step 5",
-    "title": "Context, knowledge, comparison, local models",
-    "text": "Context management for long tasks (#19), a local knowledge store shared by both engines (#20), comparing engines and models on real tasks (#21), then local models on this Mac (#22). First run picks OpenRouter by default (#16)."
+    "m": "Next",
+    "title": "Pictures for Codex, codex in the app, local models",
+    "text": "Image input for Codex's tools (pictures and PDFs reach bots only as text for now), shipping codex inside oxbot.app, context and knowledge for long tasks (#19, #20), then local models on this computer (#22)."
   },
   "c4": {
     "note": "Nodes sit on a grid: col/row (+ span) map to x/y via 'grid'. Edges clip to box edges automatically; 'via' adds bends, 'from_pt'/'to_pt' pin ends, 'label_at' [x, y, anchor] places the label. Status: built | planned. Types: person, system, container, component, db, folder, external.",
@@ -725,8 +739,8 @@
         "id": "context",
         "title": "Level 1 \u00b7 System context",
         "intro": "oxbot from the outside: who uses it and what it talks to.",
-        "caption": "System context. People chat with oxbot on the Farm or from their phone; Herder runs the team. Each bot is shared or private to whoever made it, and runs on an engine: Claude (the owner's own Claude plan, through the Claude Code CLI) or OpenRouter (oxbot's own loop, free models first). Anthropic's terms don't let others use the owner's account, so only Jay gives Claude bots tasks; anyone in the house may task OpenRouter bots, and every other person's Herder runs on OpenRouter. Model calls go only to Anthropic (Claude bots), OpenRouter (OpenRouter bots) or, later, a local model on this Mac; nothing else, telemetry off. The OpenRouter key is kept only in the macOS Keychain. oxbot drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The Mac running oxbot is the Farm and sees everything; a phone (a Gate) pairs once on home Wi-Fi and sees only what its person may. claude.ai is contacted only when you press Install Claude Code; npm only when running from source.",
-        "aria": "C4 level 1 system context: Jay, the Farm owner, and others in the house use oxbot on the Farm or from a paired phone on home Wi-Fi, where Herder runs the team of bots. Each bot runs on Claude or on OpenRouter. oxbot sends Claude bots' prompts to Anthropic through the Claude Code CLI, on Jay's own plan, so only Jay can give them tasks; it sends OpenRouter bots' prompts to OpenRouter over HTTPS with the household's key, which Jay gets by signing in with OpenRouter and oxbot keeps only in the macOS Keychain. oxbot drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. oxbot uses macOS on the same Mac for notifications, video frames, on-device speech recognition and the Keychain. When Jay presses Install, oxbot runs the Claude Code installer from claude.ai. npm is used only when running from source. A local model on this Mac is planned.",
+        "caption": "System context. People chat with oxbot on the home computer (the Farm) or from their phone (a device, a Gate in the code); the Assistant (Herder) runs the team. Each bot is shared or private to whoever made it, and anyone in the home may give tasks to a bot they may open. Every bot answers with OpenRouter's models on the home's key, free first, paid only if the owner allows, with daily limits per bot and person. Codex CLI runs each bot's agent loop (codex app-server, one per bot) and reaches OpenRouter only through oxbot's relay on 127.0.0.1; oxbot's own loop calls OpenRouter directly. Model calls go only to OpenRouter or, later, a local model on this computer; Codex's analytics, plugins and update checks are off, and no other AI company gets anything. The OpenRouter key is kept only in the macOS Keychain. oxbot drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The home computer sees everything; a phone pairs once on home Wi-Fi and sees only what its person may. npm only when running from source.",
+        "aria": "C4 level 1 system context: Jay, the owner, and others in the home use oxbot on the home computer or from a paired phone on home Wi-Fi, where the Assistant runs the team of bots. oxbot sends every bot's prompts to OpenRouter over HTTPS with the home's key, through its own relay for Codex bots or from its own loop; Jay signs in with OpenRouter once and oxbot keeps the key only in the macOS Keychain. oxbot drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. oxbot uses macOS on the same computer for notifications, video frames, on-device speech recognition and the Keychain. npm is used only when running from source. A local model is planned.",
         "size": [
           960,
           790
@@ -752,7 +766,7 @@
             "h": 112,
             "name": "Others in the house",
             "tech": "Person",
-            "desc": "Chat and make bots, on the Farm or a phone (a Gate). Task OpenRouter bots."
+            "desc": "Chat and make bots, on the home computer or a phone (a device). Task any bot they may open."
           },
           {
             "id": "jay",
@@ -762,7 +776,7 @@
             "h": 112,
             "name": "Jay",
             "tech": "Person",
-            "desc": "Owns the Farm, the Mac running oxbot: sees every bot. Only Jay tasks Claude bots."
+            "desc": "The owner: runs oxbot on the home computer (the Farm), connects OpenRouter, sees every bot."
           },
           {
             "id": "oxbot",
@@ -774,7 +788,7 @@
             "w": 270,
             "name": "oxbot",
             "tech": "Software system",
-            "desc": "Always-on bots on the Farm, led by Herder. Each runs on Claude (Jay's plan, owner-only) or OpenRouter (free models first). Model calls go only to Anthropic, OpenRouter or a local model."
+            "desc": "Always-on bots on the home computer, led by the Assistant (Herder). Codex runs each bot's loop; model calls go only to OpenRouter, through oxbot's relay."
           },
           {
             "id": "npm",
@@ -794,17 +808,7 @@
             "h": 165,
             "name": "OpenRouter",
             "tech": "openrouter.ai",
-            "desc": "Runs OpenRouter bots' models, free first. Jay signs in once (OAuth); private bots ask providers not to keep data."
-          },
-          {
-            "id": "anthropic",
-            "type": "external",
-            "col": 0,
-            "row": 2,
-            "h": 125,
-            "name": "Anthropic",
-            "tech": "Claude API",
-            "desc": "Runs Claude for Claude bots, on Jay's own plan. With OpenRouter and the sites bots visit, where user data goes."
+            "desc": "The only model host: free models first, paid if the owner allows. Signed in once (OAuth); private bots ask providers to keep nothing."
           },
           {
             "id": "chrome",
@@ -827,16 +831,6 @@
             "desc": "Pages the bots read and use. Signed in where you signed in once."
           },
           {
-            "id": "installer",
-            "type": "external",
-            "col": 2,
-            "row": 0,
-            "h": 112,
-            "name": "claude.ai",
-            "tech": "Claude Code installer",
-            "desc": "Downloaded only when you press Install Claude Code in setup."
-          },
-          {
             "id": "macos",
             "type": "external",
             "col": 1,
@@ -844,7 +838,7 @@
             "x": 545,
             "h": 130,
             "name": "macOS",
-            "tech": "On the Farm",
+            "tech": "On the home computer",
             "desc": "Notification Center; AVFoundation and on-device Speech; the Keychain for the OpenRouter key."
           },
           {
@@ -856,7 +850,7 @@
             "h": 110,
             "name": "Local model",
             "tech": "Ollama or LM Studio",
-            "desc": "On this Mac, through the same model client (#22)."
+            "desc": "Later: models on this computer through the same model client (#22)."
           }
         ],
         "edges": [
@@ -873,10 +867,10 @@
           {
             "from": "oxbot",
             "to": "openrouter",
-            "label": "OpenRouter bots:\nprompts (HTTPS)",
+            "label": "all prompts\n(HTTPS, relay\nor loop)",
             "label_at": [
-              290,
-              280,
+              292,
+              266,
               "middle"
             ]
           },
@@ -884,16 +878,6 @@
             "from": "oxbot",
             "to": "npm",
             "label": "dev only"
-          },
-          {
-            "from": "oxbot",
-            "to": "anthropic",
-            "label": "Claude bots: prompts\n(HTTPS, via Claude CLI)",
-            "label_at": [
-              196,
-              410,
-              "middle"
-            ]
           },
           {
             "from": "oxbot",
@@ -944,19 +928,9 @@
             ]
           },
           {
-            "from": "oxbot",
-            "to": "installer",
-            "label": "Install\nbutton",
-            "label_at": [
-              668,
-              182,
-              "middle"
-            ]
-          },
-          {
             "from": "others",
             "to": "oxbot",
-            "label": "chat, make bots\n(Farm or phone,\nhome Wi-Fi)",
+            "label": "chat, make bots\n(home computer or\nphone, home Wi-Fi)",
             "from_pt": [
               240,
               100
@@ -1023,9 +997,9 @@
       {
         "id": "containers",
         "title": "Level 2 \u00b7 Containers",
-        "intro": "The processes and data on the Mac, plus the phone app. Every arrow inside the box stays on 127.0.0.1, except the Gate door, which phones reach over home Wi-Fi.",
-        "caption": "Containers. Each bot runs on an engine. Claude bots: the server runs one Claude Code CLI per bot (the main Herder included), which starts chrome-devtools-mcp from the copy built into oxbot.app; only the Farm owner's task chains reach them (hub-enforced, never a prompt). OpenRouter bots, and every other person's Herder, run on oxbot's own loop inside the server: it calls OpenRouter's OpenAI-style chat API with free models first, checks every tool with the same gate as Claude bots (cards, element kinds, taint, Always allow), saves each step to SQLite so a task resumes after a restart, and starts chrome-devtools-mcp itself, attached to the same Chrome. Sign in with OpenRouter comes back to the server on 127.0.0.1; the key is kept only in the macOS Keychain and in memory. The server keeps its own CDP connection to each Chrome (the guard) to read pages and button forms for the safety rules, send downloads to the bot folder, take screenshots for cards and list or clear signed-in sites. Files come in over POST /upload; the Mac helper makes still frames and dictates on-device. A local connection is the Farm only with the Farm key; a phone comes in through the Gate door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Model calls go only to Anthropic, OpenRouter or (planned) a local model.",
-        "aria": "C4 level 2 containers. On the Farm, Jay's Mac: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the Farm only with the Farm key. The Gate app on an Android phone talks to the server's Gate door on port 7879 over home Wi-Fi. The server stores history, sessions, people, sites, usage, gates, rules, sections, reports, alerts, who started each task, the loop's saved steps and its model calls in SQLite, and manages bot folders. For Claude bots it spawns one Claude Code CLI per bot, which talks to Anthropic and starts chrome-devtools-mcp. For OpenRouter bots it runs oxbot's own loop in-process, calls OpenRouter over HTTPS and starts chrome-devtools-mcp itself; the OpenRouter key lives only in the macOS Keychain. It starts, shows and guards one Chrome per owner over CDP, and runs the Mac helper for video frames and dictation. npm is used only when running from source. Planned: local models on the Mac.",
+        "intro": "The processes and data on the home computer, plus the phone app. Every arrow inside the box stays on 127.0.0.1, except the device door, which phones reach over home Wi-Fi.",
+        "caption": "Containers. Each bot runs on an engine, both on OpenRouter's models with the home's key. Codex (the default, and every Assistant): the server starts one codex app-server per bot with its own CODEX_HOME in the bot's folder and a config it writes at every start (analytics, plugins, web search, update checks and the shell off). Codex's only model provider is the relay on 127.0.0.1, which checks the process's token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, sends to OpenRouter's Responses API, meters each request and keeps what was sent for 14 days; any other address goes to a refusing proxy. oxbot's tools reach Codex as dynamic tools through the loop's tool service and gate. oxbot's own loop runs inside the server on OpenRouter's chat API, saving each step so a task resumes after a restart. The server starts chrome-devtools-mcp for both engines, attached to the bot's Chrome, and keeps its own CDP connection to each Chrome (the guard). Sign in with OpenRouter comes back to the server on 127.0.0.1; the key is kept only in the macOS Keychain and in memory. Files come in over POST /upload; the Mac helper makes still frames and dictates on-device. A local connection is the Farm only with the Farm key; a phone comes in through the device door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Model calls go only to OpenRouter or (planned) a local model.",
+        "aria": "C4 level 2 containers. On the home computer: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the Farm only with the Farm key. The Android app on a phone talks to the server's device door on port 7879 over home Wi-Fi. The server stores history, sessions, people, sites, rules, sections, reports, alerts, the loop's saved steps, model calls, Codex threads and what the relay sent in SQLite, and manages bot folders. For Codex bots it spawns one codex app-server per bot over JSON-RPC on stdio; Codex sends model requests to the model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. Loop bots call OpenRouter's chat API over HTTPS from the server. The server starts chrome-devtools-mcp for both engines; the OpenRouter key lives only in the macOS Keychain. It starts, shows and guards one Chrome per owner over CDP, and runs the Mac helper for video frames and dictation. npm is used only when running from source. Planned: local models.",
         "size": [
           1010,
           1236
@@ -1049,7 +1023,7 @@
             "y": 160,
             "w": 974,
             "h": 900,
-            "label": "The Farm (Jay's Mac)"
+            "label": "The home computer (Farm)"
           }
         ],
         "nodes": [
@@ -1062,7 +1036,7 @@
             "h": 100,
             "name": "Jay",
             "tech": "Person",
-            "desc": "Farm owner. Others too, on the Mac or a phone."
+            "desc": "The owner. Others too, on the home computer or a phone."
           },
           {
             "id": "android",
@@ -1070,9 +1044,9 @@
             "col": 3,
             "row": 0,
             "h": 140,
-            "name": "Gate app",
+            "name": "Android app",
             "tech": "Rust, Tauri 2, on an Android phone",
-            "desc": "Runs no bots. Pairs by QR, pins the Farm's cert, shows the Farm's page as its person. Keeps a chat copy offline."
+            "desc": "A device (a Gate): runs no bots. Pairs by QR, pins the home computer's cert, shows its page as its person. Keeps a chat copy offline."
           },
           {
             "id": "page",
@@ -1082,7 +1056,7 @@
             "h": 150,
             "name": "Chat page",
             "tech": "HTML, JS",
-            "desc": "The app's UI: Herder first, sections, cards above the box, attach, dictate, reports. Engine badges; Settings \u2192 Engines."
+            "desc": "The app's UI: the Assistant first, sections, approval requests above the box, attach, dictate, reports, AI spending in Settings."
           },
           {
             "id": "app",
@@ -1112,7 +1086,7 @@
             "h": 150,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people, sites, usage, gates, rules, sections, reports, alerts, turn origins, loop steps, model calls, test cases and practice runs. Migrations 1\u201318."
+            "desc": "events, sessions, people, sites, gates, rules, sections, reports, alerts, loop steps, model calls, Codex threads, relay log, comparisons. Migrations 1\u201322."
           },
           {
             "id": "server",
@@ -1123,17 +1097,7 @@
             "h": 180,
             "name": "oxbot server",
             "tech": "Rust, tokio, axum \u00b7 oxbot serve",
-            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the Farm only with the Farm key; POST /upload for files and /openrouter/callback for Sign in with OpenRouter (this Mac only). Gate door on :7879. Holds the Hub: people by id, a Herder per person, a Chrome per owner, safety rules and Always allow on every tool, cards for their asker, reports, usage alerts. Engines: Claude bots through the Claude CLI, only from the owner's chains; OpenRouter bots on oxbot's own loop (gate before every tool, free models first, 20 a minute, daily limits, each step saved). The OpenRouter key only in the Keychain and memory."
-          },
-          {
-            "id": "claude",
-            "type": "container",
-            "col": 1,
-            "row": 3,
-            "h": 140,
-            "name": "Claude Code CLI",
-            "tech": "claude -p",
-            "desc": "Claude bots only, one per bot (the main Herder too), stream-json. Asks oxbot before tools; oxbot's tools on the same link."
+            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the Farm only with the Farm key; POST /upload for files and /openrouter/callback for Sign in with OpenRouter (this computer only). Device door on :7879. Holds the Hub: people by id, an Assistant (Herder) per person, a Chrome per owner, safety rules and Always allow on every tool, approval requests for their asker, reports, usage alerts. Engines: Codex (default) through one codex app-server per bot, or oxbot's own loop; both use the loop's tool service and gate. Free models first, 20 a minute, daily limits. The OpenRouter key only in the Keychain and memory."
           },
           {
             "id": "folders",
@@ -1143,7 +1107,7 @@
             "h": 140,
             "name": "Bot folders",
             "tech": "bots/<id>/",
-            "desc": "bot.toml (name, engine, model, owner, private, daily limit), instructions.md, work/, work/inbox/. Deleted bots go to trash/."
+            "desc": "bot.toml (name, engine, model, owner, private, daily limit), instructions.md, work/, work/inbox/, codex/ (its CODEX_HOME), context/relay (what was sent, 14 days). Deleted bots go to trash/."
           },
           {
             "id": "devmcp",
@@ -1153,7 +1117,7 @@
             "h": 140,
             "name": "chrome-devtools-mcp",
             "tech": "Node, built in",
-            "desc": "One per browsing bot, MCP stdio: started by Claude, or by the server for OpenRouter bots. Attaches to its bot's Chrome."
+            "desc": "One per browsing bot, MCP stdio, started by the server for both engines. Attaches to its bot's Chrome."
           },
           {
             "id": "chrome",
@@ -1165,16 +1129,6 @@
             "tech": "Google Chrome, one per owner",
             "desc": "Home (browser/profile) for shared bots; each person's own (browser/people/\u2026) for their private bots. Hidden; a window to sign in.",
             "stack": true
-          },
-          {
-            "id": "anthropic",
-            "type": "external",
-            "col": 0,
-            "row": 5,
-            "h": 100,
-            "name": "Anthropic",
-            "tech": "Claude API",
-            "desc": "Claude, for Claude bots only."
           },
           {
             "id": "npm",
@@ -1197,16 +1151,6 @@
             "desc": "Signed in where you signed in once."
           },
           {
-            "id": "installer",
-            "type": "external",
-            "col": 0,
-            "row": 0,
-            "h": 112,
-            "name": "claude.ai",
-            "tech": "Claude Code installer",
-            "desc": "Only when you press Install."
-          },
-          {
             "id": "machelper",
             "type": "container",
             "col": 0,
@@ -1223,7 +1167,7 @@
             "row": 4,
             "h": 140,
             "name": "macOS",
-            "tech": "This Mac",
+            "tech": "The home computer",
             "desc": "AVFoundation and Speech for the helper; Notification Center; the Keychain (OpenRouter key)."
           },
           {
@@ -1235,7 +1179,7 @@
             "h": 140,
             "name": "Local model",
             "tech": "Ollama or LM Studio",
-            "desc": "Later (#22): models on this Mac through the same model client; nothing leaves the Mac."
+            "desc": "Later (#22): models on this computer through the same model client; nothing leaves it."
           },
           {
             "id": "openrouter",
@@ -1245,7 +1189,31 @@
             "h": 100,
             "name": "OpenRouter",
             "tech": "openrouter.ai",
-            "desc": "OpenRouter bots' models, free first."
+            "desc": "Every bot's models, free first: Responses API (relay) and chat API (loop)."
+          },
+          {
+            "id": "codex",
+            "type": "container",
+            "col": 1,
+            "row": 3,
+            "h": 140,
+            "w": 170,
+            "stack": true,
+            "name": "codex app-server",
+            "tech": "Codex CLI 0.148.x, one per bot",
+            "desc": "Runs a bot's agent loop. Own CODEX_HOME; analytics, plugins, web search, updates, shell off."
+          },
+          {
+            "id": "relay",
+            "type": "container",
+            "col": 2,
+            "row": 3,
+            "x": 546,
+            "w": 150,
+            "h": 140,
+            "name": "Model relay",
+            "tech": "Rust, in the server \u00b7 127.0.0.1",
+            "desc": "Token check, strips ids, the bot's model, privacy and limits; meters; keeps what was sent."
           }
         ],
         "edges": [
@@ -1352,7 +1320,7 @@
           {
             "from": "android",
             "to": "server",
-            "label": "Gate door :7879\nTLS, pinned cert,\npaired key;\npage + WebSocket\n(JSON)",
+            "label": "device door :7879\nTLS, pinned cert,\npaired key;\npage + WebSocket\n(JSON)",
             "label_at": [
               853,
               236,
@@ -1397,80 +1365,20 @@
           },
           {
             "from": "server",
-            "to": "claude",
-            "label": "Claude bots:\nspawns, stream-json\n(permissions, tools)",
-            "label_at": [
-              369,
-              626,
-              "start"
-            ],
-            "from_pt": [
-              361,
-              610
-            ],
-            "to_pt": [
-              361,
-              670
-            ]
-          },
-          {
-            "from": "server",
             "to": "chrome",
             "from_pt": [
-              611,
+              703,
               610
             ],
             "to_pt": [
-              611,
+              703,
               900
             ],
-            "label": "per owner: starts,\nshows to sign in,\nquits; guard (CDP):\nreads pages,\ndownloads,\nscreenshots,\nsite cookies;\nFavicons (read-only)",
+            "label": "per owner: starts,\nsign-in window;\nguard (CDP)",
             "label_at": [
-              619,
-              670,
-              "start"
-            ]
-          },
-          {
-            "from": "claude",
-            "to": "devmcp",
-            "label": "MCP stdio",
-            "label_at": [
-              369,
-              860,
-              "start"
-            ]
-          },
-          {
-            "from": "claude",
-            "to": "anthropic",
-            "from_pt": [
-              266,
-              760
-            ],
-            "via": [
-              [
-                236,
-                760
-              ],
-              [
-                236,
-                1080
-              ],
-              [
-                111,
-                1080
-              ]
-            ],
-            "to_pt": [
-              111,
-              1120
-            ],
-            "label": "prompts and\nreplies (HTTPS)",
-            "label_at": [
-              20,
-              1072,
-              "start"
+              694,
+              828,
+              "end"
             ]
           },
           {
@@ -1495,34 +1403,6 @@
             "label_at": [
               619,
               1086,
-              "start"
-            ]
-          },
-          {
-            "from": "server",
-            "to": "installer",
-            "label": "Install button:\ncurl install.sh | bash",
-            "from_pt": [
-              266,
-              425
-            ],
-            "via": [
-              [
-                236,
-                425
-              ],
-              [
-                236,
-                62
-              ]
-            ],
-            "to_pt": [
-              206,
-              62
-            ],
-            "label_at": [
-              244,
-              44,
               "start"
             ]
           },
@@ -1614,7 +1494,7 @@
               956,
               1170
             ],
-            "label": "OpenRouter bots:\nprompts (HTTPS)",
+            "label": "loop bots:\nchat API (HTTPS)",
             "label_at": [
               984,
               1078,
@@ -1638,10 +1518,78 @@
               456,
               930
             ],
-            "label": "OpenRouter\nbots: MCP\nstdio",
+            "label": "MCP stdio\n(both\nengines)",
             "label_at": [
               504,
               840,
+              "start"
+            ]
+          },
+          {
+            "from": "server",
+            "to": "codex",
+            "label": "spawns one per bot;\nJSON-RPC (stdio),\ndynamic tools",
+            "from_pt": [
+              351,
+              610
+            ],
+            "to_pt": [
+              351,
+              670
+            ],
+            "label_at": [
+              359,
+              626,
+              "start"
+            ]
+          },
+          {
+            "from": "codex",
+            "to": "relay",
+            "label": "/v1/responses\n(127.0.0.1)",
+            "from_pt": [
+              446,
+              760
+            ],
+            "to_pt": [
+              546,
+              760
+            ],
+            "label_at": [
+              506,
+              706,
+              "middle"
+            ]
+          },
+          {
+            "from": "relay",
+            "to": "openrouter",
+            "label": "Responses API\n(HTTPS)",
+            "from_pt": [
+              696,
+              760
+            ],
+            "via": [
+              [
+                748,
+                760
+              ],
+              [
+                748,
+                1085
+              ],
+              [
+                861,
+                1085
+              ]
+            ],
+            "to_pt": [
+              861,
+              1120
+            ],
+            "label_at": [
+              756,
+              1058,
               "start"
             ]
           }
@@ -1651,11 +1599,11 @@
         "id": "components",
         "title": "Level 3 \u00b7 Components of the oxbot server",
         "intro": "Inside the server process: the crates and modules, and who calls whom. The Hub and Store are folders of files split by job; the Hub sits in the middle with its advisers on either side.",
-        "caption": "Components. The Hub is the center: the web server and the Gate door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book, the allow rules and the owner-only rule decide what a bot is told, which tools run, ask or are refused, and who may give a bot tasks: Claude bots only take tasks from chains the Farm owner started, checked at every entry and again before the turn starts. Below it, Engines is the interface both engines plug into: the Claude engine wraps the unchanged Claude runner; the Loop runs OpenRouter bots step by step, asks the Hub's gate before every tool (the same policy code, so both engines get the same cards and refusals), picks free models with fallbacks on 429, paces to 20 requests a minute, meters each request and saves each step. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. OpenRouter sign-in (PKCE, state, a callback on this Mac only) gives the key. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a Gate, never the Farm. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on another engine or model in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step a card would ask about, and feeds the scoreboard.",
-        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the Gate door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks, the allow rules for Always allow and the owner-only rule whether a task chain may reach a bot. It starts sessions through Engines: the Claude engine drives the Claude runner and the Claude Code CLI; the Loop runs OpenRouter bots, asking the Hub's gate before every tool, and calls OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
+        "caption": "Components. The Hub is the center: the web server and the device door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book and the allow rules decide what a bot is told and which tools run, ask or are refused. Below it, Engines is the interface both engines plug into. The Codex engine runs one codex app-server per bot (own CODEX_HOME, a config written at every start with analytics, plugins, web search, update checks and the shell off) and hands it oxbot's tools as dynamic tools, answered through the Loop's tool service: the same gate, approval requests, Always allow, refusals and untrusted-text marks as loop bots. Codex's only model provider is the Model relay on 127.0.0.1: it checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, forwards to OpenRouter's Responses API with the household key, meters each request and keeps what was sent for 14 days. The Loop runs bots step by step on the chat API, picks free models with fallbacks on 429, paces to 20 requests a minute and saves each step. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a device (a Gate), never the Farm. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on Codex or the loop in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step an approval request would ask about, and feeds the scoreboard, measured against Codex.",
+        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the device door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks and the allow rules for Always allow. It starts sessions through Engines: the Codex engine spawns one codex app-server per bot over JSON-RPC on stdio and answers its tool calls through the Loop's tool service; codex app-server sends model requests to the Model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. The Loop runs loop bots, asking the Hub's gate before every tool, calls OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
         "size": [
           1430,
-          1545
+          1750
         ],
         "grid": {
           "x0": 16,
@@ -1666,7 +1614,7 @@
             190,
             420,
             1205,
-            1435
+            1640
           ]
         },
         "boundaries": [
@@ -1674,7 +1622,7 @@
             "x": 6,
             "y": 150,
             "w": 1408,
-            "h": 1245,
+            "h": 1450,
             "label": "oxbot server (container)"
           }
         ],
@@ -1687,7 +1635,7 @@
             "h": 100,
             "name": "Farm key",
             "tech": "<data>/farm-key, 0600",
-            "desc": "Random key. Local = Farm only with it."
+            "desc": "Random key. Local = the Farm (home computer) only with it."
           },
           {
             "id": "clients",
@@ -1705,9 +1653,9 @@
             "col": 2,
             "row": 0,
             "h": 100,
-            "name": "Gate app",
+            "name": "Android app",
             "tech": "Container",
-            "desc": "Android phone. Pinned TLS, paired key."
+            "desc": "A device. Pinned TLS, paired key."
           },
           {
             "id": "machelper",
@@ -1718,16 +1666,6 @@
             "name": "Mac helper",
             "tech": "Container: Swift",
             "desc": "Frames (AVFoundation); Speech, on-device."
-          },
-          {
-            "id": "installer",
-            "type": "external",
-            "col": 4,
-            "row": 0,
-            "h": 100,
-            "name": "claude.ai",
-            "tech": "Claude installer",
-            "desc": "install.sh, on Install"
           },
           {
             "id": "protocol",
@@ -1755,7 +1693,7 @@
             "col": 2,
             "row": 1,
             "h": 160,
-            "name": "Gate door",
+            "name": "Device door",
             "tech": "oxbot::door",
             "desc": "TLS :7879, own cert. Code \u2192 key, only its hash kept. Open only on listed networks, private peers, mDNS. Acts as Viewer::gate."
           },
@@ -1767,7 +1705,7 @@
             "h": 160,
             "name": "Dictation",
             "tech": "oxbot::dictation",
-            "desc": "The Farm only. Runs the helper's dictate per connection; text goes back only to the connection that asked."
+            "desc": "Home computer only. Runs the helper's dictate per connection; text goes back only to the connection that asked."
           },
           {
             "id": "setup",
@@ -1777,7 +1715,7 @@
             "h": 160,
             "name": "Setup",
             "tech": "oxbot::setup, runtime",
-            "desc": "Checks Claude Code (installed, signed in), Chrome, Node if needed, and whether the Mac helper can dictate on-device."
+            "desc": "Checks Codex (found, version 0.148.x), Chrome, Node if needed, the OpenRouter sign-in, and whether the Mac helper can dictate on-device."
           },
           {
             "id": "hub",
@@ -1787,7 +1725,7 @@
             "h": 640,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, claude, taint, seqs; elements, rules, sections, reports, alerts, uploads; new in Step 5: engines, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Herder per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs a GiveTask card to task a private bot. Latest numbers in memory. A sign-in stays only with a new cookie. Cards: change and final clicks ask; an Always allow rule skips the card only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened, read from the browser's real page list. Alerts: Claude usage past 50% and 80% of the 5-hour and weekly windows, once per level per window. Uploads: files wait per person and bot until sent, swept after an hour; Claude gets their paths in oxbot's note after the escaped words. Engines: each bot's engine from bot.toml (main Herder Claude, other Herders OpenRouter); a gate() answers every loop tool with the same policy as Claude's hooks; loop turns get their own slots, limits per bot and person a day, and pick up after a restart. Comparisons (owner only): test cases from finished turns, practice runs through the same gate with every card recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
+            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, session, taint, seqs; elements, rules, sections, reports, alerts, uploads; engines, codex, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Assistant (Herder) per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs an approval request to task a private bot. A sign-in stays only with a new cookie. Approval requests: change and final clicks ask; an Always allow rule skips the request only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened. Alerts: OpenRouter's limits only (free requests, spending, credit, a bot's requests a day), once per level. Uploads: files wait per person and bot until sent, swept after an hour; their paths go in oxbot's note after the escaped words. Engines: each bot's engine from bot.toml, Codex by default and for every Herder; older bots move to Codex once, with a line in the chat (migration 22). gate() answers every tool on both engines with the same policy; limits per bot and person a day; turns pick up after a restart. Comparisons (owner only): test cases from finished turns, practice runs on Codex and the loop through the same gate with every approval request recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
             "x": 286,
             "w": 610
           },
@@ -1810,7 +1748,7 @@
             "h": 130,
             "name": "Policy",
             "tech": "oxbot-core::policy",
-            "desc": "Every tool, both engines. Change, final and Enter: a red card (recorded in practice runs). Passwords, scripts: refused.",
+            "desc": "Every tool, both engines. Change, final and Enter: an approval request (recorded in practice runs). Passwords, scripts: refused.",
             "y": 560
           },
           {
@@ -1832,7 +1770,7 @@
             "h": 130,
             "name": "Allow rules",
             "tech": "hub/rules",
-            "desc": "Always allow: bot, exact host, action, button label, from the server's card. Set by the owner or the Farm. Never on final clicks.",
+            "desc": "Always allow: bot, exact host, action, button label, from the approval request. Set by the bot's maker or the owner. Never on final clicks.",
             "y": 840
           },
           {
@@ -1854,7 +1792,7 @@
             "h": 140,
             "name": "Tools",
             "tech": "oxbot-core::tools",
-            "desc": "In-process MCP server. Every bot: request_sign_in. With the browser: save_report. Herder: team tools (list_bots, give_task\u2026).",
+            "desc": "Same names on both engines. Every bot: request_sign_in. With the browser: save_report. Herder: team tools (list_bots, give_task\u2026).",
             "y": 575
           },
           {
@@ -1876,7 +1814,7 @@
             "h": 140,
             "name": "Notifier",
             "tech": "oxbot::notify",
-            "desc": "Usage alerts, and a waiting bot's name while the app is hidden, as Mac notifications: app plugin, or osascript.",
+            "desc": "Usage alerts (OpenRouter's limits), and a waiting bot's name while the app is hidden, as Mac notifications: app plugin, or osascript.",
             "y": 885
           },
           {
@@ -1887,7 +1825,7 @@
             "h": 160,
             "name": "Store",
             "tech": "oxbot-core::store",
-            "desc": "store/: migrations 1\u201318 (refuses a newer DB): events, sessions, people, sites, gates, usage, rules, sections, reports, alerts, origins, loop steps, model calls, comparisons."
+            "desc": "store/: migrations 1\u201322 (refuses a newer DB): events, sessions, people, sites, rules, sections, reports, alerts, loop steps, model calls, Codex threads, relay log, comparisons."
           },
           {
             "id": "bots",
@@ -1897,17 +1835,7 @@
             "h": 160,
             "name": "Bots and people",
             "tech": "oxbot-core::bot, id",
-            "desc": "bot.toml: engine, owner, created_by, private, daily limit. PersonId (p_ + 16 hex). Viewer {id, name, farm}: Farm sees all."
-          },
-          {
-            "id": "claudeeng",
-            "type": "component",
-            "col": 2,
-            "row": 3,
-            "h": 160,
-            "name": "Claude engine",
-            "tech": "engine/claude \u00b7 oxbot-claude",
-            "desc": "ClaudeEngine: an actor around the unchanged ClaudeProcess. Spawns claude -p; stream-json events become EngineEvents."
+            "desc": "bot.toml: engine (codex | openrouter), owner, created_by, private, daily limit. PersonId (p_ + 16 hex). Viewer {id, name, farm}: the Farm sees all."
           },
           {
             "id": "browser",
@@ -1928,7 +1856,7 @@
             "h": 160,
             "name": "Loop",
             "tech": "oxbot-loop",
-            "desc": "Runner (a step at a time, checkpoint each), context builder and compactor, stored results with page maps and page tools, gate check, router, pacer, meter.",
+            "desc": "Runner (a step at a time, checkpoint each), tool service (both engines), context builder and compactor, page maps and page tools, gate check, router, pacer, meter, gateway.",
             "status": "built"
           },
           {
@@ -1939,7 +1867,7 @@
             "h": 90,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "migrations 1\u201318"
+            "desc": "migrations 1\u201322"
           },
           {
             "id": "folders",
@@ -1950,16 +1878,6 @@
             "name": "Bot folders",
             "tech": "bots/<id>/",
             "desc": "settings, work/, work/inbox/"
-          },
-          {
-            "id": "claude",
-            "type": "external",
-            "col": 2,
-            "row": 4,
-            "h": 90,
-            "name": "Claude Code CLI",
-            "tech": "claude -p",
-            "desc": "one per bot"
           },
           {
             "id": "chrome",
@@ -1979,19 +1897,8 @@
             "h": 90,
             "name": "chrome-devtools-mcp",
             "tech": "Node, MCP stdio",
-            "desc": "for OpenRouter bots",
+            "desc": "for both engines",
             "status": "built"
-          },
-          {
-            "id": "owner",
-            "type": "component",
-            "col": 0,
-            "row": 2,
-            "y": 980,
-            "h": 130,
-            "name": "Owner-only rule",
-            "tech": "hub/engines",
-            "desc": "may_task at every entry: Claude bots take tasks only from chains the Farm owner started. Others: OpenRouter bots."
           },
           {
             "id": "engines",
@@ -2024,7 +1931,7 @@
             "h": 160,
             "name": "OpenRouter sign-in",
             "tech": "oxbot::openrouter_auth",
-            "desc": "PKCE S256 and state, one use, 10 minutes. Callback on oxbot's own port, never the Gate door. The Farm only."
+            "desc": "PKCE S256 and state, one use, 10 minutes. Callback on oxbot's own port, never the device door. Home computer only."
           },
           {
             "id": "keychain",
@@ -2054,7 +1961,7 @@
             "h": 90,
             "name": "OpenRouter",
             "tech": "openrouter.ai",
-            "desc": "chat, models, key"
+            "desc": "chat, Responses, models, key"
           },
           {
             "id": "trials",
@@ -2065,7 +1972,7 @@
             "h": 140,
             "name": "Comparison runner",
             "tech": "oxbot-core::hub::trials, compare",
-            "desc": "Test cases replayed one at a time on Claude or OpenRouter; steps a card would ask about are recorded."
+            "desc": "Test cases replayed one at a time on Codex or the loop, with the models picked; steps an approval request would ask about are recorded."
           },
           {
             "id": "scoreboard",
@@ -2076,7 +1983,7 @@
             "h": 120,
             "name": "Scoreboard",
             "tech": "oxbot-core::compare",
-            "desc": "Pass rate (your marks, then Claude's), steps, requests, tokens, $, time, thumbs."
+            "desc": "Measured against Codex: pass rate (the owner's marks), steps, requests, tokens, $, time, thumbs."
           },
           {
             "id": "sandbox",
@@ -2088,6 +1995,37 @@
             "name": "Trial sandbox",
             "tech": "oxbot-browser::trial, netguard",
             "desc": "A copy of the sign-ins, no history, deleted after. Network guard: reads only, no WebSockets; browser tools wait for it."
+          },
+          {
+            "id": "codexeng",
+            "type": "component",
+            "col": 2,
+            "row": 3,
+            "h": 160,
+            "name": "Codex engine",
+            "tech": "oxbot-codex \u00b7 hub/codex",
+            "desc": "Supervisor: one codex app-server per bot; writes its config at every start; JSON-RPC threads and turns; oxbot's tools as dynamic tools."
+          },
+          {
+            "id": "codex",
+            "type": "external",
+            "col": 2,
+            "row": 4,
+            "h": 90,
+            "name": "codex app-server",
+            "tech": "Codex CLI 0.148.x",
+            "desc": "one per bot, own CODEX_HOME"
+          },
+          {
+            "id": "relay",
+            "type": "component",
+            "col": 2,
+            "row": 3,
+            "y": 1420,
+            "h": 140,
+            "name": "Model relay",
+            "tech": "oxbot-relay \u00b7 127.0.0.1",
+            "desc": "Per-process token; strips ids, headers, metadata; the bot's model, privacy, limits; meters; keeps what was sent 14 days."
           }
         ],
         "edges": [
@@ -2303,27 +2241,9 @@
             ]
           },
           {
-            "from": "setup",
-            "to": "installer",
-            "label": "Install:\ncurl | bash",
-            "from_pt": [
-              1120,
-              190
-            ],
-            "to_pt": [
-              1120,
-              112
-            ],
-            "label_at": [
-              1112,
-              134,
-              "end"
-            ]
-          },
-          {
             "from": "web",
             "to": "hub",
-            "label": "per viewer: send,\nuploads, cards,\nsettings",
+            "label": "per viewer: send,\nuploads, approvals,\nsettings",
             "from_pt": [
               340,
               350
@@ -2546,7 +2466,7 @@
             ],
             "to_pt": [
               111,
-              1435
+              1640
             ],
             "label_at": [
               119,
@@ -2564,7 +2484,7 @@
             ],
             "to_pt": [
               351,
-              1435
+              1640
             ],
             "label_at": [
               359,
@@ -2582,30 +2502,12 @@
             ],
             "to_pt": [
               831,
-              1435
+              1640
             ],
             "label_at": [
               839,
-              1395,
+              1450,
               "start"
-            ]
-          },
-          {
-            "from": "hub",
-            "to": "owner",
-            "label": "may task?",
-            "from_pt": [
-              286,
-              1045
-            ],
-            "to_pt": [
-              206,
-              1045
-            ],
-            "label_at": [
-              246,
-              1025,
-              "middle"
             ]
           },
           {
@@ -2627,24 +2529,6 @@
             ]
           },
           {
-            "from": "claudeeng",
-            "to": "engines",
-            "label": "implements",
-            "from_pt": [
-              591,
-              1205
-            ],
-            "to_pt": [
-              591,
-              1167
-            ],
-            "label_at": [
-              583,
-              1192,
-              "end"
-            ]
-          },
-          {
             "from": "loop",
             "to": "engines",
             "label": "implements",
@@ -2659,24 +2543,6 @@
             "label_at": [
               1008,
               1185,
-              "start"
-            ]
-          },
-          {
-            "from": "claudeeng",
-            "to": "claude",
-            "label": "spawns,\nstream-json",
-            "from_pt": [
-              591,
-              1365
-            ],
-            "to_pt": [
-              591,
-              1435
-            ],
-            "label_at": [
-              599,
-              1395,
               "start"
             ]
           },
@@ -2708,7 +2574,7 @@
             ],
             "to_pt": [
               1071,
-              1435
+              1640
             ],
             "label_at": [
               1079,
@@ -2722,15 +2588,15 @@
             "label": "CDP",
             "from_pt": [
               976,
-              1480
+              1685
             ],
             "to_pt": [
               926,
-              1480
+              1685
             ],
             "label_at": [
               951,
-              1472,
+              1677,
               "middle"
             ]
           },
@@ -2744,7 +2610,7 @@
             ],
             "to_pt": [
               1311,
-              1435
+              1640
             ],
             "label_at": [
               1319,
@@ -2850,29 +2716,15 @@
             "label": "practice runs",
             "from_pt": [
               896,
-              1050
-            ],
-            "via": [
-              [
-                936,
-                1050
-              ],
-              [
-                936,
-                1110
-              ],
-              [
-                1311,
-                1110
-              ]
+              1045
             ],
             "to_pt": [
-              1311,
-              1070
+              1216,
+              1045
             ],
             "label_at": [
-              1100,
-              1104,
+              1056,
+              1039,
               "middle"
             ]
           },
@@ -2921,29 +2773,145 @@
               927,
               "end"
             ]
+          },
+          {
+            "from": "codexeng",
+            "to": "engines",
+            "label": "implements",
+            "from_pt": [
+              591,
+              1205
+            ],
+            "to_pt": [
+              591,
+              1167
+            ],
+            "label_at": [
+              583,
+              1192,
+              "end"
+            ]
+          },
+          {
+            "from": "codexeng",
+            "to": "codex",
+            "label": "spawns one per bot,\nJSON-RPC (stdio)",
+            "from_pt": [
+              496,
+              1300
+            ],
+            "via": [
+              [
+                471,
+                1300
+              ],
+              [
+                471,
+                1685
+              ]
+            ],
+            "to_pt": [
+              496,
+              1685
+            ],
+            "label_at": [
+              479,
+              1614,
+              "start"
+            ]
+          },
+          {
+            "from": "codex",
+            "to": "relay",
+            "label": "/v1/responses\n(127.0.0.1)",
+            "from_pt": [
+              591,
+              1640
+            ],
+            "to_pt": [
+              591,
+              1560
+            ],
+            "label_at": [
+              599,
+              1590,
+              "start"
+            ]
+          },
+          {
+            "from": "relay",
+            "to": "openrouter",
+            "label": "Responses API (HTTPS),\nhousehold key",
+            "from_pt": [
+              686,
+              1490
+            ],
+            "via": [
+              [
+                1280,
+                1490
+              ]
+            ],
+            "to_pt": [
+              1280,
+              1640
+            ],
+            "label_at": [
+              951,
+              1471,
+              "middle"
+            ]
+          },
+          {
+            "from": "codexeng",
+            "to": "loop",
+            "label": "tool service",
+            "from_pt": [
+              670,
+              1365
+            ],
+            "via": [
+              [
+                670,
+                1400
+              ],
+              [
+                1040,
+                1400
+              ]
+            ],
+            "to_pt": [
+              1040,
+              1365
+            ],
+            "label_at": [
+              955,
+              1394,
+              "middle"
+            ]
           }
         ]
       }
     ]
   },
   "changed": {
-    "intro": "Since Step 2: Step 5's first two issues (#17, #18). Every bot now has an engine: Claude (owner-only) or OpenRouter (oxbot's own loop, free models first). New hosts: OpenRouter, only for OpenRouter bots and its model list and key limits. Model calls go only to Anthropic, OpenRouter or a local model.",
+    "intro": "Since Step 5: Step 6. Claude is gone; every bot uses OpenRouter's models with the household's key, through oxbot's relay (Codex, the default) or oxbot's own loop. Model calls go only to OpenRouter (or, later, a local model), and to no other AI company.",
     "items": [
       {
-        "title": "Engines (#17)",
-        "text": "oxbot-engine holds the Engine and Session traits; the Claude path is ClaudeEngine with no change in behavior. bot.toml names each bot's engine. hub/engines.rs enforces the owner-only rule for Claude bots at every entry (messages, Gates, Herders' give_task, chains), with who started each chain in turn_origins (migration 16)."
+        "title": "Codex engine",
+        "text": "oxbot-codex runs one codex app-server per bot with its own CODEX_HOME and a config oxbot writes at every start (analytics, plugins, web search, update checks, shell off). oxbot's tools reach it as dynamic tools through oxbot-loop's tool service and the hub's gate: the same approval requests, Always allow, refusals and untrusted-text marks as the loop."
       },
       {
-        "title": "The loop (#18)",
-        "text": "oxbot-loop runs OpenRouter bots one step at a time, checkpointing each (migration 17) and asking the hub's gate before every tool, with the same policy as Claude bots. The router picks free models with fallbacks, the pacer keeps to 20 a minute and the daily budget, the meter counts requests, tokens and dollars per bot and person."
+        "title": "Model relay",
+        "text": "oxbot-relay listens on 127.0.0.1 as Codex's only model provider: it checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, forwards to OpenRouter's Responses API with the household key, meters each request and keeps what was sent for 14 days (migration 21)."
       },
       {
-        "title": "OpenRouter and the key (#18)",
-        "text": "oxbot-llm speaks the OpenAI-style chat API to OpenRouter. Sign in with OpenRouter (PKCE) comes back to oxbot on this Mac; the key goes only into the macOS Keychain (keychain.rs) and one in-memory KeyCell. Private bots ask providers not to keep data."
+        "title": "Claude leaves",
+        "text": "oxbot-claude, the Claude engine, the owner-only rule, Claude setup, Claude usage alerts and the Claude judge are removed. Bots that ran on Claude move to Codex once, with a line in their chat (migration 22)."
       },
       {
-        "title": "Comparing engines (#21)",
-        "text": "The owner keeps finished turns as test cases and replays them on Claude and OpenRouter models in a sandbox: every step a card would ask about is recorded instead, the test browser lets pages only read, and nothing reaches the chat. The scoreboard compares pass rate, steps, requests, tokens, dollars and time (migration 18)."
+        "title": "Tests",
+        "text": "oxbot-core::testing (feature test-bots) gives stand-in bots for hub tests; e2e reply scripts (e2e/scripts/) drive the stand-in OpenRouter on both APIs, and the suite needs codex installed."
       }
     ]
   }

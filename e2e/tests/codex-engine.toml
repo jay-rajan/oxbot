@@ -1,5 +1,5 @@
 name = "A bot on Codex browses through oxbot's gate"
-about = "A new bot made on Codex (open models) runs Codex CLI's agent loop with oxbot's own tools: asked to search jobs, it opens the page, reads it and clicks Search through the browser tool, each step in the chat, and answers with the model and request count under it. A click that posts shows the red card first, and Deny is respected. Codex is never offered page scripts, its requests reach the stand-in OpenRouter only through oxbot's relay with Codex's ids and headers stripped, and every request is metered and logged. Skipped on a Mac without Codex 0.148."
+about = "A new bot (Codex, the default) runs Codex CLI's agent loop with oxbot's own tools: asked to search jobs, it opens the page, reads it and clicks Search through the browser tool, each step in the chat, and answers with the model and request count under it. A click that posts shows an approval request first, and Deny is respected. Codex is never offered page scripts, its requests reach the stand-in OpenRouter only through oxbot's relay with Codex's ids and headers stripped, and every request is metered and logged. Skipped on a Mac without Codex 0.148."
 needs = ["codex"]
 covers = ["crates/oxbot-codex/**", "crates/oxbot-relay/**", "crates/oxbot-loop/src/service.rs", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-llm/src/client.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui/**"]
 
@@ -8,18 +8,12 @@ click = "New bot"
 [[step]]
 type = { into = "Name", text = "Scout" }
 [[step]]
-expect_js = "(() => { const s = document.getElementById('nbEngine'); s.value = 'codex'; s.dispatchEvent(new Event('change')); return true; })()"
-note = "Pick Codex (open models)"
-[[step]]
-expect = "Codex runs it"
-note = "The dialog says Codex is ready"
-[[step]]
 click = "Create"
 [[step]]
 wait_for = "@scout"
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'Codex'"
-note = "The bot runs on Codex"
+expect_js = "bots.get('scout').info.engine === 'codex' && document.getElementById('engineBadge').textContent === 'Free models'"
+note = "New bots run on Codex; the page says only which AI models"
 [[step]]
 send = "search jobs"
 [[step]]
@@ -36,7 +30,7 @@ expect = "browser click"
 expect_not = "Allow once"
 note = "Search needs no OK, as on the other engines"
 [[step]]
-expect = "tool-model:free · 5 requests"
+expect = "tool-model:free · 5 questions"
 note = "The model and the requests the task took (the last one answers oxbot's check of the answer)"
 shot = "browsed"
 [[step]]
@@ -76,12 +70,12 @@ send = "post it"
 [[step]]
 wait_for = "Allow once"
 timeout_ms = 60000
-note = "The card, before the click"
+note = "The approval request, before the click"
 [[step]]
 expect = "Post"
 shot = "card"
 [[step]]
-click = "Deny"
+click = "Don't allow"
 [[step]]
 wait_for = "Okay, I didn't post it."
 timeout_ms = 60000

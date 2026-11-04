@@ -142,7 +142,7 @@ impl AsyncRead for Conn {
                 if this.idle.as_mut().poll(cx).is_ready() {
                     Poll::Ready(Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
-                        "the Gate went quiet",
+                        "the device went quiet",
                     )))
                 } else {
                     Poll::Pending

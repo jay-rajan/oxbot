@@ -1,5 +1,5 @@
-name = "A bot on OpenRouter browses"
-about = "A new bot runs on OpenRouter by default; asked to search jobs, oxbot's own loop opens the page, reads it and clicks Search through the browser tool, each step shown in the chat, then answers with the model and request count under it."
+name = "A bot on oxbot's own loop browses"
+about = "A bot moved to oxbot's own loop (owners can, through the API; the app no longer offers it) asked to search jobs: the loop opens the page, reads it and clicks Search through the browser tool, each step shown in the chat, then answers with the model and request count under it."
 covers = ["crates/oxbot-loop/**", "crates/oxbot-llm/**", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot-browser/src/lib.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui/**"]
 
 [[step]]
@@ -11,8 +11,11 @@ click = "Create"
 [[step]]
 wait_for = "@scout"
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'OpenRouter'"
-note = "New bots run on OpenRouter"
+expect_js = "(() => { send({ type: 'set_engine', bot: 'scout', engine: 'openrouter' }); return true; })()"
+note = "New bots run on Codex: this one moves to the loop"
+[[step]]
+expect_js = "bots.get('scout').info.engine === 'openrouter'"
+timeout_ms = 5000
 [[step]]
 send = "search jobs"
 [[step]]
@@ -26,9 +29,9 @@ expect = "browser take_snapshot"
 expect = "browser click"
 [[step]]
 expect_not = "Allow once"
-note = "Search needs no OK, as on Claude"
+note = "Search needs no OK, as on Codex"
 [[step]]
-expect = "tool-model:free · 5 requests"
+expect = "tool-model:free · 5 questions"
 note = "The model it used and how many requests the task took (the last one answers oxbot's check of the answer)"
 shot = "browsed"
 [[step]]

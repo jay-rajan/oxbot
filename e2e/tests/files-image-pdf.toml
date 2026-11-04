@@ -1,5 +1,5 @@
 name = "A picture and a PDF go with a message"
-about = "Two files attached with the button upload at once and show as chips; the message carries them, its bubble shows them, Claude opens both, and on the Farm a chip opens the file on the Mac."
+about = "Two files attached with the button upload at once and show as chips; the message carries them, its bubble shows them, the bot opens both, and on the home computer a chip opens the file on the Mac."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
 
 [[step]]
@@ -14,7 +14,7 @@ shot = "chips"
 send = "what's in these?"
 [[step]]
 wait_for = "photo.png (picture)"
-note = "Claude opened the picture"
+note = "The bot opened the picture"
 [[step]]
 expect = "bill.pdf (PDF)"
 note = "…and the PDF"
@@ -25,5 +25,5 @@ shot = "sent"
 [[step]]
 click = "bill.pdf"
 [[step]]
-wait_for = "Opening bill.pdf on this Mac."
-note = "On the Farm a chip opens the file on the Mac (tests never open windows)"
+wait_for = "Opening bill.pdf on the home computer."
+note = "On the home computer a chip opens the file on the Mac (tests never open windows)"

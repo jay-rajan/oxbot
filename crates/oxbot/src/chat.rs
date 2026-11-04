@@ -36,7 +36,7 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
     .await?;
 
     println!(
-        "Chatting with {bot}. /cancel stops a reply, /yes or /no answers a card, /quit leaves."
+        "Chatting with {bot}. /cancel stops a reply, /yes or /no answers an approval request, /quit leaves."
     );
     let mut view = View::default();
     let mut stdin = BufReader::new(tokio::io::stdin()).lines();

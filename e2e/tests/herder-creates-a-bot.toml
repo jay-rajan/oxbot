@@ -1,9 +1,9 @@
-name = "Herder makes a bot after your OK"
-about = "Asking Herder for a bot shows a card; pressing Create makes it, by whoever asked."
+name = "Assistant makes a bot after your OK"
+about = "Asking the Assistant for a bot shows an approval request; pressing Create makes it, by whoever asked."
 covers = ["crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/ui/**"]
 
 [[step]]
-click = "Herder"
+click = "Assistant"
 [[step]]
 send = "make a bot for the weather"
 [[step]]
@@ -12,7 +12,7 @@ wait_for = "Don't create"
 expect = "Weather Notes"
 [[step]]
 expect_js = "![...document.querySelectorAll('#cards button')].some(b => b.textContent === 'Always allow')"
-note = "Herder's cards never offer Always allow"
+note = "The Assistant's approval requests never offer Always allow"
 [[step]]
 click = "Create"
 [[step]]

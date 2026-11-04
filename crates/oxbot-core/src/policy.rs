@@ -499,7 +499,7 @@ pub fn decide(
             let url = str_of(input, "url");
             if is_home_network(url) {
                 return Verdict::Deny(format!(
-                    "oxbot doesn't open pages on this Mac or the home network ({url}), only on the web."
+                    "oxbot doesn't open pages on the home computer or the home network ({url}), only on the web."
                 ));
             }
             if url == "about:blank" || web_host(url).is_some() {

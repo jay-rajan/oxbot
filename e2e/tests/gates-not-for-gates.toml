@@ -1,25 +1,25 @@
-name = "A Gate can't pair other Gates"
-about = "Someone connected as a Gate person (Ann) has no Add a Gate button and no Gates tab in Settings: only the Farm pairs phones. Their bottom row is Settings and Signed in."
+name = "A device can't connect other devices"
+about = "Someone on a device (Ann) has no Connect a device button and no Devices tab in Settings: only the home computer pairs phones. Their bottom row is Settings and Websites."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/door/**"]
 as = "Ann"
 
 [[step]]
 expect_js = "document.getElementById('gateBtn').hidden"
-note = "No Add a Gate button"
+note = "No Connect a device button"
 [[step]]
 click = "Settings"
 [[step]]
-expect = "Claude usage"
+expect = "Notifications"
 [[step]]
 expect_js = "document.getElementById('gatesTab').hidden"
-note = "No Gates tab"
+note = "No Devices tab"
 [[step]]
 key = "Escape"
 [[step]]
 expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn,signedInBtn'"
-note = "Two items: Settings and Signed in"
+note = "Two items: Settings and Websites"
 [[step]]
-click = "Signed in"
+click = "Websites"
 [[step]]
 expect_js = "document.querySelector('[data-tab=\"setSignins\"]').getAttribute('aria-selected') === 'true'"
 [[step]]

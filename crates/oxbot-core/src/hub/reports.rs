@@ -61,7 +61,7 @@ impl Hub {
                 (
                     true,
                     format!(
-                        "Saved \"{}\". The user sees a card for it in this chat. Now reply in 2 to 4 \
+                        "Saved \"{}\". The user sees it in this chat. Now reply in 2 to 4 \
                          lines with the answer in brief; don't repeat the report.",
                         report.title
                     ),

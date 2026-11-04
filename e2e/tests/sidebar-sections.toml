@@ -33,7 +33,7 @@ type = { into = "Search bots", text = "reci" }
 [[step]]
 expect = "Recipes"
 [[step]]
-expect_js = "![...document.querySelectorAll('.bot-item')].some((r) => r.innerText.includes('Journal') || r.innerText.includes('Herder'))"
+expect_js = "![...document.querySelectorAll('.bot-item')].some((r) => r.innerText.includes('Journal') || r.innerText.includes('Assistant'))"
 note = "Only the match shows"
 shot = "search"
 [[step]]
@@ -51,8 +51,8 @@ click = "People"
 expect_js = "(() => { const g = (k) => document.querySelector('.group[data-key=\"' + k + '\"]').innerText; return g('p:Jay').includes('Recipes') && g('p:Jay').includes('Journal') && g('p:Sam').includes('Bank') && !g('p:Jay').includes('Bank'); })()"
 note = "By person: Jay's bots under Jay, Sam's under Sam"
 [[step]]
-expect_js = "document.querySelector('.group').dataset.key === 'herder' && document.querySelector('.group').innerText.includes('Herder')"
-note = "Herder stays pinned first"
+expect_js = "document.querySelector('.group').dataset.key === 'herder' && document.querySelector('.group').innerText.includes('Assistant')"
+note = "Assistant stays pinned first"
 shot = "by-person"
 [[step]]
 click = "Sections"

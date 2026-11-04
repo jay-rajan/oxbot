@@ -15,7 +15,7 @@ expect_js = "(openReport('bank', 'r_5ec2e75ec2e75ec2e75ec2e75ec2e75e'), send({ t
 note = "Ask for the report by its id anyway"
 [[step]]
 wait_for = "no bot called"
-note = "The Farm answers as if the bot weren't there"
+note = "The home computer answers as if the bot weren't there"
 [[step]]
 wait_ms = 800
 [[step]]

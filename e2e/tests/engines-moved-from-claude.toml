@@ -1,0 +1,32 @@
+name = "A bot from before Claude left keeps its chat and says it moved"
+about = "Recipes ran on Claude (its file named no engine): at the first start oxbot moved it to the AI helper. Its old chat is still there, with one plain line saying it now uses free and paid AI models through the OpenRouter account, and it answers a new message."
+covers = ["crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/store/**", "crates/oxbot/ui/**", "e2e/seed/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect = "Red lentil dal"
+note = "The chat from Claude's days is kept"
+[[step]]
+expect = "This bot now uses free and paid AI models through your OpenRouter account. Its old Claude sessions can't be continued."
+shot = "moved-note"
+[[step]]
+expect_js = "document.querySelectorAll('#log .note-line').length === 1"
+note = "Said once"
+[[step]]
+expect_js = "bots.get('recipes').info.engine === 'codex'"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in bot."
+timeout_ms = 60000
+note = "It answers on its new engine"
+[[step]]
+restart = true
+[[step]]
+click = "Recipes"
+[[step]]
+wait_for = "Hello! I'm the stand-in bot."
+[[step]]
+expect_js = "document.querySelectorAll('#log .note-line').length === 1"
+note = "Not said again after a restart"

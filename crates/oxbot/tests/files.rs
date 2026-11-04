@@ -302,7 +302,7 @@ async fn a_file_goes_with_a_message_and_opens_on_the_farm_only() {
         _ => None,
     })
     .await;
-    assert_eq!(said, "Opening list.csv on this Mac.");
+    assert_eq!(said, "Opening list.csv on the home computer.");
 
     let mut ann = connect(&format!("ws://{}/ws?as=Ann", s.addr)).await;
     for msg in [open, ClientMsg::Dictate { on: true }] {
@@ -312,7 +312,7 @@ async fn a_file_goes_with_a_message_and_opens_on_the_farm_only() {
             _ => None,
         })
         .await;
-        assert_eq!(said, "Only the Farm can do that.");
+        assert_eq!(said, "That can only be done on the home computer.");
     }
 }
 

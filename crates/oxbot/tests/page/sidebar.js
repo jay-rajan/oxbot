@@ -30,9 +30,9 @@ check(g[1].ids.includes("journal"), "a placement in a section that's gone is ign
 g = t.groupBots(list, [...secs, { id: "s_3", name: "Empty" }], { ...placed, journal: "s_1", old: "s_1" }, "sections", "", "Jay");
 check(shape(g) === "herder:assistant | Kitchen:recipes+cafe+journal+old | Money:bank | Empty:", "empty sections show: " + shape(g));
 
-// By person: Herder, you first, the rest A-Z, the Farm's (no maker) last.
+// By person: Herder, you first, the rest A-Z, the home computer's (no maker) last.
 g = t.groupBots(list, secs, placed, "people", "", "Jay");
-check(shape(g) === "herder:assistant | Jay:recipes+journal | Ann:cafe | Sam:bank | Farm:old", "you first, then A-Z, then the Farm: " + shape(g));
+check(shape(g) === "herder:assistant | Jay:recipes+journal | Ann:cafe | Sam:bank | Home computer:old", "you first, then A-Z, then the home computer: " + shape(g));
 check(g[0].title === "" && g[0].ids[0] === "assistant", "Herder pinned outside any person");
 g = t.groupBots(list, secs, placed, "people", "", "Sam");
 check(g[1].title === "Sam", "whoever you are comes first");

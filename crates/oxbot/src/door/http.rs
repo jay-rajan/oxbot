@@ -59,7 +59,7 @@ pub async fn require_key(
             tracing::warn!(%err, "couldn't check a Gate's key");
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
-                "The Farm couldn't check this phone just now. Trying again…",
+                "The home computer couldn't check this phone just now. Trying again…",
             )
                 .into_response();
         }
@@ -67,7 +67,7 @@ pub async fn require_key(
             tokio::time::sleep(Duration::from_millis(200)).await;
             return (
                 StatusCode::UNAUTHORIZED,
-                "This Gate isn't paired with the Farm (or was removed). Pair it again.",
+                "This device isn't paired with the home computer (or was removed). Pair it again.",
             )
                 .into_response();
         }

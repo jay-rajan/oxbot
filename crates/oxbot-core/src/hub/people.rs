@@ -350,7 +350,7 @@ impl Hub {
             Some(id) if self.farm_id().as_ref() == Some(id) => Ok(main_herder()),
             Some(id) => self.herder_for_person(id),
             None => Err(HubError::NotAllowed(
-                "Herder needs to know who it's for.".to_owned(),
+                "The Assistant needs to know who it's for.".to_owned(),
             )),
         }
     }
@@ -365,7 +365,7 @@ impl Hub {
         let person = person.trim();
         if person.is_empty() {
             return Err(HubError::NotAllowed(
-                "Herder needs to know who it's for.".to_owned(),
+                "The Assistant needs to know who it's for.".to_owned(),
             ));
         }
         let person = self.person_named(person)?;
@@ -382,10 +382,9 @@ impl Hub {
     /// Fails if there's no such person, its folder belongs to someone else,
     /// or it can't be written.
     pub fn herder_for_person(&self, id: &PersonId) -> Result<BotId, HubError> {
-        let person = self
-            .store
-            .person_by_id(id)?
-            .ok_or_else(|| HubError::NotAllowed("Herder needs to know who it's for.".to_owned()))?;
+        let person = self.store.person_by_id(id)?.ok_or_else(|| {
+            HubError::NotAllowed("The Assistant needs to know who it's for.".to_owned())
+        })?;
         let herder = person.herder.clone();
         let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
         let known = bots.get(&herder).cloned();
@@ -410,7 +409,7 @@ impl Hub {
         };
         if bot.owner.as_ref().is_some_and(|owner| owner != id) {
             return Err(HubError::NotAllowed(
-                "That Herder belongs to someone else.".to_owned(),
+                "That Assistant belongs to someone else.".to_owned(),
             ));
         }
         if !bot.private || bot.owner.is_none() {
@@ -448,7 +447,7 @@ impl Hub {
         let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
         let refuse = |why: &str| Err(HubError::NotAllowed(why.to_owned()));
         if name.is_empty() {
-            return refuse("Say who the Gate is for.");
+            return refuse("Say who the device is for.");
         }
         if name.chars().count() > MAX_PERSON {
             return refuse("That name is too long (40 characters at most).");

@@ -294,7 +294,7 @@ impl Hub {
         let Some(site) = web_host(url).filter(|_| !oxbot_browser::is_home_network(url)) else {
             return (
                 false,
-                "request_sign_in needs a web address on the internet (https://…), not one on this Mac or the home network.".to_owned(),
+                "request_sign_in needs a web address on the internet (https://…), not one on the home computer or the home network.".to_owned(),
             );
         };
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);

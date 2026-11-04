@@ -129,7 +129,7 @@ impl Endpoint {
             None => false,
         };
         if !loopback {
-            return Err(refuse("only this Mac (127.0.0.1, ::1 or localhost)"));
+            return Err(refuse("only this computer (127.0.0.1, ::1 or localhost)"));
         }
         Ok(Self {
             base,
@@ -352,7 +352,7 @@ impl OpenAiClient {
         let not_signed_in = || {
             LlmError::new(
                 ErrorKind::NotSignedIn,
-                "OpenRouter isn't signed in on this Mac.",
+                "The home's AI account (OpenRouter) isn't connected on the home computer.",
             )
         };
         match &self.config.auth {

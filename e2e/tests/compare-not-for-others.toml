@@ -1,5 +1,5 @@
 name = "Only the owner compares"
-about = "On Sam's Gate there are no thumbs, no Test case… and no Compare in the bot menu: comparing is the Farm owner's."
+about = "On Sam's device there are no thumbs, no Test case… and no Compare in the bot menu: comparing is the owner's."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/compare.rs", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/compare.rs"]
 as = "Sam"
 

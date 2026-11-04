@@ -118,7 +118,7 @@ impl Caller<'_> {
         if prefs.paid_fallback {
             ""
         } else {
-            ", or switch on paid models in Settings → Engines"
+            ", or switch on paid models in Settings → AI models"
         }
     }
 
@@ -223,7 +223,7 @@ impl Caller<'_> {
                 if self.paid_note().is_empty() {
                     ""
                 } else {
-                    ", switch on paid models in Settings → Engines"
+                    ", switch on paid models in Settings → AI models"
                 },
                 self.said()
             ));
@@ -233,8 +233,7 @@ impl Caller<'_> {
         }
         if !free_ok {
             return Stop::Fail(
-                "OpenRouter's free daily requests are used up; they reset at midnight UTC."
-                    .to_owned(),
+                "Today's free AI questions are used up; they reset at midnight UTC.".to_owned(),
             );
         }
         if self.shared.router.catalog().models.is_empty()
@@ -283,7 +282,7 @@ impl Caller<'_> {
                 Err(PacerStop::DailyUsedUp) => {
                     return Err(LlmError::new(
                         ErrorKind::FreeDailyLimit,
-                        "OpenRouter's free daily requests are used up.",
+                        "Today's free AI questions are used up.",
                     ));
                 }
             }
@@ -522,7 +521,7 @@ impl Caller<'_> {
                 }
                 Next::Stop(Stop::Fail(
                     "OpenRouter refused oxbot's key. The owner needs to sign in with OpenRouter \
-                     again (Settings → Engines)."
+                     again (Settings → AI models)."
                         .to_owned(),
                 ))
             }

@@ -1,5 +1,5 @@
 name = "A bot on OpenRouter asks before posting"
-about = "oxbot's own loop checks every tool first, with the same rules as Claude: clicking Post shows the red card; Allow once posts, and Deny tells the model it didn't."
+about = "oxbot's own loop checks every tool first, with the same rules as Codex: clicking Post shows an approval request; Allow once posts, and Deny tells the model it didn't."
 covers = ["crates/oxbot-loop/src/gate.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/policy.rs", "crates/oxbot/ui/**"]
 
 [[step]]
@@ -14,7 +14,7 @@ wait_for = "@scout"
 send = "post it"
 [[step]]
 wait_for = "Allow once"
-note = "The card, before the click"
+note = "The approval request, before the click"
 [[step]]
 expect = "Post"
 shot = "card"
@@ -29,7 +29,7 @@ send = "post it again"
 [[step]]
 wait_for = "Allow once"
 [[step]]
-click = "Deny"
+click = "Don't allow"
 [[step]]
 wait_for = "Okay, I didn't post it."
 note = "The model was told oxbot said no"

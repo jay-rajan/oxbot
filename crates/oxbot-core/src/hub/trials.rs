@@ -534,7 +534,7 @@ impl Hub {
         (
             true,
             format!(
-                "Saved \"{title}\". The user sees a card for it in this chat. Now reply in 2 to 4 \
+                "Saved \"{title}\". The user sees it in this chat. Now reply in 2 to 4 \
                  lines with the answer in brief; don't repeat the report."
             ),
         )
@@ -637,7 +637,8 @@ impl Hub {
             // Queued before Claude left oxbot: it can't run.
             let Some(engine) = compare::engine_of(&run.engine) else {
                 "stopped".clone_into(&mut run.status);
-                "Not run: Claude is no longer one of oxbot's engines.".clone_into(&mut run.answer);
+                "Not run: Claude is no longer one of oxbot's AI models."
+                    .clone_into(&mut run.answer);
                 let _ = self.store.save_run(&run);
                 done += 1;
                 continue;
@@ -647,7 +648,7 @@ impl Hub {
                 && left <= reserve
             {
                 "rate_limited".clone_into(&mut run.status);
-                "Not run: the rest of today's free requests are kept for live bots."
+                "Not run: the rest of today's free AI questions are kept for live bots."
                     .clone_into(&mut run.answer);
                 let _ = self.store.save_run(&run);
                 self.announce_run(&run);

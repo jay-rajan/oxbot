@@ -1,13 +1,13 @@
 ---
 name: pr_test
-description: Run oxbot's end-to-end tests for a change (the current branch, uncommitted work, or a PR): pick the tests the change touches, run them against a seeded copy of the app with its own SQLite database and a stand-in Claude, screenshot every step, fix anything broken, and publish a report artifact. Use when the user types /pr_test, optionally with "all", "real", a PR number, or a base branch.
+description: Run oxbot's end-to-end tests for a change (the current branch, uncommitted work, or a PR): pick the tests the change touches, run them against a seeded copy of the app with its own SQLite database and a stand-in OpenRouter, screenshot every step, fix anything broken, and publish a report artifact. Use when the user types /pr_test, optionally with "all", "real", a PR number, or a base branch.
 ---
 
 # /pr_test: does this change break anything?
 
-The tests live in the repo: `e2e/tests/*.toml` (readable steps), `e2e/seed/` (bots and `seed.sql`), `e2e/claude/` (the stand-in Claude's replies), `e2e/baselines/` (approved screenshots), and `e2e/pr_test.toml` (how to build and start the app). The runner is `target/debug/oxbot-e2e` (crate `crates/oxbot-e2e`).
+The tests live in the repo: `e2e/tests/*.toml` (readable steps), `e2e/seed/` (bots and `seed.sql`), `e2e/scripts/` (reply scripts for the stand-in OpenRouter and the stand-in browser tool; a test picks one with `script = …`), `e2e/baselines/` (approved screenshots), and `e2e/pr_test.toml` (how to build and start the app; `needs = ["codex"]`: bots run on Codex 0.148.x, and without it every test is skipped, saying why). The runner is `target/debug/oxbot-e2e` (crate `crates/oxbot-e2e`).
 
-Arguments: none (the current branch plus uncommitted work against `main`), `all` (every test, every layer), a PR number (`gh pr diff` / `gh pr view`), `base=<branch>`, `real` (also try a couple of tests with the real Claude on Haiku; ask before spending).
+Arguments: none (the current branch plus uncommitted work against `main`), `all` (every test, every layer), a PR number (`gh pr diff` / `gh pr view`), `base=<branch>`, `real` (also try a couple of tests with the real OpenRouter on free models; ask before spending anything).
 
 Work in the oxbot repo (`~/src/oxbot` unless the current folder has `e2e/pr_test.toml`). Never commit or push. Never touch the user's real oxbot data (`~/Library/Application Support/oxbot`); every run uses throwaway folders.
 

@@ -109,14 +109,15 @@ pub fn check(path: &str, tool_built_in: bool) -> SetupReport {
 #[must_use]
 pub fn codex_check(view: &CodexView) -> SetupCheck {
     match (&view.problem, &view.version) {
-        (None, Some(version)) => ok("codex", "Codex", &format!("Installed ({version}).")),
-        (None, None) => ok("codex", "Codex", "Installed."),
+        (None, Some(version)) => ok("codex", "AI helper", &format!("Installed ({version}).")),
+        (None, None) => ok("codex", "AI helper", "Installed."),
         (Some(why), _) => missing(
             "codex",
-            "Codex",
+            "AI helper",
             why,
-            "Install Codex CLI 0.148 (in Terminal:  brew install codex  ), or say where it is in \
-             Settings → Engines → Codex. Never sign in to it: oxbot gives it its own settings.",
+            "Install the AI helper, version 0.148 (in Terminal:  brew install codex  ), or say \
+             where it is in Settings → AI models. Never sign in to it: oxbot gives it its own \
+             settings.",
         ),
     }
 }
@@ -129,14 +130,14 @@ pub fn mac_helper_check(helper: bool, dictation: bool, why_not: &str) -> SetupCh
         missing(
             "mac_helper",
             "Video and dictation",
-            "Not available on this Mac: this oxbot was built without its Mac helper.",
+            "Not available on the home computer: this oxbot was built without its video and dictation helper.",
             "Build oxbot with Xcode's Command Line Tools installed:  xcode-select --install  ",
         )
     } else if dictation {
         ok(
             "mac_helper",
             "Video and dictation",
-            "Videos become still frames, and the microphone uses this Mac's on-device dictation.",
+            "Videos become still frames, and the microphone uses the home computer's on-device dictation.",
         )
     } else {
         SetupCheck {
@@ -262,11 +263,12 @@ mod tests {
             configured: String::new(),
         });
         assert!(found.ok && !found.optional);
+        assert_eq!(found.name, "AI helper");
         assert_eq!(found.detail, "Installed (0.148.0).");
         let old = codex_check(&CodexView {
             path: Some("/usr/local/bin/codex".into()),
             version: Some("0.140.0".into()),
-            problem: Some("Codex 0.140.0 isn't a version oxbot speaks.".into()),
+            problem: Some("The AI helper 0.140.0 isn't a version oxbot speaks.".into()),
             configured: String::new(),
         });
         assert!(!old.ok && !old.optional);

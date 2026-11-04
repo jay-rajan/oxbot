@@ -67,10 +67,10 @@ impl std::fmt::Display for PairError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoCode => f.write_str(
-                "No pairing code is showing on the Farm, or it ran out. Make a new one in Settings → Gates.",
+                "No pairing code is showing on the home computer, or it ran out. Make a new one in Settings → Devices.",
             ),
             Self::WrongCode => f.write_str("That code isn't right. Check it and try again."),
-            Self::Farm(why) => write!(f, "The Farm couldn't pair just now: {why}"),
+            Self::Farm(why) => write!(f, "The home computer couldn't pair just now: {why}"),
         }
     }
 }
@@ -255,7 +255,7 @@ impl Door {
         let Some(here) = here else {
             return (
                 false,
-                "oxbot can't tell which network this Mac is on, so phones can't connect."
+                "oxbot can't tell which network the home computer is on, so phones can't connect."
                     .to_owned(),
             );
         };
@@ -263,7 +263,7 @@ impl Door {
             return (
                 false,
                 format!(
-                    "Phones can't connect: this Mac is on {}, which isn't in the list below.",
+                    "Phones can't connect: the home computer is on {}, which isn't in the list below.",
                     here.label
                 ),
             );
@@ -362,7 +362,7 @@ impl Door {
         self.refresh().await;
         let here = lock(&self.here)
             .clone()
-            .context("oxbot can't tell which network this Mac is on. Check that Wi-Fi or Ethernet is connected.")?;
+            .context("oxbot can't tell which network the home computer is on. Check that Wi-Fi or Ethernet is connected.")?;
         if lock(&self.settings).add(&here)? {
             tracing::info!(network = here.label, "phones may use a network");
         }
@@ -408,7 +408,7 @@ impl Door {
         let here = lock(&self.here).clone();
         anyhow::ensure!(
             here.is_some_and(|h| lock(&self.settings).allows(&h.id)),
-            "Phones can't use the network this Mac is on yet. Add it under “Networks phones can use” first."
+            "Phones can't use the network the home computer is on yet. Add it under “Networks phones can use” first."
         );
         let (code, expires_ms) =
             lock(&self.codes).show_for(&person, person_id, crate::runtime::now_ms());
@@ -474,7 +474,7 @@ impl Door {
             .take(60)
             .collect();
         let device = if device.is_empty() {
-            "Gate".to_owned()
+            "Device".to_owned()
         } else {
             device
         };
@@ -535,7 +535,7 @@ impl Door {
     /// Fails if the database does.
     pub async fn remove(&self, id: &str) -> anyhow::Result<()> {
         let removed = self.hub.remove_gate(id)?;
-        anyhow::ensure!(removed, "That Gate isn't paired.");
+        anyhow::ensure!(removed, "That device isn't paired.");
         let _ = self.removed.send(id.to_owned());
         tracing::info!(gate = id, "a Gate was removed");
         self.announce_gates();

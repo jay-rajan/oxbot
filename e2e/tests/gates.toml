@@ -1,12 +1,12 @@
-name = "Pairing a phone (Gates)"
-about = "On the Farm, the QR button next to the gear opens Settings → Gates with your name filled in. Pairing waits until the network the Mac is on is added to Networks phones can use; then Show pairing code shows a QR code and a one-time code and the door opens; Cancel hides it. A Gate person sees neither the button nor the tab."
+name = "Pairing a phone (devices)"
+about = "On the home computer, the QR button next to the gear opens Settings → Devices with your name filled in. Pairing waits until the network the Mac is on is added to Networks phones can use; then Show pairing code shows a QR code and a one-time code and the door opens; Cancel hides it. Someone on a device sees neither the button nor the tab."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/door/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**", "crates/oxbot-gate/**"]
 
 [[step]]
-click = "Add a Gate"
+click = "Connect a device"
 note = "The QR button next to the gear"
 [[step]]
-expect = "A Gate is a phone or laptop"
+expect = "A device is a phone, tablet or laptop"
 [[step]]
 expect_js = "document.getElementById('pairPerson').value === 'Jay'"
 note = "Your own name is filled in"
@@ -19,7 +19,7 @@ note = "No pairing until a network is added"
 [[step]]
 click = "Add this network (Test network)"
 [[step]]
-wait_for = "this Mac is on it now"
+wait_for = "the home computer is on it now"
 shot = "network-added"
 [[step]]
 expect_js = "!document.querySelector('#pairForm button').disabled"
@@ -34,7 +34,7 @@ wait_for = "Open: phones can connect"
 expect_js = "!!document.querySelector('#pairQr svg') && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.getElementById('pairCode').textContent)"
 note = "A QR code and a code like K7QM-R3XP"
 [[step]]
-expect = "No Gates yet."
+expect = "No devices yet."
 [[step]]
 click = "Cancel"
 [[step]]

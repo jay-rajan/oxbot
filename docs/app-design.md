@@ -1,6 +1,8 @@
-# App design: oxbot v2 (proposal, waiting for Jay's OK). Updated 2026-10-27 after deep research
+# App design: oxbot v2. First proposed 2026-10-27 after deep research; updated 2026-11-04
 
 Name: ox (oxide) + bot. Research behind every choice: `docs/research/` (4 files, sources cited).
+The words people see follow `docs/glossary.md` (home computer, device, Assistant, approval
+request, AI model, AI spending).
 
 ## What Jay asked for (2026-10-27)
 1. Use both the **Claude Code CLI** and the **Codex CLI** (and our own loop).
@@ -9,61 +11,58 @@ Name: ox (oxide) + bot. Research behind every choice: `docs/research/` (4 files,
 4. A **mobile app** that discovers the bot on the network, connects, and can **add any bot**.
 5. **Data goes nowhere except Anthropic (Claude) and OpenAI (Codex).**
 
-## The data rule, made precise
-Updated 2026-11-02 (Step 5, "Two engines", #17 and #18): model calls go only to Anthropic (Claude
-bots), OpenRouter (OpenRouter bots), or a local model; nothing else, telemetry off. Codex is
-dropped (#7). Claude bots run on the owner's own plan and take tasks only from the owner.
+History: that Claude + Codex plan was replaced. 2026-11-02 (Step 5, #17 and #18): Claude bots on
+the owner's own plan plus OpenRouter bots on oxbot's own loop. 2026-11-04 (Step 6 part 2): Claude
+is gone; every bot uses OpenRouter's models, and Codex runs the agent loop by default.
+
+## The data rule, made precise (2026-11-04)
+Model calls go only to **OpenRouter**, through oxbot's relay or oxbot's own loop, with the home's
+OpenRouter key; later also to a model on this computer. Nothing goes to Anthropic, and Codex
+never contacts OpenAI itself. A person's own `~/.codex` is never read.
 
 | What | Where it goes |
 |---|---|
-| Prompts, answers, files the agent reads | Anthropic (Claude bots), OpenRouter (OpenRouter bots), or a local model. Unavoidable: that's where the models run. |
-| Transcripts, history, settings, pairing keys | Stay on the laptop (SQLite + Keychain) |
-| Phone ↔ laptop traffic | Home Wi-Fi only, TLS with a pinned certificate. No relay, no push service |
-| Local-model mode | Nothing leaves the laptop at all |
+| Prompts, answers, files the bot reads | OpenRouter and the provider it routes to (or a model on this computer, later). Unavoidable: that's where the models run. Private bots ask providers to keep nothing. |
+| What the relay sent | Kept 14 days in the bot's folder, on the home computer |
+| Transcripts, history, settings, pairing keys, the OpenRouter key | Stay on the home computer (SQLite + Keychain) |
+| Device ↔ home computer traffic | Home Wi-Fi only, TLS with a pinned certificate. No relay server, no push service |
+| On this computer (later) | Nothing leaves the home computer at all |
 
 Consequences:
-- **OpenRouter is the second engine** (since 2026-11-02, in place of Codex). It sees OpenRouter bots' prompts, so private bots ask its providers not to keep data, and its key stays in the Keychain.
-- **Telemetry off is required, not optional.** Out of the box, Claude Code sends metrics and error reports partly to third-party services, and Codex contacts GitHub, Homebrew, npm and CDNs (update checks, plugins, connectors). oxbot sets these off on every child process (env vars for Claude; a dedicated `CODEX_HOME/config.toml` for Codex; full lists in research files).
-- **Web tools are off by default.** WebFetch/WebSearch (Claude) and web_search (Codex) reach other sites. Agents' shell commands run with sandbox network off.
-- **No push notifications.** Apple's push service would see timing and the device. The phone catches up when it opens.
+- **Codex is locked down by oxbot.** Each bot's `codex app-server` gets its own `CODEX_HOME` in the bot's folder and a config oxbot writes at every start: analytics, plugins, web search, update checks and its shell off. Its only model provider is oxbot's relay on 127.0.0.1; any other address goes to a proxy that refuses it.
+- **The relay is the one way out for Codex.** It checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, sends to OpenRouter's Responses API with the home's key, meters each request and keeps what was sent.
+- **Web tools are off.** Bots browse only through oxbot's checked browser tool; scripts run with no network.
+- **No push notifications.** Apple's or Google's push service would see timing and the device. The phone catches up when it opens.
 - **Prior-art apps that use a cloud relay are out** (Happy's hosted relay, Omnara Cloud).
-- **Check once with a network monitor** (LuLu, free) that only `*.anthropic.com`, `claude.ai` and `openrouter.ai` are contacted (and the sites bots visit).
+- **Check once with a network monitor** (LuLu, free) that only `openrouter.ai` is contacted (and the sites bots visit).
 
-## Shape
+## Shape (2026-11-04)
 ```
- iPhone app ──(LAN, TLS pinned, WebSocket)──► oxbotd (Rust, always on, LaunchAgent)
-   finds it via Bonjour _oxbot._tcp            ├─ store: SQLite event log (canonical transcript)
-   pairs once via QR code                      ├─ switcher: handoff on backend change
- Laptop page (localhost) ──────────────────────┤
-                                               ├─ Claude backend: long-lived `claude -p` (stream-json in/out)
-                                               ├─ Codex backend:  long-lived `codex app-server` (JSON-RPC over stdio)
-                                               └─ Local backend:  our own loop → Ollama / LM Studio on localhost
+ Android app (device) ──(home Wi-Fi, TLS pinned)──► oxbot on the home computer (Rust, always on)
+   pairs once via QR code                           ├─ store: SQLite (chats, saved steps, meter)
+ Desktop app / page (localhost) ────────────────────┤
+                                                    ├─ Codex engine: one `codex app-server` per bot (JSON-RPC over stdio)
+                                                    │     └─ model calls → oxbot's relay (127.0.0.1) → OpenRouter Responses API
+                                                    ├─ oxbot's own loop → OpenRouter chat API
+                                                    └─ one tool service + gate for both: browser, page tools, files, team tools, approval requests
 ```
 
-## Three backends, one trait
-Shaped like ACP (Agent Client Protocol: session, prompt, update stream, permission request, cancel) so an ACP backend can be added later. We don't use ACP itself now: it adds a Node adapter per backend and can't carry history across vendors.
+## Two engines, one trait
+Both plug into `oxbot-engine` (session, prompt, event stream, approval, cancel). People don't pick an engine; they see an **AI model** (free or paid models). The app no longer offers the engine choice; the API still does.
 
-| Backend | How oxbot drives it | Login | Notes |
-|---|---|---|---|
-| **Claude** | One `claude -p --input-format stream-json --output-format stream-json --verbose --session-id <uuid>` per conversation; turns go in on stdin; `--resume <id>` later | Jay's Claude subscription, unmodified binary (allowed for personal use) | Interrupt via stdin control request; approvals via `--permission-prompt-tool stdio` |
-| **Codex** | One `codex app-server` child; `thread/start|resume`, `turn/start|interrupt`; streaming deltas | Jay's ChatGPT login (own `CODEX_HOME`) | `thread/inject_items` takes prior history directly, so switching *into* Codex is smooth. Answer every approval request or the turn hangs |
-| **Local** | Our own agent loop (async-openai with a localhost base URL) + a few tools | none | Fully private; weaker at agent work, so a "private mode", not the default coder |
+| Engine | How oxbot drives it | Notes |
+|---|---|---|
+| **Codex** (default; every Assistant) | Codex CLI 0.148.x as `codex app-server`, one per bot; `thread/start|resume`, `turn/start|interrupt`; oxbot's tools as dynamic tools | Tools go through the same tool service and gate as the loop: same approval requests, Always allow, refusals, untrusted-text marks |
+| **oxbot's own loop** | Our runner on OpenRouter's chat API, one saved step at a time | Resumes a stopped task from its last saved step |
 
-(Our own loop could also call the Anthropic/OpenAI APIs directly with API keys. Subscriptions can't be used outside the official CLIs, so that path costs per token. Optional, later.)
+Upgrade: bots that ran on Claude (`engine = "claude"`, or no engine) move to Codex at their first start, with one plain line in the chat; `bot.toml` is rewritten once (migration 22). Chats are kept; old Claude sessions aren't resumed. Without an OpenRouter sign-in, bots say the AI account isn't connected yet.
 
-## Switching mid-conversation
-No existing tool switches Claude ↔ Codex inside one conversation; oxbot does it itself. Example: type `/use codex` (or tap a chip on the phone).
-1. **oxbot owns the transcript.** Every event (user msg, answer, tool call, tool result, file change, switch) lands in SQLite with a sequence number.
-2. **Each backend keeps its own native session**, remembered per conversation with the last event it saw.
-3. **On switch to B:**
-   - B has a session → resume it and send only the **delta** (what the other backend did since), as short text.
-   - B has none → start fresh with a **condensed summary** (goal, decisions, files touched, last few turns). Codex gets it via `inject_items`; Claude as the first message.
-   - Both are told to read `.oxbot/HANDOFF.md` (plan, decisions, next steps), regenerated from the log, and get the git HEAD + changed files.
-4. Tool calls from A are passed as one-line text ("ran cargo test → 3 failed"), never as native tool items. Vendor formats don't mix, and reasoning is encrypted.
+Known gaps: pictures and PDFs reach the bot only as their text (Codex's dynamic tools take no image input yet); shipping `codex` inside oxbot.app comes later (installed separately for now).
 
-Honest limit: B gets a summary of A's work, not A's full memory. The code on disk is the real shared state.
+Mid-conversation switching between vendors (the 2026-10-27 idea: oxbot owns the transcript, hands a summary to the other backend) is not needed while both engines use the same OpenRouter models; the transcript in SQLite stays oxbot's own.
 
-## Phone app
+## Devices (the phone app)
+Chosen: **Tauri 2, Android** (the Android app is only ever a device; see the README). The 2026-10-27 notes:
 - **Discovery:** oxbotd advertises `_oxbot._tcp` (crate `mdns-sd`; fallback `zeroconf` if it fights macOS Bonjour). The iPhone browses with NWBrowser. Info.plist needs `NSLocalNetworkUsageDescription` and `NSBonjourServices`. No special Apple entitlement needed.
 - **Pairing (LocalSend/Syncthing style):** `oxbot pair` prints a QR code: host, port, certificate fingerprint, one-time code (5 min). The phone trades it for its own token (Keychain). `oxbot devices revoke <name>` cuts a phone off.
 - **"Add any bot":** the phone keeps a list of paired servers (each laptop running oxbotd). Each server has bot profiles (backend, model, work folder, permissions) you can create from the phone.
@@ -75,7 +74,7 @@ Honest limit: B gets a summary of A's work, not A's full memory. The code on dis
 
 ## Always on
 - `~/Library/LaunchAgents/com.jay.oxbot.plist` with `RunAtLoad` + `KeepAlive`.
-- Keep the Mac awake **only while a job runs** (`keepawake` crate), on power.
+- Keep the home computer awake **only while a job runs** (`keepawake` crate), on power.
 - Limits: a closed lid sleeps the MacBook unless it's on power with an external display. A sleeping Mac answers nothing. macOS 15+ asks once to allow local-network access for the LaunchAgent.
 - Away from home: v1 is **home Wi-Fi only**. v2: WireGuard into the home network (no third party). Hosted Tailscale breaks the rule (its servers see metadata and relay traffic).
 
@@ -90,30 +89,29 @@ oxbot/
   ui/                        laptop page
   docs/research/             the 4 research reports
 ```
-`oxbot doctor` checks the privacy settings (telemetry off, web tools off, Codex config) before anything runs.
+`oxbot doctor` checks the privacy settings (Codex config, relay, web tools off) before anything runs. (This layout was the 2026-10-27 proposal; the crates today are listed in the README.)
 
 ## Crates (versions checked 2026-10-27)
 axum 0.8.9 · tokio 1.54.1 · tokio-stream 0.1.19 · tower-http 0.7.1 · serde 1.0.229 · tracing 0.1.44 · rusqlite 0.41 + tokio-rusqlite 0.8 · rustls 0.23.46 · rcgen 0.14.10 · axum-server 0.8.0 · mdns-sd 0.21.6 · keyring 4.2 · qrcode 0.14.1 · async-openai 0.42.2 (local loop).
 Codex protocol types: generated from `codex app-server generate-json-schema`, pinned to the CLI version.
 
 ## Risks
-- Both CLIs change their event formats often: pin versions, turn auto-update off, ignore unknown events, keep recorded samples as tests.
-- Claude's stdin control protocol and Codex app-server are not stable public specs.
-- Subscription use must stay inside the unmodified CLIs, for Jay only. Sharing oxbot would mean API keys.
-- Heavy always-on use counts against Claude/ChatGPT plan limits.
-- Not instant: no push, and the Mac must be awake.
+- Codex changes its app-server protocol often: pin the version (0.148.x), turn auto-update off, ignore unknown events, keep recorded samples as tests.
+- Codex app-server is not a stable public spec.
+- Free models are rate-limited and vary in quality; paid models cost per token, so they're off unless the owner allows them, with daily limits.
+- Not instant: no push, and the home computer must be awake.
 
-## Steps
-0. Lessons 0–5 (you're in lesson 4).
-1. **core:** event types + SQLite store + tests. (Pure Rust; good next learning step.)
-2. **Claude backend** + CLI: `oxbot chat --backend claude`. Privacy env applied.
-3. **Codex backend** (app-server) + `/use codex` switching in the CLI. This is the heart.
-4. **oxbotd server:** WebSocket + laptop page; approvals.
+## Steps (the 2026-10-27 plan; the current plan is in `docs/plan/`)
+0. Lessons 0–5.
+1. **core:** event types + SQLite store + tests.
+2. **First engine** + CLI (was Claude; removed 2026-11-04).
+3. **Codex** (app-server): the default engine since 2026-11-04, on OpenRouter through oxbot's relay.
+4. **Server:** WebSocket + page; approval requests.
 5. **Always on:** LaunchAgent, keep-awake per job, `oxbot doctor`.
-6. **Phone:** mDNS + QR pairing + pinned TLS, then the iPhone app.
-7. **Local backend** (Ollama), then v2: WireGuard, Tauri/Android.
+6. **Devices:** QR pairing + pinned TLS, then the phone app.
+7. **On this computer** (Ollama), then v2: WireGuard.
 
-## Decisions for Jay
-1. Phone app: **SwiftUI (A)** or **Tauri (B)**?
-2. Third backend: **local model** (fully private), **API keys** (costs per token), or neither for now?
-3. Away from home: **home Wi-Fi only** for v1? (recommended)
+## Decisions (taken)
+1. Phone app: **Tauri 2, Android**.
+2. Models: **OpenRouter** (free first, paid if the owner allows); a model on this computer later.
+3. Away from home: **home Wi-Fi only** for v1.

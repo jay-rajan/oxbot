@@ -2183,12 +2183,12 @@ mod tests {
             level: 50,
             used: 0.52,
             resets_at_ms: 1000,
-            message: "Free requests today are at 52%.".into(),
+            message: "Free AI questions today are at 52%.".into(),
         }))
         .unwrap();
         assert_eq!(
             json,
-            r#"{"type":"usage_alert","limit":"openrouter_free_daily","level":50,"used":0.52,"resets_at_ms":1000,"message":"Free requests today are at 52%."}"#
+            r#"{"type":"usage_alert","limit":"openrouter_free_daily","level":50,"used":0.52,"resets_at_ms":1000,"message":"Free AI questions today are at 52%."}"#
         );
         // An older server's alert still reads (its models are ignored).
         let old: ServerMsg = serde_json::from_str(

@@ -1,39 +1,46 @@
 name = "Usage alerts at 50% and 80%, once each"
-about = "Claude's usage passing 50% and then 80% of the 5-hour limit shows a banner and one Mac notification for each level, never two; the banner survives a reload and can be dismissed."
-claude = "usage-alerts.toml"
+about = "A bot allowed 5 AI questions a day passes 50% and then 80% of them: a banner and one Mac notification for each level, never two; the banner survives a reload and can be dismissed."
+script = "usage-alerts.toml"
 covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
 
 [[step]]
-click = "Herder"
+click = "Recipes"
 [[step]]
-send = "how much is used, half?"
+click = "Bot settings"
 [[step]]
-wait_for = "5-hour limit at 55%"
+type = { into = "Questions a day", text = "5" }
+[[step]]
+click = "Save"
+[[step]]
+send = "one"
+[[step]]
+wait_for = "1 question"
+[[step]]
+send = "two"
+[[step]]
+expect_js = "document.querySelectorAll('#log .meter').length === 2"
+timeout_ms = 60000
+[[step]]
+expect_js = "document.getElementById('usageAlert').hidden"
+note = "40%: no banner yet"
+[[step]]
+send = "three"
+[[step]]
+wait_for = "Recipes's questions today at 60%"
+timeout_ms = 60000
 note = "The banner, under the header"
 shot = "banner-50"
 [[step]]
-expect = "your bots use Sonnet 4.5"
-note = "It names the model Claude reported"
+send = "four"
 [[step]]
-send = "still half?"
-[[step]]
-wait_for = "Still about half."
-[[step]]
-expect = "5-hour limit at 55%"
-note = "60% is no new level: the banner is unchanged"
-[[step]]
-send = "and now most?"
-[[step]]
-wait_for = "5-hour limit at 85%"
+wait_for = "Recipes's questions today at 80%"
+timeout_ms = 60000
 shot = "banner-80"
 [[step]]
 expect_js = "document.querySelectorAll('#usageAlert').length === 1"
 note = "One banner, showing the highest level"
 [[step]]
 click = "Settings"
-[[step]]
-expect_js = "document.querySelector('#limits .bar.warn') !== null"
-note = "The 5-hour bar is red past 80%"
 [[step]]
 click = "Activity"
 [[step]]
@@ -47,7 +54,7 @@ key = "Escape"
 [[step]]
 open = "/"
 [[step]]
-wait_for = "5-hour limit at 85%"
+wait_for = "Recipes's questions today at 80%"
 note = "Still there after a reload"
 [[step]]
 click = "Dismiss"

@@ -662,7 +662,7 @@ async fn usage_alerts_reach_everyone_with_one_notification_each() {
     assert!(
         first[0]
             .message
-            .starts_with("Assistant's requests for today are at 60%"),
+            .starts_with("Assistant's AI questions today are at 60%"),
         "{}",
         first[0].message
     );
@@ -704,7 +704,10 @@ async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
     send(&mut sam, &ClientMsg::SetUsageAlerts { on: false }).await;
     loop {
         if let ServerMsg::Error { message } = next(&mut sam).await {
-            assert!(message.contains("Only the Farm"), "{message}");
+            assert!(
+                message.contains("only be done on the home computer"),
+                "{message}"
+            );
             break;
         }
     }
