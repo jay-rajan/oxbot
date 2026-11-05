@@ -31,6 +31,8 @@ mod origins;
 pub use origins::TurnOriginRecord;
 mod people;
 mod prefs;
+mod profiles;
+pub use profiles::{Profile, ProfileRecord, Role};
 mod reports;
 pub use reports::MAX_SESSION_PAGES;
 mod rules;
@@ -121,6 +123,8 @@ impl PersonRecord {
         Person {
             name: self.name.clone(),
             color: self.color.clone(),
+            role: if self.farm { "owner" } else { "adult" }.to_owned(),
+            photo: None,
         }
     }
 }

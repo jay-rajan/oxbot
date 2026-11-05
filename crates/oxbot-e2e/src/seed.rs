@@ -42,6 +42,16 @@ pub fn make_home(repo: &Path, home: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// An empty home, as on a first start: a bots folder and nothing else
+/// (oxbot makes the Assistant and its database itself).
+///
+/// # Errors
+/// Fails if the folder can't be made.
+pub fn make_empty_home(home: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(home.join("bots")).context("making the bots folder")?;
+    Ok(())
+}
+
 fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from).with_context(|| format!("reading {}", from.display()))? {

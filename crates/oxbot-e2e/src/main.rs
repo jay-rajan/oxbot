@@ -320,7 +320,11 @@ async fn run_one(
     let id = test.id();
     let started = Instant::now();
     let home = tempfile::tempdir()?;
-    seed::make_home(repo, home.path())?;
+    if test.fresh {
+        seed::make_empty_home(home.path())?;
+    } else {
+        seed::make_home(repo, home.path())?;
+    }
     let launch = Launch {
         script: repo.join("e2e/scripts").join(&test.script),
         signed_in: test.openrouter_signed_in,

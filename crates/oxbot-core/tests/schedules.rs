@@ -304,3 +304,44 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
     assert_eq!(hub.history("prep", 0).unwrap().len(), seq);
     hub.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
+    if codex().await.is_none() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let (hub, fake) = hub(tmp.path(), vec![Tool::None], false).await;
+    let farm = hub.farm_viewer("Jay");
+    let profile = oxbot_protocol::ProfileEdit {
+        name: "Jay".into(),
+        color: oxbot_core::store::PEOPLE_COLORS[0].into(),
+        food: "vegetarian".into(),
+        food_use: true,
+        notes: "prefers metric".into(),
+        notes_use: false,
+        home_area: Some("Toronto, ON".into()),
+        home_area_use: Some(true),
+        owner_confirmed: true,
+        ..oxbot_protocol::ProfileEdit::default()
+    };
+    hub.set_profile(&farm, &profile).unwrap();
+    let mut updates = hub.subscribe();
+    hub.send_as("prep", "plan dinner", &farm).await.unwrap();
+    turn_done(&mut updates, "prep").await;
+    let told = fake.told().unwrap();
+    let line = told
+        .lines()
+        .find(|l| l.starts_with("[oxbot] About the person"))
+        .unwrap();
+    assert!(line.contains("food needs: vegetarian") && line.contains("home area: Toronto, ON"));
+    assert!(!line.contains("metric"), "kept from bots");
+    assert!(!line.contains("Jay"), "never their name: {line}");
+    // The chat shows only what they typed.
+    assert!(
+        hub.history("prep", 0).unwrap().iter().any(
+            |e| matches!(&e.kind, EventKind::UserMessage { text, .. } if text == "plan dinner")
+        )
+    );
+    hub.shutdown().await;
+}

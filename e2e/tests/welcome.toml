@@ -1,0 +1,46 @@
+name = "First start: the welcome screen asks the owner who they are"
+about = "On an empty home the owner gets a welcome screen: name, colour, home area, food needs, languages and notes, each saying whether bots may use it (never the name). The owner confirms they're 18 or older and accept OpenRouter's terms before it saves; Settings → People shows it after."
+fresh = true
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/profiles.rs", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/store/profiles.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+wait_for = "Welcome to oxbot"
+[[step]]
+expect = "Bots may use this: never"
+note = "The name is never for bots"
+[[step]]
+expect = "Owner: you installed oxbot"
+[[step]]
+type = { into = "Home area", text = "Toronto, ON" }
+[[step]]
+type = { into = "Food needs", text = "vegetarian" }
+[[step]]
+type = { into = "Notes for bots", text = "I prefer metric" }
+shot = "welcome"
+[[step]]
+click = "Save and start"
+[[step]]
+expect = "To finish, confirm you're 18 or older"
+note = "The owner must confirm first"
+[[step]]
+click = "I'm 18 or older."
+[[step]]
+click = "I accept OpenRouter's terms"
+[[step]]
+click = "Save and start"
+[[step]]
+expect_js = "!document.getElementById('welcomeDlg').open"
+timeout_ms = 5000
+[[step]]
+expect_db = { query = "SELECT food || '|' || notes || '|' || role || '|' || (owner_ok_ms IS NOT NULL) || '|' || welcome_due FROM profiles", equals = "vegetarian|I prefer metric|owner|1|0" }
+[[step]]
+expect_db = { query = "SELECT value FROM prefs WHERE key = 'home.area'", equals = "Toronto, ON" }
+[[step]]
+click = "Settings"
+[[step]]
+click = "People"
+[[step]]
+wait_for = "Everyone in the home"
+[[step]]
+expect_js = "document.querySelector('#meFields [data-key=food]').value === 'vegetarian'"
+shot = "settings-people"

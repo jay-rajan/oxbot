@@ -224,6 +224,13 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         people: Vec<String>,
     },
+    /// Save one's own profile (the welcome screen, Settings → People).
+    SetProfile {
+        /// It, whole.
+        profile: Box<ProfileEdit>,
+    },
+    /// Ask for one's own profile again ([`ServerMsg::Profile`]).
+    GetProfile,
     /// Give a bot a new name. Its creator or the Farm only.
     RenameBot {
         /// Bot id.
@@ -1079,6 +1086,12 @@ pub enum ServerMsg {
     /// Schedules changed (made, paused, deleted, or one ran): a client
     /// showing a list asks for it again. Says nothing about which.
     SchedulesChanged,
+    /// One's own profile: sent when a person's connection opens, and as the
+    /// answer to [`ClientMsg::SetProfile`] and [`ClientMsg::GetProfile`].
+    Profile(ProfileView),
+    /// Someone's profile or the home area changed: a client showing its own
+    /// profile asks for it again.
+    ProfilesChanged,
     /// For one person's devices: a scheduled run ended or needs them, e.g.
     /// `Prep: Day 3 plan is ready.`
     Notify {
@@ -1361,6 +1374,92 @@ pub struct Person {
     pub name: String,
     /// Their color, e.g. `#2F6FEB`.
     pub color: String,
+    /// `owner`, `adult` or `kid` (empty from an older oxbot).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub role: String,
+    /// Their photo, a small `data:image/…` URL, if they chose one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
+}
+
+/// One's own profile, as Settings → People and the welcome screen show it.
+/// Only its person gets it (the home area is everyone's).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a wire message: each flag is its own JSON field"
+)]
+pub struct ProfileView {
+    /// Their name.
+    pub name: String,
+    /// Their color.
+    pub color: String,
+    /// The colors to choose from.
+    pub colors: Vec<String>,
+    /// Their photo, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
+    /// `owner`, `adult` or `kid`.
+    pub role: String,
+    /// Food needs.
+    pub food: String,
+    /// Bots may use them.
+    pub food_use: bool,
+    /// Languages.
+    pub languages: String,
+    /// Bots may use them.
+    pub languages_use: bool,
+    /// Notes for bots.
+    pub notes: String,
+    /// Bots may use them.
+    pub notes_use: bool,
+    /// The home's area, e.g. `Toronto, ON` (the owner sets it).
+    pub home_area: String,
+    /// Bots may use it.
+    pub home_area_use: bool,
+    /// Whether this client may change the home area (the owner).
+    pub can_edit_area: bool,
+    /// Show the welcome screen: they haven't filled this in yet.
+    pub welcome: bool,
+    /// They're the owner and haven't confirmed they're 18 or older and
+    /// accept `OpenRouter`'s terms yet.
+    pub owner_confirm: bool,
+}
+
+/// One's own profile as saved from the welcome screen or Settings →
+/// People ([`ClientMsg::SetProfile`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a wire message: each flag is its own JSON field"
+)]
+pub struct ProfileEdit {
+    /// Their name.
+    pub name: String,
+    /// Their color, one of [`ProfileView::colors`].
+    pub color: String,
+    /// A small `data:image/jpeg;base64,…` (or PNG) picture; `None` for none.
+    pub photo: Option<String>,
+    /// Food needs.
+    pub food: String,
+    /// Bots may use them.
+    pub food_use: bool,
+    /// Languages.
+    pub languages: String,
+    /// Bots may use them.
+    pub languages_use: bool,
+    /// Notes for bots.
+    pub notes: String,
+    /// Bots may use them.
+    pub notes_use: bool,
+    /// The home's area (the owner only; others' is ignored).
+    pub home_area: Option<String>,
+    /// Bots may use it (the owner only).
+    pub home_area_use: Option<bool>,
+    /// The owner confirms they're 18 or older and accept `OpenRouter`'s
+    /// terms (needed once, from the owner).
+    pub owner_confirmed: bool,
 }
 
 /// One line from the server's log.

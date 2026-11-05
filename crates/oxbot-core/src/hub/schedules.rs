@@ -514,6 +514,8 @@ impl Hub {
             from: self.provenance(bot, origin).await,
         };
         let ask = policy::Ask {
+            // A kid's schedule is a parent's to approve.
+            answerer: self.answerer_for(&proposal.person),
             detail: Some(format!(
                 "First run: {}",
                 schedule::when(proposal.next, &*zone)

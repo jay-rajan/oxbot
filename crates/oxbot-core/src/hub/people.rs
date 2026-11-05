@@ -75,6 +75,37 @@ fn adopt(bot: &mut Bot, store: &Store, farm: Option<&PersonRecord>) -> Result<bo
     Ok(new)
 }
 
+/// A person's name made safe: trimmed, one space between words, at most
+/// [`MAX_PERSON`] characters, no brackets or line breaks (names go into
+/// bots' messages as `[Name]`), and not a name oxbot uses itself. `empty`
+/// says what to do when there's none.
+///
+/// # Errors
+/// What's wrong with it.
+pub(super) fn checked_name(name: &str, empty: &str) -> Result<String, HubError> {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let refuse = |why: &str| Err(HubError::NotAllowed(why.to_owned()));
+    if name.is_empty() {
+        return refuse(empty);
+    }
+    if name.chars().count() > MAX_PERSON {
+        return refuse("That name is too long (40 characters at most).");
+    }
+    if name
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '\\') || c.is_control())
+    {
+        return refuse("Names can't have brackets or backslashes in them.");
+    }
+    if RESERVED_PEOPLE
+        .iter()
+        .any(|r| r.eq_ignore_ascii_case(&name))
+    {
+        return refuse("oxbot uses that name itself. Pick the person's own name.");
+    }
+    Ok(name)
+}
+
 impl Hub {
     /// `viewer` tied to a person, by looking them up: one with only a name
     /// gets the id of the person called exactly that, so access is decided
@@ -239,17 +270,27 @@ impl Hub {
             (local_name, from_account)
         };
         let person = match self.store.farm_person()? {
-            Some(person) if from_account && person.name != local_name => {
+            Some(person)
+                if from_account && person.name != local_name && !self.name_chosen(&person.id) =>
+            {
                 self.rename_farm_person(&person, local_name)?
             }
             Some(person) => person,
             None => {
+                // A first start: the welcome screen asks the owner the rest.
+                let first = self.store.nobody_yet()?;
                 let person = self.person_named(local_name)?;
                 self.store.set_farm_person(&person.id)?;
-                tracing::info!(person = %person.id, "chose the Farm's person");
+                self.store
+                    .start_profile(&person.id, crate::store::Role::Owner, first)?;
+                tracing::info!(person = %person.id, first, "chose the Farm's person");
                 person
             }
         };
+        // The Farm's person is the owner.
+        if self.role_of(&person.id) != crate::store::Role::Owner {
+            self.store.set_role(&person.id, crate::store::Role::Owner)?;
+        }
         *farm = Some(person.id.clone());
         drop(farm);
         self.adopt_ownerless(&person);
@@ -450,26 +491,7 @@ impl Hub {
     /// # Errors
     /// Says what's wrong with the name, or the database failed.
     pub fn gate_pick(&self, name: &str) -> Result<(String, Option<PersonId>), HubError> {
-        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
-        let refuse = |why: &str| Err(HubError::NotAllowed(why.to_owned()));
-        if name.is_empty() {
-            return refuse("Say who the device is for.");
-        }
-        if name.chars().count() > MAX_PERSON {
-            return refuse("That name is too long (40 characters at most).");
-        }
-        if name
-            .chars()
-            .any(|c| matches!(c, '[' | ']' | '\\') || c.is_control())
-        {
-            return refuse("Names can't have brackets or backslashes in them.");
-        }
-        if RESERVED_PEOPLE
-            .iter()
-            .any(|r| r.eq_ignore_ascii_case(&name))
-        {
-            return refuse("oxbot uses that name itself. Pick the person's own name.");
-        }
+        let name = checked_name(name, "Say who the device is for.")?;
         let known = self.store.person_records()?;
         if let Some(person) = known.iter().find(|p| p.name == name) {
             return Ok((name, Some(person.id.clone())));
@@ -498,6 +520,9 @@ impl Hub {
         key_hash: &str,
     ) -> Result<GateInfo, HubError> {
         let (gate, new) = self.store.add_gate(id, person, device, key_hash)?;
+        if let Some(found) = self.store.person_by_name(person)? {
+            self.welcome_new_device(&found.id)?;
+        }
         if new {
             self.announce_people();
         }
@@ -516,7 +541,9 @@ impl Hub {
         device: &str,
         key_hash: &str,
     ) -> Result<GateInfo, HubError> {
-        Ok(self.store.add_gate_for(id, person, device, key_hash)?)
+        let gate = self.store.add_gate_for(id, person, device, key_hash)?;
+        self.welcome_new_device(person)?;
+        Ok(gate)
     }
 
     /// The paired Gate whose key has this hash; marks it as seen now.

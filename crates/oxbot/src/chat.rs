@@ -279,7 +279,9 @@ impl View {
             | ServerMsg::ShadowPair { .. }
             | ServerMsg::ComparePrefs(_)
             | ServerMsg::Schedules { .. }
-            | ServerMsg::SchedulesChanged => {}
+            | ServerMsg::SchedulesChanged
+            | ServerMsg::Profile(_)
+            | ServerMsg::ProfilesChanged => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }
     }

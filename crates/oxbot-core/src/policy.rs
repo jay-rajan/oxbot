@@ -131,6 +131,9 @@ pub struct Ask {
     pub rule: Option<String>,
     /// On a schedule card: the schedule proposed.
     pub schedule: Option<Box<oxbot_protocol::ScheduleDraft>>,
+    /// Who answers it instead of the person the turn acts for (a kid's
+    /// schedule goes to a parent).
+    pub answerer: Option<crate::id::PersonId>,
 }
 
 impl Ask {
@@ -152,6 +155,7 @@ impl Ask {
             click: None,
             rule: None,
             schedule: None,
+            answerer: None,
         }
     }
 }

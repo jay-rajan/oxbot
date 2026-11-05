@@ -17,6 +17,8 @@ pub(super) fn person(name: &str, color: i64) -> Person {
     Person {
         name: name.to_owned(),
         color: color_name(color),
+        role: String::new(),
+        photo: None,
     }
 }
 
@@ -323,8 +325,18 @@ impl Store {
     /// Fails if SQLite fails.
     pub fn people(&self) -> Result<Vec<Person>, StoreError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT name, color FROM people ORDER BY first_ms, rowid")?;
-        let rows = stmt.query_map([], |r| Ok(person(&r.get::<_, String>(0)?, r.get(1)?)))?;
+        let mut stmt = conn.prepare(
+            "SELECT p.name, p.color, COALESCE(f.role, CASE WHEN p.farm = 1 THEN 'owner' ELSE 'adult' END), f.photo
+             FROM people p LEFT JOIN profiles f ON f.person = p.id
+             ORDER BY p.first_ms, p.rowid",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Person {
+                role: r.get(2)?,
+                photo: r.get(3)?,
+                ..person(&r.get::<_, String>(0)?, r.get(1)?)
+            })
+        })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 }

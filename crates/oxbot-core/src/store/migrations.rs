@@ -422,6 +422,32 @@ pub(super) const MIGRATIONS: &[Step] = &[
         );
         CREATE INDEX IF NOT EXISTS bot_members_person ON bot_members (person);",
     ),
+    // 26: each person's profile (step 3's welcome screen): their role, a
+    // photo, and what bots may know about them, each with whether bots may
+    // use it. People oxbot knew before have nothing to fill in (their
+    // welcome isn't due); the Farm's person is the owner.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS profiles (
+            person        TEXT    PRIMARY KEY,          -- person id
+            role          TEXT    NOT NULL DEFAULT 'adult', -- owner | adult | kid
+            age           INTEGER,                      -- kid accounts (later)
+            photo         TEXT,                         -- a small JPEG or PNG as a data: URL
+            food          TEXT    NOT NULL DEFAULT '',
+            food_use      INTEGER NOT NULL DEFAULT 1,
+            languages     TEXT    NOT NULL DEFAULT '',
+            languages_use INTEGER NOT NULL DEFAULT 1,
+            notes         TEXT    NOT NULL DEFAULT '',
+            notes_use     INTEGER NOT NULL DEFAULT 1,
+            name_set      INTEGER NOT NULL DEFAULT 0,   -- they chose their name themselves
+            welcome_due   INTEGER NOT NULL DEFAULT 0,   -- the welcome screen shows until they save it
+            owner_ok_ms   INTEGER,                      -- the owner confirmed 18+ and OpenRouter's terms
+            updated_ms    INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO profiles (person, role, updated_ms)
+          SELECT id, CASE WHEN farm = 1 THEN 'owner' ELSE 'adult' END,
+                 CAST(strftime('%s', 'now') AS INTEGER) * 1000
+          FROM people;",
+    ),
 ];
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each

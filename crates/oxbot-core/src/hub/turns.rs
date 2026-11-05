@@ -224,6 +224,11 @@ impl Hub {
             }
             message.push_str(&crate::attach::note(from, files, &bot.work_dir()));
         }
+        // What the person lets bots know about them (never their name).
+        if let Some(line) = origin.asker().and_then(|p| self.about_line(p)) {
+            message.push_str("\n\n");
+            message.push_str(&line);
+        }
         let turn = TurnInput {
             text: message,
             user_seq: user_message.seq,

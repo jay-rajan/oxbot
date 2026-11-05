@@ -1016,6 +1016,10 @@ async fn serve_client(
     if let Ok(people) = state.hub.people() {
         first.push(ServerMsg::People { people });
     }
+    // Their own profile (the welcome screen shows if it's due).
+    if let Ok(Some(view)) = state.hub.profile_for(&client.viewer) {
+        first.push(ServerMsg::Profile(view));
+    }
     first.extend(state.hub.sites_for(&client.viewer));
     // Always (even with none), so the page knows where it stands.
     first.extend(state.hub.sections_for(&client.viewer));
@@ -1248,16 +1252,27 @@ async fn handle(
         ClientMsg::ListSchedules { .. }
         | ClientMsg::PauseSchedule { .. }
         | ClientMsg::DeleteSchedule { .. }
-        | ClientMsg::E2eAdvanceClock { .. } => handle_schedules(msg, state, &viewer).await,
+        | ClientMsg::E2eAdvanceClock { .. }
+        | ClientMsg::SetProfile { .. }
+        | ClientMsg::GetProfile => handle_own(msg, state, &viewer).await,
         other => handle_sign_ins(other, state, &viewer).await,
     }
 }
 
-/// Lists, pauses and deletes schedules (the hub decides who may), and in
-/// test mode moves the scheduler's clock. Nobody makes a schedule here:
-/// only a bot's schedule card does.
-async fn handle_schedules(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
+/// One's own profile, and schedules: lists, pauses and deletes them (the
+/// hub decides who may), and in test mode moves the scheduler's clock.
+/// Nobody makes a schedule here: only a bot's schedule card does.
+async fn handle_own(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
     match msg {
+        ClientMsg::SetProfile { profile } => match state.hub.set_profile(viewer, &profile) {
+            Ok(view) => vec![ServerMsg::Profile(view)],
+            Err(e) => reply(Err(e)),
+        },
+        ClientMsg::GetProfile => match state.hub.profile_for(viewer) {
+            Ok(Some(view)) => vec![ServerMsg::Profile(view)],
+            Ok(None) => Vec::new(),
+            Err(e) => reply(Err(e)),
+        },
         ClientMsg::ListSchedules { bot } => match state.hub.schedules_for(viewer, bot.as_deref()) {
             Ok(schedules) => vec![ServerMsg::Schedules { bot, schedules }],
             Err(e) => reply(Err(e)),
@@ -1855,7 +1870,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         ServerMsg::AllowRules { ref bot, .. } if client.sees(bot) => Some(msg),
         // A schedule list is a direct answer, made for its viewer: never
         // passed on to anyone else.
-        ServerMsg::AllowRules { .. } | ServerMsg::Schedules { .. } => None,
+        ServerMsg::AllowRules { .. } | ServerMsg::Schedules { .. } | ServerMsg::Profile(_) => None,
         ServerMsg::Report(ref r) => client.sees(&r.bot).then_some(msg),
         ServerMsg::Bots { bots } => {
             client.see(&bots);
@@ -1945,8 +1960,9 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::BotCreated(_)
         | ServerMsg::ApprovalResolved { .. }
         | ServerMsg::SignInResolved { .. }
-        // Only a cue to ask again; says nothing about which schedule.
+        // Only cues to ask again; they say nothing about which.
         | ServerMsg::SchedulesChanged
+        | ServerMsg::ProfilesChanged
         | ServerMsg::Setup(_)
         | ServerMsg::People { .. }
         // The household's limits: an alert names at most a bot, by the
@@ -2286,6 +2302,41 @@ mod tests {
         };
         assert!(forward(list, &mut farm).is_none(), "made for one viewer");
         assert!(forward(ServerMsg::SchedulesChanged, &mut real).is_some());
+    }
+
+    #[tokio::test]
+    async fn a_profile_is_its_persons_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        let (out, _rx) = mpsc::channel(8);
+        let sam = state.hub.person_named("Sam").unwrap();
+        let mut sam = Client::new(Viewer::person(sam.id, "Sam", false), &[]);
+        let edit = oxbot_protocol::ProfileEdit {
+            name: "Sam".into(),
+            color: oxbot_core::store::PEOPLE_COLORS[2].into(),
+            food: "vegan".into(),
+            food_use: true,
+            ..oxbot_protocol::ProfileEdit::default()
+        };
+        let replies = handle(
+            ClientMsg::SetProfile {
+                profile: Box::new(edit),
+            },
+            &state,
+            &mut sam,
+            &out,
+        )
+        .await;
+        let [ServerMsg::Profile(view)] = &replies[..] else {
+            panic!("{replies:?}")
+        };
+        assert_eq!(view.food, "vegan");
+        // Never passed on to anyone else's connection.
+        let mut farm = Client::new(Viewer::farm("Jay"), &[]);
+        assert!(forward(ServerMsg::Profile(view.clone()), &mut farm).is_none());
+        assert!(forward(ServerMsg::ProfilesChanged, &mut farm).is_some());
+        let replies = handle(ClientMsg::GetProfile, &state, &mut sam, &out).await;
+        assert!(matches!(&replies[..], [ServerMsg::Profile(v)] if v.food == "vegan"));
     }
 
     #[tokio::test]

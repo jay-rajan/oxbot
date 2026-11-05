@@ -65,6 +65,10 @@ impl Config {
 
 /// One end-to-end test.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a test file's settings: each its own switch"
+)]
 pub struct Test {
     /// What it checks, as a title.
     pub name: String,
@@ -111,6 +115,10 @@ pub struct Test {
     /// skipped, saying why, not failed.
     #[serde(default)]
     pub needs: Vec<String>,
+    /// Start from an empty home (no seed bots or people): oxbot's first
+    /// start, with its welcome screen.
+    #[serde(default)]
+    pub fresh: bool,
     /// The steps, in order.
     #[serde(rename = "step")]
     pub steps: Vec<Step>,

@@ -347,12 +347,15 @@ impl Hub {
             }
             None => None,
         };
-        let asker = self
-            .runtimes
-            .lock()
-            .await
-            .get(bot_id)
-            .and_then(|r| r.origin.asker().cloned());
+        let asker = match &ask.answerer {
+            Some(person) => Some(person.clone()),
+            None => self
+                .runtimes
+                .lock()
+                .await
+                .get(bot_id)
+                .and_then(|r| r.origin.asker().cloned()),
+        };
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let approval = Approval {
             id,

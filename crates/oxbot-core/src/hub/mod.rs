@@ -32,6 +32,7 @@ mod engine_prefs;
 mod engines;
 mod looped;
 mod people;
+mod profiles;
 mod reports;
 mod rules;
 mod schedules;
@@ -53,6 +54,7 @@ pub use engine_prefs::ENGINES_NOTICE;
 pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
 pub use oxbot_loop::DATA_POLICY_HELP;
+pub use profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 pub use sign_ins::signs_in;
 

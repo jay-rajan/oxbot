@@ -138,6 +138,19 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .site-row small { color: var(--muted); font-size: .75rem; }
 /* a bot's "Always allowed" rules, in its settings */
 .rules-box { display: grid; gap: 6px; min-width: 0; }
+.profile-form { display: grid; gap: 12px; }
+.profile-form .pf { display: grid; gap: 4px; }
+.profile-form .pf > label:first-child { display: grid; gap: 4px; font-size: .9rem; }
+.profile-form .use { font-size: .8rem; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.profile-form .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.profile-form .swatches label { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; border: 2px solid transparent; }
+.profile-form .swatches label:has(input:checked) { border-color: var(--ink); }
+.profile-form .swatches input { position: absolute; opacity: 0; pointer-events: none; }
+.profile-form .photo-row { display: flex; gap: 10px; align-items: center; }
+.profile-form .photo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--hover); }
+.profile-form .role { font-size: .9rem; }
+.err-text { color: var(--err); font-size: .9rem; margin: 0; }
+.person-photo { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
 .share-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
 .share-pick legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .share-pick .for-pick { flex-wrap: wrap; }
@@ -330,6 +343,11 @@ dialog h2 { margin: 0 0 4px; font-size: 1.1rem; }
 label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
 label input, label textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 label textarea { min-height: 110px; resize: vertical; }
+.profile-form .use label, .profile-form label.check { display: flex; flex-direction: row; gap: 6px; align-items: center; color: var(--muted); font-size: .8rem; }
+.profile-form label.check { color: var(--ink); font-size: .9rem; }
+.profile-form .use input, .profile-form label.check input { width: auto; padding: 0; margin: 0; }
+.profile-form textarea { min-height: 60px; }
+.profile-form .confirms { display: grid; gap: 6px; }
 .row { display: flex; gap: 8px; justify-content: flex-end; }
 .hint { font-size: .78rem; color: var(--muted); }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; max-width: min(520px, calc(100% - 32px)); box-shadow: 0 6px 24px rgb(0 0 0 / .2); z-index: 10; }
@@ -491,7 +509,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 <dialog id="appDlg" class="wide" aria-labelledby="appTitle">
   <div class="settings">
     <header class="settings-head"><h2 id="appTitle">Settings</h2><button class="ghost" id="appClose" type="button">Close</button></header>
-    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Websites</button><button type="button" role="tab" data-tab="setGates" aria-selected="false" id="gatesTab" hidden>Devices</button><button type="button" role="tab" data-tab="setEngines" aria-selected="false" id="enginesTab">AI models</button><button type="button" role="tab" data-tab="setSchedules" aria-selected="false" id="schedulesTab">Schedules</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
+    <div class="tabs" role="tablist" aria-label="Settings"><button type="button" role="tab" data-tab="setGeneral" aria-selected="true">General</button><button type="button" role="tab" data-tab="setSignins" aria-selected="false">Websites</button><button type="button" role="tab" data-tab="setGates" aria-selected="false" id="gatesTab" hidden>Devices</button><button type="button" role="tab" data-tab="setEngines" aria-selected="false" id="enginesTab">AI models</button><button type="button" role="tab" data-tab="setSchedules" aria-selected="false" id="schedulesTab">Schedules</button><button type="button" role="tab" data-tab="setPeople" aria-selected="false" id="peopleTab">People</button><button type="button" role="tab" data-tab="setActivity" aria-selected="false">Activity</button></div>
 
     <div id="setGeneral" role="tabpanel">
     <section id="notifySection">
@@ -650,6 +668,18 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     </section>
     </div>
 
+    <div id="setPeople" role="tabpanel" hidden>
+    <section>
+      <h3>You</h3>
+      <form id="meForm" class="profile-form"><div id="meFields"></div><p class="err-text" id="meErr" hidden></p><div class="btns"><button class="primary" type="submit">Save</button></div></form>
+    </section>
+    <section>
+      <h3>Everyone in the home</h3>
+      <ul class="rules" id="peopleRows"></ul>
+      <p class="hint">Each person fills in their own. Only the owner sets the home area.</p>
+    </section>
+    </div>
+
     <div id="setActivity" role="tabpanel" hidden>
     <section>
       <p class="hint">What oxbot is doing, newest last.</p>
@@ -658,6 +688,16 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     </div>
   </div>
 </dialog>
+<dialog id="welcomeDlg" class="wide" aria-labelledby="welcomeTitle">
+  <form id="welcomeForm" class="profile-form">
+    <h2 id="welcomeTitle">Welcome to oxbot</h2>
+    <p class="hint">Tell oxbot who you are. It stays on the home computer. For each detail you choose whether your bots may use it; you can change all of it later in Settings → People.</p>
+    <div id="welcomeFields"></div>
+    <p class="err-text" id="welcomeErr" hidden></p>
+    <div class="row"><button class="primary" type="submit">Save and start</button></div>
+  </form>
+</dialog>
+
 <dialog id="nameDlg" aria-labelledby="ndTitle">
   <form id="nameForm">
     <h2 id="ndTitle">Name</h2>
@@ -761,6 +801,8 @@ let helloAt = 0;             // when this connection's hello came
 const approvals = new Map(); // id -> approval card
 const signIns = new Map();   // id -> sign-in request
 const people = new Map();    // name -> color
+let peopleList = [];         // everyone, with role and photo
+let profile = null;          // this person's own profile
 let setup = null, signOutArmed = null;
 let engines = null;          // Settings → Engines, as the server sent it
 let orAuthUrl = null;        // the OpenRouter sign-in page, if no window opened
@@ -900,7 +942,9 @@ function onMessage(m) {
     case "reports": if (m.bot === reportsFor) { reportList = m.reports; renderReportList(); } break;
     case "sign_in_needed": signIns.set(m.id, arrived(signIns, m)); renderCards(); break;
     case "sign_in_resolved": signIns.delete(m.id); renderCards(); break;
-    case "people": people.clear(); for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); break;
+    case "people": people.clear(); peopleList = m.people; for (const p of m.people) people.set(p.name, p.color); if (current) renderLog(); renderSettings(); renderBots(); renderPeopleTab(); break;
+    case "profile": onProfile(m); break;
+    case "profiles_changed": if ($("appDlg").open && !$("setPeople").hidden) send({ type: "get_profile" }); break;
     case "setup": setup = m; renderSetup(); renderEngines(); break;
     case "engines": engines = m; renderEngines(); break;
     case "open_router_auth": orAuthUrl = m.url; renderEngines(); break;
@@ -2447,6 +2491,114 @@ function renderCards(onlyIfRenamed) {
     return img;
   }
 }
+// ---------- profiles: the welcome screen and Settings → People
+const ROLES = { owner: "Owner: you installed oxbot and connect the home's AI account", adult: "Adult", kid: "Kid (a parent approves what's risky)" };
+function onProfile(m) {
+  profile = m;
+  if (m.welcome) {
+    profileFields($("welcomeFields"), m, true);
+    $("welcomeErr").hidden = true;
+    if (!$("welcomeDlg").open) $("welcomeDlg").showModal();
+  } else if ($("welcomeDlg").open) $("welcomeDlg").close();
+  profileFields($("meFields"), m, false);
+  renderPeopleTab();
+}
+// The fields, as `view` has them. `welcome`: the owner also confirms.
+function profileFields(box, view, welcome) {
+  box.textContent = "";
+  const field = (labelText, input, use, never) => {
+    const wrap = div("pf");
+    const l = document.createElement("label"); l.append(labelText, input); wrap.appendChild(l);
+    const u = div("use");
+    if (never) u.textContent = "Bots may use this: never";
+    else { const c = document.createElement("input"); c.type = "checkbox"; c.checked = use; c.dataset.use = input.dataset.key; const t = document.createElement("label"); t.append(c, " Bots may use this"); u.appendChild(t); }
+    wrap.appendChild(u); box.appendChild(wrap);
+  };
+  const text = (key, value, max, area) => { const i = document.createElement(area ? "textarea" : "input"); i.value = value || ""; i.maxLength = max; i.dataset.key = key; i.autocomplete = "off"; return i; };
+  field("Name", text("name", view.name, 40), false, true);
+  // Colour and photo: shown with your messages, never sent to bots.
+  const look = div("pf");
+  const sw = div("swatches");
+  for (const c of view.colors) {
+    const l = document.createElement("label"); l.style.background = c; l.title = c;
+    const r = document.createElement("input"); r.type = "radio"; r.name = box.id + "Color"; r.value = c; r.checked = c === view.color; r.setAttribute("aria-label", c);
+    l.appendChild(r); sw.appendChild(l);
+  }
+  const lt = document.createElement("label"); lt.textContent = "Colour and photo"; look.append(lt, sw);
+  const row = div("photo-row");
+  const img = document.createElement("img"); img.className = "photo"; img.alt = "Your photo"; img.hidden = !view.photo; if (view.photo) img.src = view.photo;
+  const pick = document.createElement("input"); pick.type = "file"; pick.accept = "image/*"; pick.className = "file-input"; pick.id = box.id + "Photo";
+  const choose = document.createElement("button"); choose.type = "button"; choose.className = "ghost"; choose.textContent = view.photo ? "Change photo" : "Add a photo";
+  const remove = document.createElement("button"); remove.type = "button"; remove.className = "ghost"; remove.textContent = "Remove"; remove.hidden = !view.photo;
+  box.dataset.photo = view.photo || "";
+  choose.onclick = () => pick.click();
+  remove.onclick = () => { box.dataset.photo = ""; img.hidden = true; remove.hidden = true; choose.textContent = "Add a photo"; };
+  pick.onchange = () => { const f = pick.files && pick.files[0]; if (f) shrinkPhoto(f, (url) => { box.dataset.photo = url; img.src = url; img.hidden = false; remove.hidden = false; choose.textContent = "Change photo"; }); };
+  row.append(img, choose, remove, pick); look.appendChild(row);
+  const lu = div("use"); lu.textContent = "Bots may use this: never"; look.appendChild(lu);
+  box.appendChild(look);
+  const role = div("role"); role.textContent = `In the home: ${ROLES[view.role] || view.role}`; box.appendChild(role);
+  if (view.can_edit_area) field("Home area (the household's: city, region)", text("home_area", view.home_area, 100), view.home_area_use);
+  else if (view.home_area) { const p = document.createElement("p"); p.className = "hint"; p.textContent = `Home area: ${view.home_area} (the owner sets it)`; box.appendChild(p); }
+  field("Food needs (optional, e.g. vegetarian, no nuts)", text("food", view.food, 200), view.food_use);
+  field("Languages (optional)", text("languages", view.languages, 200), view.languages_use);
+  field("Notes for bots (optional, e.g. I prefer metric; no paid apps)", text("notes", view.notes, 500, true), view.notes_use);
+  if (view.owner_confirm) {
+    const ok = div("confirms");
+    for (const [key, words] of [["adult", "I'm 18 or older."], ["terms", "I accept OpenRouter's terms of service (openrouter.ai/terms), for the home's AI account."]]) {
+      const l = document.createElement("label"); l.className = "check"; const c = document.createElement("input"); c.type = "checkbox"; c.dataset.confirm = key; l.append(c, " " + words); ok.appendChild(l);
+    }
+    box.appendChild(ok);
+  }
+}
+// A photo, made small (96 px, JPEG) in the page before it's sent.
+function shrinkPhoto(file, done) {
+  const url = URL.createObjectURL(file); const img = new Image();
+  img.onload = () => {
+    const n = 96, c = document.createElement("canvas"); c.width = n; c.height = n;
+    const side = Math.min(img.width, img.height);
+    c.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, n, n);
+    URL.revokeObjectURL(url); done(c.toDataURL("image/jpeg", 0.8));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast("That picture can't be read; pick another.", true); };
+  img.src = url;
+}
+function profileEdit(box) {
+  const get = (k) => { const el = box.querySelector(`[data-key="${k}"]`); return el ? el.value : ""; };
+  const use = (k) => { const el = box.querySelector(`[data-use="${k}"]`); return !!(el && el.checked); };
+  const color = box.querySelector(`input[name="${box.id}Color"]:checked`);
+  const confirms = [...box.querySelectorAll("[data-confirm]")];
+  const edit = { name: get("name").trim(), color: color ? color.value : (profile && profile.color) || "", photo: box.dataset.photo || null,
+    food: get("food"), food_use: use("food"), languages: get("languages"), languages_use: use("languages"), notes: get("notes"), notes_use: use("notes"),
+    owner_confirmed: confirms.length > 0 && confirms.every((c) => c.checked) };
+  if (box.querySelector('[data-key="home_area"]')) { edit.home_area = get("home_area"); edit.home_area_use = use("home_area"); }
+  return edit;
+}
+function saveProfile(box, err) {
+  const edit = profileEdit(box);
+  const confirms = box.querySelectorAll("[data-confirm]");
+  if (confirms.length && !edit.owner_confirmed) { err.textContent = "To finish, confirm you're 18 or older and accept OpenRouter's terms."; err.hidden = false; return; }
+  err.hidden = true;
+  send({ type: "set_profile", profile: edit });
+}
+$("welcomeForm").addEventListener("submit", (ev) => { ev.preventDefault(); saveProfile($("welcomeFields"), $("welcomeErr")); });
+// The welcome screen stays until it's saved.
+$("welcomeDlg").addEventListener("cancel", (ev) => ev.preventDefault());
+$("meForm").addEventListener("submit", (ev) => { ev.preventDefault(); saveProfile($("meFields"), $("meErr")); toast("Saved."); });
+$("peopleTab").addEventListener("click", () => send({ type: "get_profile" }));
+function renderPeopleTab() {
+  const ul = $("peopleRows"); if (!ul) return; ul.textContent = "";
+  for (const p of peopleList) {
+    const li = document.createElement("li"); li.className = "rule-row";
+    const name = document.createElement("span"); name.className = "name";
+    if (p.photo && p.photo.startsWith("data:image/")) { const img = document.createElement("img"); img.className = "person-photo"; img.src = p.photo; img.alt = ""; name.append(img, " "); }
+    else { const dot = document.createElement("span"); dot.className = "maker-dot"; dot.style.background = p.color; name.append(dot, " "); }
+    name.append(p.name);
+    const role = document.createElement("small"); role.textContent = p.role === "owner" ? "owner" : p.role === "kid" ? "kid" : "adult";
+    li.append(name, role); ul.appendChild(li);
+  }
+}
+
 // ---------- schedules
 // A schedule card: Create, Change (edit it right here first) or Don't.
 // What's being changed survives redraws, by card id.
