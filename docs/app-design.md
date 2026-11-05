@@ -67,6 +67,18 @@ Known gaps: pictures and PDFs reach the bot only as their text (Codex's dynamic 
 
 Mid-conversation switching between vendors (the 2026-10-27 idea: oxbot owns the transcript, hands a summary to the other backend) is not needed with one engine; the transcript in SQLite stays oxbot's own.
 
+## People, sharing and schedules (2026-11-04, step 3)
+- **Shared with…** per bot: everyone (shared), just me (private) or picked people (`bot_members`,
+  migration 25). One visibility rule (`Viewer::can_see_shared`) for the list, chats, cards,
+  devices and the Assistant. Picked people use the maker's browser; only the maker signs it in.
+- **Schedules** (migration 24): structured rules in the Mac's time zone, made only through a
+  schedule card. The hub's scheduler wakes each minute and starts due runs by the typed-task
+  path as the schedule's person (`ChainOrigin` entry `schedule`).
+- **Profiles** (migration 26): the welcome screen at first start and per new device; a
+  person's allowed details go with their tasks as one `[oxbot]` line, never their name.
+- Every bot's rules say, in one fixed line, what oxbot can't do (texts, calls, payments outside
+  a site's checkout, anything outside its folder).
+
 ## Devices (the phone app)
 Chosen: **Tauri 2, Android** (the Android app is only ever a device; see the README). The 2026-10-27 notes:
 - **Discovery:** oxbotd advertises `_oxbot._tcp` (crate `mdns-sd`; fallback `zeroconf` if it fights macOS Bonjour). The iPhone browses with NWBrowser. Info.plist needs `NSLocalNetworkUsageDescription` and `NSBonjourServices`. No special Apple entitlement needed.

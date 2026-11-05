@@ -81,6 +81,36 @@ Assistant can give it tasks; it asks you first if it has read web content or oth
 replies. Nobody else's Assistant can use it, and Assistants can't task or read each other. Long
 chats open a page at a time.
 
+Shared with…: a bot's settings say who it's shared with: **Everyone in the home**, **Just me**
+(a private bot) or **Picked people**. Picked people see it and its chat, give it tasks (in its
+chat or through their own Assistant) and answer its approval requests; only its maker and the
+owner change it. It acts with its maker's sign-ins, in the maker's own browser, and only the maker
+signs that browser in to websites. `bot.toml` says `sharing = "everyone" | "me" | "people"`
+(files from before say only `private`, and get the line once); the people are kept in
+`bot_members`.
+
+Schedules: ask any bot in plain words ("every weekday at 8:15 AM, send me today's prep plan",
+"remind me Oct 20 to renew the car insurance") and it proposes a **schedule card**: "Every weekday
+at 8:15 AM: today's prep plan", with Create, Change (edit it on the card) and Don't. Nothing is
+scheduled without Create. A request a bot makes after reading a web page, a file or another bot's
+reply still shows a card, which says where it came from. Rules are once, every day, weekdays,
+some days of the week or a day of the month, at a time in the home computer's time zone
+(daylight saving and month ends handled; no free-form rules). A run is a task by the same path as
+a typed one, as the person who made it: their bots, websites and AI spending, every approval
+request. Its answer lands in the bot's chat and its first line goes to their devices; a run that
+waits for an OK or a sign-in says it needs them. One run at a time per bot, at least 15 minutes
+apart, up to 30 schedules per person; a run over the day's limits is skipped and says so. Missed
+while the home computer was asleep or oxbot closed: it runs once if that's within 2 hours, else
+it's noted as missed. The bot's ··· settings and Settings → Schedules list them (next run, last
+run and how it went, Pause, Delete): the owner sees all, everyone else their own and those in bots
+they may open.
+
+Welcome: the owner's first start, and each newly paired device, show a welcome screen: name,
+colour and photo, role (the first person is the owner, who confirms they're 18 or older and accept
+OpenRouter's terms), the home area (the owner's, for the household), and optional food needs,
+languages and notes for bots, each saying whether bots may use it (never the name). Settings →
+People edits it. A person's tasks carry one line with what they let bots use, never their name.
+
 Devices: phones (the Android app) use the home computer's bots over home Wi-Fi, as the person
 they were connected for. In Settings → Devices the home computer lists the networks phones may
 use ("Add this network"; oxbot knows a network by its router, not its name), then **Connect a
@@ -192,9 +222,10 @@ providers that don't collect data and keep nothing (`data_collection: deny` and 
 if no free model qualifies, the bot says so instead of switching quietly (it may first drop zero
 retention, never the deny, and says that too). Signing in, the model list and the key's limits
 also go to openrouter.ai. Codex's analytics, plugins and update checks are off, Codex never
-contacts OpenAI itself, and nothing goes to Anthropic. Chats, saved steps, the meter
-(questions, tokens and cost, never prompt text) and what the relay sent stay on the home
-computer. Nothing else leaves it.
+contacts OpenAI itself, and nothing goes to Anthropic. A person's profile details that they let bots use (and the home area, if
+the owner allows it) go with their tasks; their name never does. Chats, saved steps, the meter
+(questions, tokens and cost, never prompt text), profiles, schedules and what the relay sent stay
+on the home computer. Nothing else leaves it.
 
 ## Layout
 In the code the home computer is the **Farm**, a device is a **Gate** and the Assistant is

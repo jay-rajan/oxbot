@@ -19,3 +19,8 @@ Decided 2026-11-04. Use these words in everything a person sees: the app, phone 
 | **What was sent** | relay log, request log | Exactly what left the home computer for a task. |
 | **websites you're signed in to** | sign-ins, cookies, home Chrome, profile | Sites the bots can use as you. |
 | **small script** ("This task needs a small script") | coding, shell, sandbox | A short program a bot writes to work something out; it runs only on the home computer, in the bot's folder, with no internet. |
+| **schedule** ("Every weekday at 8:15 AM: today's prep plan") | cron, job, routine | A task a bot runs on its own at set times, as the person who made it. A reminder is a schedule whose task is the reminder. |
+| **schedule card** (Create · Change · Don't) | — | The approval request a bot shows before any schedule is made. |
+| **Shared with…**: Everyone in the home · Just me · Picked people | members, ACL | Who may use a bot. Picked people use it with its maker's sign-ins. |
+| **profile** / **welcome screen** | onboarding, user record | What a person tells oxbot about themselves, each detail with "Bots may use this". |
+| **home area** ("Toronto, ON") | location, geo | The household's city, set by the owner. |
