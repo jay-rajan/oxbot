@@ -336,6 +336,19 @@ impl Store {
         )?)
     }
 
+    /// Forgets runs that ended before `before_ms` (each schedule keeps its
+    /// latest, whatever its age). Returns how many went.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn prune_schedule_runs(&self, before_ms: i64) -> Result<usize, StoreError> {
+        Ok(self.conn().execute(
+            "DELETE FROM schedule_runs WHERE ended_ms IS NOT NULL AND ended_ms < ?1
+               AND id NOT IN (SELECT MAX(id) FROM schedule_runs GROUP BY schedule)",
+            [before_ms],
+        )?)
+    }
+
     /// Each schedule's latest run, by schedule id.
     ///
     /// # Errors
@@ -476,6 +489,23 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[test]
+    fn old_runs_go_but_each_schedules_latest_stays() {
+        let store = Store::open_in_memory().unwrap();
+        let s = store
+            .add_schedule(&new("prep", &PersonId::random(), 1), 30)
+            .unwrap()
+            .unwrap();
+        store
+            .add_schedule_run(s.id, 1, None, "missed", None)
+            .unwrap();
+        store
+            .add_schedule_run(s.id, 2, None, "missed", None)
+            .unwrap();
+        assert_eq!(store.prune_schedule_runs(now_ms() + 1).unwrap(), 1);
+        assert_eq!(store.schedule_runs(s.id).unwrap().len(), 1);
     }
 
     #[test]

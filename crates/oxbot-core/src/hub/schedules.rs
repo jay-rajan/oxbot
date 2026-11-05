@@ -41,6 +41,9 @@ use crate::schedule::{self, CATCH_UP_MS, MAX_PER_PERSON, MIN_GAP_MS, Rule};
 use crate::store::{NewSchedule, ScheduleRecord, now_ms};
 use crate::tools;
 
+/// How long a schedule's past runs are kept.
+const KEEP_RUNS_MS: i64 = 90 * 86_400_000;
+
 /// A scheduled run in progress (one per bot at most).
 #[derive(Debug, Clone)]
 struct ActiveRun {
@@ -176,6 +179,10 @@ impl Hub {
     pub async fn check_schedules(self: &Arc<Self>) {
         let one = self.scheduler.tick.lock().await;
         let now = self.schedule_now();
+        // Runs are kept 90 days (each schedule's latest always).
+        if let Err(err) = self.store.prune_schedule_runs(now - KEEP_RUNS_MS) {
+            tracing::warn!(%err, "couldn't forget old scheduled runs");
+        }
         let mut changed = self.follow_time_zone(now);
         let due = match self.store.due_schedules(now) {
             Ok(due) => due,
