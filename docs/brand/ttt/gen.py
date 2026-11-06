@@ -49,6 +49,12 @@ def icon(ground=True):
             f'{bg}{board(160, 864, 24, 68, 48, 64, 54)}</svg>')
 
 
+# iPhone Home Screen icon: full square, iOS rounds the corners itself.
+def icon_ios():
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="oxbot">'
+            f'<rect width="1024" height="1024" fill="{INK}"/>{board(160, 864, 24, 68, 48, 64, 54)}</svg>')
+
+
 # Android adaptive foreground: 108dp canvas, marks inside the 66dp safe zone.
 def android_fg():
     inner = icon(False).split(">", 1)[1].rsplit("</svg>", 1)[0]
@@ -143,6 +149,7 @@ def main():
         "icon.svg": icon(),
         "icon-android-foreground.svg": android_fg(),
         "tray.svg": tray(),
+        "icon-ios.svg": icon_ios(),
         "wordmark.svg": wordmark(glyphs).replace("currentColor", "#111111"),
         "wordmark-dark.svg": wordmark(glyphs).replace("currentColor", "#FFFFFF"),
     }
