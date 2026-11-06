@@ -168,6 +168,7 @@ async fn bots(action: BotsAction) -> anyhow::Result<()> {
                     instructions,
                     private: false,
                     engine: None,
+                    models: Vec::new(),
                 };
                 match client::request(port, &msg).await? {
                     ServerMsg::Error { message } => bail!(message),

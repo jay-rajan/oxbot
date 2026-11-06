@@ -141,6 +141,14 @@ impl AppState {
             .as_ref()
             .map(|(c, _)| c.free_for_loop().map(model_row).collect())
             .unwrap_or_default();
+        let paid_models = catalog
+            .as_ref()
+            .map(|(c, _)| c.paid_for_loop().into_iter().map(model_row).collect())
+            .unwrap_or_default();
+        let model_lists = catalog
+            .as_ref()
+            .map(|(c, _)| oxbot_core::model_lists::suggested(c))
+            .unwrap_or_default();
         let openrouter = farm.then(|| self.openrouter_view(catalog.as_ref()));
         EnginesView {
             codex: farm.then(|| self.hub.codex_view()),
@@ -149,6 +157,8 @@ impl AppState {
             owner: self.hub.owner_display_name(),
             openrouter_ready: self.hub.openrouter_ready(),
             models,
+            paid_models,
+            model_lists,
             openrouter,
         }
     }
@@ -1207,7 +1217,8 @@ async fn handle(
             instructions,
             private,
             engine,
-        } => create_bot(state, client, &name, &instructions, private, engine).await,
+            models,
+        } => create_bot(state, client, &name, &instructions, private, engine, models).await,
         ClientMsg::SetPrivate { bot, private } => {
             reply(state.hub.set_private(&bot, private, &viewer).await)
         }
@@ -1308,10 +1319,15 @@ async fn handle_engines(
                 .set_bot_daily_limit(&bot, daily_requests, viewer)
                 .await,
         ),
-        ClientMsg::SetEngine { bot, engine, model } => reply(
+        ClientMsg::SetEngine {
+            bot,
+            engine,
+            model,
+            models,
+        } => reply(
             state
                 .hub
-                .set_engine(&bot, from_wire(engine), model, viewer)
+                .set_engine(&bot, from_wire(engine), model, models, viewer)
                 .await,
         ),
         other => return Err(other),
@@ -1697,12 +1713,18 @@ async fn create_bot(
     instructions: &str,
     private: bool,
     engine: Option<oxbot_protocol::EngineKind>,
+    models: Vec<String>,
 ) -> Vec<ServerMsg> {
     let viewer = client.viewer.clone();
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
             message: e.to_string(),
         }]
+    };
+    // A list that can't be kept stops it before anything is made.
+    let models = match oxbot_core::hub::checked_models(models) {
+        Ok(models) => models,
+        Err(e) => return error(&e),
     };
     let wanted = engine.map(from_wire);
     if let Some(kind) = wanted
@@ -1721,10 +1743,20 @@ async fn create_bot(
     client.visible.insert(info.id.clone());
     let mut out = Vec::new();
     if let Some(wanted) = wanted.filter(|w| *w != from_wire(info.engine))
-        && let Err(e) = state.hub.set_engine(&info.id, wanted, None, &viewer).await
+        && let Err(e) = state
+            .hub
+            .set_engine(&info.id, wanted, None, None, &viewer)
+            .await
     {
         out.push(ServerMsg::Error {
             message: format!("Made {}, but couldn't switch its AI model: {e}", info.name),
+        });
+    }
+    if !models.is_empty()
+        && let Err(e) = state.hub.set_bot_models(&info.id, models, &viewer).await
+    {
+        out.push(ServerMsg::Error {
+            message: format!("Made {}, but couldn't give it its models: {e}", info.name),
         });
     }
     let info = match state.hub.bots().await {
@@ -3051,6 +3083,7 @@ mod tests {
             bot: "notes".into(),
             engine: oxbot_protocol::EngineKind::Codex,
             model: None,
+            models: None,
         };
         assert!(!farm_only(&to_codex));
         let replies = handle(to_codex, &state, &mut client, &out).await;
@@ -3064,6 +3097,7 @@ mod tests {
             instructions: String::new(),
             private: true,
             engine: Some(oxbot_protocol::EngineKind::Codex),
+            models: Vec::new(),
         };
         let replies = handle(make, &state, &mut client, &out).await;
         assert!(

@@ -24,6 +24,8 @@ pub const PREF_CATALOG_MS: &str = "openrouter_catalog_ms";
 const MAX_PAID_MODELS: usize = 50;
 /// The longest model id kept.
 const MAX_MODEL_ID: usize = 200;
+/// The most models in a bot's own list.
+pub const MAX_BOT_MODELS: usize = 8;
 /// The highest daily request cap (per bot or per person).
 const MAX_DAILY_REQUESTS: u32 = 100_000;
 /// The highest daily spend on paid models, in US cents ($100).
@@ -75,6 +77,7 @@ impl Hub {
     pub(super) fn fill_engine(&self, bot: &Bot, info: &mut BotInfo) {
         info.engine = crate::engine::to_wire(self.engine_of(bot));
         info.model.clone_from(&bot.loop_settings.model);
+        info.models.clone_from(&bot.loop_settings.models);
         info.daily_requests = bot.loop_settings.daily_requests;
     }
 
@@ -242,6 +245,40 @@ pub(super) fn engine_prefs_in(store: &crate::store::Store) -> EnginePrefs {
     }
 }
 
+/// Whether `id` (trimmed) can be a model id: 1 to [`MAX_MODEL_ID`]
+/// printable ASCII characters, no spaces.
+fn id_ok(id: &str) -> bool {
+    !id.is_empty() && id.len() <= MAX_MODEL_ID && id.chars().all(|c| c.is_ascii_graphic())
+}
+
+/// A bot's own model list with each id trimmed and each once (in its
+/// order), or why it can't be kept.
+///
+/// # Errors
+/// [`HubError::NotAllowed`], in words: too many models, or one that isn't
+/// a model id.
+pub fn checked_models(models: Vec<String>) -> Result<Vec<String>, HubError> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for id in models {
+        let id = id.trim().to_owned();
+        if !id_ok(&id) {
+            return Err(HubError::NotAllowed(
+                "That list has something that isn't a model id oxbot can use.".to_owned(),
+            ));
+        }
+        if seen.insert(id.clone()) {
+            out.push(id);
+        }
+    }
+    if out.len() > MAX_BOT_MODELS {
+        return Err(HubError::NotAllowed(format!(
+            "A bot can have at most {MAX_BOT_MODELS} models in its list."
+        )));
+    }
+    Ok(out)
+}
+
 /// `prefs` with ids trimmed, or why it can't be kept.
 fn checked_prefs(mut prefs: EnginePrefs) -> Result<EnginePrefs, HubError> {
     let refuse = |why: String| Err(HubError::NotAllowed(why));
@@ -257,9 +294,6 @@ fn checked_prefs(mut prefs: EnginePrefs) -> Result<EnginePrefs, HubError> {
     if prefs.paid_daily_cents > MAX_PAID_DAILY_CENTS {
         return refuse("Paid models may spend at most $100.00 a day.".to_owned());
     }
-    let id_ok = |id: &str| {
-        !id.is_empty() && id.len() <= MAX_MODEL_ID && id.chars().all(|c| c.is_ascii_graphic())
-    };
     prefs.paid_models = prefs
         .paid_models
         .iter()
@@ -363,6 +397,64 @@ mod tests {
         assert_eq!(
             hub.model_catalog(),
             Some((r#"{"models":[]}"#.to_owned(), 5))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bots_own_model_list_is_checked_kept_and_listed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = hub(tmp.path());
+        let jay = hub.farm_viewer("Jay");
+        hub.set_bot_models(
+            "scout",
+            vec![" x/b:free ".into(), "x/paid".into(), "x/b:free".into()],
+            &jay,
+        )
+        .await
+        .unwrap();
+        let scout = hub.bot("scout").unwrap();
+        assert_eq!(scout.loop_settings.models, ["x/b:free", "x/paid"]);
+        let list = hub.bots().await.unwrap();
+        let info = list.iter().find(|b| b.id == "scout").unwrap();
+        assert_eq!(info.models, ["x/b:free", "x/paid"]);
+
+        let nine: Vec<String> = (0..9).map(|i| format!("x/m{i}:free")).collect();
+        for (bad, why) in [
+            (nine, "A bot can have at most 8 models in its list."),
+            (
+                vec!["x/a b".into()],
+                "That list has something that isn't a model id oxbot can use.",
+            ),
+            (
+                vec![" ".into()],
+                "That list has something that isn't a model id oxbot can use.",
+            ),
+            (
+                vec!["x/".repeat(101)],
+                "That list has something that isn't a model id oxbot can use.",
+            ),
+        ] {
+            match hub.set_bot_models("scout", bad, &jay).await {
+                Err(HubError::NotAllowed(said)) => assert_eq!(said, why),
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(
+            hub.bot("scout").unwrap().loop_settings.models,
+            ["x/b:free", "x/paid"],
+            "a refused list keeps the old"
+        );
+        // The Assistant's is the owner's to set, in Settings.
+        assert!(matches!(
+            hub.set_bot_models("assistant", vec!["x/a:free".into()], &jay)
+                .await,
+            Err(HubError::NotAllowed(_))
+        ));
+        // Back to automatic.
+        hub.set_bot_models("scout", Vec::new(), &jay).await.unwrap();
+        assert_eq!(
+            hub.bot("scout").unwrap().loop_settings.models,
+            Vec::<String>::new()
         );
     }
 

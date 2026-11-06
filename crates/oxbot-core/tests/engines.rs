@@ -262,6 +262,7 @@ async fn whoever_manages_a_bot_sets_its_model_but_never_a_herders() {
             "notes",
             EngineKind::Codex,
             Some(testing::MODEL.into()),
+            None,
             &ann
         )
         .await,
@@ -271,6 +272,7 @@ async fn whoever_manages_a_bot_sets_its_model_but_never_a_herders() {
         "notes",
         EngineKind::Codex,
         Some(testing::MODEL.into()),
+        None,
         &sam,
     )
     .await
@@ -280,13 +282,19 @@ async fn whoever_manages_a_bot_sets_its_model_but_never_a_herders() {
     let file = std::fs::read_to_string(tmp.path().join("bots/notes/bot.toml")).unwrap();
     assert!(file.contains("engine = \"codex\""), "{file}");
     // Back to Auto.
-    hub.set_engine("notes", EngineKind::Codex, Some(String::new()), &owner)
-        .await
-        .unwrap();
+    hub.set_engine(
+        "notes",
+        EngineKind::Codex,
+        Some(String::new()),
+        None,
+        &owner,
+    )
+    .await
+    .unwrap();
     assert_eq!(hub.bot("notes").unwrap().loop_settings.model, None);
     // A Herder's is the owner's to set.
     let err = hub
-        .set_engine("assistant", EngineKind::Codex, None, &owner)
+        .set_engine("assistant", EngineKind::Codex, None, None, &owner)
         .await
         .unwrap_err();
     assert_eq!(

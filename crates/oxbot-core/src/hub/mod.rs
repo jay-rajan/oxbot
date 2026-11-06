@@ -50,7 +50,7 @@ pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS};
 pub use approvals::answers;
 pub use codex::CodexParts;
 pub use compare::{CaseKnowledge, NoKnowledge};
-pub use engine_prefs::ENGINES_NOTICE;
+pub use engine_prefs::{ENGINES_NOTICE, MAX_BOT_MODELS, checked_models};
 pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
 pub use oxbot_loop::DATA_POLICY_HELP;

@@ -372,6 +372,8 @@ impl Hub {
                 owner: self.owner_display_name(),
                 openrouter_ready: self.openrouter_ready(),
                 models: Vec::new(),
+                paid_models: Vec::new(),
+                model_lists: Vec::new(),
                 openrouter: None,
             }));
         }

@@ -246,7 +246,10 @@ impl Caller<'_> {
             );
         }
         if self.shared.router.catalog().models.is_empty()
-            && matches!(self.routing.choice, ModelChoice::Auto)
+            && matches!(
+                self.routing.choice,
+                ModelChoice::Auto | ModelChoice::List(_)
+            )
         {
             return Stop::Fail(
                 "oxbot hasn't read OpenRouter's model list yet. Check the connection and try \

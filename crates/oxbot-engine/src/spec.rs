@@ -83,6 +83,10 @@ pub enum ModelChoice {
     /// This model and no other: no fallbacks (practice runs that compare
     /// models).
     Only(String),
+    /// The bot's own ordered list (free and paid ids mixed): its free
+    /// models first, in this order, then the router's other free models,
+    /// then its paid ones (only if the owner allows paid models).
+    List(Vec<String>),
 }
 
 impl ModelChoice {
@@ -92,6 +96,7 @@ impl ModelChoice {
         match self {
             Self::Auto => None,
             Self::Pin(name) | Self::Only(name) => Some(name),
+            Self::List(list) => list.first().map(String::as_str),
         }
     }
 }
@@ -186,5 +191,10 @@ mod tests {
             Some("e2e/x:free")
         );
         assert_eq!(ModelChoice::Auto.named(), None);
+        assert_eq!(
+            ModelChoice::List(vec!["e2e/a:free".into(), "e2e/paid".into()]).named(),
+            Some("e2e/a:free")
+        );
+        assert_eq!(ModelChoice::List(Vec::new()).named(), None);
     }
 }

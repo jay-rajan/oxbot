@@ -158,6 +158,9 @@ pub enum ClientMsg {
         /// The engine it runs on; `None` for the server's default (Codex).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         engine: Option<EngineKind>,
+        /// Its own models, tried in this order (empty: automatic).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        models: Vec<String>,
     },
     /// Set a bot's AI model (Free models / Paid models). Its maker or the
     /// Farm. Herders' are set by the owner. `engine` is always Codex now.
@@ -167,9 +170,14 @@ pub enum ClientMsg {
         /// The engine.
         engine: EngineKind,
         /// Its model: an `OpenRouter` model id; empty for the default
-        /// (Auto). `None` keeps the one it has.
+        /// (Auto). `None` keeps the one it has. Setting one alone clears
+        /// the bot's own list (older pages).
         #[serde(default)]
         model: Option<String>,
+        /// Its own models, tried in this order (free and paid ids mixed;
+        /// empty: automatic). `None` keeps the list it has.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        models: Option<Vec<String>>,
     },
     /// Ask for Settings → Engines ([`ServerMsg::Engines`]).
     ListEngines,
@@ -629,6 +637,13 @@ pub struct EnginesView {
     /// for picking one for a bot.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<ModelRow>,
+    /// Paid models bots can use, cheapest first, for a bot's own list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paid_models: Vec<ModelRow>,
+    /// Suggested model lists by kind of job, each with only the models on
+    /// the live list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_lists: Vec<ModelList>,
     /// The Farm only: the `OpenRouter` account, models, limits and use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openrouter: Option<OpenRouterView>,
@@ -728,6 +743,20 @@ pub struct ModelRow {
     /// US dollars per million output tokens.
     #[serde(default)]
     pub usd_per_mtok_out: f64,
+}
+
+/// A suggested model list for one kind of job (a bot's settings and the
+/// New bot form offer it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelList {
+    /// Its key, e.g. `research`.
+    pub kind: String,
+    /// Its name, e.g. `Research and writing`.
+    pub label: String,
+    /// What it suits, e.g. `long reading, sources, your voice`.
+    pub about: String,
+    /// The models, in the order they're tried.
+    pub models: Vec<String>,
 }
 
 /// One row of today's `OpenRouter` use: a bot's, or a person's.
@@ -1768,6 +1797,10 @@ pub struct BotInfo {
     /// Its model as shown, if one is pinned (an `OpenRouter` model id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Its own models, tried in this order (empty: automatic, or the
+    /// pinned [`BotInfo::model`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
     /// Whether the client's person may give it tasks (not someone else's
     /// private bot). Decided by the server for each client.
     #[serde(default = "yes")]
@@ -1963,8 +1996,35 @@ mod tests {
                 bot: "a".into(),
                 engine: EngineKind::Codex,
                 model: None,
+                models: None,
             }
         );
+        // A bot's own list, in order; an empty one is automatic.
+        let msg: ClientMsg = serde_json::from_str(
+            r#"{"type":"set_engine","bot":"a","engine":"codex","models":["x/b:free","x/paid"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::SetEngine {
+                bot: "a".into(),
+                engine: EngineKind::Codex,
+                model: None,
+                models: Some(vec!["x/b:free".into(), "x/paid".into()]),
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_engine","bot":"a","engine":"codex","models":[]}"#)
+                .unwrap();
+        assert!(matches!(msg, ClientMsg::SetEngine { models: Some(m), .. } if m.is_empty()));
+        let plain = serde_json::to_string(&ClientMsg::SetEngine {
+            bot: "a".into(),
+            engine: EngineKind::Codex,
+            model: Some(String::new()),
+            models: None,
+        })
+        .unwrap();
+        assert!(!plain.contains("models"), "{plain}");
         assert!(
             serde_json::from_str::<ClientMsg>(
                 r#"{"type":"set_engine","bot":"a","engine":"claude"}"#
@@ -2001,6 +2061,8 @@ mod tests {
             owner: "Jay".into(),
             openrouter_ready: false,
             models: Vec::new(),
+            paid_models: Vec::new(),
+            model_lists: Vec::new(),
             openrouter: None,
         });
         let json = serde_json::to_string(&view).unwrap();
@@ -2120,8 +2182,14 @@ mod tests {
                 instructions: String::new(),
                 private: false,
                 engine: None,
+                models: Vec::new(),
             }
         );
+        let msg: ClientMsg = serde_json::from_str(
+            r#"{"type":"create_bot","name":"X","instructions":"","models":["x/a:free"]}"#,
+        )
+        .unwrap();
+        assert!(matches!(msg, ClientMsg::CreateBot { models, .. } if models == ["x/a:free"]));
     }
 
     #[test]

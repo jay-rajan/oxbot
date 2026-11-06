@@ -428,8 +428,12 @@ impl Hub {
     }
 }
 
-/// The model a bot's settings name.
+/// The model a bot's settings name: its own list when it has one, else the
+/// model pinned before bots had lists.
 fn model_of(bot: &Bot) -> ModelChoice {
+    if !bot.loop_settings.models.is_empty() {
+        return ModelChoice::List(bot.loop_settings.models.clone());
+    }
     match bot.loop_settings.model.as_deref() {
         None | Some("" | "auto") => ModelChoice::Auto,
         Some(id) => ModelChoice::Pin(id.to_owned()),

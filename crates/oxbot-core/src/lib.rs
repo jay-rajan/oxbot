@@ -13,6 +13,7 @@
 //! - [`prompt`]: the system prompt every bot gets
 //! - [`report`]: research reports: their checks and their safe HTML page
 //! - [`home`]: where all of that lives on disk
+//! - [`model_lists`]: suggested model lists by kind of job
 //! - `testing` (tests only): stand-in bots on Codex
 
 pub mod attach;
@@ -22,6 +23,7 @@ pub mod engine;
 pub mod home;
 pub mod hub;
 pub mod id;
+pub mod model_lists;
 pub mod policy;
 pub mod prompt;
 pub mod report;

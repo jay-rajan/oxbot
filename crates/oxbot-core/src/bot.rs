@@ -289,9 +289,15 @@ pub struct Bot {
 /// A bot's model settings. Every one is optional.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoopSettings {
-    /// `auto`, or a model id the owner pinned.
+    /// `auto`, or a model id the owner pinned (from before bots had their
+    /// own lists; [`LoopSettings::models`] wins when it has any).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The bot's own models, tried in this order (free and paid ids
+    /// mixed): its free ones first, then other free models, then its paid
+    /// ones if the owner allows paid models. Empty: automatic.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
     /// Its own cap on model requests a day; none: the household's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,
@@ -300,6 +306,15 @@ pub struct LoopSettings {
 impl LoopSettings {
     fn is_empty(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// Gives the bot its own ordered list (empty: automatic). A list
+    /// replaces a pinned model.
+    pub fn set_models(&mut self, models: Vec<String>) {
+        if !models.is_empty() {
+            self.model = None;
+        }
+        self.models = models;
     }
 }
 
@@ -935,6 +950,24 @@ mod tests {
         assert_eq!(again.engine, EngineKind::Codex);
         assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
         assert_eq!(again.loop_settings.daily_requests, Some(200));
+
+        // Its own list: kept in order, and it replaces the pinned model.
+        bot.loop_settings
+            .set_models(vec!["e2e/b:free".into(), "e2e/paid".into()]);
+        bot.save().unwrap();
+        let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(
+            text.contains("models = [\"e2e/b:free\", \"e2e/paid\"]") && !text.contains("model ="),
+            "{text}"
+        );
+        let again = Bot::load(&bot.dir).unwrap();
+        assert_eq!(again.loop_settings.models, ["e2e/b:free", "e2e/paid"]);
+        assert_eq!(again.loop_settings.model, None);
+        // Back to automatic: no list in the file.
+        bot.loop_settings.set_models(Vec::new());
+        bot.save().unwrap();
+        let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(!text.contains("models"), "{text}");
     }
 
     #[test]
@@ -1009,6 +1042,10 @@ mod tests {
             text.contains("model = \"e2e/a:free\""),
             "its model stays: {text}"
         );
+        // A file from before bots had lists: none, and its pin stays.
+        let old = Bot::load(&dir).unwrap();
+        assert_eq!(old.loop_settings.models, Vec::<String>::new());
+        assert_eq!(old.loop_settings.model.as_deref(), Some("e2e/a:free"));
     }
 
     #[test]

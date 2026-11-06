@@ -443,6 +443,7 @@ async fn bots_are_created_from_a_name() {
         name: "Daily News".into(),
         instructions: "Summarize the news.".into(),
         engine: None,
+        models: Vec::new(),
     };
     send(&mut ws, &create).await;
     let (id, list) = created(&mut ws).await;

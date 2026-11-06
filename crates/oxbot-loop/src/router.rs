@@ -1,9 +1,13 @@
 //! The model router: which model answers each step.
 //!
 //! Candidates come from the live model list (free models that take tools
-//! and have a big enough window), ranked by how they did lately, with a
-//! bot's pinned model first. Paid models come only after every free one,
-//! and only if the owner switched them on. Within a turn the router sticks
+//! and have a big enough window), ranked by how they did lately. A bot's
+//! own ordered list ([`ModelChoice::List`]) puts its free models first, in
+//! its order; a pinned model ([`ModelChoice::Pin`]) goes first instead.
+//! Paid models come only after every free one, and only if the owner
+//! switched them on: the bot's own paid models first, in its order, then
+//! the owner's. A listed model the live list no longer has (retired) or
+//! that can't run bots drops out silently. Within a turn the router sticks
 //! to the model that answered; a model that fails cools down for everyone.
 
 use std::collections::{HashMap, HashSet};
@@ -177,7 +181,11 @@ impl Router {
             .clone()
     }
 
-    /// Every model the router may use for `choice`, best first.
+    /// Every model the router may use for `choice`, best first: a pinned
+    /// model (or the Assistant's, for a Herder), else the bot's own free
+    /// models in its order; then every other free model, ranked; then, if
+    /// paid models are on, the bot's own paid models in its order and the
+    /// owner's. Each once.
     #[must_use]
     pub fn candidates(&self, choice: &ModelChoice, central: bool) -> Vec<Candidate> {
         let catalog = self.catalog.get();
@@ -189,9 +197,25 @@ impl Router {
                 .get(id)
                 .map_or_else(|| id.ends_with(":free"), |m| m.free),
         };
+        // A listed model, if the live list has it, it can run bots, and it's
+        // free (or paid) as wanted.
+        let listed = |id: &str, free: bool| {
+            catalog
+                .get(id)
+                .filter(|m| m.free == free && m.fits_loop())
+                .map(|m| Candidate {
+                    id: m.id.clone(),
+                    info: Some(m.clone()),
+                    free,
+                })
+        };
         if let ModelChoice::Only(id) = choice {
             return vec![named(id)];
         }
+        let own: &[String] = match choice {
+            ModelChoice::List(ids) if !central => ids,
+            _ => &[],
+        };
         let mut list = Vec::new();
         let pinned = match choice {
             ModelChoice::Pin(id) => Some(id.clone()),
@@ -201,6 +225,7 @@ impl Router {
         if let Some(id) = pinned.filter(|id| !id.is_empty() && id != "auto") {
             list.push(named(&id));
         }
+        list.extend(own.iter().filter_map(|id| listed(id, true)));
         let mut free: Vec<&ModelInfo> = catalog.free_for_loop().collect();
         let scores = self.scores(&free);
         free.sort_by(|a, b| {
@@ -214,15 +239,11 @@ impl Router {
             free: true,
         }));
         if prefs.paid_fallback {
-            for id in &prefs.paid_models {
-                if let Some(m) = catalog.get(id).filter(|m| !m.free && m.fits_loop()) {
-                    list.push(Candidate {
-                        id: m.id.clone(),
-                        info: Some(m.clone()),
-                        free: false,
-                    });
-                }
-            }
+            list.extend(
+                own.iter()
+                    .chain(&prefs.paid_models)
+                    .filter_map(|id| listed(id, false)),
+            );
         }
         let mut seen = HashSet::new();
         list.retain(|c| seen.insert(c.id.clone()));
@@ -435,6 +456,7 @@ mod tests {
                 model("c:free", 200_000, true),
                 model("small:free", 8_000, true),
                 model("paid", 200_000, false),
+                model("paid2", 200_000, false),
             ],
         };
         Router::new(
@@ -471,6 +493,64 @@ mod tests {
             ids(&r.candidates(&ModelChoice::Only("x/y".into()), false)),
             ["x/y"]
         );
+    }
+
+    #[test]
+    fn a_bots_own_list_goes_first_free_then_paid() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let own = ModelChoice::List(
+            [
+                "b:free",
+                "paid2",
+                "retired:free",
+                "a:free",
+                "small:free",
+                "paid",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        );
+        // Paid models off: its free ones in its order, then the other free
+        // ones; a retired id and one too small to run bots drop out.
+        let r = router(LoopPrefs::default(), Arc::clone(&store));
+        assert_eq!(
+            ids(&r.candidates(&own, false)),
+            ["b:free", "a:free", "c:free"]
+        );
+        // Paid models on: its own paid ones, in its order, then the owner's.
+        let r = router(
+            LoopPrefs {
+                paid_fallback: true,
+                paid_models: vec!["paid".into()],
+                ..LoopPrefs::default()
+            },
+            store,
+        );
+        assert_eq!(
+            ids(&r.candidates(&own, false)),
+            ["b:free", "a:free", "c:free", "paid2", "paid"]
+        );
+        // The Assistant's choice is the owner's, never a list.
+        assert_eq!(
+            ids(&r.candidates(&own, true)),
+            ["c:free", "a:free", "b:free", "paid"]
+        );
+        // No free models allowed: its paid ones, in its order.
+        let turn = TurnRouting {
+            choice: own.clone(),
+            ..TurnRouting::default()
+        };
+        let Pick::Route(route) = r.pick(&turn, false) else {
+            panic!()
+        };
+        assert_eq!(route.primary.id, "paid2");
+        assert_eq!(route.fallbacks, ["paid"]);
+        // Free allowed: the first of its list, its next free ones after.
+        let Pick::Route(route) = r.pick(&turn, true) else {
+            panic!()
+        };
+        assert_eq!(route.primary.id, "b:free");
+        assert_eq!(route.fallbacks, ["a:free", "c:free"]);
     }
 
     #[test]

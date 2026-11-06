@@ -208,18 +208,22 @@ impl Hub {
         self.engine(self.engine_of(&bot)).map(drop)
     }
 
-    /// Sets bot `id`'s AI model (`model`; empty: Auto) on `engine` (Codex)
-    /// for `viewer`. Its running session stops; the next message starts
-    /// one with the new model.
+    /// Sets bot `id`'s AI model (`model`; empty: Auto) or its own ordered
+    /// list (`models`; empty: automatic) on `engine` (Codex) for `viewer`.
+    /// A list replaces a pinned model; a model set alone (an older page)
+    /// replaces the list. Its running session stops; the next message
+    /// starts one with the new models.
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's a Herder, the engine isn't
-    /// set up, it's working, or its file can't be written.
+    /// Fails if `viewer` may not change it, it's a Herder, the list isn't
+    /// one oxbot can keep, the engine isn't set up, it's working, or its
+    /// file can't be written.
     pub async fn set_engine(
         &self,
         id: &str,
         engine: EngineKind,
         model: Option<String>,
+        models: Option<Vec<String>>,
         viewer: &Viewer,
     ) -> Result<(), HubError> {
         let viewer = &*self.resolve(viewer);
@@ -229,21 +233,68 @@ impl Hub {
                 "The Assistant's AI model is set by the owner.".to_owned(),
             ));
         }
+        let models = models
+            .map(super::engine_prefs::checked_models)
+            .transpose()?;
         self.engine(engine)?;
+        self.change_models(&bot.id, Some(engine), model, models)
+            .await
+    }
+
+    /// Gives bot `id` its own ordered list of models (empty: automatic),
+    /// for `viewer`, as the New bot form does right after making it. Unlike
+    /// [`Hub::set_engine`] it works before the home's AI account is
+    /// connected: the list waits in the bot's file.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's a Herder, the list isn't
+    /// one oxbot can keep, it's working, or its file can't be written.
+    pub async fn set_bot_models(
+        &self,
+        id: &str,
+        models: Vec<String>,
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed(
+                "The Assistant's AI model is set by the owner.".to_owned(),
+            ));
+        }
+        let models = super::engine_prefs::checked_models(models)?;
+        self.change_models(&bot.id, None, None, Some(models)).await
+    }
+
+    /// Writes a bot's engine, pinned model and list, stopping its session.
+    async fn change_models(
+        &self,
+        id: &BotId,
+        engine: Option<EngineKind>,
+        model: Option<String>,
+        models: Option<Vec<String>>,
+    ) -> Result<(), HubError> {
         let model = model.map(|m| m.trim().to_owned());
         // No turn may start while it changes model.
-        self.claim(&bot.id).await?;
-        let changed = self.update_bot(&bot.id, |b| {
-            b.engine = engine;
-            if let Some(model) = model {
-                b.loop_settings.model = (!model.is_empty()).then_some(model);
+        self.claim(id).await?;
+        let changed = self.update_bot(id, |b| {
+            if let Some(engine) = engine {
+                b.engine = engine;
+            }
+            match (model, models) {
+                (_, Some(models)) => b.loop_settings.set_models(models),
+                (Some(model), None) => {
+                    b.loop_settings.models.clear();
+                    b.loop_settings.model = (!model.is_empty()).then_some(model);
+                }
+                (None, None) => {}
             }
         });
         if changed.is_ok() {
-            tracing::info!(bot = %bot.id, %engine, "changed engine");
-            self.stop_session(&bot.id).await;
+            tracing::info!(bot = %id, "changed its AI models");
+            self.stop_session(id).await;
         }
-        lock(&self.starting).remove(&bot.id);
+        lock(&self.starting).remove(id);
         changed?;
         self.announce_bots().await;
         Ok(())
@@ -414,6 +465,7 @@ mod tests {
                 "assistant",
                 EngineKind::Codex,
                 Some("m:free".into()),
+                None,
                 &hub.farm_viewer("Jay")
             )
             .await,

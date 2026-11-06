@@ -288,6 +288,7 @@ impl Hub {
             .as_ref()
             .map(|t| t.5.clone())
             .filter(|m| !m.is_empty())
+            .or_else(|| bot.loop_settings.models.first().cloned())
             .or_else(|| bot.loop_settings.model.clone())
             .unwrap_or_else(|| "auto".to_owned());
         (engine.as_str().to_owned(), model, totals.map(used_of))
