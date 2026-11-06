@@ -56,8 +56,18 @@ fn order_is_fixed_and_side_effects_known() {
             "mcp__oxbot__ask_page",
             "mcp__oxbot__extract_rows",
             "mcp__oxbot__query_rows",
+            "mcp__oxbot__read_pages",
+            "mcp__oxbot__page_steps",
         ]
     );
+    // The tools that drive the browser themselves: page_steps changes
+    // things, read_pages only reads.
+    assert_eq!(
+        r.get("mcp__oxbot__read_pages").unwrap().kind,
+        ToolKind::Drive
+    );
+    assert!(!r.get("mcp__oxbot__read_pages").unwrap().side_effect);
+    assert!(r.get("mcp__oxbot__page_steps").unwrap().side_effect);
     assert!(r.get("mcp__oxbot__give_task").unwrap().side_effect);
     assert!(r.get("mcp__chrome-devtools__click").unwrap().side_effect);
     assert!(

@@ -319,6 +319,16 @@ impl ToolService {
                 ));
             }
             Gated::Simulated(text) => return Ok(Dispatched::Ran(ToolOutcome::note(text, false))),
+            // Only a quiet check hears this; a call the model made never is.
+            Gated::WouldAsk(what) => {
+                return Ok(Dispatched::Refused(
+                    ToolOutcome::note(
+                        format!("[oxbot said no] This needs the person's OK: {what}"),
+                        true,
+                    )
+                    .kind(EntryKind::Refusal),
+                ));
+            }
             Gated::Run(permit) => permit,
         };
         if kind == ToolKind::Control && call.name == ASK_USER {
@@ -363,7 +373,38 @@ impl ToolService {
             step: ctx.step,
             visible: &is_visible,
         };
+        if kind == ToolKind::Drive {
+            debug_assert_eq!(permit.tool_use_id(), call.id);
+            let outcome = if call.name == crate::tools::read_pages::READ_PAGES {
+                crate::tools::drive::read_pages(call, &self.gate, &env).await
+            } else {
+                crate::tools::drive::page_steps(call, &self.gate, &env).await
+            };
+            return Ok(Dispatched::Ran(outcome));
+        }
         Ok(Dispatched::Ran(self.tools.run(call, permit, &env).await))
+    }
+
+    /// Asks the gate whether a program the engine wants to run in the bot's
+    /// folder (its own sandboxed shell: no network, writes only there) may
+    /// run: the person's approval request, or the bot's Always rule.
+    /// `id` names the request. `false` for no, or if `cancel` fired.
+    pub async fn program_permission(
+        &self,
+        id: &str,
+        program: &str,
+        cancel: &CancellationToken,
+    ) -> bool {
+        let input = serde_json::json!({
+            "command": program,
+            "cwd": self.work_dir.display().to_string(),
+        });
+        matches!(
+            self.gate
+                .check(crate::tools::RUN_PROGRAM, &input, id, cancel)
+                .await,
+            Some(Gated::Run(_))
+        )
     }
 
     /// A caller for helper requests within the turn (`ask_page`): the

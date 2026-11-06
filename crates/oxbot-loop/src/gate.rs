@@ -32,6 +32,9 @@ pub enum Gated {
     Denied(String),
     /// A practice run: don't run it; this is its result.
     Simulated(String),
+    /// Asked quietly: it needs the person's OK, so it didn't run; what it
+    /// would ask.
+    WouldAsk(String),
 }
 
 /// Asks the hub about each tool call.
@@ -56,11 +59,36 @@ impl GateCheck {
         tool_use_id: &str,
         cancel: &CancellationToken,
     ) -> Option<Gated> {
+        self.ask(tool, input, tool_use_id, false, cancel).await
+    }
+
+    /// Like [`GateCheck::check`], but never asks the person: a call that
+    /// would need their OK comes back [`Gated::WouldAsk`] (one step of a
+    /// batch, which stops there).
+    pub async fn check_quiet(
+        &self,
+        tool: &str,
+        input: &Value,
+        tool_use_id: &str,
+        cancel: &CancellationToken,
+    ) -> Option<Gated> {
+        self.ask(tool, input, tool_use_id, true, cancel).await
+    }
+
+    async fn ask(
+        &self,
+        tool: &str,
+        input: &Value,
+        tool_use_id: &str,
+        quiet: bool,
+        cancel: &CancellationToken,
+    ) -> Option<Gated> {
         let (reply, wait) = Reply::<Decision>::channel();
         let request = PermissionRequest {
             tool: tool.to_owned(),
             input: input.clone(),
             tool_use_id: tool_use_id.to_owned(),
+            quiet,
             reply,
         };
         // A closed channel drops the request, and with it the reply: a no.
@@ -75,6 +103,11 @@ impl GateCheck {
             }),
             Decision::Deny(why) => Gated::Denied(why),
             Decision::Simulate(text) => Gated::Simulated(text),
+            // Only a quiet check may be told this; anything else is a no.
+            Decision::WouldAsk(what) if quiet => Gated::WouldAsk(what),
+            Decision::WouldAsk(what) => {
+                Gated::Denied(format!("This needs the person's OK: {what}"))
+            }
         })
     }
 }
@@ -113,6 +146,31 @@ mod tests {
         assert!(matches!(
             gate.check("x", &input, "c3", &cancel).await,
             Some(Gated::Denied(why)) if why == "oxbot couldn't check this"
+        ));
+        drop(gate);
+        hub.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_quiet_check_never_asks_and_hears_what_would_be_asked() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let gate = GateCheck::new(tx);
+        let cancel = CancellationToken::new();
+        let hub = tokio::spawn(async move {
+            while let Some(EngineEvent::Permission(req)) = rx.recv().await {
+                let what = format!("quiet={}", req.quiet);
+                req.reply.send(Decision::WouldAsk(what));
+            }
+        });
+        let input = json!({"uid": "1_2"});
+        assert!(matches!(
+            gate.check_quiet("x", &input, "c1", &cancel).await,
+            Some(Gated::WouldAsk(what)) if what == "quiet=true"
+        ));
+        // A loud check told "would ask" is a no.
+        assert!(matches!(
+            gate.check("x", &input, "c2", &cancel).await,
+            Some(Gated::Denied(why)) if why.contains("quiet=false")
         ));
         drop(gate);
         hub.await.unwrap();
