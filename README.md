@@ -143,9 +143,12 @@ so turning alerts back on brings no late one. `oxbot serve` posts through `osasc
 Script Editor); an app showing an `oxbot serve` that was already running leaves notifications to
 it. macOS asks for permission the first time.
 
-Brand (`docs/brand/`): the "O"xbot wordmark (a round O with red horns, then xbot in bold) and
-the same O with horns on a black tile as the app icon. Minimal UI: white backgrounds, white
-buttons with red text. Each bot gets a little ox avatar.
+Brand (`docs/brand/ttt/`, made by `docs/brand/ttt/gen.py`): tic-tac-toe. The wordmark is an O ring
+and a red X, then "bot"; the app icon is the O and the X on a black tile. Each bot is an O or an X
+piece with a face, in its own colour; the Assistant is the board. A working O rocks and a working
+X ticks; the Working… line and the welcome screen show marks taking turns (still with reduced
+motion). Minimal UI: white backgrounds, white buttons with red text. The older ox-head artwork
+stays in `docs/brand/svg/` for history.
 
 New bot from the terminal: `cargo run -p oxbot -- bots new "Daily News" --instructions "..."`.
 
