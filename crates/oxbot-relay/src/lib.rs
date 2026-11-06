@@ -22,6 +22,7 @@
 // Product names (OpenRouter, Codex) read better in docs without backticks.
 #![allow(clippy::doc_markdown)]
 
+pub mod personal;
 pub mod shape;
 pub mod tap;
 
