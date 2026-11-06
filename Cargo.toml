@@ -109,6 +109,15 @@ dbg_macro = "warn"
 print_stdout = "warn"
 todo = "warn"
 
+# Debug builds: file and line for our own code (enough for backtraces), no
+# debug info for dependencies. This keeps target/ a fraction of the default
+# size; use a debugger build with `CARGO_PROFILE_DEV_DEBUG=true` when needed.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 strip = true
