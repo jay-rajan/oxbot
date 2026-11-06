@@ -155,7 +155,6 @@ impl Supervisor {
         }
         let (relay, token) = self.relay.register(info.clone())?;
         config::write(&key.home, &config::config_toml(&self.relay.base_url()))
-            .and_then(|()| config::write_rules(&key.home))
             .map_err(|e| format!("couldn't write the AI helper's settings: {e}"))?;
         let launch = Launch {
             program: self.binary.path.clone(),

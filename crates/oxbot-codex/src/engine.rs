@@ -21,16 +21,9 @@
 //!
 //! A final answer after two or more tool calls is sent back once to be
 //! checked, as the loop does (a follow-up turn with oxbot's note), and the
-//! check is recorded.
-//!
-//! Small scripts: Codex's shell runs programs in its sandbox (the bot's
-//! folder only, no network). Before each one Codex asks
-//! (`item/commandExecution/requestApproval`), and oxbot asks its gate: the
-//! person's approval request, or the bot's Always rule. A second request
-//! for the same program (Codex offering to run it outside its sandbox),
-//! and any request about the network, is declined without asking. Anything
-//! else Codex asks to approve (file changes, more permissions,
-//! elicitations) is declined and logged.
+//! check is recorded. Anything Codex itself asks to approve (commands,
+//! file changes, permissions, elicitations) is declined and logged: its
+//! shell is off, so none should come.
 
 use std::collections::{BTreeSet, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -444,8 +437,6 @@ struct Turn {
     ungrounded_before: Option<Vec<String>>,
     bounced_at: Option<Instant>,
     writing: bool,
-    /// Programs already asked about this turn (by Codex's item id).
-    programs: HashSet<String>,
 }
 
 impl Turn {
@@ -512,7 +503,6 @@ impl Turn {
             ungrounded_before: None,
             bounced_at: None,
             writing: false,
-            programs: HashSet::new(),
         };
         let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
         let end = match turn.start_codex(&running, &first).await {
@@ -894,30 +884,6 @@ impl Turn {
                     let _ = done.send(result);
                 });
             }
-            "item/commandExecution/requestApproval" => {
-                let program = program_text(&params);
-                let item = params["itemId"].as_str().unwrap_or_default().to_owned();
-                if let Some(why) = never_asked(&params, &self.programs) {
-                    tracing::warn!(bot = %core.spec.bot, why, "a program request oxbot never asks about; declined");
-                    process.respond(&id, json!({"decision": "decline"})).await;
-                    return;
-                }
-                self.programs.insert(item.clone());
-                self.in_calls += 1;
-                let core = Arc::clone(core);
-                let process = Arc::clone(process);
-                let cancel = self.cancel.child_token();
-                let done = done.clone();
-                tokio::spawn(async move {
-                    let yes = core
-                        .tools
-                        .program_permission(&format!("program-{item}"), &program, &cancel)
-                        .await;
-                    let decision = if yes { "accept" } else { "decline" };
-                    process.respond(&id, json!({"decision": decision})).await;
-                    let _ = done.send(CallDone::Ran);
-                });
-            }
             "currentTime/read" => {
                 let secs = oxbot_loop::meter::now_ms() / 1000;
                 process.respond(&id, json!({"currentTimeAt": secs})).await;
@@ -938,54 +904,14 @@ where
     format!("[oxbot] Today is {}.", now.format("%A, %B %-d, %Y"))
 }
 
-/// The program a command request is about, as the card shows it.
-fn program_text(params: &Value) -> String {
-    match &params["command"] {
-        Value::String(c) => c.clone(),
-        Value::Array(parts) => parts
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    }
-}
-
-/// Why a command request is declined without asking anyone: a second
-/// request for a program already asked about this turn (Codex offering to
-/// run it outside its sandbox), one about the network, one naming another
-/// folder, or one with no program at all. `None`: ask.
-fn never_asked(params: &Value, asked: &HashSet<String>) -> Option<&'static str> {
-    let item = params["itemId"].as_str().unwrap_or_default();
-    if item.is_empty() || asked.contains(item) {
-        return Some("asked again for the same program: never outside the sandbox");
-    }
-    if !params["networkApprovalContext"].is_null()
-        || params["proposedNetworkPolicyAmendments"]
-            .as_array()
-            .is_some_and(|a| !a.is_empty())
-    {
-        return Some("the network");
-    }
-    let reason = params["reason"].as_str().unwrap_or_default().to_lowercase();
-    if ["sandbox", "escalat", "network", "permission"]
-        .iter()
-        .any(|w| reason.contains(w))
-    {
-        return Some("more than the sandbox allows");
-    }
-    if program_text(params).trim().is_empty() {
-        return Some("no program");
-    }
-    None
-}
-
-/// Declines what Codex asks to approve besides programs: oxbot never lets
-/// it change files itself, widen its permissions or answer for the
+/// Declines what Codex asks to approve: oxbot never lets it run commands,
+/// change files or widen its permissions, and never answers for the
 /// person.
 async fn decline(core: &Core, process: &crate::rpc::Process, id: &Value, method: &str) {
     let answer = match method {
-        "item/fileChange/requestApproval" => Some(json!({"decision": "decline"})),
+        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
+            Some(json!({"decision": "decline"}))
+        }
         "item/permissions/requestApproval" => Some(json!({"permissions": {}, "scope": "turn"})),
         "mcpServer/elicitation/request" => {
             Some(json!({"action": "decline", "content": null, "_meta": null}))
@@ -1272,8 +1198,8 @@ async fn load_thread(
                 json!({
                     "threadId": saved.thread_id,
                     "cwd": core.spec.work_dir,
-                    "approvalPolicy": "untrusted",
-                    "sandbox": "workspace-write",
+                    "approvalPolicy": "never",
+                    "sandbox": "read-only",
                     "config": config,
                     "excludeTurns": true,
                 }),
@@ -1335,8 +1261,8 @@ async fn start_thread(
                 json!({
                     "model": model,
                     "cwd": core.spec.work_dir,
-                    "approvalPolicy": "untrusted",
-                    "sandbox": "workspace-write",
+                    "approvalPolicy": "never",
+                    "sandbox": "read-only",
                     "baseInstructions": core.spec.system_prompt,
                     "dynamicTools": tools,
                     "config": config,
@@ -1389,25 +1315,6 @@ mod tests {
             date_line(&now),
             "[oxbot] Today is Wednesday, November 4, 2026."
         );
-    }
-
-    #[test]
-    fn a_program_is_asked_about_once_and_never_outside_the_sandbox() {
-        let mut asked = HashSet::new();
-        let first = json!({"itemId": "call_1", "command": "python3 totals.py", "threadId": "t", "turnId": "u", "startedAtMs": 1});
-        assert_eq!(never_asked(&first, &asked), None);
-        assert_eq!(program_text(&first), "python3 totals.py");
-        asked.insert("call_1".to_owned());
-        assert!(
-            never_asked(&first, &asked).is_some(),
-            "the same program again: an escalation"
-        );
-        let net = json!({"itemId": "call_2", "command": "curl x", "networkApprovalContext": {"host": "x"}});
-        assert_eq!(never_asked(&net, &asked), Some("the network"));
-        let retry = json!({"itemId": "call_3", "command": "ls", "reason": "command failed; retry without sandbox?"});
-        assert!(never_asked(&retry, &asked).is_some());
-        assert!(never_asked(&json!({"itemId": "call_4"}), &asked).is_some());
-        assert_eq!(program_text(&json!({"command": ["ls", "-la"]})), "ls -la");
     }
 
     #[test]

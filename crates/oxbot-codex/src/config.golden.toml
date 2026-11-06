@@ -3,8 +3,8 @@
 model_provider = "oxbot"
 check_for_update_on_startup = false
 web_search = "disabled"
-approval_policy = "untrusted"
-sandbox_mode = "workspace-write"
+approval_policy = "never"
+sandbox_mode = "read-only"
 project_doc_max_bytes = 0
 include_environment_context = false
 include_permissions_instructions = false
@@ -43,13 +43,6 @@ enabled = false
 
 [sandbox_workspace_write]
 network_access = false
-writable_roots = []
-exclude_tmpdir_env_var = true
-exclude_slash_tmp = true
-
-[shell_environment_policy]
-inherit = "core"
-exclude = ["OXBOT_*", "*PROXY*", "*proxy*"]
 
 [features]
 plugins = false
@@ -57,7 +50,7 @@ apps = false
 memories = false
 multi_agent = false
 image_generation = false
-shell_tool = true
+shell_tool = false
 view_image = false
 goals = false
 shell_snapshot = false

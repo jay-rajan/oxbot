@@ -303,10 +303,12 @@ async fn a_codex_bot_browses_through_the_gate_and_only_the_relay_is_contacted() 
         tools.contains(&"click") && tools.contains(&"find_in_page"),
         "{tools:?}"
     );
-    // Page scripts never; Codex's own shell (sandboxed, every program
-    // asks first) for small scripts.
-    assert!(!tools.iter().any(|t| t.contains("evaluate")), "{tools:?}");
-    assert!(tools.contains(&"exec_command"), "{tools:?}");
+    assert!(
+        !tools
+            .iter()
+            .any(|t| t.contains("evaluate") || t.contains("exec") || t.contains("shell")),
+        "{tools:?}"
+    );
     for body in &bodies {
         let text = body.to_string();
         assert_eq!(
