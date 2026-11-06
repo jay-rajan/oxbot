@@ -10,8 +10,14 @@
 //! permissions, project docs): a household bot, not a coding agent in a
 //! repo. Its only model provider is oxbot's relay on 127.0.0.1, with the
 //! process's token in its environment (`OXBOT_RELAY_TOKEN`), never here.
-//! Commands would need approval and there is no shell anyway, so Codex
-//! never asks for one; the sandbox is read-only with no network.
+//!
+//! Small scripts (issue #24): Codex's shell is on, in its sandbox. A
+//! program may write only in the bot's own folder (the thread's `cwd`; not
+//! even the temporary folders), and never use the network. Every program
+//! asks first (`untrusted`, and [`RULES`] makes Codex ask even for the
+//! commands it would run on its own, such as `cat` and `ls`); oxbot turns
+//! each request into an approval request for the person. Programs get
+//! only the basic environment (no relay token, no proxies).
 
 use std::io::Write as _;
 use std::path::Path;
@@ -29,8 +35,8 @@ pub fn config_toml(relay_base: &str) -> String {
 model_provider = "oxbot"
 check_for_update_on_startup = false
 web_search = "disabled"
-approval_policy = "never"
-sandbox_mode = "read-only"
+approval_policy = "untrusted"
+sandbox_mode = "workspace-write"
 project_doc_max_bytes = 0
 include_environment_context = false
 include_permissions_instructions = false
@@ -69,6 +75,13 @@ enabled = false
 
 [sandbox_workspace_write]
 network_access = false
+writable_roots = []
+exclude_tmpdir_env_var = true
+exclude_slash_tmp = true
+
+[shell_environment_policy]
+inherit = "core"
+exclude = ["OXBOT_*", "*PROXY*", "*proxy*"]
 
 [features]
 plugins = false
@@ -76,7 +89,7 @@ apps = false
 memories = false
 multi_agent = false
 image_generation = false
-shell_tool = false
+shell_tool = true
 view_image = false
 goals = false
 shell_snapshot = false
@@ -84,6 +97,63 @@ hooks = false
 tool_suggest = false
 "#
     )
+}
+
+/// Commands Codex would run without asking (its "known safe" list):
+/// oxbot wants the person asked before every program, so these ask too.
+const ALWAYS_ASK: [&str; 52] = [
+    "awk", "base64", "basename", "cat", "cd", "cmp", "column", "comm", "cut", "date", "df", "diff",
+    "dirname", "du", "echo", "env", "expr", "false", "file", "find", "fmt", "fold", "git", "grep",
+    "head", "hexdump", "id", "join", "less", "ls", "more", "nl", "numfmt", "od", "paste", "printf",
+    "pwd", "readlink", "realpath", "rev", "rg", "sed", "seq", "sort", "stat", "tac", "tail", "tr",
+    "true", "uniq", "wc", "which",
+];
+
+/// The rules file (Codex's execpolicy, in `CODEX_HOME/rules/`): every
+/// command on [`ALWAYS_ASK`] asks. Anything else asks anyway
+/// (`approval_policy = "untrusted"`).
+#[must_use]
+pub fn rules() -> String {
+    let names = ALWAYS_ASK
+        .iter()
+        .map(|c| format!("\"{c}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "# Written by oxbot each time it starts this Codex process; changes are\n\
+         # overwritten. Every program asks the person first.\n\
+         prefix_rule(\n    pattern = [[{names}]],\n    decision = \"prompt\",\n)\n"
+    )
+}
+
+/// The rules file's name in `CODEX_HOME`.
+pub const RULES: &str = "rules/oxbot.rules";
+
+/// Writes [`rules`] into `home` (owner-only), replacing any other rules
+/// file there (Codex keeps "always" answers in `default.rules`; oxbot
+/// never gives one, and one left over is removed).
+///
+/// # Errors
+/// The folder or file couldn't be written.
+pub fn write_rules(home: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+    let dir = home.join("rules");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)?;
+    for entry in std::fs::read_dir(&dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "rules") {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(home.join(RULES))?;
+    f.write_all(rules().as_bytes())
 }
 
 /// Writes `text` as `home/config.toml`, readable only by this Mac's user,
@@ -136,11 +206,35 @@ mod tests {
             "apps",
             "memories",
             "multi_agent",
-            "shell_tool",
             "image_generation",
         ] {
             assert_eq!(parsed.get(&format!("features.{f}")), Some("false"), "{f}");
         }
+        // Small scripts: the shell, sandboxed to the bot's folder, with no
+        // network, and every program asks.
+        assert_eq!(parsed.get("features.shell_tool"), Some("true"));
+        assert_eq!(parsed.get("approval_policy"), Some("\"untrusted\""));
+        assert_eq!(parsed.get("sandbox_mode"), Some("\"workspace-write\""));
+        assert_eq!(
+            parsed.get("sandbox_workspace_write.network_access"),
+            Some("false")
+        );
+        assert_eq!(
+            parsed.get("sandbox_workspace_write.writable_roots"),
+            Some("[]")
+        );
+        assert_eq!(
+            parsed.get("sandbox_workspace_write.exclude_tmpdir_env_var"),
+            Some("true")
+        );
+        assert_eq!(
+            parsed.get("sandbox_workspace_write.exclude_slash_tmp"),
+            Some("true")
+        );
+        assert_eq!(
+            parsed.get("shell_environment_policy.inherit"),
+            Some("\"core\"")
+        );
         assert_eq!(
             parsed.get("model_providers.oxbot.base_url"),
             Some("\"http://127.0.0.1:1/v1\"")
@@ -169,6 +263,41 @@ mod tests {
             0o700
         );
         assert!(!home.join("config.toml.part").exists());
+    }
+
+    #[test]
+    fn every_command_codex_calls_safe_asks_first() {
+        let text = rules();
+        assert!(text.contains("decision = \"prompt\""));
+        for c in ["cat", "ls", "grep", "sed", "find", "git", "rg", "head"] {
+            assert!(text.contains(&format!("\"{c}\"")), "{c}");
+        }
+        // Nothing is ever allowed outright or given a reason (a reason is
+        // how an escalation is told apart).
+        assert!(!text.contains("\"allow\""));
+        assert!(!text.contains("justification"));
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("rules")).unwrap();
+        std::fs::write(
+            tmp.path().join("rules/default.rules"),
+            "prefix_rule(pattern=[\"rm\"], decision=\"allow\")",
+        )
+        .unwrap();
+        write_rules(tmp.path()).unwrap();
+        write_rules(tmp.path()).unwrap();
+        let left: Vec<_> = std::fs::read_dir(tmp.path().join("rules"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            left,
+            ["oxbot.rules"],
+            "an Always answer left in Codex's own file is gone"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join(RULES)).unwrap(),
+            text
+        );
     }
 
     /// Just enough TOML reading for the checks above: `table.key = value`.
