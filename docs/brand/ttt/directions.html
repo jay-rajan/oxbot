@@ -1,0 +1,121 @@
+<title>oxbot Tic-Tac-Toe Brand</title>
+<style>
+:root{--bg:#0a0a0b;--panel:#141416;--line:#2a2a2e;--fg:#f2f0eb;--muted:#9a9aa2;--x:#ff3b30;--o:#f2f0eb;--grid:#5a5a62;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 "Inter",-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding-inline:16px;padding-block:40px 80px;display:flex;flex-direction:column;gap:44px}
+h1{font:600 34px/1.15 "Space Grotesk","Inter",sans-serif;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font:600 22px/1.2 "Space Grotesk","Inter",sans-serif;margin:0;text-wrap:balance}
+p{max-width:68ch;margin:0} .muted{color:var(--muted)}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.dir{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:18px}
+.dir header{display:flex;flex-direction:column;gap:6px}
+.tag{font:600 13px "Space Grotesk",sans-serif;color:var(--x);letter-spacing:.06em}
+.row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:26px}
+.size{display:flex;flex-direction:column;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.tile{background:#000;border:1px solid var(--line);display:grid;place-items:center}
+.t180{width:180px;height:180px;border-radius:40px} .t96{width:96px;height:96px;border-radius:22px} .t60{width:60px;height:60px;border-radius:14px}
+.t32{width:32px;height:32px;border-radius:7px} .t16{width:16px;height:16px;border-radius:3px}
+.tile svg{width:78%;height:78%}
+.word{display:flex;align-items:center;gap:0;font:600 64px/1 "Space Grotesk",sans-serif;letter-spacing:-.02em}
+.word svg{height:.78em;width:.78em;margin-inline:.03em}
+.word.sm{font-size:28px}
+.phone{width:260px;max-width:100%;background:#000;border:1px solid var(--line);border-radius:28px;padding:18px 14px;display:flex;flex-direction:column;gap:12px}
+.bar{display:flex;align-items:center;gap:8px;font:600 15px "Space Grotesk",sans-serif}
+.bar svg{width:22px;height:22px}
+.bubble{background:var(--panel);border-radius:12px;padding:10px 12px;font-size:13px}
+.bubble.card{border:1px solid var(--line)}
+.bubble b{display:block;margin-bottom:4px}
+.btns{display:flex;gap:6px;margin-top:8px}
+.btn{font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--line)}
+.btn.p{background:var(--x);border-color:var(--x);color:#000;font-weight:600}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.pal{display:flex;flex-wrap:wrap;gap:12px}
+.sw{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.sw i{display:block;width:84px;height:48px;border-radius:8px;border:1px solid var(--line)}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.note{border-left:3px solid var(--x);padding:8px 14px;background:var(--panel);border-radius:4px}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono&display=swap">
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:10px">
+    <div class="eyebrow">oxbot · brand directions · Nov 5, 2026</div>
+    <h1>O and X: three ways to draw oxbot</h1>
+    <p class="muted">Black ground, O in warm white, X in signal red. Each direction shown as the app icon (180), phone (60), browser tab (32 and 16), and in the app. Pick one, or mix (e.g. A's icon with C's wordmark).</p>
+  </header>
+
+  <section class="dir" id="A">
+    <header><span class="tag">A · THE BOARD</span><h2>A grid with one O and one X</h2>
+      <p class="muted">The game, instantly. The two marks sit on the diagonal, so it reads as "a move in progress": the family and the bot taking turns.</p></header>
+    <div class="row" data-mark="board"></div>
+  </section>
+
+  <section class="dir" id="B">
+    <header><span class="tag">B · THE PAIR</span><h2>Just O and X, side by side</h2>
+      <p class="muted">Boldest at small sizes and closest to the name. One short grid line between them keeps the game hint without the full board.</p></header>
+    <div class="row" data-mark="pair"></div>
+  </section>
+
+  <section class="dir" id="C">
+    <header><span class="tag">C · THE WORDMARK</span><h2>The O and X are the letters</h2>
+      <p class="muted">"oxbot" with the o drawn as an O ring and the x as a red X mark. Works for the website, the welcome screen and the title bar; the icon uses the pair.</p></header>
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div class="word" data-word></div>
+      <div class="word sm" data-word></div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <div class="eyebrow">In the app</div>
+    <h2>How it would feel on a phone</h2>
+    <div class="grid2">
+      <div class="phone">
+        <div class="bar" data-icon="board">oxbot</div>
+        <div class="bubble">Add eggs and bananas to the grocery list</div>
+        <div class="bubble card"><b>Your move, Ann</b>Order groceries from Walmart: 9 items, $38.20.
+          <div class="btns"><span class="btn p">Approve</span><span class="btn">Don't</span></div></div>
+        <div class="muted" style="font-size:12px">An approval request, with one light game touch.</div>
+      </div>
+      <div class="phone">
+        <div class="bar" data-icon="pair">oxbot</div>
+        <div class="bubble card" style="display:flex;gap:10px;align-items:center"><span data-icon="win" style="width:36px;height:36px;flex:none"></span><span><b style="margin:0">Done</b>Meal plan for this week is ready.</span></div>
+        <div class="bubble">Who's picking up Divit on Thursday?</div>
+        <div class="muted" style="font-size:12px">"Three in a row" as the done mark.</div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:14px">
+    <div class="eyebrow">Colours</div>
+    <div class="pal">
+      <div class="sw"><i style="background:#0a0a0b"></i>Ground <span class="mono">#0A0A0B</span></div>
+      <div class="sw"><i style="background:#f2f0eb"></i>O · text <span class="mono">#F2F0EB</span></div>
+      <div class="sw"><i style="background:#ff3b30"></i>X · action <span class="mono">#FF3B30</span></div>
+      <div class="sw"><i style="background:#5a5a62"></i>Grid <span class="mono">#5A5A62</span></div>
+    </div>
+    <p class="note">Rules: the game lives in the logo, the done mark and at most one phrase ("Your move"). App words stay plain: home computer, device, Assistant, bot, approval request. No "Tic Tac" in any name (a candy trademark).</p>
+  </section>
+</div>
+<script>
+const X = "#ff3b30", O = "#f2f0eb", G = "#5a5a62";
+const o = (cx, cy, r, w) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${O}" stroke-width="${w}"/>`;
+const x = (cx, cy, r, w) => `<path d="M${cx-r} ${cy-r}L${cx+r} ${cy+r}M${cx+r} ${cy-r}L${cx-r} ${cy+r}" stroke="${X}" stroke-width="${w}" stroke-linecap="round" fill="none"/>`;
+const ln = (x1, y1, x2, y2, w, c = G) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${w}" stroke-linecap="round"/>`;
+const svg = (body, label) => `<svg viewBox="0 0 100 100" role="img" aria-label="${label}">${body}</svg>`;
+const MARKS = {
+  board: (small) => svg(
+    (small ? "" : ln(36,6,36,94,3)+ln(64,6,64,94,3)+ln(6,36,94,36,3)+ln(6,64,94,64,3)) +
+    (small ? o(30,30,17,9)+x(70,70,15,10) : o(21,21,9,5)+x(50,50,8,5.5)), "oxbot board mark: O and X on a grid"),
+  pair: (small) => svg(
+    (small ? "" : ln(50,22,50,78,3)) + o(27,50,small?17:15,small?9:7) + x(74,50,small?15:13,small?10:8), "oxbot pair mark: O and X"),
+  win: () => svg(ln(36,6,36,94,3)+ln(64,6,64,94,3)+ln(6,36,94,36,3)+ln(6,64,94,64,3)+o(21,21,9,5)+o(50,50,9,5)+o(79,79,9,5)+ln(12,12,88,88,6,X), "done: three in a row"),
+};
+const SIZES = [["t180","App icon 180"],["t96","96"],["t60","Phone 60"],["t32","Tab 32"],["t16","16"]];
+for (const row of document.querySelectorAll("[data-mark]")) {
+  const m = MARKS[row.dataset.mark];
+  row.innerHTML = SIZES.map(([c, label]) => `<div class="size"><div class="tile ${c}">${m(c === "t32" || c === "t16")}</div>${label}</div>`).join("");
+}
+for (const el of document.querySelectorAll("[data-icon]")) el.insertAdjacentHTML("afterbegin", MARKS[el.dataset.icon](el.dataset.icon !== "win"));
+const ring = `<svg viewBox="0 0 100 100" aria-hidden="true">${o(50,56,30,13)}</svg>`;
+const cross = `<svg viewBox="0 0 100 100" aria-hidden="true">${x(50,56,27,14)}</svg>`;
+for (const w of document.querySelectorAll("[data-word]")) { w.setAttribute("aria-label","oxbot"); w.innerHTML = ring + cross + "<span>bot</span>"; }
+</script>
