@@ -1,5 +1,5 @@
 name = "Settings → AI models and a new bot"
-about = "The owner reads where bots' AI calls go in Settings → AI models, sees the AI helper is ready, then makes a bot: it uses free models (the header says so), and its settings offer the AI model and its daily questions. Neither Codex nor the relay is named anywhere."
+about = "The owner reads where bots' AI calls go in Settings → AI models, sees the AI helper is ready, then makes a bot: it uses free models (the header says so), and its settings offer its AI models and its daily questions. Neither Codex nor the relay is named anywhere."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/setup.rs", "crates/oxbot-core/src/hub/engine_prefs.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-protocol/**"]
 needs = ["codex"]
 
@@ -36,8 +36,8 @@ expect_js = "document.getElementById('engineBadge').textContent === 'Free models
 [[step]]
 click = "Bot settings"
 [[step]]
-expect_js = "document.getElementById('bdModel').options[0].text === 'Free models (best first)' && document.getElementById('bdModel').value === ''"
-note = "The bot's AI model: free models, best first"
+expect_js = "document.getElementById('bdKind').options[0].text === 'Automatic: free models, best first' && document.getElementById('bdKind').value === '' && document.querySelectorAll('#bdModelList .model-item').length === 0"
+note = "The bot's AI models: automatic, free models best first"
 [[step]]
 expect = "Questions a day"
 shot = "bot-ai-model"

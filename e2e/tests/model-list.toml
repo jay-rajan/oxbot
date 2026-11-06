@@ -1,0 +1,53 @@
+name = "A bot's own models, in order"
+about = "A bot given a list of two free models in its settings (the second moved up) asks them in that order, and its settings show the list with Free tags."
+covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-core/src/model_lists.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs"]
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Scout" }
+[[step]]
+expect_js = "document.getElementById('nbKind').value === '' && document.getElementById('nbKind').options[0].text === 'Automatic: free models, best first'"
+note = "New bots start on Automatic"
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "@scout"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect = "Automatic: free models, best first."
+note = "No list yet"
+[[step]]
+expect_js = "(() => { const s = document.getElementById('bdAddModel'); s.value = 'e2e/tool-model:free'; s.dispatchEvent(new Event('change')); return document.querySelectorAll('#bdModelList .model-item').length === 1; })()"
+note = "Add a model: the tool model"
+[[step]]
+expect_js = "(() => { const s = document.getElementById('bdAddModel'); s.value = 'e2e/backup:free'; s.dispatchEvent(new Event('change')); return document.querySelectorAll('#bdModelList .model-item').length === 2; })()"
+note = "…then the backup"
+[[step]]
+click = "Move E2E Backup (free) up"
+[[step]]
+expect_js = "[...document.querySelectorAll('#bdModelList .model-item .name')].map(e => e.textContent).join('|') === 'E2E Backup|E2E Tool Model'"
+note = "The backup is first now"
+[[step]]
+expect_js = "[...document.querySelectorAll('#bdModelList .model-tag')].every(e => e.textContent === 'Free') && document.getElementById('bdKind').value === 'own'"
+note = "Both tagged Free; Suggested for says it's your own list"
+shot = "models-list"
+[[step]]
+click = "Save"
+[[step]]
+expect_js = "document.getElementById('engineBadge').textContent === 'backup'"
+note = "The header names the list's first model"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "1 question"
+[[step]]
+expect_openrouter = '"models":["e2e/backup:free","e2e/tool-model:free"]'
+note = "Asked in the bot's order"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "[...document.querySelectorAll('#bdModelList .model-item .name')].map(e => e.textContent).join('|') === 'E2E Backup|E2E Tool Model'"
+note = "The settings keep the list"
+shot = "models-kept"
