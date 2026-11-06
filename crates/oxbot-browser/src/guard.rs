@@ -18,6 +18,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::element::{ELEMENT_FACTS_FN, ElementFacts};
 use crate::http;
+use crate::sealed::{self, SealedTab};
 
 /// The name of oxbot's isolated world in each page.
 const WORLD: &str = "oxbot-check";
@@ -79,6 +80,11 @@ enum Command {
     },
     SetDownloads(PathBuf),
     Close,
+    /// Tabs in this browser context are oxbot's sealed tabs: never picked
+    /// for a bot's page, a screenshot or a check.
+    Seal(String),
+    /// That context is gone.
+    Unseal(String),
     /// Any `DevTools` call: on the browser, or on a tab for calls Chrome
     /// only takes there, such as `Network.deleteCookies`.
     Call {
@@ -396,6 +402,135 @@ impl Guard {
             .map_err(|_| "the browser guard stopped".to_owned())?
     }
 
+    /// Opens a sealed tab (see [`crate::sealed`]): a blank page in a new
+    /// browser context whose proxy goes nowhere, offline, with every
+    /// address blocked and a page that may load nothing.
+    ///
+    /// # Errors
+    /// Chrome refused the context or the tab.
+    pub(crate) async fn open_sealed(&self) -> Result<SealedTab, String> {
+        let made = self
+            .send_call(
+                "Target.createBrowserContext",
+                sealed::context_params(),
+                Target::Browser,
+            )
+            .await?;
+        let context = made
+            .get("browserContextId")
+            .and_then(Value::as_str)
+            .ok_or("Chrome made no browser context")?
+            .to_owned();
+        let _ = self.commands.send(Command::Seal(context.clone())).await;
+        match self.fill_sealed(&context).await {
+            Ok(session) => Ok(SealedTab { context, session }),
+            Err(err) => {
+                self.close_sealed(&SealedTab {
+                    context,
+                    session: String::new(),
+                })
+                .await;
+                Err(err)
+            }
+        }
+    }
+
+    /// Makes the sealed context's one tab, offline and blocked, with the
+    /// sealed page in it. Returns its `DevTools` session.
+    async fn fill_sealed(&self, context: &str) -> Result<String, String> {
+        let target = self
+            .send_call(
+                "Target.createTarget",
+                json!({ "url": "about:blank", "browserContextId": context, "background": true }),
+                Target::Browser,
+            )
+            .await?;
+        let target = str_of(&target, "targetId").to_owned();
+        let attached = self
+            .send_call(
+                "Target.attachToTarget",
+                json!({ "targetId": target, "flatten": true }),
+                Target::Browser,
+            )
+            .await?;
+        let session = str_of(&attached, "sessionId").to_owned();
+        if session.is_empty() {
+            return Err("Chrome didn't attach to the sealed tab".to_owned());
+        }
+        // The proxy already stops every request; these are more walls.
+        for (method, params) in [
+            ("Network.enable", json!({})),
+            ("Network.emulateNetworkConditions", sealed::offline_params()),
+            (
+                "Network.setBlockedURLs",
+                json!({ "urls": ["*", "*://*", "*:*"], "urlPatterns": [{ "urlPattern": "*://*:*/*", "block": true }] }),
+            ),
+        ] {
+            if let Err(err) = self.call_on(&session, method, params).await {
+                tracing::debug!(method, %err, "a sealed tab wall Chrome didn't take (others remain)");
+            }
+        }
+        let tree = self
+            .call_on(&session, "Page.getFrameTree", json!({}))
+            .await?;
+        let frame = tree
+            .pointer("/frameTree/frame/id")
+            .and_then(Value::as_str)
+            .ok_or("the sealed tab has no frame")?
+            .to_owned();
+        self.call_on(
+            &session,
+            "Page.setDocumentContent",
+            json!({ "frameId": frame, "html": sealed::sealed_document() }),
+        )
+        .await?;
+        Ok(session)
+    }
+
+    /// Evaluates `expression` in the sealed tab, stopping it after `limit`.
+    /// Returns Chrome's whole `Runtime.evaluate` result.
+    ///
+    /// # Errors
+    /// Chrome didn't answer (the tab is gone, say).
+    pub(crate) async fn run_sealed(
+        &self,
+        tab: &SealedTab,
+        expression: &str,
+        limit: Duration,
+    ) -> Result<Value, String> {
+        let ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+        self.call_on(
+            &tab.session,
+            "Runtime.evaluate",
+            json!({
+                "expression": expression,
+                "returnByValue": true,
+                "awaitPromise": true,
+                "userGesture": false,
+                "timeout": ms,
+            }),
+        )
+        .await
+    }
+
+    /// Closes the sealed tab and its context.
+    pub(crate) async fn close_sealed(&self, tab: &SealedTab) {
+        if let Err(err) = self
+            .send_call(
+                "Target.disposeBrowserContext",
+                json!({ "browserContextId": tab.context }),
+                Target::Browser,
+            )
+            .await
+        {
+            tracing::debug!(%err, "couldn't close a sealed tab (it may be gone already)");
+        }
+        let _ = self
+            .commands
+            .send(Command::Unseal(tab.context.clone()))
+            .await;
+    }
+
     /// Asks Chrome to close cleanly, saving cookies and sign-ins.
     pub(crate) async fn close_browser(&self) {
         let _ = self.commands.send(Command::Close).await;
@@ -427,6 +562,8 @@ struct Session {
     last_tab: Option<String>,
     /// Calls whose whole reply (result or error) is wanted, not just the result.
     errors_wanted: std::collections::HashSet<u64>,
+    /// Browser contexts of oxbot's sealed tabs: their tabs are never used.
+    sealed: std::collections::HashSet<String>,
     outbox: Vec<String>,
 }
 
@@ -440,6 +577,7 @@ impl Session {
             attached: HashMap::new(),
             last_tab: None,
             errors_wanted: std::collections::HashSet::new(),
+            sealed: std::collections::HashSet::new(),
             outbox: Vec::new(),
         }
     }
@@ -513,6 +651,12 @@ impl Session {
             Command::SetDownloads(dir) => {
                 self.downloads = dir;
                 self.send_downloads();
+            }
+            Command::Seal(context) => {
+                self.sealed.insert(context);
+            }
+            Command::Unseal(context) => {
+                self.sealed.remove(&context);
             }
             Command::PickPage { page_url, reply } => {
                 let _ = reply.send(self.pick_page(page_url.as_deref()));
@@ -609,6 +753,14 @@ impl Session {
             return;
         }
         let params = msg.get("params").unwrap_or(&Value::Null);
+        // A sealed tab is oxbot's own: never a bot's page.
+        let context = params
+            .pointer("/targetInfo/browserContextId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !context.is_empty() && self.sealed.contains(context) {
+            return;
+        }
         match msg.get("method").and_then(Value::as_str) {
             Some("Target.targetCreated" | "Target.targetInfoChanged") => {
                 let info = params.get("targetInfo").unwrap_or(&Value::Null);
@@ -708,6 +860,150 @@ mod tests {
             typed,
             Some(json!(true)),
             "evaluate runs in the isolated world"
+        );
+    }
+
+    /// Needs Chrome: `cargo test -p oxbot-browser -- --ignored real_chrome`.
+    #[tokio::test]
+    #[ignore = "starts Chrome"]
+    #[allow(clippy::too_many_lines)]
+    async fn real_chrome_runs_scripts_on_a_sealed_copy() {
+        use std::io::{Read as _, Write as _};
+        // A local site that counts every request it gets.
+        let site = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let site_port = site.local_addr().unwrap().port();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let counted = std::sync::Arc::clone(&hits);
+        std::thread::spawn(move || {
+            for tcp in site.incoming() {
+                let Ok(mut tcp) = tcp else { continue };
+                let mut buf = [0u8; 4096];
+                let _ = tcp.read(&mut buf);
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = tcp.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                );
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let port = 9800 + u16::try_from(std::process::id() % 150).unwrap();
+        let page = "<html><head><title>Lamps</title></head><body>\
+            <ul><li class=p><b>Brass lamp</b> <i>$10</i></li><li class=p><b>Tin lamp</b> <i>$7</i></li></ul>\
+            <a href=/list?page=2>Next &rsaquo;</a>\
+            <script>document.body.dataset.ran = 'yes';</script></body></html>";
+        let mut chrome = std::process::Command::new(crate::DEFAULT_CHROME)
+            .args([
+                "--headless=new",
+                &format!("--remote-debugging-port={port}"),
+                &format!("--user-data-dir={}", dir.path().display()),
+                "--no-first-run",
+                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                &format!("data:text/html,{}", crate::http::encode_url(page)),
+            ])
+            .spawn()
+            .unwrap();
+        let mut guard = None;
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            if let Ok(g) = Guard::start(port, dir.path().to_owned()).await {
+                guard = Some(g);
+                break;
+            }
+        }
+        let guard = guard.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let copied = guard
+            .evaluate(None, &sealed::copy_expression(sealed::MAX_PAGE_BYTES))
+            .await
+            .and_then(|v| sealed::read_copy(&v))
+            .unwrap();
+        let tab = guard.open_sealed().await.unwrap();
+        let script = format!(
+            "const rows = [...doc.querySelectorAll('li.p')].map(li => ({{ name: li.querySelector('b').textContent, price: li.querySelector('i').textContent }}));\
+             let got = 'nothing';\
+             try {{ const r = await fetch('http://127.0.0.1:{site_port}/leak'); got = await r.text(); }} catch (e) {{ got = 'failed'; }}\
+             try {{ const i = document.createElement('img'); i.src = 'http://127.0.0.1:{site_port}/img'; document.body.appendChild(i); }} catch (e) {{}}\
+             return {{ rows, got, ran: doc.body.dataset.ran || 'no', live: String(location.href) }};"
+        );
+        let expr = sealed::sealed_expression(
+            &copied.html,
+            "https://shop.example/list",
+            &script.replace(
+                "await fetch",
+                "await (globalThis.fetch || (() => Promise.reject('gone')))",
+            ),
+            Some("Next ›"),
+            sealed::SCRIPT_LIMIT,
+        );
+        let ran = sealed::read_outcome(
+            &guard
+                .run_sealed(&tab, &expr, sealed::SCRIPT_LIMIT)
+                .await
+                .unwrap(),
+        );
+        let slow = sealed::read_outcome(
+            &guard
+                .run_sealed(
+                    &tab,
+                    &sealed::sealed_expression(
+                        "",
+                        "https://a.example/",
+                        "while (true) {}",
+                        None,
+                        Duration::from_secs(1),
+                    ),
+                    Duration::from_secs(1),
+                )
+                .await
+                .unwrap(),
+        );
+        let after = sealed::read_outcome(
+            &guard
+                .run_sealed(
+                    &tab,
+                    &sealed::sealed_expression(
+                        &format!("<p>x</p><script>window.__ran = 1</script><img src=http://127.0.0.1:{site_port}/img2 onerror=\"window.__ran = 2\">"),
+                        "https://a.example/",
+                        "await new Promise(r => setTimeout(r, 300)); return [doc.querySelector('p').textContent, typeof globalThis.__ran]",
+                        None,
+                        sealed::SCRIPT_LIMIT,
+                    ),
+                    sealed::SCRIPT_LIMIT,
+                )
+                .await
+                .unwrap(),
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        guard.close_sealed(&tab).await;
+        let _ = chrome.kill();
+        let _ = chrome.wait();
+        let ran = ran.unwrap();
+        assert_eq!(
+            ran.value["rows"],
+            json!([{"name": "Brass lamp", "price": "$10"}, {"name": "Tin lamp", "price": "$7"}])
+        );
+        assert_eq!(ran.value["got"], "failed", "fetch is gone");
+        assert_eq!(
+            ran.value["ran"], "yes",
+            "the copy is of the live page as it is now"
+        );
+        assert_eq!(
+            ran.next.as_deref(),
+            Some("https://shop.example/list?page=2")
+        );
+        assert!(
+            slow.unwrap_err().contains("longer than"),
+            "a script that never ends is stopped"
+        );
+        assert_eq!(
+            after.unwrap().value,
+            json!(["x", "undefined"]),
+            "the tab still works after a stopped script, and a copy's scripts and images never run or load"
+        );
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "nothing reached the network"
         );
     }
 }

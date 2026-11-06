@@ -14,6 +14,7 @@ mod element;
 mod guard;
 mod http;
 pub mod netguard;
+pub mod sealed;
 pub mod trial;
 mod web;
 

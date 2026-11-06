@@ -13,6 +13,7 @@ use tokio::sync::{Mutex, watch};
 
 use crate::guard::Guard;
 use crate::netguard::{BlockedRequest, NetGuard, NetMode};
+use crate::sealed::{self, Copied, Ran, SealedTab};
 use crate::{BrowserError, CookieMarks, ElementFacts, Tools, http};
 
 /// What the shared browser should be.
@@ -75,6 +76,8 @@ pub struct Browser {
     net: Option<NetMode>,
     /// Its network guard, while Chrome runs.
     net_guard: Mutex<Option<NetGuard>>,
+    /// The sealed tab of a `read_pages` run, while one is open.
+    sealed: Mutex<Option<SealedTab>>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -130,6 +133,7 @@ impl Browser {
             user_agent: std::sync::OnceLock::new(),
             net,
             net_guard: Mutex::new(None),
+            sealed: Mutex::new(None),
         }))
     }
 
@@ -347,6 +351,81 @@ impl Browser {
     pub async fn inspect(&self, page_url: Option<&str>, expression: &str) -> Option<Value> {
         let guard = self.guard.lock().await;
         guard.as_ref()?.evaluate(page_url, expression).await
+    }
+
+    /// Copies the page at `page_url` (its HTML, up to
+    /// [`sealed::MAX_PAGE_BYTES`]), from oxbot's isolated world: the page's
+    /// scripts can't see or change the copy as it's made.
+    ///
+    /// # Errors
+    /// The guard isn't running or Chrome didn't answer in time.
+    pub async fn copy_page(&self, page_url: &str) -> Result<Copied, BrowserError> {
+        let value = self
+            .inspect(
+                Some(page_url),
+                &sealed::copy_expression(sealed::MAX_PAGE_BYTES),
+            )
+            .await
+            .ok_or_else(|| BrowserError::Chrome("the page couldn't be copied".into()))?;
+        sealed::read_copy(&value)
+            .ok_or_else(|| BrowserError::Chrome("the page couldn't be copied".into()))
+    }
+
+    /// Runs the bot's `script` on a copy (`html`, from `url`) in the sealed
+    /// tab (see [`crate::sealed`]), opening it if it isn't open yet; with
+    /// `follow`, also finds the next page's link on the copy. The tab stays
+    /// open for the next page until [`Browser::close_sealed`].
+    ///
+    /// # Errors
+    /// What went wrong, in plain words (the script's own error, or the tab
+    /// couldn't be opened).
+    pub async fn read_sealed(
+        &self,
+        html: &str,
+        url: &str,
+        script: &str,
+        follow: Option<&str>,
+    ) -> Result<Ran, String> {
+        let expression = sealed::sealed_expression(html, url, script, follow, sealed::SCRIPT_LIMIT);
+        let guard = self.guard.lock().await;
+        let guard = guard.as_ref().ok_or("the browser isn't running")?;
+        let mut open = self.sealed.lock().await;
+        // A tab Chrome lost (it restarted, say) is opened again once.
+        for attempt in 0..2 {
+            let tab = if let Some(tab) = open.as_ref() {
+                tab.clone()
+            } else {
+                let tab = guard
+                    .open_sealed()
+                    .await
+                    .map_err(|e| format!("the sealed tab couldn't be opened: {e}"))?;
+                *open = Some(tab.clone());
+                tab
+            };
+            match guard
+                .run_sealed(&tab, &expression, sealed::SCRIPT_LIMIT)
+                .await
+            {
+                Ok(reply) => return sealed::read_outcome(&reply),
+                Err(err) if attempt == 0 => {
+                    tracing::debug!(%err, "the sealed tab didn't answer; opening it again");
+                    guard.close_sealed(&tab).await;
+                    *open = None;
+                }
+                Err(err) => return Err(format!("the sealed tab didn't answer: {err}")),
+            }
+        }
+        Err("the sealed tab didn't answer".to_owned())
+    }
+
+    /// Closes the sealed tab, if one is open.
+    pub async fn close_sealed(&self) {
+        let Some(tab) = self.sealed.lock().await.take() else {
+            return;
+        };
+        if let Some(guard) = self.guard.lock().await.as_ref() {
+            guard.close_sealed(&tab).await;
+        }
     }
 
     /// What the elements with accessibility `role` and `name` on the page at
@@ -583,6 +662,9 @@ impl Browser {
                 "--no-default-browser-check",
                 "--disable-sync",
                 "--remote-debugging-address=127.0.0.1",
+                // WebRTC only through a proxy: in a sealed tab (whose proxy
+                // goes nowhere) it can't send anything at all.
+                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
             ])
             .arg(format!("--remote-debugging-port={}", self.port))
             .args(&self.tools.config().chrome_args);
