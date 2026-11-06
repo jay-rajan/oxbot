@@ -1162,6 +1162,23 @@ async fn next_removal(rx: Option<&mut broadcast::Receiver<String>>) -> String {
     }
 }
 
+/// The viewer's own sidebar sections.
+fn handle_sections(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
+    match msg {
+        ClientMsg::CreateSection { name, bot } => {
+            reply(state.hub.create_section(&name, bot.as_deref(), viewer))
+        }
+        ClientMsg::RenameSection { id, name } => {
+            reply(state.hub.rename_section(&id, &name, viewer))
+        }
+        ClientMsg::DeleteSection { id } => reply(state.hub.delete_section(&id, viewer)),
+        ClientMsg::MoveBot { bot, section } => {
+            reply(state.hub.move_bot(&bot, section.as_deref(), viewer))
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Handles one client message; returns what to send back right away.
 async fn handle(
     msg: ClientMsg,
@@ -1250,16 +1267,10 @@ async fn handle(
         // The hub checks it's the Farm too.
         ClientMsg::SetStepSite { site, on } => reply(state.hub.set_step_site(&site, on, &viewer)),
         // Sections are the viewer's own view: anyone oxbot can place.
-        ClientMsg::CreateSection { name, bot } => {
-            reply(state.hub.create_section(&name, bot.as_deref(), &viewer))
-        }
-        ClientMsg::RenameSection { id, name } => {
-            reply(state.hub.rename_section(&id, &name, &viewer))
-        }
-        ClientMsg::DeleteSection { id } => reply(state.hub.delete_section(&id, &viewer)),
-        ClientMsg::MoveBot { bot, section } => {
-            reply(state.hub.move_bot(&bot, section.as_deref(), &viewer))
-        }
+        ClientMsg::CreateSection { .. }
+        | ClientMsg::RenameSection { .. }
+        | ClientMsg::DeleteSection { .. }
+        | ClientMsg::MoveBot { .. } => handle_sections(msg, state, &viewer),
         ClientMsg::OpenReport { .. }
         | ClientMsg::ListReports { .. }
         | ClientMsg::DeleteReport { .. } => handle_reports(msg, state, client),
