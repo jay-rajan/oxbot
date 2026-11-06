@@ -28,8 +28,8 @@ const MAX_MODEL_ID: usize = 200;
 pub const MAX_BOT_MODELS: usize = 8;
 /// The highest daily request cap (per bot or per person).
 const MAX_DAILY_REQUESTS: u32 = 100_000;
-/// The highest daily spend on paid models, in US cents ($100).
-const MAX_PAID_DAILY_CENTS: u32 = 10_000;
+/// The highest monthly spend on paid models, in US cents ($500).
+const MAX_PAID_MONTHLY_CENTS: u32 = 50_000;
 
 /// The notice in Settings → Engines and the README: where bots' model
 /// calls go.
@@ -291,8 +291,8 @@ fn checked_prefs(mut prefs: EnginePrefs) -> Result<EnginePrefs, HubError> {
             "A daily limit is 1 to {MAX_DAILY_REQUESTS} AI questions."
         ));
     }
-    if prefs.paid_daily_cents > MAX_PAID_DAILY_CENTS {
-        return refuse("Paid models may spend at most $100.00 a day.".to_owned());
+    if prefs.paid_monthly_cents > MAX_PAID_MONTHLY_CENTS {
+        return refuse("Paid models may spend at most $500.00 a month.".to_owned());
     }
     prefs.paid_models = prefs
         .paid_models
@@ -357,6 +357,25 @@ mod tests {
         assert!(hub.is_owner_viewer(&jay_phone) && !hub.is_owner_viewer(&ann));
     }
 
+    #[test]
+    fn paid_spending_is_capped_at_500_dollars_a_month() {
+        let at = |cents| {
+            checked_prefs(EnginePrefs {
+                paid_monthly_cents: cents,
+                ..EnginePrefs::default()
+            })
+        };
+        assert_eq!(EnginePrefs::default().paid_monthly_cents, 1000, "$10.00");
+        assert_eq!(at(50_000).unwrap().paid_monthly_cents, 50_000);
+        assert_eq!(at(0).unwrap().paid_monthly_cents, 0, "no paid spending");
+        match at(50_001) {
+            Err(HubError::NotAllowed(why)) => {
+                assert_eq!(why, "Paid models may spend at most $500.00 a month.");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn engine_settings_are_checked_and_kept() {
         let tmp = tempfile::tempdir().unwrap();
@@ -380,7 +399,7 @@ mod tests {
                 ..EnginePrefs::default()
             },
             EnginePrefs {
-                paid_daily_cents: 1_000_000,
+                paid_monthly_cents: MAX_PAID_MONTHLY_CENTS + 1,
                 ..EnginePrefs::default()
             },
             EnginePrefs {

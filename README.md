@@ -204,8 +204,8 @@ only in the Mac's Keychain (one item per data folder), never in a file, the log,
 the page; signing out deletes it (to revoke the key itself, delete "oxbot on {your Mac}" at
 openrouter.ai/keys). The same place shows the key's limits and today's use, the free models that
 can run bots (read from OpenRouter's model list, which needs no key), questions a day per bot and
-per person, an off-by-default switch for paid models when every free one is busy (with a daily
-dollar cap), and an off-by-default switch to ask providers not to keep data for every bot
+per person, an off-by-default switch for paid models when every free one is busy (with a monthly
+dollar cap, $10 by default, up to $500), and an off-by-default switch to ask providers not to keep data for every bot
 (private bots always ask).
 
 Models and limits: oxbot reads OpenRouter's model list and uses free models that can call tools
@@ -215,8 +215,17 @@ a number a day that OpenRouter sets (50, or 1,000 once the account has bought $1
 Each bot may ask 200 questions a day (change it for all in Settings, or for one bot in its ···
 settings), and each person optionally a number too; a bot that reaches a limit stops and says
 so, and the usage banner shows it. When OpenRouter's free questions for the day run out, bots say
-so until midnight UTC, or use paid models if the owner switched them on (up to the daily dollar
-cap).
+so until midnight UTC, or use paid models if the owner switched them on (up to the month's dollar
+cap; at the cap paid models stop until the 1st, UTC, and free ones keep working; the 50% and 80%
+alerts count the month).
+
+Each bot's models: a bot's ··· settings keep its own list of models, tried in order (at most 8,
+free and paid mixed). **Suggested for** fills it for a kind of job (Research and writing,
+Coaching and plans, Browsing and shopping, Light upkeep), from the live model list, so a retired
+model drops out; the New bot form offers the same. The bot tries its free models first, in its
+order, then every other free model, then its paid ones (only with paid models on, within the
+month's cap), then the owner's. Automatic (an empty list) is free models, best first. The list
+is `models = [...]` in the `[openrouter]` table of `bot.toml`; files without it still load.
 
 What leaves the home computer: a bot's conversation (your messages, and the pages and files it
 reads) goes only to OpenRouter, through oxbot's relay, and on to the

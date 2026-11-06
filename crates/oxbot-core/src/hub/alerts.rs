@@ -1,6 +1,6 @@
 //! Usage alerts: when use passes 50%, then 80%, then all of one of the
 //! household's `OpenRouter` limits (free requests today, paid spending
-//! today, the key's credit, a bot's requests today), every client is told
+//! this month, the key's credit, a bot's requests today), every client is told
 //! once per level per window, and the server posts a Mac notification. The
 //! levels are kept in the store, so a restart never alerts twice.
 //!
@@ -14,11 +14,12 @@ use crate::engine::LimitWindow;
 use crate::store::{AlertChange, LimitAlert, now_ms};
 
 /// `OpenRouter`'s windows that alert (the meter makes them): free requests
-/// today, paid spending today, the key's credit, and each bot's requests
-/// today (`openrouter_bot_daily:<bot>`).
+/// today, paid spending this calendar month (UTC), the key's credit, and
+/// each bot's requests today (`openrouter_bot_daily:<bot>`). A row left
+/// from the old daily spending window never shows.
 const OPENROUTER_ALERTED: [&str; 3] = [
     "openrouter_free_daily",
-    "openrouter_spend_daily",
+    "openrouter_spend_monthly",
     "openrouter_credits",
 ];
 const BOT_DAILY: &str = "openrouter_bot_daily:";
@@ -132,8 +133,8 @@ fn usage_alert(a: &LimitAlert, now_ms: i64, bot_name: &dyn Fn(&str) -> String) -
             "openrouter_free_daily" => {
                 format!("Free AI questions today are at {pct}%.{reset}")
             }
-            "openrouter_spend_daily" => {
-                format!("Paid AI spending today is at {pct}% of the limit.{reset}")
+            "openrouter_spend_monthly" => {
+                format!("Paid AI spending this month is at {pct}% of the limit.{reset}")
             }
             _ => format!("The AI account's credit is {pct}% used."),
         }
@@ -399,7 +400,9 @@ mod tests {
     fn finished_windows_never_alert() {
         let over = window("openrouter_free_daily", 0.9, NOW / 1000 - 60);
         assert_eq!(decide(None, &over, NOW), AlertChange::Keep);
-        let spend = window("openrouter_spend_daily", 0.9, IN_3H);
+        let spend = window("openrouter_spend_monthly", 0.9, IN_3H);
+        let old = window("openrouter_spend_daily", 0.9, IN_3H);
+        assert_eq!(decide(None, &old, NOW), AlertChange::Keep, "retired");
         assert!(matches!(
             decide(None, &spend, NOW),
             AlertChange::Record(LimitAlert { level: 80, .. })
@@ -409,15 +412,15 @@ mod tests {
     #[test]
     fn the_message_names_the_limit_and_the_reset() {
         let a = LimitAlert {
-            name: "openrouter_spend_daily".to_owned(),
-            resets_at_ms: NOW + (2 * 60 + 10) * 60 * 1000,
+            name: "openrouter_spend_monthly".to_owned(),
+            resets_at_ms: NOW + ((12 * 24 + 4) * 60 + 10) * 60 * 1000,
             level: 50,
             used: 0.523,
             alerted_ms: NOW,
         };
         assert_eq!(
             usage_alert(&a, NOW, &|id| id.to_owned()).message,
-            "Paid AI spending today is at 52% of the limit. Resets in 2 h 10 min."
+            "Paid AI spending this month is at 52% of the limit. Resets in 12 days 4 h."
         );
         let credit = LimitAlert {
             name: "openrouter_credits".to_owned(),

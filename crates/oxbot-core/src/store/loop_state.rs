@@ -281,6 +281,20 @@ impl Store {
         )?)
     }
 
+    /// US dollars spent on `OpenRouter` on UTC days from `first_day`
+    /// (`YYYY-MM-DD`) on, household-wide: this month's, from its first day.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn spend_since(&self, first_day: &str) -> Result<f64, StoreError> {
+        Ok(self.conn().query_row(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM model_calls
+             WHERE day >= ?1 AND provider = 'openrouter'",
+            [first_day],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Requests, tokens, money and main model per bot and per person on
     /// UTC `day`.
     ///
@@ -561,6 +575,9 @@ mod tests {
         assert_eq!(store.person_requests(day, "p1").unwrap(), 3);
         assert_eq!(store.free_requests(day).unwrap(), 3);
         assert!((store.spend(day).unwrap() - 0.25).abs() < 1e-9);
+        assert!((store.spend_since("2026-11-01").unwrap() - 0.25).abs() < 1e-9);
+        assert!((store.spend_since("2026-10-01").unwrap() - 0.25).abs() < 1e-9);
+        assert!(store.spend_since("2026-11-03").unwrap().abs() < 1e-9);
         assert_eq!(store.bot_requests("2026-11-03", "scout").unwrap(), 0);
         let usage = store.day_usage(day).unwrap();
         let scout = &usage.bots.iter().find(|(b, _)| b == "scout").unwrap().1;

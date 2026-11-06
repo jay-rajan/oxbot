@@ -206,6 +206,7 @@ impl AppState {
             models_fetched_ms,
             prefs: self.hub.engine_prefs(),
             usage: self.hub.openrouter_usage_today(),
+            spent_this_month_usd: self.hub.paid_spent_this_month(),
             data_policy: self
                 .hub
                 .openrouter_data_policy_blocked()

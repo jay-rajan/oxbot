@@ -519,7 +519,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
           <span class="list-label" id="bdListLabel">Models</span>
           <ol class="model-list" id="bdModelList" aria-labelledby="bdListLabel"></ol>
           <label>Add a model<select id="bdAddModel"></select></label>
-          <p class="hint" id="bdListHint">Tried in this order. Free models come first; paid ones only if paid models are on, within the monthly budget.</p>
+          <p class="hint" id="bdListHint">Tried in this order. Free models come first; paid ones only if paid models are on, within the month's AI spending limit.</p>
         </div>
         <label>Questions a day (empty: the home's limit)<input type="number" id="bdDaily" min="1" max="100000" step="1"></label>
       </div>
@@ -668,7 +668,8 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
         <p class="hint">The companies behind free models may keep and learn from what shared bots send. Private bots always ask for ones that don't. Asking it for every bot leaves fewer free models.</p>
         <label class="check"><input type="checkbox" id="orPaid"> Use paid models when every free one is busy</label>
         <div class="paid-box" id="orPaidBox" hidden>
-          <label>Most to spend a day on paid models, in dollars<input type="number" id="orPaidCap" min="0" max="100" step="0.01"></label>
+          <label>Paid spending a month ($)<input type="number" id="orPaidCap" min="0" max="500" step="0.01"></label>
+          <p class="hint" id="orPaidSpent"></p>
           <ul class="site-rows" id="orPaidModels"></ul>
         </div>
         <div class="btns"><button class="primary" type="submit" id="orSave">Save</button></div>
@@ -1768,7 +1769,8 @@ function fillPrefs(or) {
   $("orPersonDaily").value = p.person_daily_requests == null ? "" : p.person_daily_requests;
   $("orNoData").checked = !!p.no_data_collection;
   $("orPaid").checked = !!p.paid_fallback;
-  $("orPaidCap").value = (p.paid_daily_cents / 100).toFixed(2);
+  $("orPaidCap").value = (p.paid_monthly_cents / 100).toFixed(2);
+  $("orPaidSpent").textContent = `Spent this month: ${money(or.spent_this_month_usd || 0)} of ${money(p.paid_monthly_cents / 100)}. At the limit, paid models stop until the 1st (UTC); free ones keep working.`;
   $("orPaidBox").hidden = !p.paid_fallback;
   const list = $("orPaidModels"); list.textContent = "";
   const picked = new Set(p.paid_models);
@@ -1792,7 +1794,7 @@ $("orPrefsForm").addEventListener("submit", (ev) => {
     person_daily_requests: person ? Math.round(Number(person)) : null,
     no_data_collection: $("orNoData").checked,
     paid_fallback: $("orPaid").checked,
-    paid_daily_cents: Math.round(Number($("orPaidCap").value || 0) * 100),
+    paid_monthly_cents: Math.round(Number($("orPaidCap").value || 0) * 100),
     paid_models: [...$("orPaidModels").querySelectorAll("input:checked")].map((b) => b.value),
   };
   send({ type: "set_engine_prefs", prefs });
@@ -2362,11 +2364,10 @@ function modelRows() {
   for (const m of (engines && engines.paid_models) || []) rows.set(m.id, { ...m, free: false });
   return rows;
 }
-/** A model's short name: its listed name without the maker, else its id without the maker. */
+/** A model's short name: its listed name without the maker or "(free)" (a tag says that), else its id without the maker. */
 function shortModel(id, rows) {
   const m = rows.get(id);
-  const name = m && m.name ? m.name.replace(/^[^:]*:\s*/, "") : id.replace(/^.*\//, "");
-  return name;
+  return m && m.name ? m.name.replace(/^[^:]*:\s*/, "").replace(/\s*\(free\)$/i, "") : id.replace(/^.*\//, "");
 }
 function isFreeModel(id, rows) { const m = rows.get(id); return m ? m.free : id.endsWith(":free"); }
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -2397,7 +2398,7 @@ function renderModelList() {
     const free = isFreeModel(id, rows);
     const tag = document.createElement("span"); tag.className = free ? "model-tag" : "model-tag paid"; tag.textContent = free ? "Free" : "Paid";
     const moves = document.createElement("span"); moves.className = "model-moves";
-    const label = shortModel(id, rows);
+    const label = `${shortModel(id, rows)} (${free ? "free" : "paid"})`;
     const move = (text, aria, to, off) => {
       const btn = document.createElement("button"); btn.type = "button"; btn.textContent = text; btn.setAttribute("aria-label", aria); btn.title = aria;
       btn.disabled = bdBusy || off;
@@ -3028,7 +3029,7 @@ function renderSettings() {
 }
 
 // ---------- usage alert banner
-const OR_ALERT_NAMES = { openrouter_free_daily: "Free AI questions today", openrouter_spend_daily: "Paid AI spending today", openrouter_credits: "AI account credit" };
+const OR_ALERT_NAMES = { openrouter_free_daily: "Free AI questions today", openrouter_spend_monthly: "Paid AI spending this month", openrouter_credits: "AI account credit" };
 /** A limit's name in words: the home's, or one bot's questions today. */
 function alertLabel(limit) {
   const bot = limit.startsWith("openrouter_bot_daily:") ? limit.slice("openrouter_bot_daily:".length) : null;

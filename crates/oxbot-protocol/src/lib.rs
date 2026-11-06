@@ -699,6 +699,9 @@ pub struct OpenRouterView {
     /// Today's use (UTC day), per bot and per person.
     #[serde(default)]
     pub usage: Vec<RouterUsage>,
+    /// Paid spending this calendar month (UTC), in US dollars.
+    #[serde(default)]
+    pub spent_this_month_usd: f64,
     /// What to change on `OpenRouter`'s site when the account's privacy
     /// settings rule out the free models lately.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -789,8 +792,10 @@ pub struct EnginePrefs {
     pub paid_fallback: bool,
     /// Which paid models, by id.
     pub paid_models: Vec<String>,
-    /// Most paid spending a day, in US cents (default 100: $1.00).
-    pub paid_daily_cents: u32,
+    /// Most paid spending a calendar month (UTC), in US cents (default
+    /// 1000: $10.00). Settings saved with the old daily cap load with this
+    /// default.
+    pub paid_monthly_cents: u32,
     /// Each bot's model requests a day, unless it has its own (200).
     pub bot_daily_requests: u32,
     /// Each person's model requests a day (`None`: no cap).
@@ -807,7 +812,7 @@ impl Default for EnginePrefs {
         Self {
             paid_fallback: false,
             paid_models: Vec::new(),
-            paid_daily_cents: 100,
+            paid_monthly_cents: 1000,
             bot_daily_requests: 200,
             person_daily_requests: None,
             herder_model: None,
@@ -2095,9 +2100,16 @@ mod tests {
         };
         assert!(prefs.paid_fallback && !prefs.no_data_collection);
         assert_eq!(
-            (prefs.bot_daily_requests, prefs.paid_daily_cents),
-            (200, 100)
+            (prefs.bot_daily_requests, prefs.paid_monthly_cents),
+            (200, 1000)
         );
+        // Settings saved before the monthly budget (a daily cap) still
+        // load, with the monthly default.
+        let old: EnginePrefs =
+            serde_json::from_str(r#"{"paid_fallback":true,"paid_daily_cents":500}"#).unwrap();
+        assert!(old.paid_fallback);
+        assert_eq!(old.paid_monthly_cents, 1000);
+        assert!(!serde_json::to_string(&old).unwrap().contains("daily_cents"));
         let limit: ClientMsg =
             serde_json::from_str(r#"{"type":"set_bot_daily_limit","bot":"a"}"#).unwrap();
         assert_eq!(

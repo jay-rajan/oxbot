@@ -7,7 +7,7 @@ use std::sync::{Arc, PoisonError, Weak};
 
 use oxbot_engine::{CallRecord, LimitWindow};
 use oxbot_llm::{Catalog, ChatModel, KeyCell};
-use oxbot_loop::meter::{now_ms, utc_day};
+use oxbot_loop::meter::{next_utc_month_ms, now_ms, utc_day, utc_month_start};
 use oxbot_loop::{
     Account, BrowserFactory, CatalogCache, GuardQuery, LimitHit, LoopEngine, LoopPrefs, LoopSetup,
     LoopStore, McpBrowserFactory, Pacer, UsageGuard,
@@ -154,7 +154,7 @@ pub(super) fn build_engine(
 }
 
 /// The hub's limits on model requests: per bot and per person a day, and
-/// money on paid models a day.
+/// money on paid models a calendar month (UTC).
 struct HubGuard(Weak<Hub>);
 
 impl UsageGuard for HubGuard {
@@ -199,17 +199,43 @@ impl UsageGuard for HubGuard {
                  the owner can raise the limit (Settings → AI models)."
             )));
         }
-        if !q.free {
-            let cap = f64::from(prefs.paid_daily_cents) / 100.0;
-            let spent = store.spend(&day).unwrap_or(0.0);
-            if spent >= cap {
-                return Err(LimitHit(format!(
-                    "Paid AI spending has reached today's ${cap:.2} limit. It can go on tomorrow, or \
-                     the owner can raise the limit (Settings → AI models)."
-                )));
-            }
+        if !q.free
+            && let Some(why) = paid_limit(store, &prefs, now_ms())
+        {
+            return Err(LimitHit(why));
         }
         Ok(())
+    }
+}
+
+/// Paid spending this calendar month (UTC) at `now`, in US dollars.
+fn month_spend(store: &Store, now: i64) -> f64 {
+    store
+        .spend_since(&utc_month_start(now))
+        .unwrap_or_else(|err| {
+            tracing::warn!(%err, "couldn't read this month's AI spending");
+            0.0
+        })
+}
+
+/// Why paid models can't be used at `now`, if this month's paid spending
+/// has reached the owner's monthly limit. Free models aren't affected.
+fn paid_limit(store: &Store, prefs: &EnginePrefs, now: i64) -> Option<String> {
+    let cap = f64::from(prefs.paid_monthly_cents) / 100.0;
+    (month_spend(store, now) >= cap).then(|| {
+        format!(
+            "Paid AI spending has reached this month's ${cap:.2} limit. Free models keep \
+             working; paid ones start again next month, or the owner can raise the limit \
+             (Settings → AI models)."
+        )
+    })
+}
+
+impl Hub {
+    /// Paid AI spending this calendar month (UTC), in US dollars.
+    #[must_use]
+    pub fn paid_spent_this_month(&self) -> f64 {
+        month_spend(&self.store, now_ms())
     }
 }
 
@@ -389,7 +415,8 @@ impl Hub {
     }
 
     /// `OpenRouter`'s limits as alert windows: free requests today, paid
-    /// spending today, the key's credit, and `bot`'s own requests today.
+    /// spending this month, the key's credit, and `bot`'s own requests
+    /// today.
     fn openrouter_windows(&self, bot: &BotId) -> Vec<LimitWindow> {
         let now = now_ms();
         let day = utc_day(now);
@@ -428,11 +455,13 @@ impl Hub {
         }
         let prefs = self.engine_prefs();
         if prefs.paid_fallback {
-            let spent = self.store.spend(&day).unwrap_or(0.0);
             out.push(window(
-                "openrouter_spend_daily".to_owned(),
-                share(spent, f64::from(prefs.paid_daily_cents) / 100.0),
-                midnight,
+                "openrouter_spend_monthly".to_owned(),
+                share(
+                    month_spend(&self.store, now),
+                    f64::from(prefs.paid_monthly_cents) / 100.0,
+                ),
+                next_utc_month_ms(now) / 1000,
             ));
         }
         if let Ok(b) = self.bot(bot.as_str()) {
@@ -457,6 +486,53 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use oxbot_engine::CallKind;
+
+    fn paid_call(day: &str, cost_usd: f64) -> CallRecord {
+        CallRecord {
+            ts_ms: 1,
+            day: day.into(),
+            bot: "scout".into(),
+            provider: "openrouter".into(),
+            requested: "x/paid".into(),
+            model: "x/paid".into(),
+            outcome: "ok".into(),
+            cost_usd,
+            kind: CallKind::Chat,
+            ..CallRecord::default()
+        }
+    }
+
+    #[test]
+    fn paid_spending_counts_this_month_only() {
+        let store = Store::open_in_memory().unwrap();
+        let prefs = EnginePrefs::default();
+        // 2026-11-06 12:00 UTC.
+        let now = 1_793_491_200_000 + 5 * 86_400_000 + 12 * 3_600_000;
+        // Last month's spending, over the whole cap, doesn't count.
+        store.record_call(&paid_call("2026-10-31", 25.0)).unwrap();
+        assert_eq!(paid_limit(&store, &prefs, now), None);
+        store.record_call(&paid_call("2026-11-01", 6.0)).unwrap();
+        assert_eq!(paid_limit(&store, &prefs, now), None, "$6 of $10");
+        store.record_call(&paid_call("2026-11-06", 4.0)).unwrap();
+        assert_eq!(
+            paid_limit(&store, &prefs, now).as_deref(),
+            Some(
+                "Paid AI spending has reached this month's $10.00 limit. Free models keep \
+                 working; paid ones start again next month, or the owner can raise the limit \
+                 (Settings → AI models)."
+            )
+        );
+        let raised = EnginePrefs {
+            paid_monthly_cents: 2500,
+            ..EnginePrefs::default()
+        };
+        assert_eq!(paid_limit(&store, &raised, now), None, "$10 of $25");
+        // The first of next month starts over.
+        let december = next_utc_month_ms(now);
+        assert_eq!(paid_limit(&store, &prefs, december), None);
+    }
 
     #[test]
     fn midnight() {
