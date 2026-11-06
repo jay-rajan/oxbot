@@ -90,7 +90,7 @@ html = f'''<title>oxbot New Look</title>
 <section><div class="eyebrow">1 · Icons</div><h2>App icon, menu bar, phone</h2>
 <div class="row">{sizes}</div>
 <div class="row" style="margin-top:20px;align-items:center">
-<div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:240px"><div class="menubar">{tray}<span>Wi-Fi</span><span>Fri 11:20</span></div><div class="menubar dk">{tray}<span>Wi-Fi</span><span>Fri 11:20</span></div><span class="muted" style="font-size:12px">Menu bar: a template icon, so macOS colours it for light and dark.</span></div>
+<div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:240px"><div class="menubar">{tray}<span>Wi-Fi</span><span>Fri 11:20</span></div><div class="menubar dk">{tray}<span>Wi-Fi</span><span>Fri 11:20</span></div><span class="muted" style="font-size:12px">Menu bar: a template icon, so macOS colors it for light and dark.</span></div>
 <div class="phone">{phone}</div>
 </div></section>
 

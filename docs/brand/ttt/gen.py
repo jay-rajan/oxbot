@@ -15,7 +15,6 @@ OUT.mkdir(parents=True, exist_ok=True)
 INK = "#111111"      # icon ground
 O_WHITE = "#FFFFFF"
 X_RED = "#FF3737"     # same as the UI's --rust
-DIVIDER = "#3A3A40"
 
 
 def ring(cx, cy, r, w, color, extra=""):
@@ -27,12 +26,27 @@ def cross(cx, cy, h, w, color, extra=""):
     return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="{w}" stroke-linecap="round"{extra}/>'
 
 
-# ---------- app icon (1024, macOS-style rounded square, like the old one)
+# ---------- app icon (1024, macOS-style rounded square): the board.
+# A 3x3 grid with an O in the top-left cell and a red X in the center,
+# "a move in progress" (brand direction A).
+GRID = "#5A5A62"
+
+
+def board(lo, hi, line_w, o_r, o_w, x_h, x_w, grid=GRID, o=O_WHITE, x=X_RED):
+    """A tic-tac-toe board from lo to hi on both axes, O top-left, X center."""
+    cell = (hi - lo) / 3
+    a, b = lo + cell, lo + 2 * cell
+    c0, c1 = lo + cell / 2, lo + cell * 1.5
+    lines = "".join(
+        f'<line x1="{x1:g}" y1="{y1:g}" x2="{x2:g}" y2="{y2:g}" stroke="{grid}" stroke-width="{line_w}" stroke-linecap="round"/>'
+        for x1, y1, x2, y2 in [(a, lo, a, hi), (b, lo, b, hi), (lo, a, hi, a), (lo, b, hi, b)])
+    return lines + ring(f"{c0:g}", f"{c0:g}", o_r, o_w, o) + cross(c1, c1, x_h, x_w, x)
+
+
 def icon(ground=True):
     bg = f'<rect width="1024" height="1024" rx="230" fill="{INK}"/>' if ground else ""
-    divider = f'<line x1="512" y1="356" x2="512" y2="668" stroke="{DIVIDER}" stroke-width="22" stroke-linecap="round"/>'
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="oxbot">'
-            f'{bg}{divider}{ring(300, 512, 135, 86, O_WHITE)}{cross(724, 512, 124, 90, X_RED)}</svg>')
+            f'{bg}{board(160, 864, 24, 68, 48, 64, 54)}</svg>')
 
 
 # Android adaptive foreground: 108dp canvas, marks inside the 66dp safe zone.
@@ -47,7 +61,7 @@ def android_fg():
 # ---------- menu-bar (tray) icon: macOS template image, black on clear, 22pt
 def tray():
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">'
-            f'{ring(6.6, 11, 4.0, 2.3, "#000")}{cross(15.6, 11, 3.6, 2.5, "#000")}</svg>')
+            f'{board(1.5, 20.5, 1.1, 1.7, 1.3, 1.6, 1.5, grid="#000", o="#000", x="#000")}</svg>')
 
 
 # ---------- wordmark: O ring + red X + "bot" (glyphs reused from the old wordmark)
@@ -123,8 +137,8 @@ for s in STYLES:  # alternate O and X so neighbours differ
 
 
 def main():
-    index = (REPO / "crates/oxbot/ui/index.html").read_text()
-    glyphs = bot_glyphs(index)
+    # The "bot" letters come from the old ox wordmark, kept in docs/brand/svg.
+    glyphs = bot_glyphs((REPO / "docs/brand/svg/wordmark-current.svg").read_text())
     files = {
         "icon.svg": icon(),
         "icon-android-foreground.svg": android_fg(),
