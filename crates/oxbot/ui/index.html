@@ -196,6 +196,20 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .engine-note button { font-size: .82rem; padding: 5px 10px; }
 .engine-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
 .engine-pick legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
+.model-pick { display: grid; gap: 6px; min-width: 0; }
+.model-pick .list-label { font-size: .85rem; }
+.model-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--line); }
+.model-item { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 5px 2px; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.model-item .n { color: var(--muted); font-size: .75rem; text-align: right; }
+.model-item .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-item .name small { color: var(--muted); font-size: .72rem; margin-left: 6px; }
+.model-tag { font-size: .68rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; white-space: nowrap; }
+.model-tag.paid { color: var(--danger); border-color: var(--danger); }
+.model-moves { display: flex; gap: 2px; }
+.model-moves button { background: none; border: 1px solid transparent; color: var(--muted); border-radius: 6px; width: 28px; height: 26px; padding: 0; line-height: 1; }
+.model-moves button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.model-moves button:disabled { opacity: .35; cursor: default; }
+.model-list .empty { color: var(--muted); font-size: .82rem; padding: 6px 2px; border-bottom: 1px solid var(--line); }
 .notice-text { margin: 0; font-size: .92rem; line-height: 1.45; }
 #setEngines:not([hidden]) { display: grid; gap: 18px; }
 .engine-prefs { display: grid; gap: 10px; padding: 0; }
@@ -481,6 +495,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <label>Name<input id="nbName" required placeholder="Daily News" autocomplete="off"></label>
     <label>What should it do?<textarea id="nbInstr" placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."></textarea></label>
     <label class="check"><input type="checkbox" id="nbPrivate"> Private: only you and the owner can see and use it, on the websites you're signed in to</label>
+    <label>Suggested for<select id="nbKind"></select></label>
     <p class="hint" id="nbModelHint">Uses free AI models first.</p>
     <p class="hint" id="nbHint">It browses in the home browser, on the websites the home is signed in to, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.</p>
     <div class="row"><button class="ghost" type="button" id="nbCancel">Cancel</button><button class="primary" type="submit">Create</button></div>
@@ -497,9 +512,15 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <div class="people-pick" id="bdPeople" hidden></div>
     </fieldset>
     <p class="hint" id="bdHint"></p>
-    <fieldset class="engine-pick" id="bdEngineBox"><legend>AI model</legend>
+    <fieldset class="engine-pick" id="bdEngineBox"><legend>AI models</legend>
       <div class="manage" id="bdOrBox">
-        <label>Model<select id="bdModel"><option value="">Free models (best first)</option></select></label>
+        <div class="model-pick" id="bdModels">
+          <label>Suggested for<select id="bdKind"></select></label>
+          <span class="list-label" id="bdListLabel">Models</span>
+          <ol class="model-list" id="bdModelList" aria-labelledby="bdListLabel"></ol>
+          <label>Add a model<select id="bdAddModel"></select></label>
+          <p class="hint" id="bdListHint">Tried in this order. Free models come first; paid ones only if paid models are on, within the monthly budget.</p>
+        </div>
         <label>Questions a day (empty: the home's limit)<input type="number" id="bdDaily" min="1" max="100000" step="1"></label>
       </div>
       <p class="hint" id="bdEngineHint">Free models are tried first; the owner may allow paid ones in Settings → AI models.</p>
@@ -959,7 +980,7 @@ function onMessage(m) {
     case "profile": onProfile(m); break;
     case "profiles_changed": if ($("appDlg").open && !$("setPeople").hidden) send({ type: "get_profile" }); break;
     case "setup": setup = m; renderSetup(); renderEngines(); break;
-    case "engines": engines = m; renderEngines(); break;
+    case "engines": engines = m; renderEngines(); if ($("botDlg").open && !$("bdModels").contains(document.activeElement)) renderModelList(); break;
     case "open_router_auth": orAuthUrl = m.url; renderEngines(); break;
     case "meter": {
       const b = bot(m.bot); b.meter = m;
@@ -1636,9 +1657,10 @@ function updateStatus() {
 
 // ---------- engines: the badge in the header, the note above the message box
 function ownerName() { return (settings && settings.owner_name) || (engines && engines.owner) || "the owner"; }
-/** The badge's words: the pinned model's short name, else "Free models". */
+/** The badge's words: the short name of the first model of its own list (or its pinned model), else "Free models". */
 function engineLabel(info) {
-  const model = info.model ? info.model.replace(/^.*\//, "").replace(/:free$/, "") : "";
+  const first = (info.models && info.models[0]) || info.model || "";
+  const model = first.replace(/^.*\//, "").replace(/:free$/, "");
   return model || "Free models";
 }
 /** Whether bots can run on the home computer now (the AI account, then the AI helper). */
@@ -2231,13 +2253,15 @@ const NB_SHARED = "It browses in the home browser, on the websites the home is s
 const NB_PRIVATE = "Only you and the owner see it. Your own Assistant can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to websites even if the home is signed in. Anything that sends, posts or deletes asks you first.";
 $("newBot").onclick = () => {
   $("newForm").reset(); $("nbHint").textContent = NB_SHARED;
+  fillKindPick($("nbKind"), []);
   $("newDlg").showModal(); $("nbName").focus();
 };
 $("nbPrivate").onchange = () => { $("nbHint").textContent = $("nbPrivate").checked ? NB_PRIVATE : NB_SHARED; };
 $("nbCancel").onclick = () => $("newDlg").close();
 $("newForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  send({ type: "create_bot", name: $("nbName").value.trim(), instructions: $("nbInstr").value.trim(), private: $("nbPrivate").checked });
+  const kind = modelLists().find((l) => l.kind === $("nbKind").value);
+  send({ type: "create_bot", name: $("nbName").value.trim(), instructions: $("nbInstr").value.trim(), private: $("nbPrivate").checked, models: kind ? kind.models : [] });
   $("newDlg").close();
 });
 
@@ -2296,7 +2320,7 @@ $("botMore").onclick = () => {
   $("bdEngineBox").hidden = !manage || !!b.info.central;
   fillModelPick(b);
   $("bdDaily").value = b.info.daily_requests == null ? "" : b.info.daily_requests;
-  $("bdModel").disabled = $("bdDaily").disabled = b.busy;
+  $("bdDaily").disabled = b.busy;
   resetDelete();
   // Its "Always allowed" rules come from the server (only for those who manage it).
   if (manage) { rulesFor = b.info.id; rules = null; renderRules(); send({ type: "list_allow_rules", bot: b.info.id }); }
@@ -2322,27 +2346,102 @@ function renderRules() {
     li.append(name, remove); ul.appendChild(li);
   }
 }
-/** The bot's AI model choice: free models (best first), each free model,
- *  then the paid ones when the owner allows them. A pinned model that's no
- *  longer listed still shows, so saving doesn't drop it. */
-function fillModelPick(b) {
-  const sel = $("bdModel"); sel.textContent = "";
-  const auto = document.createElement("option"); auto.value = ""; auto.textContent = "Free models (best first)"; sel.appendChild(auto);
-  const group = (label, list) => {
-    if (!list.length) return;
-    const g = document.createElement("optgroup"); g.label = label;
-    for (const m of list) { const o = document.createElement("option"); o.value = m.id; o.textContent = m.name || m.id; g.appendChild(o); }
-    sel.appendChild(g);
-  };
-  const free = (engines && engines.models) || [];
-  const or = engines && engines.openrouter;
-  const paid = or && or.prefs && or.prefs.paid_fallback ? or.paid_models || [] : [];
-  group("Free models", free);
-  group("Paid models", paid);
-  const pinned = b.info.model || "";
-  if (pinned && !free.concat(paid).some((m) => m.id === pinned)) { const o = document.createElement("option"); o.value = pinned; o.textContent = pinned; sel.appendChild(o); }
-  sel.value = pinned;
+/* A bot's own models, tried in order: its free ones first, then other free
+ * models, then its paid ones (only if the owner allows paid models). Empty:
+ * automatic. "Suggested for" fills the list from a kind of job; rows move
+ * up and down or go; "Add a model" adds one that can run bots. */
+const MAX_BOT_MODELS = 8;
+const AUTO_KIND = "Automatic: free models, best first";
+let bdList = [], bdListWas = [], bdBusy = false;
+/** The suggested lists by kind of job (only models on the live list). */
+function modelLists() { return (engines && engines.model_lists) || []; }
+/** Every model bots can use now, free and paid, by id. */
+function modelRows() {
+  const rows = new Map();
+  for (const m of (engines && engines.models) || []) rows.set(m.id, { ...m, free: true });
+  for (const m of (engines && engines.paid_models) || []) rows.set(m.id, { ...m, free: false });
+  return rows;
 }
+/** A model's short name: its listed name without the maker, else its id without the maker. */
+function shortModel(id, rows) {
+  const m = rows.get(id);
+  const name = m && m.name ? m.name.replace(/^[^:]*:\s*/, "") : id.replace(/^.*\//, "");
+  return name;
+}
+function isFreeModel(id, rows) { const m = rows.get(id); return m ? m.free : id.endsWith(":free"); }
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+/** "Suggested for": Automatic, each kind of job, and "Your own list" when the list is none of them. */
+function fillKindPick(sel, list) {
+  sel.textContent = "";
+  const opt = (value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; sel.appendChild(o); return o; };
+  opt("", AUTO_KIND);
+  for (const l of modelLists()) opt(l.kind, `${l.label} \u2014 ${l.about}`);
+  const match = !list.length ? "" : (modelLists().find((l) => sameList(l.models, list)) || {}).kind;
+  if (match === undefined) { opt("own", "Your own list"); sel.value = "own"; } else sel.value = match;
+}
+function fillModelPick(b) {
+  bdList = (b.info.models && b.info.models.length) ? [...b.info.models] : b.info.model ? [b.info.model] : [];
+  bdListWas = [...bdList]; bdBusy = !!b.busy;
+  renderModelList();
+}
+function renderModelList() {
+  const rows = modelRows();
+  fillKindPick($("bdKind"), bdList);
+  const ol = $("bdModelList"); ol.textContent = "";
+  if (!bdList.length) { const li = document.createElement("li"); li.className = "empty"; li.textContent = "Automatic: free models, best first."; ol.appendChild(li); }
+  bdList.forEach((id, i) => {
+    const li = document.createElement("li"); li.className = "model-item"; li.title = id;
+    const n = document.createElement("span"); n.className = "n"; n.textContent = `${i + 1}.`;
+    const name = document.createElement("span"); name.className = "name"; name.textContent = shortModel(id, rows);
+    if (!rows.has(id)) { const gone = document.createElement("small"); gone.textContent = "not available now"; name.appendChild(gone); }
+    const free = isFreeModel(id, rows);
+    const tag = document.createElement("span"); tag.className = free ? "model-tag" : "model-tag paid"; tag.textContent = free ? "Free" : "Paid";
+    const moves = document.createElement("span"); moves.className = "model-moves";
+    const label = shortModel(id, rows);
+    const move = (text, aria, to, off) => {
+      const btn = document.createElement("button"); btn.type = "button"; btn.textContent = text; btn.setAttribute("aria-label", aria); btn.title = aria;
+      btn.disabled = bdBusy || off;
+      btn.onclick = () => { if (to === null) bdList.splice(i, 1); else { [bdList[i], bdList[to]] = [bdList[to], bdList[i]]; } renderModelList(); };
+      moves.appendChild(btn);
+    };
+    move("\u2191", `Move ${label} up`, i - 1, i === 0);
+    move("\u2193", `Move ${label} down`, i + 1, i === bdList.length - 1);
+    move("\u2715", `Remove ${label}`, null, false);
+    li.append(n, name, tag, moves); ol.appendChild(li);
+  });
+  const add = $("bdAddModel"); add.textContent = "";
+  const first = document.createElement("option"); first.value = "";
+  first.textContent = bdList.length >= MAX_BOT_MODELS ? `Up to ${MAX_BOT_MODELS} models` : "Pick a model\u2026"; add.appendChild(first);
+  const group = (label, list) => {
+    const left = list.filter((m) => !bdList.includes(m.id));
+    if (!left.length) return;
+    const g = document.createElement("optgroup"); g.label = label;
+    for (const m of left) {
+      const o = document.createElement("option"); o.value = m.id;
+      o.textContent = m.free ? shortModel(m.id, rows) : `${shortModel(m.id, rows)} \u00b7 $${m.usd_per_mtok_in.toFixed(2)} / $${m.usd_per_mtok_out.toFixed(2)} per million tokens`;
+      g.appendChild(o);
+    }
+    add.appendChild(g);
+  };
+  const all = [...rows.values()];
+  group("Free models", all.filter((m) => m.free));
+  group("Paid models", all.filter((m) => !m.free));
+  add.value = "";
+  add.disabled = bdBusy || bdList.length >= MAX_BOT_MODELS;
+  $("bdKind").disabled = bdBusy;
+}
+$("bdKind").onchange = () => {
+  const v = $("bdKind").value;
+  if (v === "own") return;
+  const kind = modelLists().find((l) => l.kind === v);
+  bdList = kind ? [...kind.models] : [];
+  renderModelList();
+};
+$("bdAddModel").onchange = () => {
+  const id = $("bdAddModel").value;
+  if (id && !bdList.includes(id) && bdList.length < MAX_BOT_MODELS) bdList.push(id);
+  renderModelList();
+};
 $("bdCancel").onclick = () => $("botDlg").close();
 $("bdDelete").onclick = () => {
   const b = bots.get(current); if (!b) return;
@@ -2364,9 +2463,8 @@ $("botForm").addEventListener("submit", (ev) => {
     if (!same) send({ type: "set_sharing", bot: b.info.id, sharing, people: picked });
   }
   if (!b.info.central) {
-    // The bot keeps its engine; only the model changes here.
-    const model = $("bdModel").value, wasModel = b.info.model || "";
-    if (model !== wasModel) send({ type: "set_engine", bot: b.info.id, engine: b.info.engine, model });
+    // The bot keeps its engine; only its models change here.
+    if (!sameList(bdList, bdListWas)) send({ type: "set_engine", bot: b.info.id, engine: b.info.engine, models: bdList });
     const daily = $("bdDaily").value.trim(), n = daily ? Math.round(Number(daily)) : null;
     if (n !== (b.info.daily_requests == null ? null : b.info.daily_requests)) send({ type: "set_bot_daily_limit", bot: b.info.id, daily_requests: n });
   }
