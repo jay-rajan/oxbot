@@ -189,6 +189,9 @@ impl Hub {
             (r.and_then(|r| r.page.clone()), labels)
         };
         let page_url = page.as_ref().map(|(_, url)| url.as_str());
+        if let Some(no) = self.steps_gate(bot_id, request, mode, page_url)? {
+            return Ok(no);
+        }
         let browser = self.browser_of(&bot);
         let facts = match &browser {
             Some(shared) if policy::needs_facts(&request.tool) => shared
@@ -247,19 +250,77 @@ impl Hub {
                 Ok(Decision::Deny(message))
             }
             Verdict::Ask(ask) => {
-                if self
-                    .allowed_by_rule(&bot, &ask, tab.as_deref(), page_url)
-                    .await?
-                {
-                    return Ok(Decision::Allow);
-                }
-                self.ask_user(&bot, ask, page).await
+                self.ask_verdict(&bot, ask, request, tab.as_deref(), page)
+                    .await
             }
         }
     }
 
+    /// Several steps at once: only on websites the owner marked for it.
+    /// `Some` refusal for a `page_steps` call anywhere else.
+    fn steps_gate(
+        &self,
+        bot_id: &BotId,
+        request: &PermissionRequest,
+        mode: GateMode,
+        page_url: Option<&str>,
+    ) -> Result<Option<Decision>, HubError> {
+        if request.tool != crate::tools::full_name(policy::PAGE_STEPS_TOOL)
+            || mode != GateMode::Live
+        {
+            return Ok(None);
+        }
+        let Some(no) = self.steps_not_allowed(page_url) else {
+            return Ok(None);
+        };
+        self.record(
+            bot_id,
+            EventKind::Blocked {
+                message: format!("oxbot refused: {no}"),
+            },
+        )?;
+        Ok(Some(Decision::Deny(no)))
+    }
+
+    /// A call the policy says needs the person's OK: a program's card, an
+    /// Always rule, or (asked quietly, one step of a batch) what would be
+    /// asked; else the card.
+    async fn ask_verdict(
+        &self,
+        bot: &Bot,
+        ask: policy::Ask,
+        request: &PermissionRequest,
+        tab: Option<&oxbot_browser::Browser>,
+        page: Option<(String, String)>,
+    ) -> Result<Decision, HubError> {
+        let page_url = page.as_ref().map(|(_, url)| url.as_str());
+        if ask.kind == ApprovalKind::Script {
+            if request.quiet {
+                return Ok(Decision::WouldAsk(format!(
+                    "{} {} folder",
+                    ask.action,
+                    policy::possessive(&bot.name)
+                )));
+            }
+            let program = crate::tools::text_arg(&request.input, "command");
+            return self.script_permission(bot, program).await;
+        }
+        if self.allowed_by_rule(bot, &ask, tab, page_url).await? {
+            return Ok(Decision::Allow);
+        }
+        // One step of a batch: it stops here, and the bot asks for this
+        // step on its own.
+        if request.quiet {
+            return Ok(Decision::WouldAsk(format!(
+                "{} {} on {}",
+                ask.action, ask.target, ask.site
+            )));
+        }
+        self.ask_user(bot, ask, page).await
+    }
+
     /// Shows the user a card for `ask` and turns their answer into the engine's.
-    async fn ask_user(
+    pub(super) async fn ask_user(
         &self,
         bot: &Bot,
         ask: policy::Ask,
@@ -336,6 +397,7 @@ impl Hub {
                     | ApprovalKind::GiveTask
                     | ApprovalKind::Schedule
                     | ApprovalKind::ChangeSchedule
+                    | ApprovalKind::Script
             ) =>
             {
                 None
@@ -373,10 +435,9 @@ impl Hub {
             // Who's offered Always is decided for each client.
             always: false,
             // Herder's cards are never remembered.
-            rule: ask
-                .rule
-                .clone()
-                .filter(|_| ask.kind == ApprovalKind::Change && !bot.is_central()),
+            rule: ask.rule.clone().filter(|_| {
+                matches!(ask.kind, ApprovalKind::Change | ApprovalKind::Script) && !bot.is_central()
+            }),
             schedule: ask.schedule.as_deref().cloned(),
             // A bot shared with picked people: any of them, and its owner,
             // may answer what it asks.

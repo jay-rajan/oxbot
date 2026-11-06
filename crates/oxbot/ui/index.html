@@ -138,6 +138,8 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .door-status .gate-dot { flex: none; }
 .site-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .site-row { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.site-row.step-row { grid-template-columns: 22px 1fr auto; }
+.step-row .check { font-size: .8rem; color: var(--muted); }
 .site-row .name { display: grid; min-width: 0; overflow-wrap: anywhere; }
 .site-row small { color: var(--muted); font-size: .75rem; }
 /* a bot's "Always allowed" rules, in its settings */
@@ -578,6 +580,12 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <ul class="site-rows" id="mySiteRows"></ul>
       <div class="btns"><button class="ghost" type="button" id="signOutMine">Sign out of all your sites</button></div>
     </section>
+    <section>
+      <h3>Several steps at once</h3>
+      <p class="hint">On these websites a bot may fill in, pick and click several things in a row without waiting between them. It still stops and asks you before anything that changes something, such as Add to cart, Submit, Post or Sign in.</p>
+      <ul class="site-rows" id="stepRows"></ul>
+      <form class="add-site" id="stepSiteForm"><input id="stepSiteUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="amazon.ca" aria-label="Website for several steps at once"><button class="ghost" type="submit">Add</button></form>
+    </section>
     </div>
 
     <div id="setGates" role="tabpanel" hidden>
@@ -968,7 +976,8 @@ function onMessage(m) {
     }
     case "sites":
       if (m.owner) mySites = m.sites; else sites = m.sites;
-      renderSiteRows(); renderSignedIn(); break;
+      renderSiteRows(); renderSignedIn(); renderStepRows(); break;
+    case "step_sites": stepSites = m.sites; renderStepRows(); break;
     case "sections": setSections(m); break;
     case "bot_created": pendingSelect = m.id; if (bots.has(m.id)) { pendingSelect = null; select(m.id); } break;
     case "activity": {
@@ -1121,6 +1130,33 @@ function fillSiteRows(ul, list, mine) {
     li.append(siteMark(s), name, open, out); ul.appendChild(li);
   }
 }
+// Several steps at once: the home's websites and any marked one, each with
+// its switch (only the home computer changes them).
+let stepSites = [];
+function renderStepRows() {
+  const ul = $("stepRows"); ul.textContent = "";
+  const farm = !!(settings && settings.farm);
+  $("stepSiteForm").hidden = !farm;
+  const all = [...new Set([...sites.map((s) => s.site), ...stepSites])].sort();
+  if (!all.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "None yet."; ul.appendChild(li); return; }
+  for (const site of all) {
+    const li = document.createElement("li"); li.className = "site-row step-row";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = site;
+    const label = document.createElement("label"); label.className = "check";
+    const box = document.createElement("input"); box.type = "checkbox"; box.checked = stepSites.includes(site); box.disabled = !farm;
+    box.setAttribute("aria-label", `Let bots do several steps at once on ${site}`);
+    box.onchange = () => send({ type: "set_step_site", site, on: box.checked });
+    label.append(box, " Let bots do several steps at once here");
+    li.append(siteMark({ site }), name, label); ul.appendChild(li);
+  }
+}
+$("stepSiteForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const site = $("stepSiteUrl").value.trim();
+  if (!site) return;
+  send({ type: "set_step_site", site, on: true });
+  $("stepSiteUrl").value = "";
+});
 // Gates: pairing phones and laptops (the Farm only).
 let gates = [], pairing = null, pairTimer = null, gateArmed = null, gateArmTimer = null;
 let door = null, netArmed = null, netArmTimer = null;
@@ -2465,6 +2501,27 @@ function renderCards(onlyIfRenamed) {
       card.appendChild(btns);
       return card;
     }
+    if (a.kind === "script") {
+      // A small script in the bot's own folder: the program, word for word.
+      const card = div("card script");
+      const h = document.createElement("h3");
+      const ask = `${a.action} ${a.target}?`;
+      h.textContent = `${ask.charAt(0).toUpperCase()}${ask.slice(1)} It can't use the internet.`;
+      const where = div("where"); where.textContent = "It runs on the home computer and can only change files in the bot's own folder. The program:";
+      card.append(h, where);
+      const pre = document.createElement("pre"); pre.textContent = a.detail || ""; card.appendChild(pre);
+      const btns = div("btns");
+      btn(btns, "Yes", "primary", () => send({ type: "answer", id: a.id, answer: "allow_once" }));
+      if (a.always) btn(btns, "Always for this bot", "ghost", () => send({ type: "answer", id: a.id, answer: "always_allow" }));
+      btn(btns, "No", "deny", () => send({ type: "answer", id: a.id, answer: "deny" }));
+      card.appendChild(btns);
+      if (a.always) {
+        const hint = div("hint");
+        hint.textContent = `Always lets ${who} run small scripts in its own folder without asking, unless it has read a web page or a file in the conversation. Remove it in the bot's ··· settings.`;
+        card.appendChild(hint);
+      }
+      return card;
+    }
     const change = a.kind === "change";
     const card = div(change ? "card change" : "card");
     const h = document.createElement("h3");
@@ -2903,6 +2960,7 @@ $("usageAlerts").onchange = (ev) => send({ type: "set_usage_alerts", on: ev.targ
 $("notifyWhenHidden").onchange = (ev) => send({ type: "set_notify_when_hidden", on: ev.target.checked });
 
 function renderSettings() {
+  renderStepRows();
   if (!settings) return;
   $("aboutVersion").textContent = settings.version;
   $("aboutData").textContent = settings.data_dir;

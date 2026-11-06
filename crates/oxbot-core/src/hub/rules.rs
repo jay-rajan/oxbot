@@ -18,7 +18,8 @@ impl Hub {
     /// manage (its owner or the Farm), that isn't Herder.
     #[must_use]
     pub fn can_always(&self, card: &Approval, viewer: &Viewer) -> bool {
-        if card.kind != ApprovalKind::Change || card.rule.is_none() {
+        if !matches!(card.kind, ApprovalKind::Change | ApprovalKind::Script) || card.rule.is_none()
+        {
             return false;
         }
         let viewer = self.resolve(viewer);
@@ -42,10 +43,16 @@ impl Hub {
             ));
         };
         let bot = self.bot(&card.bot)?;
-        let key = RuleKey {
-            site: card.site.clone(),
-            action: card.action.clone(),
-            label,
+        // A small script's rule is always the same: any program, in the
+        // bot's own folder, with no internet.
+        let key = if card.kind == ApprovalKind::Script {
+            super::scripts::script_rule()
+        } else {
+            RuleKey {
+                site: card.site.clone(),
+                action: card.action.clone(),
+                label,
+            }
         };
         let viewer = self.resolve(viewer);
         self.store

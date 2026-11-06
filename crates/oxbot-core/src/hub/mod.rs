@@ -36,6 +36,7 @@ mod profiles;
 mod reports;
 mod rules;
 mod schedules;
+mod scripts;
 mod sections;
 mod seqs;
 mod session;
@@ -951,7 +952,13 @@ mod tests {
         assert!(hub.set_private("bank", false, &ghost).await.is_err());
         assert!(hub.rename_bot("bank", "Mine", &ghost).await.is_err());
         assert!(hub.delete_bot("bank", &ghost).await.is_err());
-        assert_eq!(hub.sites_for(&ghost).len(), 1, "home's only");
+        let lists = hub.sites_for(&ghost);
+        assert_eq!(
+            lists.len(),
+            2,
+            "home's only, and where bots may do several steps at once"
+        );
+        assert!(matches!(lists[1], ServerMsg::StepSites { .. }));
         assert!(hub.herder_of(&ghost).is_err());
         assert!(!hub.approval_visible(1, &ghost));
         assert!(!hub.sign_in_visible(1, &ghost));

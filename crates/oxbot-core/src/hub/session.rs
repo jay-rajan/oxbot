@@ -307,6 +307,9 @@ impl Hub {
             EngineEvent::HostTool(call) => {
                 tokio::spawn(Arc::clone(self).host_tool(bot.clone(), call));
             }
+            EngineEvent::Sealed(call) => {
+                tokio::spawn(Arc::clone(self).sealed_work(bot.clone(), call));
+            }
             EngineEvent::ModelCall(record) if super::trials::is_trial(bot) => {
                 self.trial_model_call(bot, &record);
             }
@@ -326,6 +329,10 @@ impl Hub {
                     runtime.busy = false;
                     runtime.permit = None;
                     runtime.last_active = Instant::now();
+                    // A sealed tab never outlives its turn.
+                    if let Some(shared) = runtime.browser.clone() {
+                        tokio::spawn(async move { shared.browser.close_sealed().await });
+                    }
                     Self::release_browser(bot, runtime);
                     Some(std::mem::take(&mut runtime.meter))
                 } else {
@@ -619,6 +626,8 @@ fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
         "ask_page" => ("page question", "Asking about the page…"),
         "extract_rows" => ("page tables", "Reading the page's tables…"),
         "query_rows" => ("table query", "Sorting and counting rows…"),
+        "read_pages" => ("pages read with a script", "Reading pages with a script…"),
+        "page_steps" => ("several steps at once", "Doing several steps on the page…"),
         "read_result" => ("saved result", "Reading a saved result…"),
         "update_todo" => ("to-do list", "Updating its to-do list…"),
         "note_progress" => ("progress note", "Noting where it is…"),

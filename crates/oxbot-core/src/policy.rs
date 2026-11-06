@@ -27,6 +27,9 @@
 //! | Herder's `list_bots`, `give_task`, `read_reply` | run |
 //! | Herder's `create_bot` | card with the name and instructions |
 //! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
+//! | `read_pages` | run: each page it opens is checked as a visit, and its script only reads a sealed copy |
+//! | `page_steps` | run on websites marked for several steps at once (the hub checks), each step checked as itself; it stops at the first that would ask |
+//! | a small script the bot runs in its folder (`run_program`) | card (Yes · Always for this bot · No); an Always rule doesn't apply after untrusted text |
 //!
 //! Labels come from the page snapshot (`button "Post"`), so a change behind
 //! an oddly named button can slip past; the bot is also told to ask first.
@@ -321,7 +324,7 @@ pub const ASK_USER_TOOL: &str = "ask_user";
 /// to-do list and progress notes, stored results read back, and the page
 /// tools over stored snapshots. They change nothing outside oxbot, so they
 /// run; the gate still sees every call.
-pub const LOOP_CONTEXT_TOOLS: [&str; 8] = [
+pub const LOOP_CONTEXT_TOOLS: [&str; 10] = [
     "update_todo",
     "note_progress",
     "read_result",
@@ -330,7 +333,57 @@ pub const LOOP_CONTEXT_TOOLS: [&str; 8] = [
     "ask_page",
     "extract_rows",
     "query_rows",
+    READ_PAGES_TOOL,
+    PAGE_STEPS_TOOL,
 ];
+
+/// `read_pages`: several pages read with the bot's script, on sealed
+/// copies. Each page it opens asks the gate as a visit.
+pub const READ_PAGES_TOOL: &str = "read_pages";
+/// `page_steps`: several steps on the page at once, each asked of the gate
+/// as itself. Only on websites the owner marked for it (the hub checks).
+pub const PAGE_STEPS_TOOL: &str = "page_steps";
+/// What the Codex engine asks the gate before a program runs in the bot's
+/// folder (never a tool models see): a card.
+pub const RUN_PROGRAM_TOOL: &str = "run_program";
+/// Where a small script runs, as its card and its Always rule name it.
+pub const SCRIPT_SITE: &str = "the home computer";
+/// A small script's Always rule: what it lets the bot do.
+pub const SCRIPT_RULE_ACTION: &str = "run small scripts";
+/// A small script's Always rule: where.
+pub const SCRIPT_RULE_LABEL: &str = "in its own folder";
+
+/// A name as its owner's: `Meal Plan's`, `Recipes'`.
+#[must_use]
+pub fn possessive(name: &str) -> String {
+    if name.ends_with('s') || name.ends_with('S') {
+        format!("{name}'")
+    } else {
+        format!("{name}'s")
+    }
+}
+
+/// The card for a program a bot wants to run in its folder: "Run this
+/// program in Meal Plan's folder?", the program itself as its detail
+/// (whitespace kept, at most 4,000 characters), and an Always rule to
+/// offer (that bot may run small scripts in its own folder).
+#[must_use]
+pub fn script_ask(bot_name: &str, program: &str) -> Ask {
+    let mut detail: String = program.trim().chars().take(4_000).collect();
+    if program.trim().chars().count() > 4_000 {
+        detail.push('…');
+    }
+    Ask {
+        detail: Some(detail),
+        rule: Some(SCRIPT_RULE_LABEL.to_owned()),
+        ..Ask::new(
+            ApprovalKind::Script,
+            "run this program in",
+            format!("{} folder", possessive(bot_name.trim())),
+            SCRIPT_SITE,
+        )
+    }
+}
 
 /// The browser tools oxbot offers models (their own names). None
 /// is one [`decide`] always refuses; scripts, network and console tools
@@ -420,6 +473,13 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         .any(|t| tool == tools::full_name(t))
     {
         return Some(Verdict::Allow);
+    }
+    // The hub names the bot on the card.
+    if tool == tools::full_name(RUN_PROGRAM_TOOL) {
+        return Some(Verdict::Ask(script_ask(
+            "the bot",
+            tools::text_arg(input, "command"),
+        )));
     }
     (tool == tools::full_name(CREATE_BOT_TOOL)).then(|| {
         let private = input.get("private").and_then(Value::as_bool) == Some(true);
@@ -1316,6 +1376,37 @@ mod tests {
                 assert!(matches!(verdict, Verdict::Allow), "{name}: {verdict:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_program_asks_in_plain_words_with_the_program_shown() {
+        let ask = script_ask("Meal Plan", "  python3 totals.py groceries.csv\n");
+        assert_eq!(ask.kind, ApprovalKind::Script);
+        assert_eq!(
+            format!("{} {} on {}", ask.action, ask.target, ask.site),
+            "run this program in Meal Plan's folder on the home computer"
+        );
+        assert_eq!(
+            ask.detail.as_deref(),
+            Some("python3 totals.py groceries.csv")
+        );
+        assert_eq!(ask.rule.as_deref(), Some(SCRIPT_RULE_LABEL));
+        assert_eq!(script_ask("Recipes", "ls").target, "Recipes' folder");
+        let long = "x".repeat(5_000);
+        let detail = script_ask("A", &long).detail.unwrap();
+        assert_eq!(detail.chars().count(), 4_001);
+        assert!(detail.ends_with('…'));
+        // Through the policy, a program always asks.
+        let verdict = decide(
+            "mcp__oxbot__run_program",
+            &json!({"command": "ls"}),
+            ctx(),
+            |_| None,
+        );
+        assert!(
+            matches!(verdict, Verdict::Ask(ref a) if a.kind == ApprovalKind::Script),
+            "{verdict:?}"
+        );
     }
 
     #[test]

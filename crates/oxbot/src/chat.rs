@@ -258,6 +258,7 @@ impl View {
             | ServerMsg::SignInResolved { .. }
             | ServerMsg::Setup(_)
             | ServerMsg::Sites { .. }
+            | ServerMsg::StepSites { .. }
             | ServerMsg::Sections { .. }
             | ServerMsg::People { .. }
             | ServerMsg::AllowRules { .. }
