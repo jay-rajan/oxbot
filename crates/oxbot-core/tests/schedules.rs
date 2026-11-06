@@ -260,7 +260,10 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
     );
     let told = fake.told().unwrap();
     assert!(
-        told.starts_with("[Jay] (scheduled task they set up earlier, Every weekday at 8:15 AM;"),
+        // Jay is someone oxbot knows: the model gets a stand-in.
+        told.starts_with(
+            "[[person 1]] (scheduled task they set up earlier, Every weekday at 8:15 AM;"
+        ),
         "{told}"
     );
 
@@ -334,6 +337,7 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
         .lines()
         .find(|l| l.starts_with("[oxbot] About the person"))
         .unwrap();
+    // The person let bots use the home area, so it goes as it is.
     assert!(line.contains("food needs: vegetarian") && line.contains("home area: Toronto, ON"));
     assert!(!line.contains("metric"), "kept from bots");
     assert!(!line.contains("Jay"), "never their name: {line}");

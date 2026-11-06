@@ -41,6 +41,10 @@ pub struct Asker {
     pub step: u32,
     /// Whether the bot is private (providers that keep no data).
     pub privacy: Privacy,
+    /// Personal details were swapped for stand-ins before it leaves (see
+    /// [`Gateway::removes_personal_details`]): a private bot's request to
+    /// a free model then needn't refuse providers that keep data.
+    pub filtered: bool,
     /// The pacer queue.
     pub lane: Lane,
     /// The engine asking, for the meter (e.g. `codex`).
@@ -171,6 +175,7 @@ fn caller<'a>(
         turn: asker.turn,
         step: asker.step,
         privacy: asker.privacy,
+        filtered: asker.filtered,
         lane: asker.lane,
         kind: asker.kind,
         engine: &asker.engine,
@@ -189,6 +194,18 @@ fn caller<'a>(
 impl Gateway {
     pub(crate) fn new(shared: Arc<Shared>) -> Self {
         Self { shared }
+    }
+
+    /// Whether the owner wants personal details swapped for stand-ins
+    /// before a request leaves (on unless they turned it off).
+    #[must_use]
+    pub fn removes_personal_details(&self) -> bool {
+        self.shared
+            .setup
+            .prefs
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove_personal_details
     }
 
     /// The model the router would ask first now for `choice`, the window a
@@ -322,6 +339,7 @@ mod tests {
             turn: Some(0),
             step: 0,
             privacy: Privacy::Private,
+            filtered: false,
             lane: Lane::Live,
             engine: "codex".into(),
             kind: CallKind::Chat,
@@ -514,6 +532,33 @@ mod tests {
             !engine.data_policy_blocked(),
             "a private bot asked for it: not the account's settings"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_private_bot_without_its_personal_details_may_use_any_free_provider() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let engine = engine(Arc::clone(&store));
+        let gateway = engine.gateway();
+        assert!(gateway.removes_personal_details(), "on by default");
+        let filtered = Asker {
+            filtered: true,
+            ..asker()
+        };
+        let said = "No endpoints found matching your data policy (Free model training).";
+        let (tried, result) = tries(
+            &gateway,
+            &filtered,
+            vec![LlmError::new(ErrorKind::DataPolicy, said)],
+        )
+        .await;
+        let prefs = tried[0].provider.as_ref().unwrap();
+        assert!(!prefs.denies_data_collection() && prefs.zdr.is_none());
+        // Refused by the account's own settings, not oxbot's: said so.
+        let Err(GatewayStop::Fail(text)) = result else {
+            panic!("{result:?}")
+        };
+        assert!(text.starts_with(crate::DATA_POLICY_HELP), "{text}");
+        assert!(store.calls().iter().all(|c| !c.private));
     }
 
     #[tokio::test(start_paused = true)]

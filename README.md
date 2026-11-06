@@ -166,7 +166,7 @@ calls it the AI helper and never names it): Codex CLI 0.148.x runs the agent loo
   (`bots/<id>/codex`) and a config oxbot writes at every start: analytics, plugins, web search,
   update checks and its shell off, and no Codex instructions of its own. Its only model provider
   is oxbot's **relay** on 127.0.0.1, which checks the process's token, strips Codex's ids,
-  headers and metadata, applies the bot's model, privacy and limits, sends the request to
+  headers and metadata, swaps personal details for stand-ins, applies the bot's model, privacy and limits, sends the request to
   OpenRouter's Responses API with the home's key and meters it. Any other address Codex tries
 goes to a proxy that refuses it. What the relay sent is kept for 14 days in the bot's
 `context/relay` folder. A person's own `~/.codex` is never read.
@@ -205,8 +205,8 @@ the page; signing out deletes it (to revoke the key itself, delete "oxbot on {yo
 openrouter.ai/keys). The same place shows the key's limits and today's use, the free models that
 can run bots (read from OpenRouter's model list, which needs no key), questions a day per bot and
 per person, an off-by-default switch for paid models when every free one is busy (with a monthly
-dollar cap, $10 by default, up to $500), and an off-by-default switch to ask providers not to keep data for every bot
-(private bots always ask).
+dollar cap, $10 by default, up to $500), an off-by-default switch to ask providers not to keep data
+for every bot, and an on-by-default switch to remove personal details before anything is sent (below).
 
 Models and limits: oxbot reads OpenRouter's model list and uses free models that can call tools
 and hold at least 64k tokens, the best first; when one is busy or rate-limited (429), the next
@@ -229,10 +229,18 @@ is `models = [...]` in the `[openrouter]` table of `bot.toml`; files without it 
 
 What leaves the home computer: a bot's conversation (your messages, and the pages and files it
 reads) goes only to OpenRouter, through oxbot's relay, and on to the
-provider OpenRouter routes it to; free providers may keep or learn from it. Private bots ask for
-providers that don't collect data and keep nothing (`data_collection: deny` and zero retention);
-if no free model qualifies, the bot says so instead of switching quietly (it may first drop zero
-retention, never the deny, and says that too). Signing in, the model list and the key's limits
+provider OpenRouter routes it to; free providers may keep or learn from it. Personal details are
+removed first: the relay swaps emails, phone numbers, street addresses, postal and ZIP codes,
+card numbers (Luhn-checked), SIN/SSN numbers, IBANs and account numbers named as such, and every
+person's name and the home area oxbot knows, for stand-ins (`[email 1]`, `[person 2]`), the same
+one all through a chat (kept beside what was sent, owner-only), and swaps them back in the
+answer as it streams, so a bot can still type the real email into a form (after its approval
+request). Not caught: details only described in words, names oxbot was never told, a name typed
+in lower case. With that on (the default), private bots may use free models; paid models still
+get `data_collection: deny`. If the owner turns it off, private bots ask for providers that don't
+collect data and keep nothing (`data_collection: deny` and zero retention); if no free model
+qualifies, the bot says so instead of switching quietly (it may first drop zero retention, never
+the deny, and says that too). Signing in, the model list and the key's limits
 also go to openrouter.ai. Codex's analytics, plugins and update checks are off, Codex never
 contacts OpenAI itself, and nothing goes to Anthropic. A person's profile details that they let bots use (and the home area, if
 the owner allows it) go with their tasks; their name never does. Chats, saved steps, the meter

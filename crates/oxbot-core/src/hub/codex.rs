@@ -53,6 +53,7 @@ impl Hub {
             gateway: loop_engine.gateway(),
             upstream: parts.upstream,
             log: Arc::clone(&self.store) as _,
+            names: Arc::clone(&self.store) as _,
         })
         .await
         {

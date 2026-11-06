@@ -92,6 +92,7 @@ fn loop_prefs(p: &EnginePrefs) -> LoopPrefs {
         paid_models: p.paid_models.clone(),
         herder_model: p.herder_model.clone(),
         deny_data_collection_all: p.no_data_collection,
+        remove_personal_details: p.remove_personal_details,
         ..LoopPrefs::default()
     }
 }

@@ -16,12 +16,19 @@
 //!   rate-limited model hands over to the next, a limit stops the request
 //!   with oxbot's own words, and every request is metered
 //!   (`model_calls`, engine `codex`).
-//! - What was sent is kept ([`RelayLog`]): the outgoing body in a file
-//!   under the bot's context folder, readable only by this Mac's user.
+//! - Personal details stay home ([`personal`]): unless the owner turned
+//!   it off, every personal detail in the conversation is swapped for a
+//!   stand-in before it leaves (`[email 1]`, `[person 2]`), and swapped
+//!   back in the answer as it streams to Codex. A chat's stand-ins are
+//!   kept beside what was sent, so a resumed chat keeps them.
+//! - What was sent is kept ([`RelayLog`]): the outgoing body (stand-ins,
+//!   not details: what left the Mac) in a file under the bot's context
+//!   folder, readable only by this Mac's user.
 
 // Product names (OpenRouter, Codex) read better in docs without backticks.
 #![allow(clippy::doc_markdown)]
 
+pub mod personal;
 pub mod shape;
 pub mod tap;
 
@@ -46,6 +53,7 @@ use oxbot_loop::gateway::{Asker, Gateway, GatewayStop, Ticket};
 use oxbot_loop::meter::now_ms;
 use oxbot_loop::pacer::Lane;
 use oxbot_loop::router::TurnRouting;
+use personal::{Known, Redactor, SseRestorer, StandIns};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -117,6 +125,23 @@ impl RelayLog for NoLog {
     }
 }
 
+/// The names oxbot knows (people, the home area), for swapping them for
+/// stand-ins. Read for every request, so a new person counts at once.
+pub trait KnownNames: Send + Sync {
+    /// Everyone and every place oxbot was told about.
+    fn known_names(&self) -> Vec<Known>;
+}
+
+/// Knows no names (tests).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoNames;
+
+impl KnownNames for NoNames {
+    fn known_names(&self) -> Vec<Known> {
+        Vec::new()
+    }
+}
+
 /// What the relay runs with.
 pub struct RelaySetup {
     /// The loop's routing, limits, pacer and meter.
@@ -125,6 +150,8 @@ pub struct RelaySetup {
     pub upstream: Arc<dyn Upstream>,
     /// Where what was sent is noted.
     pub log: Arc<dyn RelayLog>,
+    /// The names to swap for stand-ins.
+    pub names: Arc<dyn KnownNames>,
 }
 
 /// One Codex process's bot, as oxbot knows it.
@@ -179,13 +206,60 @@ struct Turn {
     stop: Option<String>,
 }
 
+/// A chat's stand-ins, and where they're kept.
+struct Personal {
+    session: String,
+    redactor: Redactor,
+    path: PathBuf,
+}
+
 /// One registered Codex process.
 struct Client {
     info: Mutex<ClientInfo>,
     turn: Mutex<Option<Turn>>,
+    personal: Mutex<Option<Personal>>,
 }
 
 impl Client {
+    /// Swaps the personal details in `request` for the chat's stand-ins
+    /// (kept on disk when new ones were made); the stand-ins, for the
+    /// answer.
+    fn redact(
+        &self,
+        request: &mut serde_json::Map<String, Value>,
+        session: &str,
+        context_dir: &Path,
+        known: Vec<Known>,
+    ) -> Arc<StandIns> {
+        let mut personal = self.personal.lock().unwrap_or_else(PoisonError::into_inner);
+        if personal.as_ref().is_none_or(|p| p.session != session) {
+            let path = stand_ins_path(context_dir, session);
+            let stand_ins = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|json| StandIns::from_json(&json).ok())
+                .unwrap_or_default();
+            *personal = Some(Personal {
+                session: session.to_owned(),
+                redactor: Redactor::resume(Vec::new(), stand_ins),
+                path,
+            });
+        }
+        let Some(p) = personal.as_mut() else {
+            return Arc::default();
+        };
+        p.redactor.set_known(known);
+        let before = p.redactor.stand_ins().len();
+        p.redactor.redact_request(request);
+        let stand_ins = p.redactor.stand_ins();
+        if stand_ins.len() != before
+            && let Some(dir) = p.path.parent()
+            && let Err(err) = write_private(dir, &p.path, stand_ins.to_json().as_bytes())
+        {
+            tracing::warn!(%err, "couldn't keep a chat's stand-ins");
+        }
+        Arc::new(stand_ins.clone())
+    }
+
     fn turn(&self) -> std::sync::MutexGuard<'_, Option<Turn>> {
         self.turn.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -385,6 +459,7 @@ impl Relay {
         let client = Arc::new(Client {
             info: Mutex::new(info),
             turn: Mutex::new(None),
+            personal: Mutex::new(None),
         });
         self.inner
             .clients()
@@ -457,6 +532,7 @@ fn asker_of(info: &ClientInfo, turn: &Turn) -> Asker {
         turn: Some(turn.start.turn),
         step: turn.requests,
         privacy: info.privacy,
+        filtered: false,
         lane: turn.start.lane,
         engine: ENGINE.to_owned(),
         kind: CallKind::Chat,
@@ -471,7 +547,7 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
             "Not a Codex process of this oxbot.",
         );
     };
-    let Ok(Value::Object(request)) = serde_json::from_slice::<Value>(&body) else {
+    let Ok(Value::Object(mut request)) = serde_json::from_slice::<Value>(&body) else {
         return error(StatusCode::BAD_REQUEST, "Not a Responses API request.");
     };
     let stream = request
@@ -480,7 +556,7 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
         .unwrap_or(false);
     let info = client.info();
     // The turn as oxbot recorded it: who it's for, and what it may still do.
-    let (asker, mut routing, meter) = {
+    let (mut asker, mut routing, meter) = {
         let mut turn = client.turn();
         let Some(t) = turn.as_mut() else {
             return error(
@@ -501,6 +577,17 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
         t.requests += 1;
         (asker, t.routing.clone(), t.start.meter.clone())
     };
+    // Personal details become stand-ins before anything leaves, and the
+    // answer gets them back.
+    let stand_ins = relay.setup.gateway.removes_personal_details().then(|| {
+        asker.filtered = true;
+        client.redact(
+            &mut request,
+            asker.session.as_deref().unwrap_or_default(),
+            &info.context_dir,
+            relay.setup.names.known_names(),
+        )
+    });
     // Fires when Codex goes away (the answer it was reading is dropped):
     // the request upstream stops too.
     let cancel = CancellationToken::new();
@@ -523,9 +610,9 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
         Ok(opened) => {
             let (answer, ticket) = (opened.value, opened.ticket);
             if stream {
-                streamed(answer, ticket, meter, stop_with_codex)
+                streamed(answer, ticket, meter, stop_with_codex, stand_ins)
             } else {
-                whole(answer, ticket, meter).await
+                whole(answer, ticket, meter, stand_ins).await
             }
         }
         Err(GatewayStop::Fail(why)) => {
@@ -575,6 +662,26 @@ fn note_sent(relay: &Inner, info: &ClientInfo, asker: &Asker, model: &str, bytes
 /// The folder under a bot's context folder that keeps what was sent.
 pub const LOG_DIR: &str = "relay";
 
+/// Where a chat's stand-ins are kept: beside what was sent (never swept
+/// with it: the name doesn't start with a time).
+#[must_use]
+pub fn stand_ins_path(context_dir: &Path, session: &str) -> PathBuf {
+    let safe: String = session
+        .chars()
+        .take(80)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    context_dir
+        .join(LOG_DIR)
+        .join(format!("stand-ins-{safe}.json"))
+}
+
 /// Writes `bytes` to `path` (in `dir`, made owner-only), owner-only, all
 /// at once (a reader never sees half a file).
 fn write_private(dir: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -586,6 +693,7 @@ fn write_private(dir: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     let tmp = path.with_extension("part");
+    let _ = std::fs::remove_file(&tmp);
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -664,45 +772,74 @@ impl Drop for Metered {
     }
 }
 
-/// Passes a streamed answer on as it comes, metering it at the end.
+/// A streamed answer on its way to Codex.
+struct Streaming {
+    body: futures_util::stream::BoxStream<'static, Result<Bytes, LlmError>>,
+    metered: Metered,
+    /// Stand-ins turned back, when the request had them.
+    restorer: Option<SseRestorer>,
+    _guard: tokio_util::sync::DropGuard,
+}
+
+impl Streaming {
+    /// The next bytes for Codex (`None`: the answer is over).
+    async fn next(&mut self) -> Option<Result<Bytes, std::io::Error>> {
+        loop {
+            match self.body.next().await {
+                Some(Ok(bytes)) => {
+                    self.metered.tap.push(&bytes);
+                    let Some(restorer) = &mut self.restorer else {
+                        return Some(Ok(bytes));
+                    };
+                    let out = restorer.push(&bytes);
+                    // Only part of an event yet: wait for the rest.
+                    if !out.is_empty() {
+                        return Some(Ok(Bytes::from(out)));
+                    }
+                }
+                Some(Err(err)) => {
+                    self.metered.cut = Some(err.clone());
+                    self.metered.ended = true;
+                    return Some(Err(std::io::Error::other(err.message)));
+                }
+                None => {
+                    self.metered.ended = true;
+                    let rest = self.restorer.take().map(|mut r| r.finish())?;
+                    return (!rest.is_empty()).then(|| Ok(Bytes::from(rest)));
+                }
+            }
+        }
+    }
+}
+
+/// Passes a streamed answer on as it comes (its stand-ins turned back),
+/// metering it at the end.
 fn streamed(
     answer: RawAnswer,
     ticket: Ticket,
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
     stop_with_codex: tokio_util::sync::DropGuard,
+    stand_ins: Option<Arc<StandIns>>,
 ) -> Response {
-    let state = (
-        answer.body,
-        Metered {
+    let state = Streaming {
+        body: answer.body,
+        metered: Metered {
             ticket: Some(ticket),
             tap: tap::Tap::default(),
             cut: None,
             ended: false,
             meter,
         },
-        stop_with_codex,
-    );
+        restorer: stand_ins.map(SseRestorer::new),
+        _guard: stop_with_codex,
+    };
     // Dropped unfinished (Codex went away): `Metered` counts it as
     // stopped, and the guard stops the request upstream.
     let body = futures_util::stream::unfold(Some(state), |state| async move {
-        let (mut body, mut metered, guard) = state?;
-        match body.next().await {
-            Some(Ok(bytes)) => {
-                metered.tap.push(&bytes);
-                Some((
-                    Ok::<Bytes, std::io::Error>(bytes),
-                    Some((body, metered, guard)),
-                ))
-            }
-            Some(Err(err)) => {
-                metered.cut = Some(err.clone());
-                metered.ended = true;
-                Some((Err(std::io::Error::other(err.message)), None))
-            }
-            None => {
-                metered.ended = true;
-                None
-            }
+        let mut state = state?;
+        match state.next().await? {
+            Ok(bytes) => Some((Ok(bytes), Some(state))),
+            Err(err) => Some((Err(err), None)),
         }
     });
     (
@@ -712,11 +849,13 @@ fn streamed(
         .into_response()
 }
 
-/// Reads a whole (not streamed) answer, meters it and passes it on.
+/// Reads a whole (not streamed) answer, meters it and passes it on (its
+/// stand-ins turned back).
 async fn whole(
     answer: RawAnswer,
     ticket: Ticket,
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
+    stand_ins: Option<Arc<StandIns>>,
 ) -> Response {
     let mut metered = Metered {
         ticket: Some(ticket),
@@ -748,6 +887,9 @@ async fn whole(
         return error(StatusCode::BAD_GATEWAY, &err.message);
     }
     metered.tap.whole(&all);
+    if let Some(stand_ins) = stand_ins {
+        all = stand_ins.restore_body(&all);
+    }
     (
         [(header::CONTENT_TYPE, answer.content_type)],
         Body::from(all),

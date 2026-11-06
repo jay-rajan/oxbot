@@ -89,6 +89,8 @@ pub(crate) struct Caller<'a> {
     pub turn: Option<u32>,
     pub step: u32,
     pub privacy: Privacy,
+    /// Personal details were removed from the request (the relay).
+    pub filtered: bool,
     pub lane: Lane,
     pub kind: CallKind,
     /// The engine that asked, for the meter (`openrouter`: the loop).
@@ -131,8 +133,10 @@ impl Caller<'_> {
         }
     }
 
+    /// Whether every request asks for providers that don't keep data: a
+    /// private bot's, unless its personal details were removed first.
     fn private(&self) -> bool {
-        self.privacy == Privacy::Private
+        (self.privacy == Privacy::Private && !self.filtered)
             || self
                 .shared
                 .setup
@@ -142,12 +146,23 @@ impl Caller<'_> {
                 .deny_data_collection_all
     }
 
-    /// OpenRouter's provider rules for this bot.
-    fn provider_prefs(&self) -> Option<ProviderPrefs> {
+    /// Whether a request on a free model or not asks for providers that
+    /// don't keep data: a private bot's without its personal details
+    /// still does on paid models.
+    fn denies(&self, free: bool) -> bool {
+        self.private() || (self.privacy == Privacy::Private && !free)
+    }
+
+    /// OpenRouter's provider rules for this bot, on a free model or not.
+    fn provider_prefs(&self, free: bool) -> Option<ProviderPrefs> {
         if self.model.provider() != Provider::OpenRouter {
             return None;
         }
-        Some(if self.private() {
+        Some(if self.denies(free) && !self.private() {
+            // Personal details removed: paid models still get "don't
+            // keep" where offered.
+            ProviderPrefs::private_bot().without_zdr()
+        } else if self.private() {
             let prefs = ProviderPrefs::private_bot();
             if self.zdr_dropped {
                 prefs.without_zdr()
@@ -225,14 +240,26 @@ impl Caller<'_> {
                 self.activity(Activity::Other(ZDR_DROPPED.to_owned()));
                 return Stop::Fail(String::new());
             }
+            let removed = self
+                .shared
+                .setup
+                .prefs
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove_personal_details;
             return Stop::Fail(format!(
                 "This bot is private, so it may only use model providers that don't keep its \
                  data, and none of the free models has one right now. You can make the bot \
-                 shared{}, or try again later.{}",
+                 shared{}{}, or try again later.{}",
                 if self.paid_note().is_empty() {
                     ""
                 } else {
                     ", switch on paid models in Settings → AI models"
+                },
+                if removed {
+                    ""
+                } else {
+                    ", have personal details removed first (Settings → AI models)"
                 },
                 self.said()
             ));
@@ -300,7 +327,7 @@ impl Caller<'_> {
             }
         }
         self.activity(Activity::Requesting);
-        let provider = self.provider_prefs();
+        let provider = self.provider_prefs(route.primary.free);
         let private = provider
             .as_ref()
             .is_some_and(ProviderPrefs::denies_data_collection);
@@ -446,7 +473,7 @@ impl Caller<'_> {
     /// A request on `route` answered, by `model` (empty: unknown).
     pub(crate) fn answered_by(&mut self, route: &Route, model: &str) {
         self.shared.router.ok(&route.primary.id);
-        if route.primary.free && !self.private() {
+        if route.primary.free && !self.denies(true) {
             // Free models answer requests without "deny" again.
             self.shared.data_policy.clear();
         }
@@ -502,7 +529,7 @@ impl Caller<'_> {
                         }
                     }
                     ErrorKind::NoProvider | ErrorKind::DataPolicy => {
-                        if err.kind == ErrorKind::DataPolicy && !self.private() {
+                        if err.kind == ErrorKind::DataPolicy && !self.denies(route.primary.free) {
                             // The account's own privacy settings, not oxbot's.
                             self.data_policy = true;
                             self.shared.data_policy.set();
@@ -584,6 +611,7 @@ impl ModelCaller for HelperCaller<'_> {
                 turn: self.turn,
                 step: self.step,
                 privacy: self.privacy,
+                filtered: false,
                 lane: self.lane,
                 kind,
                 engine: ENGINE,

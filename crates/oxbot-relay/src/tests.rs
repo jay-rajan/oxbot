@@ -12,6 +12,8 @@ struct FakeUpstream {
     bodies: Mutex<Vec<Value>>,
     /// Errors to give first, in order.
     errors: Mutex<Vec<LlmError>>,
+    /// What to answer instead of [`STREAM`] (and whether it's JSON).
+    answer: Mutex<Option<(String, bool)>>,
 }
 
 const STREAM: &str = "event: response.created\ndata: {\"type\":\"response.created\"}\n\n\
@@ -33,17 +35,28 @@ impl Upstream for FakeUpstream {
             let mut errors = self.errors.lock().unwrap();
             (!errors.is_empty()).then(|| errors.remove(0))
         };
+        let (answer, json) = self
+            .answer
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| (STREAM.to_owned(), false));
         Box::pin(async move {
             if let Some(err) = err {
                 return Err(err);
             }
-            let chunks: Vec<Result<Bytes, LlmError>> = STREAM
+            let chunks: Vec<Result<Bytes, LlmError>> = answer
                 .as_bytes()
                 .chunks(13)
                 .map(|c| Ok(Bytes::copy_from_slice(c)))
                 .collect();
             Ok(RawAnswer {
-                content_type: "text/event-stream".into(),
+                content_type: if json {
+                    "application/json"
+                } else {
+                    "text/event-stream"
+                }
+                .into(),
                 body: futures_util::stream::iter(chunks).boxed(),
             })
         })
@@ -72,12 +85,27 @@ struct Harness {
     relay: Relay,
     upstream: Arc<FakeUpstream>,
     store: Arc<MemoryLoopStore>,
+    prefs: Arc<std::sync::RwLock<oxbot_loop::LoopPrefs>>,
     dir: tempfile::TempDir,
 }
 
+/// The names a test's oxbot knows.
+struct Names(Vec<personal::Known>);
+
+impl KnownNames for Names {
+    fn known_names(&self) -> Vec<personal::Known> {
+        self.0.clone()
+    }
+}
+
 async fn harness() -> Harness {
+    harness_knowing(Vec::new()).await
+}
+
+async fn harness_knowing(names: Vec<personal::Known>) -> Harness {
     let store = Arc::new(MemoryLoopStore::new());
     let mut setup = LoopSetup::new(Arc::new(ScriptedModel::new()), Arc::clone(&store) as _);
+    let prefs = Arc::clone(&setup.prefs);
     setup.catalog = Arc::new(CatalogCache::new(Catalog {
         models: vec![model("e2e/a:free"), model("e2e/b:free")],
     }));
@@ -87,6 +115,7 @@ async fn harness() -> Harness {
         gateway: engine.gateway(),
         upstream: Arc::clone(&upstream) as _,
         log: Arc::new(NoLog),
+        names: Arc::new(Names(names)),
     })
     .await
     .unwrap();
@@ -94,6 +123,7 @@ async fn harness() -> Harness {
         relay,
         upstream,
         store,
+        prefs,
         dir: tempfile::tempdir().unwrap(),
     }
 }
@@ -311,4 +341,171 @@ async fn what_was_sent_is_kept_owner_only_and_swept() {
         200
     );
     assert_eq!(sweep(h.dir.path(), now_ms() + 1, MAX_LOG_BYTES), 1);
+}
+
+/// A request whose message has personal details: an email, a phone
+/// number and a name oxbot knows.
+const PERSONAL: &str = r#"{"model":"m","stream":true,"instructions":"You help Ann Lee.",
+    "input":[{"type":"message","role":"user","content":[{"type":"input_text",
+      "text":"[Ann Lee] email ann.lee@example.com or call 416-555-0100"}]},
+     {"type":"function_call","call_id":"c1","name":"type_text",
+      "arguments":"{\"text\":\"ann.lee@example.com\"}"},
+     {"type":"function_call_output","call_id":"c1","output":"Typed it for Ann."}]}"#;
+
+/// A streamed answer that uses the stand-ins, split mid-way through one.
+fn answer_with_stand_ins() -> String {
+    let events = [
+        json!({"type": "response.created", "response": {"id": "g"}}),
+        json!({"type": "response.output_text.delta", "item_id": "m", "delta": "Hi [per"}),
+        json!({"type": "response.output_text.delta", "item_id": "m", "delta": "son 1], I'll write to [email 1]."}),
+        json!({"type": "response.function_call_arguments.delta", "item_id": "f", "delta": "{\"text\":\"[phone 1]\"}"}),
+        json!({"type": "response.completed", "response": {"id": "g", "model": "e2e/a:free",
+            "usage": {"input_tokens": 9, "output_tokens": 3}}}),
+    ];
+    events.iter().fold(String::new(), |mut out, e| {
+        use std::fmt::Write as _;
+        let _ = write!(out, "event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap());
+        out
+    })
+}
+
+#[tokio::test]
+async fn personal_details_leave_as_stand_ins_and_come_back_real() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let h = harness_knowing(vec![personal::Known::person("Ann Lee")]).await;
+    *h.upstream.answer.lock().unwrap() = Some((answer_with_stand_ins(), false));
+    let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
+    client.begin_turn(start(None));
+    let (status, body) = post(h.relay.addr(), "/v1/responses", Some(&token), PERSONAL).await;
+    assert_eq!(status, 200);
+    let sent = h.upstream.bodies.lock().unwrap()[0].clone();
+    let text = sent.to_string();
+    for real in ["Ann", "ann.lee@example.com", "416-555-0100"] {
+        assert!(!text.contains(real), "{real} left: {text}");
+    }
+    assert_eq!(sent["instructions"], "You help [person 1].");
+    assert_eq!(
+        sent["input"][0]["content"][0]["text"],
+        "[[person 1]] email [email 1] or call [phone 1]"
+    );
+    assert_eq!(sent["input"][1]["arguments"], r#"{"text":"[email 1]"}"#);
+    assert_eq!(sent["input"][2]["output"], "Typed it for [person 2].");
+    // Codex gets the real details back, as valid events.
+    let said: String = body
+        .split("\n\n")
+        .filter_map(|f| f.lines().find_map(|l| l.strip_prefix("data: ")))
+        .map(|d| serde_json::from_str::<Value>(d).unwrap())
+        .filter(|e| e["type"] == "response.output_text.delta")
+        .map(|e| e["delta"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(said, "Hi Ann Lee, I'll write to ann.lee@example.com.");
+    assert!(
+        body.contains(r#""delta":"{\"text\":\"416-555-0100\"}""#),
+        "{body}"
+    );
+    assert!(!body.contains("[email") && !body.contains("[per"), "{body}");
+    // What was sent is kept as it left.
+    let logs: Vec<_> = std::fs::read_dir(h.dir.path().join(LOG_DIR))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().is_some_and(|x| x == "json")
+                && !p
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("stand-ins")
+        })
+        .collect();
+    assert_eq!(logs.len(), 1);
+    let kept = std::fs::read_to_string(&logs[0]).unwrap();
+    assert!(!kept.contains("ann.lee@example.com") && kept.contains("[email 1]"));
+    // The chat's stand-ins are kept, owner-only, and never swept.
+    let path = stand_ins_path(h.dir.path(), "s1");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(sweep(h.dir.path(), now_ms() + 1, MAX_LOG_BYTES), 1);
+    assert!(path.exists());
+    let _ = client.end_turn();
+
+    // A new Codex process for the same chat (oxbot restarted) keeps them:
+    // the phone number is still [phone 1], a new email is [email 2].
+    drop(client);
+    let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
+    client.begin_turn(start(None));
+    let again = PERSONAL.replace("call 416-555-0100", "call (416) 555-0100 or bo@x.io");
+    assert_eq!(
+        post(h.relay.addr(), "/v1/responses", Some(&token), &again)
+            .await
+            .0,
+        200
+    );
+    let sent = h.upstream.bodies.lock().unwrap()[1].clone();
+    assert_eq!(
+        sent["input"][0]["content"][0]["text"],
+        "[[person 1]] email [email 1] or call [phone 1] or [email 2]"
+    );
+}
+
+#[tokio::test]
+async fn a_whole_answer_comes_back_real() {
+    let h = harness_knowing(vec![personal::Known::person("Ann Lee")]).await;
+    let whole = json!({"id": "g", "model": "e2e/a:free", "output": [
+        {"type": "message", "content": [{"type": "output_text", "text": "Done, [person 1]."}]},
+        {"type": "function_call", "arguments": "{\"to\":\"[email 1]\"}"}],
+        "usage": {"input_tokens": 3, "output_tokens": 1}});
+    *h.upstream.answer.lock().unwrap() = Some((whole.to_string(), true));
+    let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
+    client.begin_turn(start(None));
+    let request = PERSONAL.replace(r#""stream":true"#, r#""stream":false"#);
+    let (status, body) = post(h.relay.addr(), "/v1/responses", Some(&token), &request).await;
+    assert_eq!(status, 200);
+    let got: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["output"][0]["content"][0]["text"], "Done, Ann Lee.");
+    assert_eq!(
+        got["output"][1]["arguments"],
+        r#"{"to":"ann.lee@example.com"}"#
+    );
+}
+
+#[tokio::test]
+async fn a_private_bot_may_use_free_models_once_details_are_removed() {
+    let h = harness_knowing(vec![personal::Known::person("Ann Lee")]).await;
+    let private = ClientInfo {
+        privacy: Privacy::Private,
+        ..info(h.dir.path())
+    };
+    let (client, token) = h.relay.register(private).unwrap();
+    client.begin_turn(start(None));
+    assert_eq!(
+        post(h.relay.addr(), "/v1/responses", Some(&token), PERSONAL)
+            .await
+            .0,
+        200
+    );
+    // The owner turns removal off: back to providers that don't keep data,
+    // and the details go as they are.
+    h.prefs.write().unwrap().remove_personal_details = false;
+    assert_eq!(
+        post(h.relay.addr(), "/v1/responses", Some(&token), PERSONAL)
+            .await
+            .0,
+        200
+    );
+    let bodies = h.upstream.bodies.lock().unwrap().clone();
+    assert!(
+        bodies[0]["provider"].get("data_collection").is_none(),
+        "{}",
+        bodies[0]
+    );
+    assert!(bodies[0].to_string().contains("[email 1]"));
+    assert_eq!(bodies[1]["provider"]["data_collection"], "deny");
+    assert_eq!(bodies[1]["provider"]["zdr"], true);
+    assert!(bodies[1].to_string().contains("ann.lee@example.com"));
+    let calls = h.store.calls();
+    assert!(!calls[0].private && calls[1].private);
 }

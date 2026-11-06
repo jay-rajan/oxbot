@@ -306,7 +306,7 @@ impl FakeBots {
             .flatten()
             .flatten()
             .filter_map(|e| Bot::load(&e.path()).ok())
-            .find(|b| b.name == name)
+            .find(|b| same_name(name, &b.name))
             .map_or_else(|| self.bots_dir.join(name).join("work"), |b| b.work_dir())
     }
 
@@ -452,6 +452,39 @@ impl FakeBots {
             call: None,
         }
     }
+}
+
+/// Whether `seen` (a name as the model got it, perhaps with stand-ins for
+/// personal details: `[person 1]'s Recipes`) is the bot called `name`.
+fn same_name(seen: &str, name: &str) -> bool {
+    if seen == name {
+        return true;
+    }
+    // Each `[… N]` stands for some text: the rest must match in order.
+    let mut parts = Vec::new();
+    let mut rest = seen;
+    while let Some(open) = rest.find('[') {
+        let Some(close) = rest[open..].find(']') else {
+            break;
+        };
+        parts.push(&rest[..open]);
+        rest = &rest[open + close + 1..];
+    }
+    if parts.is_empty() {
+        return false;
+    }
+    parts.push(rest);
+    let (first, last) = (parts[0], parts[parts.len() - 1]);
+    let Some(mut left) = name.strip_prefix(first) else {
+        return false;
+    };
+    for part in &parts[1..parts.len() - 1] {
+        match left.find(part) {
+            Some(i) => left = &left[i + part.len()..],
+            None => return false,
+        }
+    }
+    left.len() > last.len() && left.ends_with(last)
 }
 
 /// The bot's name, from its instructions (`You are "Name"`).

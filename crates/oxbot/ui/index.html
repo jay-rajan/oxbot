@@ -665,7 +665,9 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
         <label>Questions a day, per bot<input type="number" id="orBotDaily" min="1" max="100000" step="1" required></label>
         <label>Questions a day, per person (empty: no limit)<input type="number" id="orPersonDaily" min="1" max="100000" step="1"></label>
         <label class="check"><input type="checkbox" id="orNoData"> Ask AI companies not to keep what's sent, for every bot</label>
-        <p class="hint">The companies behind free models may keep and learn from what shared bots send. Private bots always ask for ones that don't. Asking it for every bot leaves fewer free models.</p>
+        <p class="hint">The companies behind free models may keep and learn from what bots send. Private bots ask for ones that don't, unless personal details are removed first. Asking it for every bot leaves fewer free models.</p>
+        <label class="check"><input type="checkbox" id="orPersonal"> Remove personal details before anything is sent</label>
+        <p class="hint">Emails, phone numbers, addresses, postal codes, card, account and ID numbers, and the names and home area oxbot knows are swapped for stand-ins like [email 1] before a question leaves the home computer, and swapped back in the answer. Private bots can then use free models; with this off, they use only AI companies that don't keep what's sent. Not caught: details only described in words, and names oxbot was never told.</p>
         <label class="check"><input type="checkbox" id="orPaid"> Use paid models when every free one is busy</label>
         <div class="paid-box" id="orPaidBox" hidden>
           <label>Paid spending a month ($)<input type="number" id="orPaidCap" min="0" max="500" step="0.01"></label>
@@ -1768,6 +1770,7 @@ function fillPrefs(or) {
   $("orBotDaily").value = p.bot_daily_requests;
   $("orPersonDaily").value = p.person_daily_requests == null ? "" : p.person_daily_requests;
   $("orNoData").checked = !!p.no_data_collection;
+  $("orPersonal").checked = p.remove_personal_details !== false;
   $("orPaid").checked = !!p.paid_fallback;
   $("orPaidCap").value = (p.paid_monthly_cents / 100).toFixed(2);
   $("orPaidSpent").textContent = `Spent this month: ${money(or.spent_this_month_usd || 0)} of ${money(p.paid_monthly_cents / 100)}. At the limit, paid models stop until the 1st (UTC); free ones keep working.`;
@@ -1793,6 +1796,7 @@ $("orPrefsForm").addEventListener("submit", (ev) => {
     bot_daily_requests: Math.round(Number($("orBotDaily").value)),
     person_daily_requests: person ? Math.round(Number(person)) : null,
     no_data_collection: $("orNoData").checked,
+    remove_personal_details: $("orPersonal").checked,
     paid_fallback: $("orPaid").checked,
     paid_monthly_cents: Math.round(Number($("orPaidCap").value || 0) * 100),
     paid_models: [...$("orPaidModels").querySelectorAll("input:checked")].map((b) => b.value),
@@ -2272,10 +2276,16 @@ let deleteArmed = false, deleteTimer = null;
 function privacyHint(sharing, b) {
   if (sharing === true) sharing = "me"; else if (sharing === false) sharing = "everyone";
   const maker = b.info.created_by || "its maker";
-  if (sharing === "people") return `Only ${maker}, the people picked and the owner see it, its chat and its reports, give it tasks and answer its approval requests. It acts with the websites ${maker} is signed in to, in ${maker}'s own browser, whoever asks it; only ${maker} signs it in to websites.`;
-  return sharing === "me"
+  if (sharing === "people") return `Only ${maker}, the people picked and the owner see it, its chat and its reports, give it tasks and answer its approval requests. It acts with the websites ${maker} is signed in to, in ${maker}'s own browser, whoever asks it; only ${maker} signs it in to websites.` + personalNote();
+  return (sharing === "me"
     ? `Only ${maker} and the owner see it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's.`
-    : "Everyone in the home sees and uses it, its chat and its reports. It uses the websites the home is signed in to.";
+    : "Everyone in the home sees and uses it, its chat and its reports. It uses the websites the home is signed in to.") + personalNote();
+}
+// What the bot's privacy note says about personal details (on unless the owner turned it off).
+function personalNote() {
+  const p = engines && engines.openrouter && engines.openrouter.prefs;
+  if (p && p.remove_personal_details === false) return "";
+  return " Personal details are swapped for stand-ins before anything is sent; details only described in words, and names oxbot was never told, aren't.";
 }
 // Who a bot is shared with, as its settings show it.
 function sharingOf(b) { return b.info.sharing || (b.info.private ? "me" : "everyone"); }
