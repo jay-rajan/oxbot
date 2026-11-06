@@ -84,6 +84,12 @@ impl PageTracker {
             })
     }
 
+    /// The selected tab's id, if known.
+    #[must_use]
+    pub fn selected_id(&self) -> Option<u32> {
+        self.selected
+    }
+
     /// The key of the selected tab showing `url`: its id and the address
     /// without a fragment.
     #[must_use]

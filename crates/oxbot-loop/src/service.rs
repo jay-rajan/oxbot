@@ -166,6 +166,8 @@ pub struct ToolService {
     results: ResultStore,
     privacy: Privacy,
     choice: ModelChoice,
+    /// Where `run_program` looks for Node.js: oxbot's own first.
+    path: String,
     /// One call at a time, in the order asked.
     queue: tokio::sync::Mutex<()>,
 }
@@ -221,6 +223,7 @@ impl ToolService {
             pages: Mutex::new(PageTracker::default()),
             privacy: spec.privacy,
             choice: spec.model.clone(),
+            path: program_path(spec),
             queue: tokio::sync::Mutex::new(()),
             shared,
         }
@@ -319,6 +322,16 @@ impl ToolService {
                 ));
             }
             Gated::Simulated(text) => return Ok(Dispatched::Ran(ToolOutcome::note(text, false))),
+            // Only a quiet check hears this; a call the model made never is.
+            Gated::WouldAsk(what) => {
+                return Ok(Dispatched::Refused(
+                    ToolOutcome::note(
+                        format!("[oxbot said no] This needs the person's OK: {what}"),
+                        true,
+                    )
+                    .kind(EntryKind::Refusal),
+                ));
+            }
             Gated::Run(permit) => permit,
         };
         if kind == ToolKind::Control && call.name == ASK_USER {
@@ -363,6 +376,21 @@ impl ToolService {
             step: ctx.step,
             visible: &is_visible,
         };
+        if kind == ToolKind::Program {
+            debug_assert_eq!(permit.tool_use_id(), call.id);
+            return Ok(Dispatched::Ran(
+                crate::tools::program::run_tool(call, &self.work_dir, &self.path, ctx.cancel).await,
+            ));
+        }
+        if kind == ToolKind::Drive {
+            debug_assert_eq!(permit.tool_use_id(), call.id);
+            let outcome = if call.name == crate::tools::read_pages::READ_PAGES {
+                crate::tools::drive::read_pages(call, &self.gate, &env).await
+            } else {
+                crate::tools::drive::page_steps(call, &self.gate, &env).await
+            };
+            return Ok(Dispatched::Ran(outcome));
+        }
         Ok(Dispatched::Ran(self.tools.run(call, permit, &env).await))
     }
 
@@ -515,6 +543,32 @@ impl ToolService {
             map.insert("page".to_owned(), Value::String(latest));
         }
         args
+    }
+}
+
+/// Where `run_program` finds Node.js: the folder of oxbot's own (as the
+/// host names it, or the one the browser tool runs on), then the
+/// session's `PATH`.
+fn program_path(spec: &SessionSpec) -> String {
+    let set = |k: &str| {
+        spec.env
+            .iter()
+            .find(|(name, _)| name == k)
+            .map(|(_, v)| std::path::PathBuf::from(v))
+    };
+    let own = set(crate::tools::program::NODE_ENV)
+        .or_else(|| spec.browser.as_ref().map(|b| b.mcp.program.clone()))
+        .filter(|p| p.file_name().is_some_and(|n| n == "node"))
+        .and_then(|p| p.parent().map(|d| d.display().to_string()));
+    let path = spec
+        .env
+        .iter()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+    match own {
+        Some(dir) => format!("{dir}:{path}"),
+        None => path,
     }
 }
 

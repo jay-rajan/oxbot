@@ -1,0 +1,40 @@
+name = "A bot reads three pages with one script, on sealed copies"
+about = "Asked to compare three lamps, a bot calls read_pages once: oxbot opens each product page of the test site in the bot's browser (each a checked visit, a line in the chat), copies it, and runs the bot's script on the copy in a sealed tab. The model gets one table with each row's page. The script's fetch gets nothing back and nothing reaches the site; it changed only its copy: read again, the page in the browser is as it loaded."
+needs = ["codex"]
+covers = ["crates/oxbot-loop/src/tools/read_pages.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/service.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-browser/src/sealed.rs", "crates/oxbot-browser/src/guard.rs", "crates/oxbot-browser/src/browser.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-engine/src/sealed.rs"]
+script = "scripts.toml"
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "compare the three lamps"
+[[step]]
+wait_for = "Checked the page again:"
+timeout_ms = 90000
+[[step]]
+expect = "browser navigate_page http://shop.example.test/p/1"
+note = "Each page the script read was opened as a visit, a line in the chat"
+[[step]]
+expect = "browser navigate_page http://shop.example.test/p/3"
+[[step]]
+expect_openrouter_body = "Read 3 of 3 pages with your script: 3 rows."
+note = "One table back for the three pages, in one tool call"
+[[step]]
+expect_openrouter_body = "Brass lamp"
+[[step]]
+expect_openrouter_body = "Glass lamp"
+[[step]]
+expect_openrouter_body = "$7.50"
+[[step]]
+expect_openrouter_body = "nothing came back"
+note = "The script's fetch got nothing back"
+[[step]]
+expect_site_writes = 0
+note = "Nothing the script tried (a fetch POST, an image) reached the site"
+[[step]]
+expect = "Glass lamp"
+note = "Read again, the page in the browser still has its own heading"
+[[step]]
+expect_not = "Changed by the script"
+note = "The script only changed its sealed copy"
+shot = "read"

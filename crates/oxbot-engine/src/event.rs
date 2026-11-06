@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::reply::{Decision, Reply, ToolReply};
+use crate::sealed::SealedCall;
 
 /// What an engine reports, in order.
 #[derive(Debug)]
@@ -39,6 +40,9 @@ pub enum EngineEvent {
     /// One of oxbot's own tools (sign-in, report, team tools), run by the
     /// hub.
     HostTool(HostToolCall),
+    /// oxbot's own reading for `read_pages`: the hub copies a page of the
+    /// bot's browser and runs the bot's script on the copy in a sealed tab.
+    Sealed(SealedCall),
     /// One model request, for the meter.
     ModelCall(CallRecord),
     /// The turn ended.
@@ -65,6 +69,11 @@ pub struct PermissionRequest {
     pub input: Value,
     /// The tool call it's for.
     pub tool_use_id: String,
+    /// Only check, never ask: a call that would need the person's OK gets
+    /// [`Decision::WouldAsk`] instead of an approval request (a step of
+    /// `page_steps` or `read_pages`, which stops there for the bot to ask
+    /// the usual way).
+    pub quiet: bool,
     /// Where the answer goes.
     pub reply: Reply<Decision>,
 }

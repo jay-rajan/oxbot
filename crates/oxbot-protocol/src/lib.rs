@@ -401,6 +401,14 @@ pub enum ClientMsg {
         #[serde(default)]
         mine: bool,
     },
+    /// Farm only: let bots do several steps at once on a website (`on`),
+    /// or not. The answer is [`ServerMsg::StepSites`].
+    SetStepSite {
+        /// The site: a main domain (`amazon.ca`) or an address on it.
+        site: String,
+        /// Allowed from now on.
+        on: bool,
+    },
     /// Farm only: show a pairing code (and QR code) for a new Gate that
     /// will belong to `person`. Replaces any code still showing. The answer
     /// is [`ServerMsg::Pairing`], then [`ServerMsg::Gates`] once it pairs.
@@ -919,6 +927,13 @@ pub enum ServerMsg {
         /// who gets it (names are only shown).
         #[serde(skip)]
         owner_id: Option<String>,
+    },
+    /// The websites where bots may do several steps at once (main
+    /// domains, sorted). Sent after [`ServerMsg::Hello`] and whenever it
+    /// changes; only the Farm changes it.
+    StepSites {
+        /// The sites.
+        sites: Vec<String>,
     },
     /// Farm only: a pairing code is ready to scan or type. Good once,
     /// until `expires_ms`.
@@ -1549,6 +1564,10 @@ pub enum ApprovalKind {
     /// A bot wants to delete a schedule, or resume one after reading
     /// something oxbot doesn't trust.
     ChangeSchedule,
+    /// A bot wants to run a small script (a program) in its own folder,
+    /// with no internet: Yes, Always for this bot, or No. The program is
+    /// [`Approval::detail`].
+    Script,
 }
 
 /// Something a bot wants to do that needs the user's yes.

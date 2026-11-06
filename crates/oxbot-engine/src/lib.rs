@@ -17,6 +17,7 @@
 
 mod event;
 mod reply;
+pub mod sealed;
 mod spec;
 pub mod text;
 pub mod trust;
@@ -29,6 +30,7 @@ pub use event::{
 };
 pub use futures_util::future::BoxFuture;
 pub use reply::{Decision, Refusal, Reply, ReplyWait, ToolReply};
+pub use sealed::{SealedCall, SealedReply, SealedWork};
 pub use spec::{
     BrowserSpec, GateMode, HostTools, McpCommand, ModelChoice, Privacy, Resume, SessionSpec,
     ToolSpec, TurnInput,

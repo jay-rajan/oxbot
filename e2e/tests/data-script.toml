@@ -1,0 +1,55 @@
+name = "A small script asks first, runs sealed in its folder, and Always for this bot sticks"
+about = "A bot wants to run a small script (run_program). oxbot shows an approval request in plain words with the program; Always for this bot runs it and keeps a rule. oxbot runs it itself in macOS's sandbox: it reads and writes the bot's folder, the next program (Node.js) runs without asking, and a program that tries to read another bot's folder or /Users gets Operation not permitted."
+needs = ["codex"]
+covers = ["crates/oxbot-loop/src/tools/program.rs", "crates/oxbot-loop/src/service.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/rules.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-engine/src/trust.rs", "crates/oxbot/ui/**"]
+script = "scripts.toml"
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "count the rows"
+[[step]]
+wait_for = "Run this program in Recipes' folder?"
+timeout_ms = 60000
+[[step]]
+expect = "It can only see this bot's folder and can't use the internet."
+[[step]]
+expect = "print(len(open('rows.csv').read().split()), 'rows')"
+note = "The program, word for word"
+[[step]]
+expect_js = "[...document.querySelectorAll('#cards button')].map((b) => b.textContent).join() === 'Yes,Always for this bot,No'"
+shot = "card"
+[[step]]
+click = "Always for this bot"
+[[step]]
+wait_for = "The python3 program exited with code 0."
+timeout_ms = 60000
+[[step]]
+expect = "3 rows"
+note = "It ran: it wrote a file in its folder and read it back"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM allow_rules WHERE bot = 'recipes' AND action = 'run small scripts' AND label = 'in its own folder'", equals = "1" }
+note = "The rule is kept for this bot"
+[[step]]
+send = "count the rows again"
+[[step]]
+wait_for = "3 rows again"
+timeout_ms = 60000
+note = "Node.js this time, reading the file the first program wrote"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+note = "No approval request the second time"
+[[step]]
+expect = "always allowed: run a small script in Recipes' folder on the home computer"
+shot = "always"
+[[step]]
+send = "peek at the journal"
+[[step]]
+wait_for = "The sh program exited"
+timeout_ms = 60000
+[[step]]
+expect = "Operation not permitted"
+note = "Another bot's folder and the Mac's other users stay out of reach"
+[[step]]
+expect_not = "Keep Jay's journal"
+shot = "outside"

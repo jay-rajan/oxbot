@@ -24,6 +24,10 @@ pub enum Decision {
     /// A practice run: don't run it, and tell the model this text as its
     /// result.
     Simulate(String),
+    /// Asked quietly ([`crate::PermissionRequest::quiet`]): it would need
+    /// the person's OK, so it didn't run; what it would ask, in words
+    /// (e.g. `click button "Add to cart" on shop.example.com`).
+    WouldAsk(String),
 }
 
 impl Refusal for Decision {

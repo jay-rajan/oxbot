@@ -63,7 +63,13 @@ pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Opt
         .is_some_and(|t| {
             matches!(
                 t,
-                "find_in_page" | "read_section" | "ask_page" | "extract_rows" | "query_rows"
+                "find_in_page"
+                    | "read_section"
+                    | "ask_page"
+                    | "extract_rows"
+                    | "query_rows"
+                    | "read_pages"
+                    | "page_steps"
             )
         });
     if page_tool || name.starts_with(&format!("mcp__{MCP_SERVER_NAME}__")) {

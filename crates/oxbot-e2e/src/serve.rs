@@ -118,9 +118,10 @@ impl FakeOpenRouter {
 }
 
 /// The test site: `*.example.test` in oxbot's Chromes (test mode maps the
-/// names here). Its pages try to write the moment they load (a fetch POST
-/// and a form post), as some sites do; it counts every request that isn't
-/// a read, and the pages it served.
+/// names here). Its job page tries to write the moment it loads (a fetch
+/// POST and a form post), as some sites do; `/p/1` to `/p/3` are product
+/// pages. It counts every request that isn't a read (and any to `/leak`),
+/// and the pages it served.
 #[derive(Debug)]
 pub struct TestSite {
     /// Its port on 127.0.0.1.
@@ -138,6 +139,22 @@ const SITE_PAGE: &str = r#"<!doctype html><html><head><title>Jobs</title></head>
 fetch("/save", { method: "POST", body: "draft" }).catch(() => {});
 setTimeout(() => document.getElementById("f").submit(), 300);
 </script></body></html>"#;
+
+/// The test site's product pages (`/p/1` to `/p/3`, for `read_pages`):
+/// name, price and rating, and a script that marks the page as it loads.
+fn product_page(path: &str) -> Option<String> {
+    let (name, price, rating) = match path {
+        "/p/1" => ("Brass lamp", "$10.00", "4.5"),
+        "/p/2" => ("Tin lamp", "$7.50", "3.9"),
+        "/p/3" => ("Glass lamp", "$22.00", "4.8"),
+        _ => return None,
+    };
+    Some(format!(
+        "<!doctype html><html><head><title>{name}</title></head><body>\
+         <h1>{name}</h1><span class=\"price\">{price}</span> <span class=\"rating\">{rating} out of 5</span>\
+         <script>document.body.dataset.loaded = \"yes\";</script></body></html>"
+    ))
+}
 
 impl TestSite {
     /// Starts it on a free port.
@@ -165,18 +182,27 @@ impl TestSite {
                     if method.is_empty() {
                         return;
                     }
-                    let body = if matches!(method, "GET" | "HEAD" | "OPTIONS") {
+                    // Anything at /leak counts as a write: a script that
+                    // reached it got data out.
+                    let product = product_page(path);
+                    let body = if path.starts_with("/leak") {
+                        w.fetch_add(1, Ordering::SeqCst);
+                        "leaked".to_owned()
+                    } else if matches!(method, "GET" | "HEAD" | "OPTIONS") {
                         if path == "/post" {
                             p.fetch_add(1, Ordering::SeqCst);
-                            SITE_PAGE
+                            SITE_PAGE.to_owned()
+                        } else if let Some(page) = &product {
+                            p.fetch_add(1, Ordering::SeqCst);
+                            page.clone()
                         } else {
-                            "ok"
+                            "ok".to_owned()
                         }
                     } else {
                         w.fetch_add(1, Ordering::SeqCst);
-                        "saved"
+                        "saved".to_owned()
                     };
-                    let kind = if body == SITE_PAGE {
+                    let kind = if body == SITE_PAGE || product.is_some() {
                         "text/html"
                     } else {
                         "text/plain"
