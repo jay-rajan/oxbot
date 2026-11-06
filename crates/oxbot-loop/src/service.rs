@@ -166,6 +166,8 @@ pub struct ToolService {
     results: ResultStore,
     privacy: Privacy,
     choice: ModelChoice,
+    /// Where `run_program` looks for Node.js: oxbot's own first.
+    path: String,
     /// One call at a time, in the order asked.
     queue: tokio::sync::Mutex<()>,
 }
@@ -221,6 +223,7 @@ impl ToolService {
             pages: Mutex::new(PageTracker::default()),
             privacy: spec.privacy,
             choice: spec.model.clone(),
+            path: program_path(spec),
             queue: tokio::sync::Mutex::new(()),
             shared,
         }
@@ -373,6 +376,12 @@ impl ToolService {
             step: ctx.step,
             visible: &is_visible,
         };
+        if kind == ToolKind::Program {
+            debug_assert_eq!(permit.tool_use_id(), call.id);
+            return Ok(Dispatched::Ran(
+                crate::tools::program::run_tool(call, &self.work_dir, &self.path, ctx.cancel).await,
+            ));
+        }
         if kind == ToolKind::Drive {
             debug_assert_eq!(permit.tool_use_id(), call.id);
             let outcome = if call.name == crate::tools::read_pages::READ_PAGES {
@@ -383,28 +392,6 @@ impl ToolService {
             return Ok(Dispatched::Ran(outcome));
         }
         Ok(Dispatched::Ran(self.tools.run(call, permit, &env).await))
-    }
-
-    /// Asks the gate whether a program the engine wants to run in the bot's
-    /// folder (its own sandboxed shell: no network, writes only there) may
-    /// run: the person's approval request, or the bot's Always rule.
-    /// `id` names the request. `false` for no, or if `cancel` fired.
-    pub async fn program_permission(
-        &self,
-        id: &str,
-        program: &str,
-        cancel: &CancellationToken,
-    ) -> bool {
-        let input = serde_json::json!({
-            "command": program,
-            "cwd": self.work_dir.display().to_string(),
-        });
-        matches!(
-            self.gate
-                .check(crate::tools::RUN_PROGRAM, &input, id, cancel)
-                .await,
-            Some(Gated::Run(_))
-        )
     }
 
     /// A caller for helper requests within the turn (`ask_page`): the
@@ -556,6 +543,32 @@ impl ToolService {
             map.insert("page".to_owned(), Value::String(latest));
         }
         args
+    }
+}
+
+/// Where `run_program` finds Node.js: the folder of oxbot's own (as the
+/// host names it, or the one the browser tool runs on), then the
+/// session's `PATH`.
+fn program_path(spec: &SessionSpec) -> String {
+    let set = |k: &str| {
+        spec.env
+            .iter()
+            .find(|(name, _)| name == k)
+            .map(|(_, v)| std::path::PathBuf::from(v))
+    };
+    let own = set(crate::tools::program::NODE_ENV)
+        .or_else(|| spec.browser.as_ref().map(|b| b.mcp.program.clone()))
+        .filter(|p| p.file_name().is_some_and(|n| n == "node"))
+        .and_then(|p| p.parent().map(|d| d.display().to_string()));
+    let path = spec
+        .env
+        .iter()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+    match own {
+        Some(dir) => format!("{dir}:{path}"),
+        None => path,
     }
 }
 

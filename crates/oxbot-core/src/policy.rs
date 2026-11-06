@@ -29,7 +29,7 @@
 //! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
 //! | `read_pages` | run: each page it opens is checked as a visit, and its script only reads a sealed copy |
 //! | `page_steps` | run on websites marked for several steps at once (the hub checks), each step checked as itself; it stops at the first that would ask |
-//! | a small script the bot runs in its folder (`run_program`) | card (Yes · Always for this bot · No); an Always rule doesn't apply after untrusted text |
+//! | `run_program`: a small script oxbot runs in the bot's folder, sandboxed | card (Yes · Always for this bot · No); an Always rule doesn't apply after untrusted text |
 //!
 //! Labels come from the page snapshot (`button "Post"`), so a change behind
 //! an oddly named button can slip past; the bot is also told to ask first.
@@ -343,8 +343,8 @@ pub const READ_PAGES_TOOL: &str = "read_pages";
 /// `page_steps`: several steps on the page at once, each asked of the gate
 /// as itself. Only on websites the owner marked for it (the hub checks).
 pub const PAGE_STEPS_TOOL: &str = "page_steps";
-/// What the Codex engine asks the gate before a program runs in the bot's
-/// folder (never a tool models see): a card.
+/// `run_program`: a small script oxbot runs in the bot's folder, in
+/// macOS's sandbox (its folder only, no internet): a card first.
 pub const RUN_PROGRAM_TOOL: &str = "run_program";
 /// Where a small script runs, as its card and its Always rule name it.
 pub const SCRIPT_SITE: &str = "the home computer";
@@ -478,7 +478,7 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     if tool == tools::full_name(RUN_PROGRAM_TOOL) {
         return Some(Verdict::Ask(script_ask(
             "the bot",
-            tools::text_arg(input, "command"),
+            &oxbot_loop::tools::program::card_text(input),
         )));
     }
     (tool == tools::full_name(CREATE_BOT_TOOL)).then(|| {
@@ -1371,6 +1371,10 @@ mod tests {
         }];
         let own = oxbot_loop::ToolRegistry::new(Vec::new(), browser);
         for spec in own.specs() {
+            // A program always asks (below).
+            if spec.name == tools::full_name(RUN_PROGRAM_TOOL) {
+                continue;
+            }
             if let Some(name) = spec.name.strip_prefix("mcp__oxbot__") {
                 let verdict = decide(&spec.name, &json!({}), ctx(), |_| None);
                 assert!(matches!(verdict, Verdict::Allow), "{name}: {verdict:?}");
@@ -1399,7 +1403,7 @@ mod tests {
         // Through the policy, a program always asks.
         let verdict = decide(
             "mcp__oxbot__run_program",
-            &json!({"command": "ls"}),
+            &json!({"language": "sh", "program": "ls"}),
             ctx(),
             |_| None,
         );

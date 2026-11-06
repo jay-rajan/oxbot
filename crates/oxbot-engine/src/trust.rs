@@ -26,7 +26,11 @@ pub const TRUSTED_HOST_TOOLS: [&str; 10] = [
 /// itself: its to-do list and progress notes, and stored results read
 /// back (a stored result keeps the trust it had, inside the same session,
 /// which already carries that taint).
-pub const TRUSTED_LOOP_TOOLS: [&str; 3] = ["update_todo", "note_progress", "read_result"];
+/// `run_program`'s output is the person's approved program run on the
+/// bot's own folder: it doesn't mark the session (an Always rule for small
+/// scripts would otherwise apply only once per conversation).
+pub const TRUSTED_LOOP_TOOLS: [&str; 4] =
+    ["update_todo", "note_progress", "read_result", "run_program"];
 
 /// Whether a result of tool `name` (as the model calls it) can be trusted.
 #[must_use]

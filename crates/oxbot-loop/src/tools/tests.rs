@@ -47,6 +47,7 @@ fn order_is_fixed_and_side_effects_known() {
             "Edit",
             "Glob",
             "Grep",
+            "mcp__oxbot__run_program",
             "mcp__oxbot__ask_user",
             "mcp__oxbot__update_todo",
             "mcp__oxbot__note_progress",
@@ -68,6 +69,12 @@ fn order_is_fixed_and_side_effects_known() {
     );
     assert!(!r.get("mcp__oxbot__read_pages").unwrap().side_effect);
     assert!(r.get("mcp__oxbot__page_steps").unwrap().side_effect);
+    // Small scripts, for every bot: oxbot runs them, after the person's yes.
+    assert_eq!(
+        r.get("mcp__oxbot__run_program").unwrap().kind,
+        ToolKind::Program
+    );
+    assert!(r.get("mcp__oxbot__run_program").unwrap().side_effect);
     assert!(r.get("mcp__oxbot__give_task").unwrap().side_effect);
     assert!(r.get("mcp__chrome-devtools__click").unwrap().side_effect);
     assert!(

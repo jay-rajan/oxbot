@@ -172,9 +172,19 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         .context("couldn't set up the OpenRouter client")?,
     );
     let helper = mac_helper();
+    // Small scripts run on oxbot's own Node.js (never one with libraries
+    // elsewhere on the Mac, which their sandbox can't reach).
+    let mut session_env = path_env;
+    if let Some(tool) = &built_in {
+        session_env.push((
+            // `oxbot_loop::tools::program::NODE_ENV`.
+            "OXBOT_PROGRAM_NODE".to_owned(),
+            tool.node.display().to_string(),
+        ));
+    }
     let config = HubConfig {
         browser,
-        extra_env: path_env,
+        extra_env: session_env,
         mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
         // Codex bots' tools, routing and meter (oxbot-loop), with the

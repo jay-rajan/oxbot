@@ -16,6 +16,7 @@ pub mod files;
 pub mod mcp;
 pub mod page;
 pub mod pages;
+pub mod program;
 pub mod read_pages;
 pub mod steps;
 
@@ -41,8 +42,8 @@ use crate::store::ResultKind;
 use browser::{BROWSER_PREFIX, BrowserTools, SIDE_EFFECT_TOOLS};
 use pages::PageTracker;
 
-/// What the gate is asked before the engine's own shell runs a program in
-/// the bot's folder. Never a tool models see.
+/// `run_program`: a small script oxbot runs in the bot's folder (see
+/// [`program`]).
 pub const RUN_PROGRAM: &str = "mcp__oxbot__run_program";
 
 /// Results smaller than this (tokens) are never stored: a stub would be
@@ -78,6 +79,9 @@ pub enum ToolKind {
     /// The tools that drive the browser themselves, several steps a call
     /// (`read_pages`, `page_steps`), each step through the gate.
     Drive,
+    /// `run_program`: a small script oxbot runs in the bot's folder, in
+    /// macOS's sandbox, after the person's yes.
+    Program,
 }
 
 /// One tool of a session.
@@ -217,6 +221,11 @@ impl ToolRegistry {
                 side_effect,
             });
         }
+        entries.push(ToolEntry {
+            spec: program::spec(),
+            kind: ToolKind::Program,
+            side_effect: true,
+        });
         for spec in [
             control::ask_user_spec(),
             control::update_todo_spec(),
@@ -353,7 +362,7 @@ impl ToolRegistry {
             ToolKind::Host => host(call, env).await,
             ToolKind::Browser => browser(call, env).await,
             ToolKind::File => file(call, env).await,
-            ToolKind::Control | ToolKind::Page | ToolKind::Drive => {
+            ToolKind::Control | ToolKind::Page | ToolKind::Drive | ToolKind::Program => {
                 Raw::error(format!("{} runs in the turn", call.name))
             }
         };

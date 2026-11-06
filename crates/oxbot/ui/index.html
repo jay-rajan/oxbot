@@ -2506,8 +2506,8 @@ function renderCards(onlyIfRenamed) {
       const card = div("card script");
       const h = document.createElement("h3");
       const ask = `${a.action} ${a.target}?`;
-      h.textContent = `${ask.charAt(0).toUpperCase()}${ask.slice(1)} It can't use the internet.`;
-      const where = div("where"); where.textContent = "It runs on the home computer and can only change files in the bot's own folder. The program:";
+      h.textContent = `${ask.charAt(0).toUpperCase()}${ask.slice(1)}`;
+      const where = div("where"); where.textContent = "It can only see this bot's folder and can't use the internet. It runs on the home computer for at most 30 seconds. The program:";
       card.append(h, where);
       const pre = document.createElement("pre"); pre.textContent = a.detail || ""; card.appendChild(pre);
       const btns = div("btns");

@@ -302,8 +302,8 @@ impl Hub {
                     policy::possessive(&bot.name)
                 )));
             }
-            let program = crate::tools::text_arg(&request.input, "command");
-            return self.script_permission(bot, program).await;
+            let program = oxbot_loop::tools::program::card_text(&request.input);
+            return self.script_permission(bot, &program).await;
         }
         if self.allowed_by_rule(bot, &ask, tab, page_url).await? {
             return Ok(Decision::Allow);

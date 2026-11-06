@@ -40,19 +40,26 @@ then = [{ tool = "mcp__chrome-devtools__click", args = { uid = "8_4" } }]
 after = "Added two frothers to the cart."
 denied = "Okay, I didn't add them to the cart."
 
-# A small script in the bot's folder (Codex's own shell).
+# A small script, run by oxbot in the bot's folder (macOS's sandbox).
 [[reply]]
 when = "count the rows again"
-tool = "exec_command"
-args = { cmd = "echo 3 rows" }
-after = "Counted again."
+tool = "run_program"
+args = { language = "node", program = "const fs = require('fs');\nconsole.log(fs.readFileSync('rows.csv', 'utf8').trim().split('\\n').length + ' rows again');" }
+after = "Counted again: {result}"
 denied = "Okay, I didn't run it."
 
 [[reply]]
 when = "count the rows"
-tool = "exec_command"
-args = { cmd = "echo 3 rows" }
-after = "Counted."
+tool = "run_program"
+args = { language = "python3", program = "open('rows.csv', 'w').write('a\\nb\\nc\\n')\nprint(len(open('rows.csv').read().split()), 'rows')" }
+after = "Counted: {result}"
+denied = "Okay, I didn't run it."
+
+[[reply]]
+when = "peek at the journal"
+tool = "run_program"
+args = { language = "sh", program = "cat ../../journal/instructions.md; ls ../../journal/work; ls /Users" }
+after = "Tried: {result}"
 denied = "Okay, I didn't run it."
 
 [[reply]]

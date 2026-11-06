@@ -628,6 +628,7 @@ fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
         "query_rows" => ("table query", "Sorting and counting rows…"),
         "read_pages" => ("pages read with a script", "Reading pages with a script…"),
         "page_steps" => ("several steps at once", "Doing several steps on the page…"),
+        "run_program" => ("small script", "Running a small script…"),
         "read_result" => ("saved result", "Reading a saved result…"),
         "update_todo" => ("to-do list", "Updating its to-do list…"),
         "note_progress" => ("progress note", "Noting where it is…"),
