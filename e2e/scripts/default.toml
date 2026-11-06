@@ -5,6 +5,12 @@
 when = "hello"
 say = "Hello! I'm the stand-in bot."
 
+# Says back the message as the model got it: personal details arrive as
+# stand-ins, and oxbot turns them back before the chat shows the answer.
+[[reply]]
+when = "remember my contact"
+say = "Noted, {message}"
+
 # A schedule's run (its message says so): before the request that made it,
 # whose words it repeats.
 [[reply]]

@@ -883,7 +883,11 @@ fn final_text(reply: &crate::script::Reply, text: &str, no_calls: bool, last: &s
     if reply.read {
         crate::script::read_answer(reply.say.as_deref(), &crate::script::attached(text))
     } else if no_calls {
-        reply.say.clone().unwrap_or_default()
+        reply
+            .say
+            .as_deref()
+            .unwrap_or_default()
+            .replace("{message}", text)
     } else if let Some(why) = refused {
         reply
             .denied

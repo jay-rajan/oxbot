@@ -69,7 +69,9 @@ pub struct Script {
 pub struct Reply {
     /// Used when the message contains this (any case); none = fallback.
     pub when: Option<String>,
-    /// Said before the tool, or as the whole answer without one.
+    /// Said before the tool, or as the whole answer without one; in a
+    /// whole answer, `{message}` is the person's message as the stand-in
+    /// `OpenRouter` got it (personal details as stand-ins).
     pub say: Option<String>,
     /// The tool to call: oxbot's own (`create_bot`) or a full `mcp__…` name.
     pub tool: Option<String>,
