@@ -1,0 +1,42 @@
+name = "A small script asks first, and Always for this bot sticks"
+about = "A bot wants to run a program in its folder (Codex's own shell, sandboxed: its folder only, no internet). oxbot shows an approval request in plain words with the program; Always for this bot runs it and keeps a rule, so the next program runs without asking, with a quiet line in the chat."
+needs = ["codex"]
+covers = ["crates/oxbot-codex/src/engine.rs", "crates/oxbot-codex/src/config.rs", "crates/oxbot-codex/src/supervisor.rs", "crates/oxbot-loop/src/service.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/rules.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/ui/**"]
+script = "scripts.toml"
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "count the rows"
+[[step]]
+wait_for = "Run this program in Recipes' folder? It can't use the internet."
+timeout_ms = 60000
+[[step]]
+expect = "echo 3 rows"
+note = "The program, word for word"
+[[step]]
+expect_js = "[...document.querySelectorAll('#cards button')].map((b) => b.textContent).join() === 'Yes,Always for this bot,No'"
+shot = "card"
+[[step]]
+click = "Always for this bot"
+[[step]]
+wait_for = "Counted."
+timeout_ms = 60000
+[[step]]
+expect_openrouter_body = "exited with code 0"
+note = "It ran in the sandbox, and its output went back to the model"
+timeout_ms = 5000
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM allow_rules WHERE bot = 'recipes' AND action = 'run small scripts' AND label = 'in its own folder'", equals = "1" }
+note = "The rule is kept for this bot"
+[[step]]
+send = "count the rows again"
+[[step]]
+wait_for = "Counted again."
+timeout_ms = 60000
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+note = "No approval request the second time"
+[[step]]
+expect = "always allowed: run a small script in Recipes' folder on the home computer"
+shot = "always"

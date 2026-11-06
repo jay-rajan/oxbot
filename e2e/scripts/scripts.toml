@@ -1,0 +1,59 @@
+# The stand-ins' replies for small scripts and batches: read_pages on the
+# test site's product pages, page_steps on a shop, and a small script in
+# the bot's folder. The first `when` found in the message (any case) wins.
+
+# read_pages: three product pages of the test site (really loaded in the
+# test Chrome) in one call. The script also tries to reach the network and
+# changes its copy; then the page the browser is on is read again, as it is.
+[[reply]]
+when = "compare the three lamps"
+tool = "read_pages"
+args = { urls = ["http://shop.example.test/p/1", "http://shop.example.test/p/2", "http://shop.example.test/p/3"], script = """
+const t = (s) => (doc.querySelector(s) || {}).textContent;
+const name = t('h1');
+let net = 'nothing came back';
+try { const r = await fetch('http://shop.example.test/leak/fetch', { method: 'POST', body: 'x' }); net = 'got ' + (await r.text()); } catch (e) {}
+try { const i = document.createElement('img'); i.src = 'http://shop.example.test/leak/img'; document.body.appendChild(i); } catch (e) {}
+doc.querySelector('h1').textContent = 'Changed by the script';
+return { name, price: t('.price'), rating: t('.rating'), net };
+""" }
+then = [{ tool = "read_pages", args = { follow = "no such link", max_pages = 1, script = "return { now: doc.querySelector('h1').textContent, loaded: doc.body.dataset.loaded || 'no' };" } }]
+after = "Checked the page again: {result}"
+
+# page_steps on a site nobody marked for it: refused.
+[[reply]]
+when = "order two on the form site"
+snapshot = "## Pages\n1: Order form (https://forms.example.net/order) [selected]\n## Latest page snapshot\nuid=9_1 RootWebArea \"Order form\"\n  uid=9_2 textbox \"Quantity\"\n  uid=9_3 button \"Next\""
+tool = "page_steps"
+args = { steps = [{ action = "fill", uid = "9_2", value = "2" }, { action = "click", uid = "9_3" }] }
+after = "Filled in the form."
+denied = "Okay, one step at a time there."
+
+# page_steps on a shop marked for it: the fill and the tick run, and it
+# stops at Add to Cart, which the bot then asks for on its own.
+[[reply]]
+when = "order two frothers"
+snapshot = "## Pages\n1: Milk frother (https://shop.example.com/frother) [selected]\n## Latest page snapshot\nuid=8_1 RootWebArea \"Milk frother\"\n  uid=8_2 textbox \"Quantity\"\n  uid=8_3 checkbox \"Gift wrap\"\n  uid=8_4 button \"Add to Cart\""
+tool = "page_steps"
+args = { steps = [{ action = "fill", uid = "8_2", value = "2" }, { action = "check", uid = "8_3" }, { action = "click", uid = "8_4" }] }
+then = [{ tool = "mcp__chrome-devtools__click", args = { uid = "8_4" } }]
+after = "Added two frothers to the cart."
+denied = "Okay, I didn't add them to the cart."
+
+# A small script in the bot's folder (Codex's own shell).
+[[reply]]
+when = "count the rows again"
+tool = "exec_command"
+args = { cmd = "echo 3 rows" }
+after = "Counted again."
+denied = "Okay, I didn't run it."
+
+[[reply]]
+when = "count the rows"
+tool = "exec_command"
+args = { cmd = "echo 3 rows" }
+after = "Counted."
+denied = "Okay, I didn't run it."
+
+[[reply]]
+say = "Hello from the stand-in."

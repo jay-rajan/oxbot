@@ -1,0 +1,55 @@
+name = "Several page steps at once, only where the owner allows it"
+about = "On a site nobody marked, page_steps is refused and the bot does steps one at a time. The owner marks shop.example.com in Settings → Websites (Let bots do several steps at once here); then a bot's fill and tick run in a row, it stops at Add to Cart without asking, and the bot asks for that click on its own: the usual approval request."
+needs = ["codex"]
+covers = ["crates/oxbot-loop/src/tools/steps.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
+script = "scripts.toml"
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "order two on the form site"
+[[step]]
+wait_for = "Okay, one step at a time there."
+timeout_ms = 60000
+[[step]]
+expect = "Several steps at once aren't turned on for example.net"
+note = "Not marked: refused, and the bot is told where it could be turned on"
+[[step]]
+click = "Settings"
+[[step]]
+click = "Websites"
+[[step]]
+expect = "Several steps at once"
+[[step]]
+type = { into = "Website for several steps at once", text = "https://shop.example.com/" }
+[[step]]
+click = "Add"
+[[step]]
+wait_for = "Let bots do several steps at once here"
+[[step]]
+expect_js = "[...document.querySelectorAll('#stepRows .step-row')].some((r) => r.textContent.includes('example.com') && r.querySelector('input').checked)"
+note = "The site is marked by its main domain, switched on"
+shot = "websites"
+[[step]]
+key = "Escape"
+[[step]]
+send = "order two frothers"
+[[step]]
+wait_for = "Allow once"
+timeout_ms = 60000
+note = "The batch stopped at Add to Cart; the bot asked for it on its own"
+[[step]]
+expect = "browser fill"
+note = "The fill and the tick ran in a row, each a line in the chat"
+[[step]]
+expect = "Add to Cart"
+shot = "card"
+[[step]]
+expect_openrouter_body = "Ran 2 of 3 steps on shop.example.com"
+[[step]]
+expect_openrouter_body = "Stopped at step 3 (click 8_4): it needs the person's OK"
+[[step]]
+click = "Don't allow"
+[[step]]
+wait_for = "Okay, I didn't add them to the cart."
+timeout_ms = 60000
