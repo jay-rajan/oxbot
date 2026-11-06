@@ -67,6 +67,11 @@ pub struct LoopPrefs {
     /// Ask for providers that don't keep data for every bot, not only
     /// private ones.
     pub deny_data_collection_all: bool,
+    /// Personal details are swapped for stand-ins before a request leaves
+    /// (Codex bots, at the relay): private bots may then use providers
+    /// that keep data, so free models too. Off: they ask for providers
+    /// that don't.
+    pub remove_personal_details: bool,
     /// Longest answer to ask for, in tokens.
     pub max_tokens: u32,
     /// Most model requests in one turn.
@@ -80,6 +85,7 @@ impl Default for LoopPrefs {
             paid_models: Vec::new(),
             herder_model: None,
             deny_data_collection_all: false,
+            remove_personal_details: true,
             max_tokens: 4096,
             max_steps: 50,
         }
@@ -157,8 +163,8 @@ pub const DATA_POLICY_HELP: &str = "OpenRouter's privacy settings for this accou
     free models oxbot tried: their providers may train on what they're sent. To use them, the \
     owner can open openrouter.ai/settings/privacy and switch on \u{201c}Enable free endpoints \
     that may train on inputs\u{201d} (and switch off \u{201c}ZDR Endpoints only\u{201d} if it's \
-    on), or switch on paid models in Settings \u{2192} AI models. Private bots never use those \
-    providers either way.";
+    on), or switch on paid models in Settings \u{2192} AI models. Private bots use those \
+    providers only with personal details removed first (Settings \u{2192} AI models).";
 
 /// Whether the account's data policy ruled out free models lately (set
 /// when it did, cleared when a free model answered again).

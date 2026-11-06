@@ -1,9 +1,11 @@
 //! The Codex engine in the database: each bot session's thread
-//! (`codex_threads`), and what oxbot's relay sent (`relay_log`; the bodies
-//! are files under each bot's context folder).
+//! (`codex_threads`), what oxbot's relay sent (`relay_log`; the bodies
+//! are files under each bot's context folder), and the names the relay
+//! swaps for stand-ins (everyone in the people list, the home area).
 
 use oxbot_codex::{CodexStore, ThreadRow};
-use oxbot_relay::{RelayLog, RelayLogRow};
+use oxbot_relay::personal::Known;
+use oxbot_relay::{KnownNames, RelayLog, RelayLogRow};
 use rusqlite::{OptionalExtension as _, params};
 
 use super::Store;
@@ -77,6 +79,24 @@ impl RelayLog for Store {
             )
             .map_err(err)?;
         Ok(())
+    }
+}
+
+impl KnownNames for Store {
+    fn known_names(&self) -> Vec<Known> {
+        let mut known: Vec<Known> = match self.person_records() {
+            Ok(people) => people.iter().map(|p| Known::person(&p.name)).collect(),
+            Err(err) => {
+                tracing::warn!(%err, "couldn't read the people list for stand-ins");
+                Vec::new()
+            }
+        };
+        if let Ok(Some(area)) = self.pref(crate::hub::PREF_HOME_AREA)
+            && !area.trim().is_empty()
+        {
+            known.push(Known::place(&area));
+        }
+        known
     }
 }
 

@@ -260,7 +260,10 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
     );
     let told = fake.told().unwrap();
     assert!(
-        told.starts_with("[Jay] (scheduled task they set up earlier, Every weekday at 8:15 AM;"),
+        // Jay is someone oxbot knows: the model gets a stand-in.
+        told.starts_with(
+            "[[person 1]] (scheduled task they set up earlier, Every weekday at 8:15 AM;"
+        ),
         "{told}"
     );
 
@@ -334,7 +337,8 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
         .lines()
         .find(|l| l.starts_with("[oxbot] About the person"))
         .unwrap();
-    assert!(line.contains("food needs: vegetarian") && line.contains("home area: Toronto, ON"));
+    // The home area goes as a stand-in (oxbot types the real one back in).
+    assert!(line.contains("food needs: vegetarian") && line.contains("home area: [place 1]"));
     assert!(!line.contains("metric"), "kept from bots");
     assert!(!line.contains("Jay"), "never their name: {line}");
     // The chat shows only what they typed.

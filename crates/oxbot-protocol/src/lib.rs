@@ -771,6 +771,10 @@ pub struct EnginePrefs {
     /// Ask providers not to keep data for every bot, not just private ones
     /// (off: fewer free models take it).
     pub no_data_collection: bool,
+    /// Swap personal details for stand-ins before anything is sent (on,
+    /// also for homes from before it): private bots may then use free
+    /// models. Off: private bots ask for providers that don't keep data.
+    pub remove_personal_details: bool,
 }
 
 impl Default for EnginePrefs {
@@ -783,6 +787,7 @@ impl Default for EnginePrefs {
             person_daily_requests: None,
             herder_model: None,
             no_data_collection: false,
+            remove_personal_details: true,
         }
     }
 }
@@ -2024,7 +2029,8 @@ mod tests {
             );
         }
         // Missing settings take the defaults: paid models and asking every
-        // provider not to keep data both off.
+        // provider not to keep data both off, removing personal details on
+        // (homes from before it get it too).
         let msg: ClientMsg =
             serde_json::from_str(r#"{"type":"set_engine_prefs","prefs":{"paid_fallback":true}}"#)
                 .unwrap();
@@ -2032,6 +2038,7 @@ mod tests {
             panic!("prefs")
         };
         assert!(prefs.paid_fallback && !prefs.no_data_collection);
+        assert!(prefs.remove_personal_details);
         assert_eq!(
             (prefs.bot_daily_requests, prefs.paid_daily_cents),
             (200, 100)

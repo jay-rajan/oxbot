@@ -27,7 +27,7 @@ use oxbot_llm::{Catalog, LlmError, ModelInfo, RawAnswer, ScriptedModel};
 use oxbot_loop::store::MemoryLoopStore;
 use oxbot_loop::tools::browser::{SameBrowser, ScriptedBrowser};
 use oxbot_loop::{CatalogCache, LoopEngine, LoopSetup};
-use oxbot_relay::{NoLog, Relay, RelaySetup, Upstream};
+use oxbot_relay::{NoLog, NoNames, Relay, RelaySetup, Upstream};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -177,6 +177,7 @@ async fn world(uid: &'static str) -> Option<World> {
             gateway: loop_engine.gateway(),
             upstream: Arc::clone(&model) as _,
             log: Arc::new(NoLog),
+            names: Arc::new(NoNames),
         })
         .await
         .unwrap(),
@@ -319,7 +320,9 @@ async fn a_codex_bot_browses_through_the_gate_and_only_the_relay_is_contacted() 
             !text.contains("prompt_cache_key") && !text.contains("client_metadata"),
             "{text}"
         );
-        assert_eq!(body["provider"]["data_collection"], "deny");
+        // Personal details are removed first (on by default), so the
+        // private bot may use providers that keep data.
+        assert!(body["provider"].get("data_collection").is_none(), "{text}");
     }
     // The page came back marked as someone else's text.
     let first_result = bodies[1]["input"]
