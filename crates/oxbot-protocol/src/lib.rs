@@ -598,15 +598,6 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
     },
-    /// Runs the owner's own messages to the bot on `target` too, side by
-    /// side, every step recorded (`None`: off).
-    SetShadow {
-        /// Bot id.
-        bot: String,
-        /// The engine and model, or `None`.
-        #[serde(default)]
-        target: Option<Target>,
-    },
     /// Deletes every practice run (test cases stay).
     DeleteAllRuns,
     /// The comparison settings. Answered with [`ServerMsg::ComparePrefs`].
@@ -1050,9 +1041,6 @@ pub enum ServerMsg {
         ratings: BTreeMap<u64, bool>,
         /// `turn_done` events already kept as test cases.
         cases: Vec<u64>,
-        /// The engine and model the owner's messages are shadowed on.
-        #[serde(default)]
-        shadow: Option<Target>,
     },
     /// Reply to [`ClientMsg::DraftTestCase`].
     CaseDraft(CaseDraft),
@@ -1120,15 +1108,6 @@ pub enum ServerMsg {
     },
     /// The comparison settings (the owner's).
     ComparePrefs(ComparePrefs),
-    /// A shadow run started next to a live turn (the owner's).
-    ShadowPair {
-        /// Bot id.
-        bot: String,
-        /// The live turn's `user_message` event.
-        live_seq: u64,
-        /// The shadow run.
-        run: Box<RunInfo>,
-    },
     /// Schedules: the answer to [`ClientMsg::ListSchedules`].
     Schedules {
         /// The bot asked about; `None` for all.

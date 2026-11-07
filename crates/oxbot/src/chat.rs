@@ -277,7 +277,6 @@ impl View {
             | ServerMsg::Runs { .. }
             | ServerMsg::RunDetail { .. }
             | ServerMsg::Scoreboard { .. }
-            | ServerMsg::ShadowPair { .. }
             | ServerMsg::ComparePrefs(_)
             | ServerMsg::Schedules { .. }
             | ServerMsg::SchedulesChanged

@@ -179,7 +179,7 @@ pub struct RunInfo {
     pub case_title: String,
     /// The bot.
     pub bot: String,
-    /// `original`, `replay` or `shadow`.
+    /// `original` or `replay`.
     pub kind: String,
     /// The engine.
     pub engine: EngineKind,
@@ -353,16 +353,11 @@ pub struct ComparePrefs {
     /// Share of the day's free `OpenRouter` requests kept for live bots,
     /// in percent (0 to 90).
     pub reserve_pct: u32,
-    /// Most shadow runs a day.
-    pub shadows_a_day: u32,
 }
 
 impl Default for ComparePrefs {
     fn default() -> Self {
-        Self {
-            reserve_pct: 30,
-            shadows_a_day: 20,
-        }
+        Self { reserve_pct: 30 }
     }
 }
 

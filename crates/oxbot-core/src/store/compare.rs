@@ -86,7 +86,7 @@ pub struct BatchRecord {
     pub id: String,
     /// The bot.
     pub bot: String,
-    /// `replay` or `shadow`.
+    /// `replay` (`shadow` for runs of a feature since removed).
     pub kind: String,
     /// When it was started.
     pub created_ms: i64,
@@ -113,7 +113,8 @@ pub struct TrialRunRecord {
     pub case_id: Option<String>,
     /// The bot.
     pub bot: String,
-    /// `original`, `replay` or `shadow`.
+    /// `original` or `replay` (`shadow` for runs of a feature since
+    /// removed).
     pub kind: String,
     /// `codex`, `openrouter` (`claude` for runs from before Claude left
     /// oxbot).
@@ -198,12 +199,6 @@ fn cut(text: &str) -> String {
         end -= 1;
     }
     format!("{}…", &text[..end])
-}
-
-/// How a shadow batch names the live message it shadows (its `cases`).
-#[must_use]
-pub fn shadow_cases(user_seq: u64) -> String {
-    format!("[\"seq:{user_seq}\"]")
 }
 
 fn u32_of(n: i64) -> u32 {
@@ -817,38 +812,6 @@ impl Store {
                 ))
             },
         )?)
-    }
-
-    /// Links the runs of the shadow batch made for `bot`'s message
-    /// `user_seq` to test case `case` (the turn just became a case).
-    /// Returns whether there was one.
-    ///
-    /// # Errors
-    /// Fails if SQLite fails.
-    pub fn link_shadow_runs(
-        &self,
-        bot: &BotId,
-        user_seq: u64,
-        case: &str,
-    ) -> Result<bool, StoreError> {
-        Ok(self.conn().execute(
-            "UPDATE trial_runs SET case_id = ?3 WHERE batch IN (
-                SELECT id FROM trial_batches WHERE bot = ?1 AND kind = 'shadow' AND cases = ?2)",
-            params![bot.as_str(), shadow_cases(user_seq), case],
-        )? > 0)
-    }
-
-    /// Shadow runs started today (UTC), for the daily cap.
-    ///
-    /// # Errors
-    /// Fails if SQLite fails.
-    pub fn shadows_since(&self, since_ms: i64) -> Result<u32, StoreError> {
-        let n: i64 = self.conn().query_row(
-            "SELECT COUNT(*) FROM trial_runs WHERE kind = 'shadow' AND COALESCE(started_ms, 0) >= ?1",
-            [since_ms],
-            |r| r.get(0),
-        )?;
-        Ok(u32_of(n))
     }
 
     /// Forgets everything stored under a practice run's own key (its

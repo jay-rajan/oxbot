@@ -1982,7 +1982,6 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::Runs { .. }
         | ServerMsg::RunDetail { .. }
         | ServerMsg::Scoreboard { .. }
-        | ServerMsg::ShadowPair { .. }
         | ServerMsg::ComparePrefs(_) => client.owner.then_some(msg),
         ServerMsg::Notice {
             ref owner,

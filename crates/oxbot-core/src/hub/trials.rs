@@ -64,8 +64,7 @@ const GUARD_WAIT: Duration = Duration::from_secs(5);
 /// Practice runs: what's queued and what's running.
 #[derive(Default)]
 pub(super) struct Trials {
-    /// Runs going on, by key (at most one, but shadows may overlap a
-    /// batch's run).
+    /// Runs going on, by key (at most one).
     active: std::sync::Mutex<HashMap<BotId, Active>>,
     /// What to run next.
     queue: std::sync::Mutex<VecDeque<Job>>,
@@ -81,23 +80,6 @@ pub(super) struct Trials {
 pub(super) enum Job {
     /// Every queued run of a batch, in order.
     Batch(String),
-    /// One shadow run next to a live turn.
-    Shadow(ShadowJob),
-}
-
-/// A shadow: the owner's live message, run on another engine at the same
-/// time.
-#[derive(Debug, Clone)]
-pub(super) struct ShadowJob {
-    pub batch: String,
-    pub run: String,
-    pub bot: BotId,
-    /// The live turn's `UserMessage` event.
-    pub live_seq: u64,
-    pub prompt: String,
-    pub files: Vec<Attachment>,
-    pub instructions: String,
-    pub target: Target,
 }
 
 /// A run going on.
@@ -592,15 +574,9 @@ impl Hub {
         }
     }
 
-    /// Queues `job`; shadows go first.
+    /// Queues `job`.
     pub(super) fn queue_trial(&self, job: Job) {
-        {
-            let mut queue = lock(&self.trials.queue);
-            match job {
-                Job::Shadow(_) => queue.push_front(job),
-                Job::Batch(_) => queue.push_back(job),
-            }
-        }
+        lock(&self.trials.queue).push_back(job);
         self.trials.wake.notify_one();
     }
 
@@ -1105,11 +1081,6 @@ async fn run_queue(hub: Weak<Hub>) {
         let hub = strong;
         match job {
             Job::Batch(id) => hub.run_batch(&id).await,
-            Job::Shadow(shadow) => {
-                // A shadow runs next to the live turn, not after the batch.
-                let hub = Arc::clone(&hub);
-                tokio::spawn(async move { hub.run_shadow(shadow).await });
-            }
         }
     }
 }

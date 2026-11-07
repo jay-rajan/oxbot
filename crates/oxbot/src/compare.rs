@@ -35,7 +35,6 @@ pub fn is_compare(msg: &ClientMsg) -> bool {
             | ClientMsg::OpenRun { .. }
             | ClientMsg::SetRunVerdict { .. }
             | ClientMsg::Scoreboard { .. }
-            | ClientMsg::SetShadow { .. }
             | ClientMsg::DeleteAllRuns
             | ClientMsg::ListComparePrefs
             | ClientMsg::SetComparePrefs(_)
@@ -120,7 +119,7 @@ pub async fn handle(
     })
 }
 
-/// Batches, runs, verdicts, the scoreboard and shadows.
+/// Batches, runs, verdicts and the scoreboard.
 async fn runs(msg: ClientMsg, hub: &Arc<Hub>, viewer: &Viewer) -> Vec<ServerMsg> {
     match msg {
         ClientMsg::EstimateBatch {
@@ -163,9 +162,6 @@ async fn runs(msg: ClientMsg, hub: &Arc<Hub>, viewer: &Viewer) -> Vec<ServerMsg>
             hub.scoreboard_for(&bot, viewer)
                 .map(|rows| vec![ServerMsg::Scoreboard { bot, rows }]),
         ),
-        ClientMsg::SetShadow { bot, target } => {
-            answer(hub.set_shadow(&bot, target, viewer).map(|m| vec![m]))
-        }
         ClientMsg::ListComparePrefs => answer(
             hub.compare_prefs(viewer)
                 .map(|p| vec![ServerMsg::ComparePrefs(p)]),

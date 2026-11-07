@@ -13,6 +13,4 @@ expect_not = "Test case…"
 right_click = "Recipes"
 [[step]]
 expect_not = "Compare…"
-[[step]]
-expect_js = "document.getElementById('shadowChip').hidden"
 shot = "no-compare"
