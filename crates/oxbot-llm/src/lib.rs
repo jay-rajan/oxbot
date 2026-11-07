@@ -33,8 +33,8 @@ pub mod types;
 pub mod wire;
 
 pub use client::{
-    Auth, ChatModel, ClientConfig, Endpoint, OPENROUTER_BASE, OpenAiClient, RELAY_USER_AGENT,
-    RawAnswer, Timeouts, complete,
+    ApiCall, ApiObserver, Auth, ChatModel, ClientConfig, Endpoint, OPENROUTER_BASE, OpenAiClient,
+    RELAY_USER_AGENT, RawAnswer, Timeouts, complete,
 };
 
 pub use error::{ErrorKind, LlmError, RetryClass, parse_retry_after};

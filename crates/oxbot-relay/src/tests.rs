@@ -103,6 +103,10 @@ async fn harness() -> Harness {
 }
 
 async fn harness_knowing(names: Vec<personal::Known>) -> Harness {
+    harness_with(names, Arc::new(NoLog)).await
+}
+
+async fn harness_with(names: Vec<personal::Known>, log: Arc<dyn RelayLog>) -> Harness {
     let store = Arc::new(MemoryLoopStore::new());
     let mut setup = LoopSetup::new(Arc::new(ScriptedModel::new()), Arc::clone(&store) as _);
     let prefs = Arc::clone(&setup.prefs);
@@ -114,7 +118,7 @@ async fn harness_knowing(names: Vec<personal::Known>) -> Harness {
     let relay = Relay::start(RelaySetup {
         gateway: engine.gateway(),
         upstream: Arc::clone(&upstream) as _,
-        log: Arc::new(NoLog),
+        log,
         names: Arc::new(Names(names)),
     })
     .await
@@ -508,4 +512,90 @@ async fn a_private_bot_may_use_free_models_once_details_are_removed() {
     assert!(bodies[1].to_string().contains("ann.lee@example.com"));
     let calls = h.store.calls();
     assert!(!calls[0].private && calls[1].private);
+}
+
+/// Keeps every request's row for Settings → Activity.
+#[derive(Default)]
+struct Exchanges(Mutex<Vec<AiExchange>>);
+
+impl RelayLog for Exchanges {
+    fn add(&self, _: &RelayLogRow) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn exchange(&self, row: &AiExchange) {
+        self.0.lock().unwrap().push(row.clone());
+    }
+}
+
+/// Waits for the rows noted once answers end (that happens on a task).
+async fn exchanges(log: &Exchanges, n: usize) -> Vec<AiExchange> {
+    for _ in 0..200 {
+        if log.0.lock().unwrap().len() >= n {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    log.0.lock().unwrap().clone()
+}
+
+#[tokio::test]
+async fn each_request_notes_its_sizes_and_what_kinds_were_swapped() {
+    let log = Arc::new(Exchanges::default());
+    let h = harness_with(
+        vec![personal::Known::person("Ann Lee")],
+        Arc::clone(&log) as _,
+    )
+    .await;
+    let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
+    client.begin_turn(start(None));
+    let (status, body) = post(h.relay.addr(), "/v1/responses", Some(&token), PERSONAL).await;
+    assert_eq!(status, 200);
+    let rows = exchanges(&log, 1).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    let sent = serde_json::to_vec(&h.upstream.bodies.lock().unwrap()[0]).unwrap();
+    // What left, as it left (stand-ins, not details), and the answer.
+    assert_eq!(row.bytes_up, sent.len() as u64);
+    assert_eq!(row.bytes_down, STREAM.len() as u64);
+    assert!(body.len() as u64 <= row.bytes_down + 64);
+    // Counts by kind, never the details: "Ann Lee" and "Ann" are two.
+    let swapped: Vec<(&str, u32)> = row.swapped.iter().map(|(k, n)| (k.as_str(), *n)).collect();
+    assert_eq!(swapped, [("email", 1), ("person", 2), ("phone", 1)]);
+    assert_eq!(row.bot, "scout");
+    assert_eq!(row.person.as_deref(), Some("p_sam"));
+    assert_eq!(row.model, "e2e/a:free");
+    assert_eq!((row.tokens_in, row.tokens_out), (40, 4));
+    assert_eq!(row.outcome, "ok");
+    let _ = client.end_turn();
+}
+
+#[tokio::test]
+async fn a_request_with_nothing_personal_swaps_nothing_and_a_refused_one_is_noted() {
+    let log = Arc::new(Exchanges::default());
+    let h = harness_with(Vec::new(), Arc::clone(&log) as _).await;
+    let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
+    client.begin_turn(start(None));
+    assert_eq!(
+        post(h.relay.addr(), "/v1/responses", Some(&token), REQUEST)
+            .await
+            .0,
+        200
+    );
+    let rows = exchanges(&log, 1).await;
+    assert!(rows[0].swapped.is_empty());
+    // The provider refuses the next one outright: what was sent still
+    // counts.
+    h.upstream.errors.lock().unwrap().push(LlmError::new(
+        ErrorKind::ContextLength,
+        "This conversation is too long.",
+    ));
+    let (status, _) = post(h.relay.addr(), "/v1/responses", Some(&token), REQUEST).await;
+    assert_eq!(status, 200, "a streamed request hears it's too long");
+    let rows = exchanges(&log, 2).await;
+    assert_eq!(rows.len(), 2);
+    assert!(rows[1].bytes_up > 0);
+    assert_eq!(rows[1].bytes_down, 0);
+    assert_eq!(rows[1].outcome, "This conversation is too long.");
+    let _ = client.end_turn();
 }

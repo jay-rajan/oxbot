@@ -280,6 +280,7 @@ impl View {
             | ServerMsg::ShadowPair { .. }
             | ServerMsg::ComparePrefs(_)
             | ServerMsg::Schedules { .. }
+            | ServerMsg::NetLog { .. }
             | ServerMsg::SchedulesChanged
             | ServerMsg::Profile(_)
             | ServerMsg::ProfilesChanged => {}

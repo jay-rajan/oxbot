@@ -100,6 +100,7 @@ impl LoopStore for Store {
                 ],
             )
             .map_err(err)?;
+        self.note_call(c);
         Ok(())
     }
 

@@ -373,6 +373,7 @@ impl Hub {
         }
         self.sweep_uploads();
         self.sweep_context();
+        self.prune_net_log(false);
         if !waiting.is_empty() {
             return;
         }

@@ -23,7 +23,9 @@
 //!   kept beside what was sent, so a resumed chat keeps them.
 //! - What was sent is kept ([`RelayLog`]): the outgoing body (stand-ins,
 //!   not details: what left the Mac) in a file under the bot's context
-//!   folder, readable only by this Mac's user.
+//!   folder, readable only by this Mac's user; and for Settings →
+//!   Activity, one [`AiExchange`] per request: its sizes, cost and how
+//!   many personal details of each kind were swapped (never the details).
 
 // Product names (OpenRouter, Codex) read better in docs without backticks.
 #![allow(clippy::doc_markdown)]
@@ -32,7 +34,7 @@ pub mod personal;
 pub mod shape;
 pub mod tap;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -106,6 +108,37 @@ pub struct RelayLogRow {
     pub body_path: PathBuf,
 }
 
+/// One request to the AI as Settings → Activity shows it: sizes, cost,
+/// tokens and what was swapped. Never what was said.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AiExchange {
+    /// When it went out, ms since the Unix epoch.
+    pub ts_ms: i64,
+    /// The bot.
+    pub bot: String,
+    /// The person the turn acts for, by id.
+    pub person: Option<String>,
+    /// The model that answered (else the one asked last).
+    pub model: String,
+    /// What it cost, in US dollars.
+    pub cost_usd: f64,
+    /// Input tokens.
+    pub tokens_in: u64,
+    /// Output tokens.
+    pub tokens_out: u64,
+    /// How long it took, from the request to the end of the answer.
+    pub ms: u64,
+    /// The meter's outcome (`ok`, `rate_limited`, `error:<kind>`,
+    /// `cancelled`…), or oxbot's own words when no model took it.
+    pub outcome: String,
+    /// Bytes sent: every try's body as it left (after the stand-ins).
+    pub bytes_up: u64,
+    /// Bytes of the answer received.
+    pub bytes_down: u64,
+    /// Personal details swapped for stand-ins, by kind → how many.
+    pub swapped: BTreeMap<String, u32>,
+}
+
 /// Where the relay notes what it sent.
 pub trait RelayLog: Send + Sync {
     /// Notes one request.
@@ -113,6 +146,10 @@ pub trait RelayLog: Send + Sync {
     /// # Errors
     /// It couldn't be saved (the request still goes).
     fn add(&self, row: &RelayLogRow) -> Result<(), String>;
+
+    /// Notes how one request went, once its answer ended (or no model
+    /// took it after something was sent). Nothing by default.
+    fn exchange(&self, _row: &AiExchange) {}
 }
 
 /// Keeps no log (tests).
@@ -230,7 +267,7 @@ impl Client {
         session: &str,
         context_dir: &Path,
         known: Vec<Known>,
-    ) -> Arc<StandIns> {
+    ) -> (Arc<StandIns>, BTreeMap<String, u32>) {
         let mut personal = self.personal.lock().unwrap_or_else(PoisonError::into_inner);
         if personal.as_ref().is_none_or(|p| p.session != session) {
             let path = stand_ins_path(context_dir, session);
@@ -245,7 +282,7 @@ impl Client {
             });
         }
         let Some(p) = personal.as_mut() else {
-            return Arc::default();
+            return (Arc::default(), BTreeMap::new());
         };
         p.redactor.set_known(known);
         let before = p.redactor.stand_ins().len();
@@ -257,7 +294,7 @@ impl Client {
         {
             tracing::warn!(%err, "couldn't keep a chat's stand-ins");
         }
-        Arc::new(stand_ins.clone())
+        (Arc::new(stand_ins.clone()), p.redactor.swapped())
     }
 
     fn turn(&self) -> std::sync::MutexGuard<'_, Option<Turn>> {
@@ -364,6 +401,31 @@ struct Inner {
 impl Inner {
     fn clients(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<Client>>> {
         self.clients.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Personal details become stand-ins before anything leaves (unless
+    /// the owner turned it off), and the answer gets them back: the
+    /// stand-ins, and `net` counts what was swapped.
+    fn redact(
+        &self,
+        client: &Client,
+        info: &ClientInfo,
+        asker: &mut Asker,
+        request: &mut serde_json::Map<String, Value>,
+        net: &mut NetNote,
+    ) -> Option<Arc<StandIns>> {
+        if !self.setup.gateway.removes_personal_details() {
+            return None;
+        }
+        asker.filtered = true;
+        let (stand_ins, swapped) = client.redact(
+            request,
+            asker.session.as_deref().unwrap_or_default(),
+            &info.context_dir,
+            self.setup.names.known_names(),
+        );
+        net.row.swapped = swapped;
+        Some(stand_ins)
     }
 
     fn client_for(&self, headers: &HeaderMap) -> Option<Arc<Client>> {
@@ -577,17 +639,8 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
         t.requests += 1;
         (asker, t.routing.clone(), t.start.meter.clone())
     };
-    // Personal details become stand-ins before anything leaves, and the
-    // answer gets them back.
-    let stand_ins = relay.setup.gateway.removes_personal_details().then(|| {
-        asker.filtered = true;
-        client.redact(
-            &mut request,
-            asker.session.as_deref().unwrap_or_default(),
-            &info.context_dir,
-            relay.setup.names.known_names(),
-        )
-    });
+    let mut net = NetNote::new(&relay, &info, &asker);
+    let stand_ins = relay.redact(&client, &info, &mut asker, &mut request, &mut net);
     // Fires when Codex goes away (the answer it was reading is dropped):
     // the request upstream stops too.
     let cancel = CancellationToken::new();
@@ -600,19 +653,24 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
             let out = shape::outgoing(&request, &attempt);
             let bytes = serde_json::to_vec(&Value::Object(out)).unwrap_or_default();
             note_sent(&relay, &info, &asker, &attempt.model, &bytes);
+            net.row.bytes_up += bytes.len() as u64;
+            net.row.model.clone_from(&attempt.model);
             upstream.send(bytes, stream, cancel.clone())
         })
         .await;
     if let Some(t) = client.turn().as_mut() {
         t.routing = routing;
     }
+    if let Err(stop) = &opened {
+        net.failed(stop);
+    }
     match opened {
         Ok(opened) => {
             let (answer, ticket) = (opened.value, opened.ticket);
             if stream {
-                streamed(answer, ticket, meter, stop_with_codex, stand_ins)
+                streamed(answer, ticket, meter, stop_with_codex, stand_ins, net)
             } else {
-                whole(answer, ticket, meter, stand_ins).await
+                whole(answer, ticket, meter, stand_ins, net).await
             }
         }
         Err(GatewayStop::Fail(why)) => {
@@ -740,6 +798,60 @@ pub fn sweep(context_dir: &Path, cutoff_ms: i64, max_bytes: u64) -> usize {
     gone
 }
 
+/// A request's row for Settings → Activity, noted once it's known how it
+/// went.
+struct NetNote {
+    log: Arc<dyn RelayLog>,
+    row: AiExchange,
+}
+
+impl NetNote {
+    /// A request starting now for `asker`.
+    fn new(relay: &Inner, info: &ClientInfo, asker: &Asker) -> Self {
+        Self {
+            log: Arc::clone(&relay.setup.log),
+            row: AiExchange {
+                ts_ms: now_ms(),
+                bot: info.bot.clone(),
+                person: asker.person.clone(),
+                ..AiExchange::default()
+            },
+        }
+    }
+
+    /// No model took the request: noted only if something was sent.
+    fn failed(&mut self, stop: &GatewayStop) {
+        if self.row.bytes_up == 0 {
+            return;
+        }
+        self.row.outcome = match stop {
+            GatewayStop::Cancelled => "cancelled".to_owned(),
+            GatewayStop::Fail(why) => why.clone(),
+            GatewayStop::Upstream(err) => err.message.clone(),
+        };
+        self.row.ms = elapsed_ms(self.row.ts_ms);
+        self.log.exchange(&self.row);
+    }
+
+    /// The answer ended: the meter's row says how.
+    fn answered(mut self, record: &CallRecord, bytes_down: u64) {
+        if !record.model.is_empty() {
+            self.row.model.clone_from(&record.model);
+        }
+        self.row.cost_usd = record.cost_usd;
+        self.row.tokens_in = record.prompt_tokens;
+        self.row.tokens_out = record.completion_tokens;
+        self.row.outcome.clone_from(&record.outcome);
+        self.row.bytes_down = bytes_down;
+        self.row.ms = elapsed_ms(self.row.ts_ms);
+        self.log.exchange(&self.row);
+    }
+}
+
+fn elapsed_ms(since: i64) -> u64 {
+    u64::try_from(now_ms().saturating_sub(since)).unwrap_or(0)
+}
+
 /// Meters an answer when it's dropped: finished, cut off, or abandoned.
 struct Metered {
     ticket: Option<Ticket>,
@@ -747,6 +859,10 @@ struct Metered {
     cut: Option<LlmError>,
     ended: bool,
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
+    /// Bytes of the answer so far.
+    down: u64,
+    /// Its row for Settings → Activity.
+    net: Option<NetNote>,
 }
 
 impl Drop for Metered {
@@ -761,9 +877,13 @@ impl Drop for Metered {
         };
         let result = self.tap.result(cut);
         let meter = self.meter.take();
+        let (net, down) = (self.net.take(), self.down);
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
                 let record = ticket.done(result).await;
+                if let Some(net) = net {
+                    net.answered(&record, down);
+                }
                 if let Some(meter) = meter {
                     let _ = meter.send(record);
                 }
@@ -787,6 +907,7 @@ impl Streaming {
         loop {
             match self.body.next().await {
                 Some(Ok(bytes)) => {
+                    self.metered.down += bytes.len() as u64;
                     self.metered.tap.push(&bytes);
                     let Some(restorer) = &mut self.restorer else {
                         return Some(Ok(bytes));
@@ -820,6 +941,7 @@ fn streamed(
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
     stop_with_codex: tokio_util::sync::DropGuard,
     stand_ins: Option<Arc<StandIns>>,
+    net: NetNote,
 ) -> Response {
     let state = Streaming {
         body: answer.body,
@@ -829,6 +951,8 @@ fn streamed(
             cut: None,
             ended: false,
             meter,
+            down: 0,
+            net: Some(net),
         },
         restorer: stand_ins.map(SseRestorer::new),
         _guard: stop_with_codex,
@@ -856,6 +980,7 @@ async fn whole(
     ticket: Ticket,
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
     stand_ins: Option<Arc<StandIns>>,
+    net: NetNote,
 ) -> Response {
     let mut metered = Metered {
         ticket: Some(ticket),
@@ -863,12 +988,17 @@ async fn whole(
         cut: None,
         ended: false,
         meter,
+        down: 0,
+        net: Some(net),
     };
     let mut body = answer.body;
     let mut all = Vec::new();
     while let Some(next) = body.next().await {
         match next {
-            Ok(bytes) if all.len() + bytes.len() <= MAX_BODY => all.extend_from_slice(&bytes),
+            Ok(bytes) if all.len() + bytes.len() <= MAX_BODY => {
+                metered.down += bytes.len() as u64;
+                all.extend_from_slice(&bytes);
+            }
             Ok(_) => {
                 metered.cut = Some(LlmError::new(
                     ErrorKind::Protocol,

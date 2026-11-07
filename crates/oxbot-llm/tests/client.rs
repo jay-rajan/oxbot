@@ -544,11 +544,28 @@ async fn model_list_is_fetched_without_the_key_and_key_info_with_it() {
     ])
     .await;
     let client = server.signed_in();
+    // The host hears of each call (on clones too), with its sizes.
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let heard = std::sync::Arc::clone(&calls);
+    client
+        .clone()
+        .observe(std::sync::Arc::new(move |c: &oxbot_llm::ApiCall| {
+            heard.lock().unwrap().push(c.clone());
+        }));
     let catalog = client.models().await.unwrap();
     let free: Vec<&str> = catalog.free_for_loop().map(|m| m.id.as_str()).collect();
     assert_eq!(free, ["e2e/tool-model:free"]);
     let key = client.key_info().await.unwrap();
     assert_eq!(key.free_daily.unwrap().remaining, 997);
+    let calls = calls.lock().unwrap().clone();
+    let paths: Vec<(&str, &str)> = calls.iter().map(|c| (c.method, c.path.as_str())).collect();
+    assert_eq!(paths, [("GET", "models"), ("GET", "key")]);
+    assert!(
+        calls
+            .iter()
+            .all(|c| c.bytes_up == 0 && c.bytes_down > 50 && c.error.is_none())
+    );
+    assert_eq!(calls[0].host, "127.0.0.1");
 
     let seen = server.seen();
     assert_eq!(

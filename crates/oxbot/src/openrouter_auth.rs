@@ -16,7 +16,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use oxbot_llm::{
-    Auth, Catalog, ClientConfig, Endpoint, KeyCell, KeyInfo, OpenAiClient, Pkce, Provider,
+    ApiCall, Auth, Catalog, ClientConfig, Endpoint, KeyCell, KeyInfo, OpenAiClient, Pkce, Provider,
     SecretStore, Timeouts, auth_url, exchange_code, random_state,
 };
 
@@ -310,12 +310,47 @@ impl OpenRouter {
         }
     }
 
+    /// Notes each of oxbot's own calls to `OpenRouter` (the model list,
+    /// the key's limits, the sign-in) in `hub`'s Settings → Activity.
+    pub fn note_calls_to(&self, hub: &Arc<oxbot_core::Hub>) {
+        let hub = Arc::downgrade(hub);
+        self.client.observe(Arc::new(move |call: &ApiCall| {
+            if let Some(hub) = hub.upgrade() {
+                hub.note_oxbot_call(oxbot_call(call, crate::runtime::now_ms()));
+            }
+        }));
+    }
+
     /// Reads the model list (needs no key).
     ///
     /// # Errors
     /// Network or format errors.
     pub async fn fetch_models(&self) -> Result<Catalog, oxbot_llm::LlmError> {
         self.client.models().await
+    }
+}
+
+/// One of oxbot's own calls to `OpenRouter` in plain words, seen at
+/// `now_ms`.
+fn oxbot_call(call: &ApiCall, now_ms: i64) -> oxbot_core::OxbotCall {
+    let label = match (call.method, call.path.as_str()) {
+        ("GET", "models") => "checked the free models list",
+        ("GET", "key") => "checked the AI account's limits",
+        ("POST", "auth/keys") => "connected the AI account",
+        _ => "talked to the AI account",
+    };
+    let outcome = call.error.as_deref().map_or_else(
+        || "ok".to_owned(),
+        |why| why.chars().take(120).collect::<String>(),
+    );
+    oxbot_core::OxbotCall {
+        ts_ms: now_ms - i64::try_from(call.ms).unwrap_or(0),
+        host: call.host.clone(),
+        label: label.to_owned(),
+        bytes_up: call.bytes_up,
+        bytes_down: call.bytes_down,
+        ms: call.ms,
+        outcome,
     }
 }
 
@@ -435,6 +470,28 @@ pub(crate) mod tests {
             false,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn oxbots_own_calls_are_named_in_plain_words() {
+        let call = |method, path: &str, error: Option<&str>| ApiCall {
+            method,
+            path: path.into(),
+            host: "openrouter.ai".into(),
+            bytes_up: 5,
+            bytes_down: 900,
+            ms: 200,
+            error: error.map(str::to_owned),
+        };
+        let models = oxbot_call(&call("GET", "models", None), 10_000);
+        assert_eq!(models.label, "checked the free models list");
+        assert_eq!((models.ts_ms, models.outcome.as_str()), (9_800, "ok"));
+        assert_eq!((models.bytes_up, models.bytes_down), (5, 900));
+        let key = oxbot_call(&call("GET", "key", Some("The key was refused.")), 0);
+        assert_eq!(key.label, "checked the AI account's limits");
+        assert_eq!(key.outcome, "The key was refused.");
+        let sign_in = oxbot_call(&call("POST", "auth/keys", None), 0);
+        assert_eq!(sign_in.label, "connected the AI account");
     }
 
     #[test]

@@ -14,6 +14,7 @@ use tokio::sync::{Mutex, watch};
 use crate::guard::Guard;
 use crate::netguard::{BlockedRequest, NetGuard, NetMode};
 use crate::sealed::{self, Copied, Ran, SealedTab};
+use crate::visits::{VisitSink, Watch};
 use crate::{BrowserError, CookieMarks, ElementFacts, Tools, http};
 
 /// What the shared browser should be.
@@ -78,6 +79,10 @@ pub struct Browser {
     net_guard: Mutex<Option<NetGuard>>,
     /// The sealed tab of a `read_pages` run, while one is open.
     sealed: Mutex<Option<SealedTab>>,
+    /// Where its visits to websites go, if they're counted.
+    visit_sink: std::sync::Mutex<Option<VisitSink>>,
+    /// Who is using it now (the hub's tag), for the visits.
+    user: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -134,7 +139,28 @@ impl Browser {
             net,
             net_guard: Mutex::new(None),
             sealed: Mutex::new(None),
+            visit_sink: std::sync::Mutex::new(None),
+            user: Arc::new(std::sync::Mutex::new(None)),
         }))
+    }
+
+    /// Counts its visits to websites from the next time Chrome starts:
+    /// each finished [`crate::Visit`] goes to `sink` (see
+    /// [`crate::visits`]).
+    pub fn count_visits(&self, sink: VisitSink) {
+        *self
+            .visit_sink
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sink);
+    }
+
+    /// Who is using it from now on (a bot's id; `None`: no one). Visits
+    /// started by someone else end.
+    pub fn set_user(&self, user: Option<String>) {
+        *self
+            .user
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = user;
     }
 
     /// Whether this is a practice run's browser.
@@ -618,7 +644,16 @@ impl Browser {
         if let Err(err) = tokio::fs::create_dir_all(&downloads).await {
             tracing::warn!(%err, "couldn't create the downloads folder");
         }
-        match Guard::start(self.port, downloads).await {
+        let watch = self
+            .visit_sink
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .map(|sink| Watch {
+                sink,
+                user: Arc::clone(&self.user),
+            });
+        match Guard::start(self.port, downloads, watch).await {
             Ok(guard) => *self.guard.lock().await = Some(guard),
             Err(err) => {
                 tracing::warn!(browser = self.label, %err, "browser guard didn't start (no screenshots or page checks)");

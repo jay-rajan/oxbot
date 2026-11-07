@@ -327,11 +327,14 @@ impl Door {
         let addr = axum::serve::Listener::local_addr(&listener)?;
         tokio::spawn(async move {
             let mut stopped = stopped;
-            let served = axum::serve(listener, router)
-                .with_graceful_shutdown(async move {
-                    let _ = stopped.wait_for(|s| *s).await;
-                })
-                .await;
+            let served = axum::serve(
+                listener,
+                router.into_make_service_with_connect_info::<listener::ConnBytes>(),
+            )
+            .with_graceful_shutdown(async move {
+                let _ = stopped.wait_for(|s| *s).await;
+            })
+            .await;
             if let Err(err) = served {
                 tracing::warn!(%err, "the Gate door stopped with an error");
             }
@@ -551,13 +554,34 @@ impl Door {
     }
 
     /// Marks Gate `id` as connected until the guard is dropped, however the
-    /// connection ends.
+    /// connection ends. With its connection's byte counts, the connection
+    /// is also noted in Settings → Activity (for `person`, the Gate's).
     #[must_use]
-    pub fn online(self: &Arc<Self>, id: &str) -> Online {
+    pub fn online(
+        self: &Arc<Self>,
+        id: &str,
+        person: Option<&oxbot_core::id::PersonId>,
+        bytes: Option<listener::ConnBytes>,
+    ) -> Online {
         self.set_online(id, true);
+        let noted = bytes.and_then(|bytes| {
+            let gate = self.gates().into_iter().find(|g| g.id == id)?;
+            let network = lock(&self.here)
+                .as_ref()
+                .map(|h| h.label.clone())
+                .unwrap_or_default();
+            let visit = self.hub.device_connected(&gate, person, &network)?;
+            let start = (bytes.written(), bytes.read());
+            Some(Noted {
+                visit,
+                bytes,
+                start,
+            })
+        });
         Online {
             door: Arc::clone(self),
             id: id.to_owned(),
+            noted,
         }
     }
 
@@ -580,10 +604,27 @@ impl Door {
 pub struct Online {
     door: Arc<Door>,
     id: String,
+    noted: Option<Noted>,
+}
+
+/// A connection's row in Settings → Activity, and its byte counts when it
+/// began.
+#[derive(Debug)]
+struct Noted {
+    visit: oxbot_core::DeviceVisit,
+    bytes: listener::ConnBytes,
+    /// (written, read) when the row was made.
+    start: (u64, u64),
 }
 
 impl Drop for Online {
     fn drop(&mut self) {
         self.door.set_online(&self.id, false);
+        if let Some(n) = self.noted.take() {
+            // Up: what the home computer sent the device.
+            let up = n.bytes.written().saturating_sub(n.start.0);
+            let down = n.bytes.read().saturating_sub(n.start.1);
+            self.door.hub.device_disconnected(&n.visit, up, down);
+        }
     }
 }

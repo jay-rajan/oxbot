@@ -9,8 +9,8 @@
 //! alerts and preferences, who started each turn, schedules and their
 //! runs, oxbot's own loop
 //! (conversations, turns, model requests), Codex's threads and what the
-//! relay sent, and comparisons of engines and models (test cases and
-//! practice runs).
+//! relay sent, comparisons of engines and models (test cases and
+//! practice runs), and Settings → Activity's log of what left the Mac.
 
 mod alerts;
 mod codex;
@@ -27,6 +27,8 @@ mod loop_state;
 mod members;
 pub use loop_state::{CallTotals, DayUsage, KEEP_CALLS_DAYS, KEEP_CLOSED_DAYS};
 mod migrations;
+mod net_log;
+pub use net_log::{KEEP_NET_DAYS, NetDetail, NetRecord, NetScope};
 mod origins;
 pub use origins::TurnOriginRecord;
 mod people;

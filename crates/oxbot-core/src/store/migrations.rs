@@ -448,6 +448,29 @@ pub(super) const MIGRATIONS: &[Step] = &[
                  CAST(strftime('%s', 'now') AS INTEGER) * 1000
           FROM people;",
     ),
+    // 27: Settings → Activity: one row per exchange with the outside world
+    // (a question to the AI, a bot's visit to a website, a device's
+    // connection, oxbot's own calls). Sizes, places and outcomes only,
+    // never what was said; kept 30 days.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS net_log (
+            id         INTEGER PRIMARY KEY,
+            ts_ms      INTEGER NOT NULL,
+            kind       TEXT    NOT NULL,          -- ai | website | device | oxbot
+            who        TEXT    NOT NULL DEFAULT '', -- the name shown when it was written
+            bot        TEXT,                      -- bot id
+            person     TEXT,                      -- person id
+            gate       TEXT,                      -- device (gate) id
+            host       TEXT    NOT NULL,
+            label      TEXT    NOT NULL,
+            bytes_up   INTEGER NOT NULL DEFAULT 0,
+            bytes_down INTEGER NOT NULL DEFAULT 0,
+            cost_usd   REAL,
+            detail     TEXT    NOT NULL DEFAULT '{}' -- JSON: ms, outcome, swapped counts, model, tokens, pages, other_hosts
+        );
+        CREATE INDEX IF NOT EXISTS net_log_ts ON net_log (ts_ms);
+        CREATE INDEX IF NOT EXISTS net_log_kind_ts ON net_log (kind, ts_ms);",
+    ),
 ];
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each

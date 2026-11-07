@@ -205,6 +205,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     };
     let hub = Hub::new(bots, store, config);
     hub.start_codex().await;
+    // Settings → Activity: oxbot's own calls to OpenRouter.
+    openrouter.note_calls_to(&hub);
 
     let farm_key =
         crate::secret::farm_key(home.root()).context("couldn't make or read the Farm secret")?;

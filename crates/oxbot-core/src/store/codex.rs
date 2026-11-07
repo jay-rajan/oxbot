@@ -80,6 +80,10 @@ impl RelayLog for Store {
             .map_err(err)?;
         Ok(())
     }
+
+    fn exchange(&self, row: &oxbot_relay::AiExchange) {
+        self.note_ai(row);
+    }
 }
 
 impl KnownNames for Store {
