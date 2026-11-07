@@ -324,11 +324,66 @@ impl AppState {
 /// The chat page, baked into the binary.
 const INDEX_HTML: &str = include_str!("../ui/index.html");
 
-/// The HTTP routes: the chat page at `/`, the WebSocket at `/ws`, and
-/// `POST /upload` for files sent with messages (this Mac only: not on the
+/// The React page being built to replace it (`crates/oxbot/ui-src`, built
+/// into `ui-dist/`), served at `/next/` until it takes over.
+mod next_page {
+    pub const INDEX_HTML: &str = include_str!("../ui-dist/index.html");
+    pub const APP_JS: &str = include_str!("../ui-dist/app.js");
+    pub const APP_CSS: &str = include_str!("../ui-dist/app.css");
+}
+
+/// The React page's Content-Security-Policy: its own script and stylesheet
+/// only, no inline scripts, and connections back to this server only.
+const NEXT_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+     img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'none'; \
+     object-src 'none'; base-uri 'none'";
+
+/// The React page's routes (`/next/…`), added to both routers so it's
+/// reached (and checked) exactly like the chat page at `/`.
+fn with_next_page(router: Router<AppState>) -> Router<AppState> {
+    router
+        .route(
+            "/next",
+            get(|| async { axum::response::Redirect::permanent("/next/") }),
+        )
+        .route(
+            "/next/",
+            get(|| async { next_file("text/html; charset=utf-8", next_page::INDEX_HTML) }),
+        )
+        .route(
+            "/next/index.html",
+            get(|| async { next_file("text/html; charset=utf-8", next_page::INDEX_HTML) }),
+        )
+        .route(
+            "/next/app.js",
+            get(|| async { next_file("text/javascript; charset=utf-8", next_page::APP_JS) }),
+        )
+        .route(
+            "/next/app.css",
+            get(|| async { next_file("text/css; charset=utf-8", next_page::APP_CSS) }),
+        )
+}
+
+/// One of the React page's files, with its type and the strict policy.
+fn next_file(content_type: &'static str, body: &'static str) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CONTENT_SECURITY_POLICY, NEXT_CSP),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// The HTTP routes: the chat page at `/` (and the React page being built
+/// at `/next/`), the WebSocket at `/ws`, and `POST /upload` for files sent with messages (this Mac only: not on the
 /// Gate door).
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    with_next_page(Router::new())
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
         // "Sign in with OpenRouter" comes back here: this Mac only.
@@ -351,7 +406,7 @@ const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 /// The Gate door's routes: `POST /pair` for anyone with the code, and the
 /// page and WebSocket for paired Gates only (see [`crate::door`]).
 pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
-    Router::new()
+    with_next_page(Router::new())
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
         .layer(axum::middleware::from_fn_with_state(

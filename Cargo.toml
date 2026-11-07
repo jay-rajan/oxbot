@@ -43,6 +43,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4"] }
 
+# TypeScript types for the page, generated from the protocol (version
+# checked 2026-11-07). Only behind oxbot-protocol's `ts` feature: normal
+# builds never compile it.
+ts-rs = { version = "=10.1.0", default-features = false, features = ["serde-compat", "no-serde-warnings"] }
+
 # Research reports: Markdown to HTML, with oxbot's own filter (versions
 # checked 2026-11-02). Only the HTML writer: no command-line parts.
 pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }

@@ -15,6 +15,7 @@ pub const DEFAULT_NET_ROWS: u32 = 100;
 
 /// What kind of exchange a row is.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum NetKind {
     /// A question a bot sent to the AI (`OpenRouter`).
@@ -55,11 +56,14 @@ impl NetKind {
 
 /// One exchange with the outside world, as Settings → Activity shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NetRow {
     /// The row's id (newer rows have bigger ids).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub id: i64,
     /// When it happened (a device: when it connected), ms since the Unix
     /// epoch.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub ts_ms: i64,
     /// What kind of exchange.
     pub kind: NetKind,
@@ -78,8 +82,10 @@ pub struct NetRow {
     /// `read 2 pages`, `connected on Home Wi-Fi`.
     pub label: String,
     /// Bytes sent.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub bytes_up: u64,
     /// Bytes received.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub bytes_down: u64,
     /// What it cost, in US dollars, if it costs anything.
     #[serde(default)]
@@ -91,6 +97,7 @@ pub struct NetRow {
     pub swapped: BTreeMap<String, u32>,
     /// How long it took (a device: how long it stayed connected).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub ms: u64,
     /// `ok`, or a short plain reason it didn't go well (a device still
     /// connected: `connected`).
@@ -104,12 +111,15 @@ pub struct NetRow {
 /// Today's sums (since local midnight), over the rows the viewer may see
 /// of the kind asked for.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NetTotals {
     /// Rows today.
     pub today_rows: u32,
     /// Bytes sent today.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub today_up: u64,
     /// Bytes received today.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub today_down: u64,
     /// Spent today, in US dollars.
     pub today_cost_usd: f64,

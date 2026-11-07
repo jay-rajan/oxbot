@@ -391,6 +391,56 @@ async fn the_page_is_served_and_other_websites_are_refused() {
     );
 }
 
+/// One plain HTTP GET; the whole response, headers included.
+async fn http_get(addr: &str, path: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    tcp.write_all(
+        format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").as_bytes(),
+    )
+    .await
+    .unwrap();
+    let mut response = String::new();
+    tcp.read_to_string(&mut response).await.unwrap();
+    response
+}
+
+#[tokio::test]
+async fn the_react_page_is_served_at_next_with_a_strict_policy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let url = start(tmp.path()).await;
+    let addr = url
+        .trim_start_matches("ws://")
+        .split('/')
+        .next()
+        .unwrap()
+        .to_owned();
+
+    let page = http_get(&addr, "/next/").await.to_ascii_lowercase();
+    assert!(page.starts_with("http/1.1 200"), "{page}");
+    assert!(page.contains("content-type: text/html"));
+    assert!(page.contains("content-security-policy: default-src 'self'; script-src 'self';"));
+    assert!(page.contains("src=\"./app.js\""));
+    assert!(!page.contains("<script>"), "no inline scripts");
+
+    let js = http_get(&addr, "/next/app.js").await.to_ascii_lowercase();
+    assert!(js.starts_with("http/1.1 200"));
+    assert!(js.contains("content-type: text/javascript"));
+    let css = http_get(&addr, "/next/app.css").await.to_ascii_lowercase();
+    assert!(css.starts_with("http/1.1 200"));
+    assert!(css.contains("content-type: text/css"));
+
+    // Without the slash, relative files wouldn't resolve: it redirects.
+    let bare = http_get(&addr, "/next").await.to_ascii_lowercase();
+    assert!(bare.starts_with("http/1.1 308"));
+    assert!(bare.contains("location: /next/"));
+    assert!(
+        http_get(&addr, "/next/other.js")
+            .await
+            .starts_with("HTTP/1.1 404")
+    );
+}
+
 #[tokio::test]
 async fn being_on_this_mac_is_not_enough_to_be_the_farm() {
     let tmp = tempfile::tempdir().unwrap();
