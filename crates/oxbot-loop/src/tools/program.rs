@@ -311,7 +311,8 @@ pub fn profile(work: &Path, interp: &Interpreter) -> String {
     // one's data.
     for prefix in HOMEBREW {
         if interp.exec.starts_with(prefix) {
-            for dir in ["lib", "opt", "Cellar"] {
+            // …and node reads OpenSSL's settings file at start.
+            for dir in ["lib", "opt", "Cellar", "etc/openssl@3"] {
                 read.push(format!("(subpath {})", sbpl(&Path::new(prefix).join(dir))));
             }
         }
