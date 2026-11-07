@@ -528,6 +528,51 @@ impl Browser {
         Ok(gone)
     }
 
+    /// The cookies of `site` (a main domain) and its subdomains, as
+    /// [`Browser::add_cookies`] takes them: to share a sign-in with
+    /// another browser. Starts hidden Chrome if it's off.
+    ///
+    /// # Errors
+    /// Fails if Chrome can't start or doesn't answer.
+    pub async fn site_cookies(self: &Arc<Self>, site: &str) -> Result<Vec<Value>, BrowserError> {
+        Ok(crate::cookies::site_cookie_params(
+            &self.cookies().await?,
+            site,
+        ))
+    }
+
+    /// Adds `cookies` (from [`Browser::site_cookies`]) to this browser,
+    /// replacing ones of the same name, domain and path. Returns how many.
+    /// Starts hidden Chrome if it's off.
+    ///
+    /// # Errors
+    /// Fails if Chrome can't start or refuses them.
+    pub async fn add_cookies(self: &Arc<Self>, cookies: Vec<Value>) -> Result<usize, BrowserError> {
+        if cookies.is_empty() {
+            return Ok(0);
+        }
+        self.ensure_running().await?;
+        let n = cookies.len();
+        let guard = self.guard.lock().await;
+        let guard = guard
+            .as_ref()
+            .ok_or_else(|| BrowserError::Chrome("no DevTools connection".into()))?;
+        guard
+            .call(
+                "Storage.setCookies",
+                serde_json::json!({ "cookies": cookies }),
+                false,
+            )
+            .await
+            .map_err(BrowserError::Chrome)?;
+        tracing::info!(
+            browser = self.label,
+            cookies = n,
+            "added a shared sign-in's cookies"
+        );
+        Ok(n)
+    }
+
     /// Every cookie in the shared browser (`Storage.getCookies`).
     async fn cookies(self: &Arc<Self>) -> Result<Vec<Value>, BrowserError> {
         self.ensure_running().await?;

@@ -1,13 +1,11 @@
 //! Comparing engines and models per bot (#21), for the Farm owner: thumbs
 //! on replies, test cases made from finished turns, batches of practice
-//! runs on Codex and on oxbot's own loop, the owner's verdicts, the
-//! scoreboard, and shadow runs next to the owner's own messages.
+//! runs on Codex and on oxbot's own loop, the owner's verdicts and the
+//! scoreboard.
 //!
 //! Every call here is the owner's only: the Farm connection, or the Farm's
 //! person on their own Gate. Cases come only from bots the owner may task
 //! (shared bots and their own private ones).
-
-use std::sync::Arc;
 
 use oxbot_protocol::{
     Attachment, BatchEstimate, BotEvent, CaseDraft, CaseResult, ComparePrefs,
@@ -16,17 +14,15 @@ use oxbot_protocol::{
 };
 use serde_json::{Value, json};
 
-use super::engines::ChainOrigin;
 use super::trials::{
-    Job, PROVIDER, RunInput, ShadowJob, cases_dir, copy_tree, original_steps, safe_relative,
-    trial_mode,
+    Job, PROVIDER, cases_dir, copy_tree, original_steps, safe_relative, trial_mode,
 };
 use super::{Hub, HubError};
 use crate::bot::{Bot, Viewer};
 use crate::compare::{self, Expected, Fixtures};
 use crate::engine::{EngineKind, from_wire};
 use crate::id::BotId;
-use crate::store::{BatchRecord, TestCaseRecord, TrialRunRecord, now_ms, shadow_cases};
+use crate::store::{BatchRecord, TestCaseRecord, TrialRunRecord, now_ms};
 use crate::tools;
 
 /// What may run in a batch: each case with each target that may run it,
@@ -35,15 +31,8 @@ type Plan = (Vec<(TestCaseRecord, Target)>, Vec<String>);
 
 /// Free `OpenRouter` requests kept for live bots, as a share of the day's.
 pub(super) const PREF_RESERVE: &str = "compare.reserve";
-/// Most shadow runs a day.
-pub(super) const PREF_SHADOWS_A_DAY: &str = "compare.shadows_a_day";
 /// Most runs one batch may make.
 const MAX_BATCH_RUNS: usize = 60;
-
-/// A bot's shadow setting, by bot.
-fn shadow_pref(bot: &BotId) -> String {
-    format!("compare.shadow:{bot}")
-}
 
 fn engine_name(e: WireEngine) -> &'static str {
     from_wire(e).as_str()
@@ -355,7 +344,7 @@ impl Hub {
         Ok(())
     }
 
-    /// `bot`'s thumbs, the replies kept as test cases, and its shadow.
+    /// `bot`'s thumbs and the replies kept as test cases.
     ///
     /// # Errors
     /// Not the owner, or the database failed.
@@ -373,7 +362,6 @@ impl Hub {
             bot: bot.id.to_string(),
             ratings,
             cases,
-            shadow: self.shadow_of(&bot.id),
         })
     }
 
@@ -513,13 +501,7 @@ impl Hub {
             archived: false,
         };
         self.store.add_test_case(&case)?;
-        // A shadowed turn already has its pair of runs.
-        if !self
-            .store
-            .link_shadow_runs(&bot.id, turn.user.seq, &case_id)?
-        {
-            self.store.save_run(&original)?;
-        }
+        self.store.save_run(&original)?;
         tracing::info!(bot = %bot.id, case = case_id, "kept a turn as a test case");
         Ok(self.case_info(&case))
     }
@@ -1000,7 +982,6 @@ impl Hub {
         };
         Ok(ComparePrefs {
             reserve_pct: read(PREF_RESERVE, d.reserve_pct),
-            shadows_a_day: read(PREF_SHADOWS_A_DAY, d.shadows_a_day),
         })
     }
 
@@ -1016,8 +997,6 @@ impl Hub {
         self.owner_only(viewer)?;
         self.store
             .set_pref(PREF_RESERVE, &p.reserve_pct.min(90).to_string())?;
-        self.store
-            .set_pref(PREF_SHADOWS_A_DAY, &p.shadows_a_day.min(500).to_string())?;
         self.compare_prefs(viewer)
     }
 
@@ -1028,190 +1007,6 @@ impl Hub {
     pub fn delete_all_runs(&self, viewer: &Viewer) -> Result<usize, HubError> {
         self.owner_only(viewer)?;
         Ok(self.store.delete_all_runs()?)
-    }
-
-    /// The engine and model the owner's messages to `bot` are shadowed on.
-    pub(super) fn shadow_of(&self, bot: &BotId) -> Option<Target> {
-        let json = self.store.pref(&shadow_pref(bot)).ok().flatten()?;
-        serde_json::from_str(&json).ok()
-    }
-
-    /// Runs the owner's own messages to `bot` on `target` too (`None`:
-    /// off). Not the bot's own engine and model, and never another
-    /// person's bot.
-    ///
-    /// # Errors
-    /// Not the owner, not a bot they may compare, or the database failed.
-    pub fn set_shadow(
-        &self,
-        id: &str,
-        target: Option<Target>,
-        viewer: &Viewer,
-    ) -> Result<ServerMsg, HubError> {
-        let bot = self.compared_bot(id, viewer)?;
-        match target {
-            Some(t) => {
-                if t.model.trim().is_empty() {
-                    return Err(HubError::NotAllowed(
-                        "Pick a model to shadow on.".to_owned(),
-                    ));
-                }
-                self.engine(from_wire(t.engine))?;
-                self.store.set_pref(
-                    &shadow_pref(&bot.id),
-                    &serde_json::to_string(&t).unwrap_or_default(),
-                )?;
-            }
-            None => self.store.set_pref(&shadow_pref(&bot.id), "")?,
-        }
-        self.ratings_for(id, viewer)
-    }
-
-    /// After the owner's own message reached `bot` (a live turn): run it
-    /// on the bot's shadow too, at once, every step recorded. Never for
-    /// anyone else's message, a task passed on by Herder, or past the day's
-    /// cap.
-    pub(super) fn maybe_shadow(
-        &self,
-        bot: &Bot,
-        user_seq: u64,
-        origin: &ChainOrigin,
-        text: &str,
-        files: &[Attachment],
-    ) {
-        let Some(target) = self.shadow_of(&bot.id) else {
-            return;
-        };
-        if !self.is_owner(origin) || !origin.via.is_empty() || bot.is_central() {
-            return;
-        }
-        if bot.private && bot.owner != self.farm_id() {
-            return;
-        }
-        let cap = self
-            .store
-            .pref(PREF_SHADOWS_A_DAY)
-            .ok()
-            .flatten()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(20);
-        let midnight = now_ms() - now_ms().rem_euclid(86_400_000);
-        if self.store.shadows_since(midnight).unwrap_or(u32::MAX) >= cap {
-            tracing::info!(bot = %bot.id, "no shadow: today's cap is reached");
-            return;
-        }
-        let batch = format!("b_{}", uuid::Uuid::new_v4().simple());
-        let run = format!("r_{}", uuid::Uuid::new_v4().simple());
-        let saved = self
-            .store
-            .add_batch(&BatchRecord {
-                id: batch.clone(),
-                bot: bot.id.to_string(),
-                kind: "shadow".to_owned(),
-                created_ms: now_ms(),
-                targets: serde_json::to_value([&target]).unwrap_or(Value::Null),
-                cases: serde_json::from_str(&shadow_cases(user_seq)).unwrap_or(Value::Null),
-                repeats: 1,
-                est_requests: 0,
-                status: "running".to_owned(),
-            })
-            .and_then(|()| {
-                self.store.save_run(&TrialRunRecord {
-                    id: run.clone(),
-                    batch: Some(batch.clone()),
-                    bot: bot.id.to_string(),
-                    kind: "shadow".to_owned(),
-                    engine: engine_name(target.engine).to_owned(),
-                    provider: PROVIDER.to_owned(),
-                    model: target.model.clone(),
-                    status: "queued".to_owned(),
-                    intent_list: json!([]),
-                    ..TrialRunRecord::default()
-                })
-            });
-        if let Err(err) = saved {
-            tracing::warn!(%err, "couldn't start a shadow run");
-            return;
-        }
-        self.queue_trial(Job::Shadow(ShadowJob {
-            batch,
-            run,
-            bot: bot.id.clone(),
-            live_seq: user_seq,
-            prompt: text.to_owned(),
-            files: files.to_vec(),
-            instructions: bot.instructions.clone(),
-            target,
-        }));
-    }
-
-    /// Runs a shadow, then keeps the live turn next to it as its original.
-    pub(super) async fn run_shadow(self: &Arc<Self>, job: ShadowJob) {
-        let Ok(Some(mut run)) = self.store.run(&job.run) else {
-            return;
-        };
-        let has_browser_sites = self
-            .bot(job.bot.as_str())
-            .ok()
-            .and_then(|b| b.browser_owner())
-            .and_then(|o| self.store.sites(o).ok())
-            .is_some_and(|s| !s.is_empty());
-        let input = RunInput {
-            prompt: job.prompt.clone(),
-            files_dir: (!job.files.is_empty()).then(|| {
-                self.bot(job.bot.as_str())
-                    .map(|b| b.work_dir())
-                    .unwrap_or_default()
-            }),
-            files: job.files.clone(),
-            instructions: job.instructions.clone(),
-            mode: crate::policy::TrialMode::Strict,
-            uses_sign_ins: has_browser_sites,
-            fixtures: Fixtures::default(),
-            step_cap: compare::step_cap(20),
-            tainted_by: None,
-            expected: Vec::new(),
-            original_ms: None,
-        };
-        self.run_one(job.bot.as_str(), &mut run, &job.target, input)
-            .await;
-        let _ = self.store.set_batch_status(&job.batch, "done");
-        // The live turn's own numbers, once it has ended.
-        let mut original = None;
-        for _ in 0..120 {
-            if let Some(done) = self.live_turn_end(&job.bot, job.live_seq) {
-                original = Some(done);
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
-        if let (Some(done_seq), Ok(bot)) = (original, self.bot(job.bot.as_str()))
-            && let Ok(turn) = self.finished_turn(&bot.id, done_seq)
-        {
-            let row = self.original_run(&bot, &turn, None, Some(&job.batch));
-            let _ = self.store.save_run(&row);
-        }
-        if let Some(info) = compare::run_info(&run, "") {
-            let _ = self.updates.send(ServerMsg::ShadowPair {
-                bot: job.bot.to_string(),
-                live_seq: job.live_seq,
-                run: Box::new(info),
-            });
-        }
-    }
-
-    /// The `TurnDone` event that ended the turn of `bot`'s message
-    /// `user_seq`, once it has.
-    fn live_turn_end(&self, bot: &BotId, user_seq: u64) -> Option<u64> {
-        let events = self.store.history(bot, user_seq).ok()?;
-        for e in events {
-            match e.kind {
-                EventKind::TurnDone { .. } => return Some(e.seq),
-                EventKind::UserMessage { .. } => return None,
-                _ => {}
-            }
-        }
-        None
     }
 
     /// Keeps one of oxbot's own tool calls of a live turn for test-case

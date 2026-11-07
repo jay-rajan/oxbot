@@ -346,13 +346,6 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
-    /// Farm only: turn the Mac notification for a bot waiting for an OK or
-    /// a sign-in while oxbot's window is hidden on or off (desktop app
-    /// only). The asker gets the new [`ServerMsg::Settings`].
-    SetNotifyWhenHidden {
-        /// On or off.
-        on: bool,
-    },
     /// Open the sign-in window for a [`SignInRequest`].
     OpenSignIn {
         /// The request's id.
@@ -384,14 +377,23 @@ pub enum ClientMsg {
         #[serde(default)]
         mine: bool,
     },
-    /// Open a sign-in window on `url` so the user signs in to a site
-    /// before any bot needs it. Closing the window adds it to the list.
+    /// Open a sign-in window on `url` in the home browser (shared bots'),
+    /// so the user signs in to a site before any bot needs it. Closing the
+    /// window adds it to the home list. The home computer only. A private
+    /// bot gets its maker's own sign-in when it needs one (its
+    /// [`SignInRequest`] opens their browser).
     AddSignIn {
         /// The site's address, e.g. `gmail.com` or `https://www.amazon.ca`.
         url: String,
-        /// In your own browser (for your private bots) instead of the home one.
-        #[serde(default)]
-        mine: bool,
+    },
+    /// Share one of your own sign-ins with the home: the site's cookies
+    /// are copied from your browser into the home one, so shared bots are
+    /// signed in too; your copy stays for your private bots. Yours on any
+    /// device, never a kid account's. Everyone gets the new home list
+    /// ([`ServerMsg::Sites`]) and you your own.
+    ShareSite {
+        /// The site, as [`SiteInfo::site`] names it on your own list.
+        site: String,
     },
     /// Sign a browser out of one site; the others stay signed in.
     SignOutSite {
@@ -598,15 +600,6 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
     },
-    /// Runs the owner's own messages to the bot on `target` too, side by
-    /// side, every step recorded (`None`: off).
-    SetShadow {
-        /// Bot id.
-        bot: String,
-        /// The engine and model, or `None`.
-        #[serde(default)]
-        target: Option<Target>,
-    },
     /// Deletes every practice run (test cases stay).
     DeleteAllRuns,
     /// The comparison settings. Answered with [`ServerMsg::ComparePrefs`].
@@ -796,7 +789,9 @@ pub struct RouterUsage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EnginePrefs {
-    /// Use paid models when every free one failed (off).
+    /// Use paid models when every free one failed, within
+    /// `paid_monthly_cents` (on; settings stored without it load on, and
+    /// an owner's explicit `false` stays).
     pub paid_fallback: bool,
     /// Which paid models, by id.
     pub paid_models: Vec<String>,
@@ -810,26 +805,17 @@ pub struct EnginePrefs {
     pub person_daily_requests: Option<u32>,
     /// The model people's own Herders use (`None`: Auto).
     pub herder_model: Option<String>,
-    /// Ask providers not to keep data for every bot, not just private ones
-    /// (off: fewer free models take it).
-    pub no_data_collection: bool,
-    /// Swap personal details for stand-ins before anything is sent (on,
-    /// also for homes from before it): private bots may then use free
-    /// models. Off: private bots ask for providers that don't keep data.
-    pub remove_personal_details: bool,
 }
 
 impl Default for EnginePrefs {
     fn default() -> Self {
         Self {
-            paid_fallback: false,
+            paid_fallback: true,
             paid_models: Vec::new(),
             paid_monthly_cents: 1000,
             bot_daily_requests: 200,
             person_daily_requests: None,
             herder_model: None,
-            no_data_collection: false,
-            remove_personal_details: true,
         }
     }
 }
@@ -1050,9 +1036,6 @@ pub enum ServerMsg {
         ratings: BTreeMap<u64, bool>,
         /// `turn_done` events already kept as test cases.
         cases: Vec<u64>,
-        /// The engine and model the owner's messages are shadowed on.
-        #[serde(default)]
-        shadow: Option<Target>,
     },
     /// Reply to [`ClientMsg::DraftTestCase`].
     CaseDraft(CaseDraft),
@@ -1120,15 +1103,6 @@ pub enum ServerMsg {
     },
     /// The comparison settings (the owner's).
     ComparePrefs(ComparePrefs),
-    /// A shadow run started next to a live turn (the owner's).
-    ShadowPair {
-        /// Bot id.
-        bot: String,
-        /// The live turn's `user_message` event.
-        live_seq: u64,
-        /// The shadow run.
-        run: Box<RunInfo>,
-    },
     /// Schedules: the answer to [`ClientMsg::ListSchedules`].
     Schedules {
         /// The bot asked about; `None` for all.
@@ -1211,11 +1185,6 @@ pub struct AppSettings {
     /// household's `OpenRouter` limits.
     #[serde(default = "yes")]
     pub usage_alerts: bool,
-    /// Whether oxbot posts a Mac notification when a bot waits for an OK
-    /// or a sign-in while its window is hidden; `None` when this server
-    /// can't tell (it isn't the desktop app).
-    #[serde(default)]
-    pub notify_when_hidden: Option<bool>,
     /// Whether this client may dictate with the Mac's microphone: the Farm
     /// only, and only where the Mac can recognize speech on-device.
     #[serde(default)]
@@ -1224,6 +1193,11 @@ pub struct AppSettings {
     /// person on a Gate): the only one who compares engines.
     #[serde(default)]
     pub owner: bool,
+    /// Whether developer tools (comparing AI models) are on: only when the
+    /// app started with `OXBOT_DEV_TOOLS=1`. Off, the page hides Compare,
+    /// thumbs and test cases, and the server refuses their messages.
+    #[serde(default)]
+    pub dev_tools: bool,
     /// The Farm owner's name, e.g. `Jay`.
     #[serde(default)]
     pub owner_name: String,
@@ -2114,17 +2088,20 @@ mod tests {
                 format!(r#"{{"type":"{tag}"}}"#)
             );
         }
-        // Missing settings take the defaults: paid models and asking every
-        // provider not to keep data both off, removing personal details on
-        // (homes from before it get it too).
-        let msg: ClientMsg =
-            serde_json::from_str(r#"{"type":"set_engine_prefs","prefs":{"paid_fallback":true}}"#)
-                .unwrap();
+        // Missing settings take the defaults: paid models on (within the
+        // monthly limit). Toggles since removed (asking every provider not
+        // to keep data, removing personal details) are ignored.
+        let msg: ClientMsg = serde_json::from_str(
+            r#"{"type":"set_engine_prefs","prefs":{"no_data_collection":true,"remove_personal_details":false}}"#,
+        )
+        .unwrap();
         let ClientMsg::SetEnginePrefs { prefs } = msg else {
             panic!("prefs")
         };
-        assert!(prefs.paid_fallback && !prefs.no_data_collection);
-        assert!(prefs.remove_personal_details);
+        assert!(prefs.paid_fallback, "on unless turned off");
+        assert!(!serde_json::to_string(&prefs).unwrap().contains("personal"));
+        let off: EnginePrefs = serde_json::from_str(r#"{"paid_fallback":false}"#).unwrap();
+        assert!(!off.paid_fallback, "an owner's explicit off stays");
         assert_eq!(
             (prefs.bot_daily_requests, prefs.paid_monthly_cents),
             (200, 1000)
@@ -2238,7 +2215,24 @@ mod tests {
             msg,
             ClientMsg::AddSignIn {
                 url: "gmail.com".into(),
-                mine: false
+            }
+        );
+        // An older page's "mine" is ignored: Settings signs in at home.
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"add_sign_in","url":"gmail.com","mine":true}"#)
+                .unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::AddSignIn {
+                url: "gmail.com".into(),
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"share_site","site":"bank.example"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::ShareSite {
+                site: "bank.example".into()
             }
         );
         let msg: ClientMsg =
@@ -2477,21 +2471,20 @@ mod tests {
             you: "Jay".into(),
             farm: true,
             usage_alerts: true,
-            notify_when_hidden: None,
             dictation: false,
             owner: true,
+            dev_tools: false,
             owner_name: "Jay".into(),
             openrouter_ready: false,
             keychain_waiting: false,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
-        assert!(json.contains(r#""notify_when_hidden":null"#));
         let back: ServerMsg = serde_json::from_str(&json).unwrap();
         let ServerMsg::Settings(back) = back else {
             panic!("settings")
         };
-        assert_eq!(back.notify_when_hidden, None);
+        assert_eq!(back.launch_at_login, None);
     }
 
     #[test]
@@ -2501,7 +2494,6 @@ mod tests {
         )
         .unwrap();
         assert!(settings.usage_alerts);
-        assert_eq!(settings.notify_when_hidden, None);
     }
 
     #[test]
@@ -2527,9 +2519,6 @@ mod tests {
         let msg: ClientMsg =
             serde_json::from_str(r#"{"type":"set_usage_alerts","on":false}"#).unwrap();
         assert_eq!(msg, ClientMsg::SetUsageAlerts { on: false });
-        let msg: ClientMsg =
-            serde_json::from_str(r#"{"type":"set_notify_when_hidden","on":true}"#).unwrap();
-        assert_eq!(msg, ClientMsg::SetNotifyWhenHidden { on: true });
     }
 
     #[test]

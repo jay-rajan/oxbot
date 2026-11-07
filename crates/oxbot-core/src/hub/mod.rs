@@ -47,7 +47,7 @@ mod trials;
 mod turns;
 mod uploads;
 
-pub use alerts::{PREF_NOTIFY_WHEN_HIDDEN, PREF_USAGE_ALERTS};
+pub use alerts::PREF_USAGE_ALERTS;
 pub use approvals::answers;
 pub use codex::CodexParts;
 pub use compare::{CaseKnowledge, NoKnowledge};

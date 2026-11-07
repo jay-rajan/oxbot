@@ -477,6 +477,7 @@ fn spawn_oxbot(
     cmd.args(["serve", "--port", &port.to_string()])
         .env("OXBOT_HOME", home)
         .env("OXBOT_E2E", "1")
+        .env("OXBOT_DEV_TOOLS", "1")
         // Any free port for the Gate door, so tests never clash with a
         // real oxbot (or each other) on 7879.
         .env("OXBOT_GATE_PORT", "0")

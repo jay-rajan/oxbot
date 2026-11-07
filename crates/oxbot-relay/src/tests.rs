@@ -85,7 +85,6 @@ struct Harness {
     relay: Relay,
     upstream: Arc<FakeUpstream>,
     store: Arc<MemoryLoopStore>,
-    prefs: Arc<std::sync::RwLock<oxbot_loop::LoopPrefs>>,
     dir: tempfile::TempDir,
 }
 
@@ -105,7 +104,6 @@ async fn harness() -> Harness {
 async fn harness_knowing(names: Vec<personal::Known>) -> Harness {
     let store = Arc::new(MemoryLoopStore::new());
     let mut setup = LoopSetup::new(Arc::new(ScriptedModel::new()), Arc::clone(&store) as _);
-    let prefs = Arc::clone(&setup.prefs);
     setup.catalog = Arc::new(CatalogCache::new(Catalog {
         models: vec![model("e2e/a:free"), model("e2e/b:free")],
     }));
@@ -123,7 +121,6 @@ async fn harness_knowing(names: Vec<personal::Known>) -> Harness {
         relay,
         upstream,
         store,
-        prefs,
         dir: tempfile::tempdir().unwrap(),
     }
 }
@@ -487,15 +484,7 @@ async fn a_private_bot_may_use_free_models_once_details_are_removed() {
             .0,
         200
     );
-    // The owner turns removal off: back to providers that don't keep data,
-    // and the details go as they are.
-    h.prefs.write().unwrap().remove_personal_details = false;
-    assert_eq!(
-        post(h.relay.addr(), "/v1/responses", Some(&token), PERSONAL)
-            .await
-            .0,
-        200
-    );
+    // Removal is always on: no "deny", and only stand-ins leave.
     let bodies = h.upstream.bodies.lock().unwrap().clone();
     assert!(
         bodies[0]["provider"].get("data_collection").is_none(),
@@ -503,9 +492,6 @@ async fn a_private_bot_may_use_free_models_once_details_are_removed() {
         bodies[0]
     );
     assert!(bodies[0].to_string().contains("[email 1]"));
-    assert_eq!(bodies[1]["provider"]["data_collection"], "deny");
-    assert_eq!(bodies[1]["provider"]["zdr"], true);
-    assert!(bodies[1].to_string().contains("ann.lee@example.com"));
-    let calls = h.store.calls();
-    assert!(!calls[0].private && calls[1].private);
+    assert!(!bodies[0].to_string().contains("ann.lee@example.com"));
+    assert!(!h.store.calls()[0].private);
 }

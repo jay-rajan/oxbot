@@ -78,6 +78,9 @@ pub struct AppState {
     pub port: u16,
     /// The household's `OpenRouter` account (`None`: not in this server).
     pub openrouter: Option<Arc<crate::openrouter_auth::OpenRouter>>,
+    /// Developer tools (comparing AI models): on only when the app started
+    /// with `OXBOT_DEV_TOOLS=1`. Homes never see them.
+    pub dev_tools: bool,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -113,14 +116,10 @@ impl AppState {
             you: viewer.name.clone(),
             farm: viewer.farm,
             usage_alerts: self.hub.usage_alerts_on(),
-            notify_when_hidden: self
-                .app
-                .as_ref()
-                .and_then(|a| a.window_visible())
-                .map(|_| self.hub.notify_when_hidden()),
             // The Mac's own microphone: the Farm's alone.
             dictation: viewer.farm && self.dictation.available(),
             owner: self.hub.is_owner_viewer(viewer),
+            dev_tools: self.dev_tools,
             owner_name: self.hub.owner_display_name(),
             openrouter_ready: self.hub.openrouter_ready(),
             keychain_waiting: self
@@ -317,6 +316,7 @@ impl AppState {
             next_conn: Arc::default(),
             port: 0,
             openrouter: None,
+            dev_tools: false,
         }
     }
 }
@@ -1197,7 +1197,7 @@ async fn handle(
         return error(&"That can only be done on the home computer.");
     }
     // Comparing engines and models: the owner's only (the hub checks).
-    let msg = match crate::compare::handle(msg, &state.hub, &viewer).await {
+    let msg = match crate::compare::handle(msg, &state.hub, &viewer, state.dev_tools).await {
         Ok(reply) => return reply,
         Err(other) => other,
     };
@@ -1537,10 +1537,6 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
-        ClientMsg::SetNotifyWhenHidden { on } => match state.hub.set_notify_when_hidden(on) {
-            Ok(()) => vec![ServerMsg::Settings(state.settings())],
-            Err(e) => error(&e),
-        },
         ClientMsg::OpenRouterSignIn
         | ClientMsg::OpenRouterSignOut
         | ClientMsg::RefreshModels
@@ -1664,7 +1660,6 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetDoorName { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
-            | ClientMsg::SetNotifyWhenHidden { .. }
             // The household's OpenRouter account and settings.
             | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut
@@ -1738,10 +1733,17 @@ async fn create_bot(
         }]
     };
     // A list that can't be kept stops it before anything is made.
-    let models = match oxbot_core::hub::checked_models(models) {
+    let mut models = match oxbot_core::hub::checked_models(models) {
         Ok(models) => models,
         Err(e) => return error(&e),
     };
+    // No list given: one picked from what the bot is for (Auto if nothing
+    // fits).
+    if models.is_empty()
+        && let Some((catalog, _)) = state.catalog()
+    {
+        models = oxbot_core::model_lists::models_for_new_bot(&catalog, name, instructions);
+    }
     let wanted = engine.map(from_wire);
     if let Some(kind) = wanted
         && let Err(why) = state.hub.engine_ready(kind)
@@ -1834,7 +1836,6 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
     match msg {
         ClientMsg::SignOutAll { mine }
         | ClientMsg::OpenSite { mine, .. }
-        | ClientMsg::AddSignIn { mine, .. }
         | ClientMsg::SignOutSite { mine, .. }
             if home_only_farm(mine).is_some() =>
         {
@@ -1859,10 +1860,13 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
             Ok(owner) => reply(state.hub.open_site(&site, owner).await),
             Err(e) => reply(Err(e)),
         },
-        ClientMsg::AddSignIn { url, mine } => match owner(mine) {
-            Ok(owner) => reply(state.hub.add_sign_in(&url, owner).await),
-            Err(e) => reply(Err(e)),
+        ClientMsg::AddSignIn { url } => match home_only_farm(false) {
+            Some(refused) => vec![refused],
+            None => reply(state.hub.add_sign_in(&url, BrowserOwner::Home).await),
         },
+        // Their own sign-in, into the home browser: the hub checks it's
+        // theirs and that they aren't a kid.
+        ClientMsg::ShareSite { site } => reply(state.hub.share_site(&site, viewer).await),
         ClientMsg::SignOutSite { site, mine } => match owner(mine) {
             Ok(owner) => reply(state.hub.sign_out_site(&site, owner).await),
             Err(e) => reply(Err(e)),
@@ -1982,7 +1986,6 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::Runs { .. }
         | ServerMsg::RunDetail { .. }
         | ServerMsg::Scoreboard { .. }
-        | ServerMsg::ShadowPair { .. }
         | ServerMsg::ComparePrefs(_) => client.owner.then_some(msg),
         ServerMsg::Notice {
             ref owner,
@@ -2545,8 +2548,8 @@ mod tests {
         let state = state(tmp.path());
         for msg in [
             ClientMsg::SignOutAll { mine: true },
-            ClientMsg::AddSignIn {
-                url: "bank.example".into(),
+            ClientMsg::OpenSite {
+                site: "bank.example".into(),
                 mine: true,
             },
         ] {
@@ -3367,7 +3370,7 @@ mod tests {
             herder_for(&state, &farm),
         );
         let prefs = oxbot_protocol::EnginePrefs {
-            no_data_collection: true,
+            paid_fallback: false,
             ..oxbot_protocol::EnginePrefs::default()
         };
         let replies = handle(

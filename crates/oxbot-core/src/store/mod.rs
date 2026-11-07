@@ -18,7 +18,6 @@ pub use alerts::{AlertChange, LimitAlert};
 mod compare;
 pub use compare::{
     BatchRecord, MAX_TOOL_TEXT, RatingCount, TestCaseRecord, TrialRunRecord, TurnToolRecord,
-    shadow_cases,
 };
 mod events;
 pub use events::Replay;

@@ -99,6 +99,7 @@ pub async fn check(repo: &Path, config: &Config, run_dir: &Path) -> anyhow::Resu
         .env("OXBOT_HOME", home.path())
         .env("OXBOT_PORT", port.to_string())
         .env("OXBOT_E2E", "1")
+        .env("OXBOT_DEV_TOOLS", "1")
         .env("OXBOT_PERSON", &config.person)
         .env("OXBOT_FAKE_SCRIPT", &script)
         .stdin(Stdio::null())

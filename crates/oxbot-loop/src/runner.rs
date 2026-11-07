@@ -129,21 +129,14 @@ impl Caller<'_> {
         if prefs.paid_fallback {
             ""
         } else {
-            ", or switch on paid models in Settings → AI models"
+            ", or switch on paid models in Settings → General"
         }
     }
 
     /// Whether every request asks for providers that don't keep data: a
     /// private bot's, unless its personal details were removed first.
     fn private(&self) -> bool {
-        (self.privacy == Privacy::Private && !self.filtered)
-            || self
-                .shared
-                .setup
-                .prefs
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .deny_data_collection_all
+        self.privacy == Privacy::Private && !self.filtered
     }
 
     /// Whether a request on a free model or not asks for providers that
@@ -240,26 +233,14 @@ impl Caller<'_> {
                 self.activity(Activity::Other(ZDR_DROPPED.to_owned()));
                 return Stop::Fail(String::new());
             }
-            let removed = self
-                .shared
-                .setup
-                .prefs
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove_personal_details;
             return Stop::Fail(format!(
                 "This bot is private, so it may only use model providers that don't keep its \
                  data, and none of the free models has one right now. You can make the bot \
-                 shared{}{}, or try again later.{}",
+                 shared{}, or try again later.{}",
                 if self.paid_note().is_empty() {
                     ""
                 } else {
-                    ", switch on paid models in Settings → AI models"
-                },
-                if removed {
-                    ""
-                } else {
-                    ", have personal details removed first (Settings → AI models)"
+                    ", switch on paid models in Settings → General"
                 },
                 self.said()
             ));
@@ -560,7 +541,7 @@ impl Caller<'_> {
                 }
                 Next::Stop(Stop::Fail(
                     "OpenRouter refused oxbot's key. The owner needs to sign in with OpenRouter \
-                     again (Settings → AI models)."
+                     again (Settings → General)."
                         .to_owned(),
                 ))
             }

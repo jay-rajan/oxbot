@@ -13,6 +13,9 @@ use tokio::task::JoinHandle;
 
 use crate::logs::LogRelay;
 use crate::server::{self, AppControls, AppState};
+
+/// Set to `1` to turn on developer tools (comparing AI models).
+pub const DEV_TOOLS_ENV: &str = "OXBOT_DEV_TOOLS";
 use crate::setup;
 
 /// How to run the server.
@@ -253,6 +256,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         next_conn: Arc::default(),
         port: addr.port(),
         openrouter: Some(openrouter),
+        dev_tools: std::env::var_os(DEV_TOOLS_ENV).is_some_and(|v| v == "1"),
     };
     state.refresh_setup().await;
     load_key(&state);
@@ -281,7 +285,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
 
 /// Reads the kept `OpenRouter` key without holding anything up: a newly
 /// built oxbot makes the Keychain ask the person first, and until they
-/// answer, bots and Settings → AI models say so. Then the key's limits.
+/// answer, bots and Settings → General say so. Then the key's limits.
 fn load_key(state: &AppState) {
     let state = state.clone();
     tokio::spawn(async move {

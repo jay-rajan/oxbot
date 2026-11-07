@@ -171,7 +171,7 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
     })
 }
 
-/// A bot's scoreboard from its runs (`original`, `replay`, `shadow`) and its
+/// A bot's scoreboard from its runs (`original`, `replay`) and its
 /// live thumbs: one row per model, each measured against the best. Runs
 /// on an engine oxbot no longer has (Claude, oxbot's own loop) are kept
 /// but not shown.

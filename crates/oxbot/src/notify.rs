@@ -166,12 +166,11 @@ impl Waiting {
             ServerMsg::UsageAlert(alert) => Some(alert.message.clone()),
             ServerMsg::ApprovalNeeded(a) => {
                 let new = self.approvals.insert(a.id);
-                (new && hidden(hub, app))
-                    .then(|| waiting_body(hub, &a.bot, "is waiting for your OK"))
+                (new && hidden(app)).then(|| waiting_body(hub, &a.bot, "is waiting for your OK"))
             }
             ServerMsg::SignInNeeded(r) => {
                 let new = self.sign_ins.insert(r.id);
-                (new && hidden(hub, app)).then(|| waiting_body(hub, &r.bot, "needs you to sign in"))
+                (new && hidden(app)).then(|| waiting_body(hub, &r.bot, "needs you to sign in"))
             }
             // A scheduled run's answer, on the Mac's screen only when it's
             // the Mac owner's own schedule (anyone else's goes to their
@@ -181,7 +180,7 @@ impl Waiting {
                 person_id,
                 waiting: false,
                 ..
-            } => (hidden(hub, app) && hub.is_farm_person(person_id)).then(|| text.clone()),
+            } => (hidden(app) && hub.is_farm_person(person_id)).then(|| text.clone()),
             ServerMsg::ApprovalResolved { id } => {
                 self.approvals.remove(id);
                 None
@@ -195,10 +194,10 @@ impl Waiting {
     }
 }
 
-/// Whether a waiting bot should post a notification now: the switch is
-/// on and the app's window is hidden (never when the server can't tell).
-fn hidden(hub: &Hub, app: Option<&dyn AppControls>) -> bool {
-    app.and_then(AppControls::window_visible) == Some(false) && hub.notify_when_hidden()
+/// Whether a waiting bot should post a notification now: always when the
+/// app's window is hidden (never when the server can't tell).
+fn hidden(app: Option<&dyn AppControls>) -> bool {
+    app.and_then(AppControls::window_visible) == Some(false)
 }
 
 /// `Mail is waiting for your OK`: the bot's name only, never the site,
@@ -310,13 +309,6 @@ mod tests {
             "the window opening isn't a new request"
         );
 
-        hub.set_notify_when_hidden(false).unwrap();
-        assert_eq!(
-            waiting.body(&card(4, "mail"), &hub, app),
-            None,
-            "switched off"
-        );
-        hub.set_notify_when_hidden(true).unwrap();
         assert_eq!(
             waiting.body(&card(5, "mail"), &hub, None),
             None,

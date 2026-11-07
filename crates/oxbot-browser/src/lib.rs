@@ -25,7 +25,7 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 
 pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
-pub use cookies::CookieMarks;
+pub use cookies::{CookieMarks, site_cookie_params};
 pub use element::{ELEMENT_FACTS_FN, ElementFacts};
 pub use netguard::{BlockedRequest, NetMode};
 pub use web::{is_home_network, normalize_web_url, web_host};

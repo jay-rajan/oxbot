@@ -1,5 +1,5 @@
 name = "Personal details leave as stand-ins and come back real"
-about = "A private bot is told an email and the owner's name. What reaches OpenRouter has stand-ins ([email 1], [person 1]) and never the real values, and asks no provider to refuse keeping data (so free models work); the answer in the chat has the real email and name back. With \"Remove personal details before anything is sent\" off in Settings → AI models, the private bot asks for providers that don't keep data again."
+about = "A private bot is told an email and the owner's name. What reaches OpenRouter has stand-ins ([email 1], [person 1]) and never the real values, and asks no provider to refuse keeping data (so free models work); the answer in the chat has the real email and name back."
 needs = ["codex"]
 covers = ["crates/oxbot-relay/**", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-loop/src/lib.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-llm/src/openrouter.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui/**"]
 
@@ -34,31 +34,3 @@ note = "With details removed, the private bot may use free models' providers"
 [[step]]
 expect_db = { query = "SELECT COUNT(*) >= 1 FROM relay_log WHERE bot = 'diary'", equals = "1" }
 note = "What was sent is kept (with stand-ins)"
-[[step]]
-click = "Settings"
-[[step]]
-click = "AI models"
-[[step]]
-expect = "Not caught: details only described in words, and names oxbot was never told."
-[[step]]
-expect_js = "document.getElementById('orPersonal').checked"
-note = "On by default"
-shot = "settings"
-[[step]]
-click = "Remove personal details before anything is sent"
-[[step]]
-expect_js = "!document.getElementById('orPersonal').checked"
-[[step]]
-click = "Save"
-[[step]]
-expect_db = { query = "SELECT json_extract(value, '$.remove_personal_details') FROM prefs WHERE key = 'engine_prefs'", equals = "0" }
-[[step]]
-click = "Close"
-[[step]]
-send = "hello"
-[[step]]
-wait_for = "Hello! I'm the stand-in bot."
-timeout_ms = 60000
-[[step]]
-expect_openrouter_body = '"data_collection":"deny"'
-note = "Off: the private bot asks for providers that don't keep data, as before"

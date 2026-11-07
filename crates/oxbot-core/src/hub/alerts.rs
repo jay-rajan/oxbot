@@ -35,9 +35,6 @@ const SAME_WINDOW_MS: i64 = 30 * 60 * 1000;
 
 /// Preference: tell the user when usage passes 50% and 80% (`1` or `0`).
 pub const PREF_USAGE_ALERTS: &str = "usage_alerts";
-/// Preference: a Mac notification when a bot waits for the user while
-/// oxbot's window is hidden (`1` or `0`).
-pub const PREF_NOTIFY_WHEN_HIDDEN: &str = "notify_when_hidden";
 
 /// The level `used` (0 to 1) has passed, if any: 50, 80, or 100 when used
 /// up.
@@ -241,23 +238,6 @@ impl Hub {
     pub fn set_usage_alerts(&self, on: bool) -> Result<(), HubError> {
         self.store
             .set_pref(PREF_USAGE_ALERTS, if on { "1" } else { "0" })?;
-        Ok(())
-    }
-
-    /// Whether a bot waiting while oxbot's window is hidden posts a Mac
-    /// notification (it does unless switched off).
-    #[must_use]
-    pub fn notify_when_hidden(&self) -> bool {
-        self.pref_on(PREF_NOTIFY_WHEN_HIDDEN)
-    }
-
-    /// Turns the notification for a waiting bot on or off.
-    ///
-    /// # Errors
-    /// Fails if the database fails.
-    pub fn set_notify_when_hidden(&self, on: bool) -> Result<(), HubError> {
-        self.store
-            .set_pref(PREF_NOTIFY_WHEN_HIDDEN, if on { "1" } else { "0" })?;
         Ok(())
     }
 
