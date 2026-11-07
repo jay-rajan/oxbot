@@ -1,5 +1,7 @@
 //! [`CookieMarks`]: which cookies a browser holds, per site, to tell
-//! whether a sign-in window left new or changed ones behind.
+//! whether a sign-in window left new or changed ones behind; and
+//! [`site_cookie_params`]: one site's cookies as another browser takes
+//! them, to share a sign-in.
 
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
@@ -93,6 +95,57 @@ impl CookieMarks {
     }
 }
 
+/// The fields of a cookie Chrome's `Storage.setCookies` takes
+/// (`CookieParam`); the rest of what `Storage.getCookies` gives (size,
+/// session, …) it doesn't.
+const PARAM_FIELDS: [&str; 12] = [
+    "name",
+    "value",
+    "domain",
+    "path",
+    "secure",
+    "httpOnly",
+    "sameSite",
+    "priority",
+    "sameParty",
+    "sourceScheme",
+    "sourcePort",
+    "partitionKey",
+];
+
+/// The cookies of `site` (a main domain) and its subdomains from
+/// `cookies` (Chrome's `Storage.getCookies` answer), as
+/// `Storage.setCookies` takes them, to sign another browser in to the
+/// same site. A session cookie stays one (no expiry). Values are copied,
+/// never logged.
+#[must_use]
+pub fn site_cookie_params(cookies: &[Value], site: &str) -> Vec<Value> {
+    let site = site_of(site);
+    cookies
+        .iter()
+        .filter(|c| {
+            let domain = c.get("domain").and_then(Value::as_str).unwrap_or("");
+            !domain.is_empty() && site_of(domain) == site
+        })
+        .map(|c| {
+            let mut param = serde_json::Map::new();
+            for field in PARAM_FIELDS {
+                if let Some(v) = c.get(field) {
+                    param.insert(field.to_owned(), v.clone());
+                }
+            }
+            let session = c.get("session").and_then(Value::as_bool).unwrap_or(false);
+            if let Some(expires) = c.get("expires").and_then(Value::as_f64)
+                && !session
+                && expires > 0.0
+            {
+                param.insert("expires".to_owned(), expires.into());
+            }
+            Value::Object(param)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +204,34 @@ mod tests {
         let added = marks(&[("sid", ".bank.example"), ("new", ".bank.example")]);
         assert!(added.changed_since(&marks(&[("sid", ".bank.example")]), "bank.example"));
         assert!(!format!("{before:?}").contains("guest"), "no value kept");
+    }
+
+    #[test]
+    fn a_sites_cookies_are_copied_as_chrome_takes_them() {
+        let cookies = [
+            json!({ "name": "sid", "domain": ".bank.example", "path": "/", "value": "s3cret",
+                    "expires": 2.0e9, "size": 9, "httpOnly": true, "secure": true,
+                    "session": false, "sameSite": "Lax", "priority": "Medium" }),
+            json!({ "name": "tmp", "domain": "login.bank.example", "path": "/a", "value": "1",
+                    "expires": -1, "size": 4, "session": true }),
+            json!({ "name": "g", "domain": ".google.com", "path": "/", "value": "x" }),
+        ];
+        let params = site_cookie_params(&cookies, "www.bank.example");
+        assert_eq!(params.len(), 2, "only the site's");
+        assert_eq!(
+            params[0],
+            json!({ "name": "sid", "domain": ".bank.example", "path": "/", "value": "s3cret",
+                    "expires": 2.0e9, "httpOnly": true, "secure": true, "sameSite": "Lax",
+                    "priority": "Medium" })
+        );
+        assert_eq!(
+            params[1],
+            json!({ "name": "tmp", "domain": "login.bank.example", "path": "/a", "value": "1" }),
+            "a session cookie stays one"
+        );
+        assert_eq!(
+            site_cookie_params(&cookies, "other.example"),
+            Vec::<Value>::new()
+        );
     }
 }

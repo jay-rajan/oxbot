@@ -285,7 +285,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
 
 /// Reads the kept `OpenRouter` key without holding anything up: a newly
 /// built oxbot makes the Keychain ask the person first, and until they
-/// answer, bots and Settings → AI models say so. Then the key's limits.
+/// answer, bots and Settings → General say so. Then the key's limits.
 fn load_key(state: &AppState) {
     let state = state.clone();
     tokio::spawn(async move {

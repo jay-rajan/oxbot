@@ -1,5 +1,5 @@
-name = "Private bots ask providers not to keep data"
-about = "A shared bot's requests go to OpenRouter with its defaults. A private bot's do too while personal details are removed first (the default, so free models work); with that switched off in Settings → AI models, they ask for providers that don't collect data and keep nothing (data_collection deny, zdr)."
+name = "Private bots may use free models: personal details are removed first"
+about = "A shared bot's requests go to OpenRouter with its defaults. A private bot's do too, since personal details are always removed first, so free models work."
 covers = ["crates/oxbot-loop/src/runner.rs", "crates/oxbot-loop/src/router.rs", "crates/oxbot-llm/src/openrouter.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-core/src/hub/**"]
 
 [[step]]
@@ -33,23 +33,4 @@ send = "hello"
 wait_for = "Hello! I'm the stand-in bot."
 [[step]]
 expect_openrouter_not = "data_collection"
-note = "Personal details are removed first (on by default): the private bot may use free models"
-[[step]]
-click = "Settings"
-[[step]]
-click = "AI models"
-[[step]]
-click = "Remove personal details before anything is sent"
-[[step]]
-click = "Save"
-[[step]]
-click = "Close"
-[[step]]
-send = "hello again"
-[[step]]
-wait_for = "Hello! I'm the stand-in bot."
-[[step]]
-expect_openrouter_body = '"data_collection":"deny"'
-note = "Removal off: the private bot's request asks providers not to keep data"
-[[step]]
-expect_openrouter_body = '"zdr":true'
+note = "Personal details are always removed first: the private bot may use free models"

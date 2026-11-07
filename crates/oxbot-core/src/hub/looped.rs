@@ -91,8 +91,6 @@ fn loop_prefs(p: &EnginePrefs) -> LoopPrefs {
         paid_fallback: p.paid_fallback,
         paid_models: p.paid_models.clone(),
         herder_model: p.herder_model.clone(),
-        deny_data_collection_all: p.no_data_collection,
-        remove_personal_details: p.remove_personal_details,
         ..LoopPrefs::default()
     }
 }
@@ -183,7 +181,7 @@ impl UsageGuard for HubGuard {
             if read(store.bot_requests(&day, q.bot)) >= cap {
                 return Err(LimitHit(format!(
                     "{} has used its {cap} AI questions for today. It can go on tomorrow, or the \
-                     owner can raise the limit (Settings → AI models).",
+                     owner can raise the limit (Settings → General).",
                     bot.name
                 )));
             }
@@ -197,7 +195,7 @@ impl UsageGuard for HubGuard {
                 .unwrap_or_else(|| "This person".to_owned());
             return Err(LimitHit(format!(
                 "{name} has used their {cap} AI questions for today. They can go on tomorrow, or \
-                 the owner can raise the limit (Settings → AI models)."
+                 the owner can raise the limit (Settings → General)."
             )));
         }
         if !q.free
@@ -227,7 +225,7 @@ fn paid_limit(store: &Store, prefs: &EnginePrefs, now: i64) -> Option<String> {
         format!(
             "Paid AI spending has reached this month's ${cap:.2} limit. Free models keep \
              working; paid ones start again next month, or the owner can raise the limit \
-             (Settings → AI models)."
+             (Settings → General)."
         )
     })
 }
@@ -522,7 +520,7 @@ mod tests {
             Some(
                 "Paid AI spending has reached this month's $10.00 limit. Free models keep \
                  working; paid ones start again next month, or the owner can raise the limit \
-                 (Settings → AI models)."
+                 (Settings → General)."
             )
         );
         let raised = EnginePrefs {

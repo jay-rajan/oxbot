@@ -33,7 +33,7 @@ send = "and once more"
 wait_for = "Scout has used its 2 AI questions for today."
 note = "The third is stopped, and says why"
 [[step]]
-expect = "the owner can raise the limit (Settings → AI models)"
+expect = "the owner can raise the limit (Settings → General)"
 [[step]]
 expect = "Scout's questions today at 100%"
 note = "The usage banner names the bot's limit"

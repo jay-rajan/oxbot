@@ -95,6 +95,217 @@ pub fn suggested(catalog: &Catalog) -> Vec<ModelList> {
         .collect()
 }
 
+/// Words that point to each kind of job, by key. `*` at the end matches any
+/// word that starts so (`shop*`: shop, shops, shopping).
+const KIND_WORDS: [(&str, &[&str]); 4] = [
+    (
+        "research",
+        &[
+            "research*",
+            "find",
+            "finds",
+            "finding",
+            "search*",
+            "source*",
+            "article*",
+            "write",
+            "writes",
+            "writing",
+            "writer",
+            "draft*",
+            "summar*",
+            "report*",
+            "news*",
+            "investigat*",
+            "analy*",
+            "essay*",
+            "blog*",
+            "post",
+            "posts",
+            "review*",
+            "job",
+            "jobs",
+            "career*",
+            "role",
+            "roles",
+            "compan*",
+            "paper*",
+            "study",
+            "studies",
+            "topic*",
+            "read",
+            "reading",
+        ],
+    ),
+    (
+        "coaching",
+        &[
+            "coach*",
+            "plan",
+            "plans",
+            "planning",
+            "planner",
+            "meal*",
+            "diet*",
+            "nutrition*",
+            "workout*",
+            "fitness",
+            "exercise*",
+            "train",
+            "training",
+            "habit*",
+            "goal*",
+            "learn*",
+            "tutor*",
+            "teach*",
+            "practi*",
+            "mentor*",
+            "advice",
+            "advise*",
+            "routine*",
+            "sleep*",
+            "health*",
+            "journal*",
+            "motivat*",
+            "recipe*",
+            "cook*",
+            "weight",
+            "calorie*",
+            "protein",
+            "run",
+            "running",
+            "marathon*",
+            "lesson*",
+        ],
+    ),
+    (
+        "browsing",
+        &[
+            "shop*",
+            "buy",
+            "buys",
+            "buying",
+            "cart*",
+            "checkout",
+            "order",
+            "orders",
+            "ordering",
+            "price*",
+            "deal",
+            "deals",
+            "amazon",
+            "store*",
+            "grocer*",
+            "purchase*",
+            "coupon*",
+            "booking",
+            "book",
+            "ticket*",
+            "flight*",
+            "hotel*",
+            "reserv*",
+            "browse*",
+            "browsing",
+            "website*",
+            "site*",
+            "form",
+            "forms",
+            "fill",
+            "stock",
+            "restock*",
+            "delivery",
+            "deliveries",
+        ],
+    ),
+    (
+        "upkeep",
+        &[
+            "remind*",
+            "list",
+            "lists",
+            "todo*",
+            "to-do*",
+            "chore*",
+            "track*",
+            "log",
+            "logs",
+            "note",
+            "notes",
+            "organi*",
+            "schedul*",
+            "calendar*",
+            "inbox*",
+            "email*",
+            "tidy",
+            "file",
+            "files",
+            "renew*",
+            "bill",
+            "bills",
+            "birthday*",
+            "appointment*",
+            "errand*",
+            "household",
+        ],
+    ),
+];
+
+/// Whether `word` (lower case) is `pattern` (see [`KIND_WORDS`]).
+fn matches(word: &str, pattern: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(stem) => word.starts_with(stem),
+        None => word == pattern,
+    }
+}
+
+/// The kind of job a new bot most likely does, from its name and
+/// instructions: each word that points to a kind counts once (the name's
+/// twice); the highest wins, ties going to the earlier kind. Local and
+/// deterministic (no AI). `None` when nothing points anywhere: the bot
+/// stays on Auto.
+#[must_use]
+pub fn kind_for(name: &str, instructions: &str) -> Option<&'static JobKind> {
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !(c.is_alphanumeric() || c == '-'))
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let (name, instructions) = (words(name), words(instructions));
+    let score = |patterns: &[&str]| -> usize {
+        let hits = |list: &[String]| {
+            list.iter()
+                .filter(|w| patterns.iter().any(|p| matches(w, p)))
+                .count()
+        };
+        2 * hits(&name) + hits(&instructions)
+    };
+    let mut best: Option<(&'static JobKind, usize)> = None;
+    for (key, patterns) in KIND_WORDS {
+        let n = score(patterns);
+        if n > 0 && best.is_none_or(|(_, top)| n > top) {
+            best = JOB_KINDS.iter().find(|k| k.kind == key).map(|k| (k, n));
+        }
+    }
+    best.map(|(k, _)| k)
+}
+
+/// The ordered model list a new bot gets when it's made without one:
+/// its kind's list ([`kind_for`]) with only the models `catalog` has that
+/// can run bots. Empty (Auto) when no kind fits or none of its models is
+/// on the list.
+#[must_use]
+pub fn models_for_new_bot(catalog: &Catalog, name: &str, instructions: &str) -> Vec<String> {
+    let Some(kind) = kind_for(name, instructions) else {
+        return Vec::new();
+    };
+    suggested(catalog)
+        .into_iter()
+        .find(|l| l.kind == kind.kind)
+        .map(|l| l.models)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +366,79 @@ mod tests {
         assert_eq!(lists[3].models, ["nvidia/nemotron-3.5-super-vl:free"]);
         assert_eq!(lists[0].label, "Research and writing");
         assert_eq!(suggested(&Catalog::default()), Vec::new());
+    }
+
+    fn kind(name: &str, instructions: &str) -> Option<&'static str> {
+        kind_for(name, instructions).map(|k| k.kind)
+    }
+
+    #[test]
+    fn a_new_bots_kind_comes_from_its_name_and_instructions() {
+        assert_eq!(
+            kind(
+                "Meals",
+                "Plan our dinners for the week, vegetarian twice, and keep it under 600 calories."
+            ),
+            Some("coaching")
+        );
+        assert_eq!(
+            kind(
+                "Job scout",
+                "Look for senior data engineer roles in Toronto and summarize each company."
+            ),
+            Some("research")
+        );
+        assert_eq!(
+            kind(
+                "Groceries",
+                "Put our usual groceries in the cart on the store's website, but don't check out."
+            ),
+            Some("browsing")
+        );
+        assert_eq!(
+            kind(
+                "Chores",
+                "Remind the kids about chores and keep the list up to date."
+            ),
+            Some("upkeep")
+        );
+        assert_eq!(
+            kind(
+                "Morning news",
+                "Read the headlines and write me a short summary."
+            ),
+            Some("research")
+        );
+        assert_eq!(kind("Ziggy", "Hello there."), None, "Auto");
+        assert_eq!(kind("", ""), None);
+    }
+
+    #[test]
+    fn a_new_bot_gets_its_kinds_models_that_are_on_the_list() {
+        let catalog = Catalog {
+            models: vec![
+                model("nvidia/nemotron-3.5-super-vl:free", true),
+                model("deepseek/deepseek-v4.1-flash", true),
+            ],
+        };
+        assert_eq!(
+            models_for_new_bot(
+                &catalog,
+                "Shopper",
+                "Find the best price and add it to the cart"
+            ),
+            [
+                "nvidia/nemotron-3.5-super-vl:free",
+                "deepseek/deepseek-v4.1-flash"
+            ]
+        );
+        assert_eq!(
+            models_for_new_bot(&catalog, "Ziggy", "Hello"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            models_for_new_bot(&Catalog::default(), "Shopper", "cart"),
+            Vec::<String>::new()
+        );
     }
 }

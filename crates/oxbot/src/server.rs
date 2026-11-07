@@ -1733,10 +1733,17 @@ async fn create_bot(
         }]
     };
     // A list that can't be kept stops it before anything is made.
-    let models = match oxbot_core::hub::checked_models(models) {
+    let mut models = match oxbot_core::hub::checked_models(models) {
         Ok(models) => models,
         Err(e) => return error(&e),
     };
+    // No list given: one picked from what the bot is for (Auto if nothing
+    // fits).
+    if models.is_empty()
+        && let Some((catalog, _)) = state.catalog()
+    {
+        models = oxbot_core::model_lists::models_for_new_bot(&catalog, name, instructions);
+    }
     let wanted = engine.map(from_wire);
     if let Some(kind) = wanted
         && let Err(why) = state.hub.engine_ready(kind)
@@ -1829,7 +1836,6 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
     match msg {
         ClientMsg::SignOutAll { mine }
         | ClientMsg::OpenSite { mine, .. }
-        | ClientMsg::AddSignIn { mine, .. }
         | ClientMsg::SignOutSite { mine, .. }
             if home_only_farm(mine).is_some() =>
         {
@@ -1854,10 +1860,13 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
             Ok(owner) => reply(state.hub.open_site(&site, owner).await),
             Err(e) => reply(Err(e)),
         },
-        ClientMsg::AddSignIn { url, mine } => match owner(mine) {
-            Ok(owner) => reply(state.hub.add_sign_in(&url, owner).await),
-            Err(e) => reply(Err(e)),
+        ClientMsg::AddSignIn { url } => match home_only_farm(false) {
+            Some(refused) => vec![refused],
+            None => reply(state.hub.add_sign_in(&url, BrowserOwner::Home).await),
         },
+        // Their own sign-in, into the home browser: the hub checks it's
+        // theirs and that they aren't a kid.
+        ClientMsg::ShareSite { site } => reply(state.hub.share_site(&site, viewer).await),
         ClientMsg::SignOutSite { site, mine } => match owner(mine) {
             Ok(owner) => reply(state.hub.sign_out_site(&site, owner).await),
             Err(e) => reply(Err(e)),
@@ -2539,8 +2548,8 @@ mod tests {
         let state = state(tmp.path());
         for msg in [
             ClientMsg::SignOutAll { mine: true },
-            ClientMsg::AddSignIn {
-                url: "bank.example".into(),
+            ClientMsg::OpenSite {
+                site: "bank.example".into(),
                 mine: true,
             },
         ] {
@@ -3361,7 +3370,7 @@ mod tests {
             herder_for(&state, &farm),
         );
         let prefs = oxbot_protocol::EnginePrefs {
-            no_data_collection: true,
+            paid_fallback: false,
             ..oxbot_protocol::EnginePrefs::default()
         };
         let replies = handle(

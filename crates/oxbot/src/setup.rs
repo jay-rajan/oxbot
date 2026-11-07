@@ -116,7 +116,7 @@ pub fn codex_check(view: &CodexView) -> SetupCheck {
             "AI helper",
             why,
             "Install the AI helper, version 0.148 (in Terminal:  brew install codex  ), or say \
-             where it is in Settings → AI models. Never sign in to it: oxbot gives it its own \
+             where it is in Settings → General. Never sign in to it: oxbot gives it its own \
              settings.",
         ),
     }

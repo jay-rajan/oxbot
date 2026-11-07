@@ -579,15 +579,13 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
     };
     // Personal details become stand-ins before anything leaves, and the
     // answer gets them back.
-    let stand_ins = relay.setup.gateway.removes_personal_details().then(|| {
-        asker.filtered = true;
-        client.redact(
-            &mut request,
-            asker.session.as_deref().unwrap_or_default(),
-            &info.context_dir,
-            relay.setup.names.known_names(),
-        )
-    });
+    asker.filtered = true;
+    let stand_ins = Some(client.redact(
+        &mut request,
+        asker.session.as_deref().unwrap_or_default(),
+        &info.context_dir,
+        relay.setup.names.known_names(),
+    ));
     // Fires when Codex goes away (the answer it was reading is dropped):
     // the request upstream stops too.
     let cancel = CancellationToken::new();

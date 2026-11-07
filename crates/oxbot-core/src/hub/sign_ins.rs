@@ -11,6 +11,7 @@ use tokio::sync::oneshot;
 use super::{Hub, HubError, Shared, lock};
 use crate::bot::Viewer;
 use crate::id::{BotId, BrowserOwner};
+use crate::store::Role;
 
 /// A site being signed in to from Settings, and the browser's cookies
 /// from just before its window opened.
@@ -280,6 +281,69 @@ impl Hub {
         self.notice_for(
             &owner,
             &format!("Signed out of {site}. Bots will ask you to sign in again if they need it."),
+        );
+        Ok(())
+    }
+
+    /// Shares `viewer`'s own sign-in to `site` with the home: copies that
+    /// site's cookies from their browser into the home one, so shared bots
+    /// are signed in too, and lists it there. Their own copy stays, so
+    /// their private bots keep working. Every client hears both lists.
+    ///
+    /// # Errors
+    /// [`HubError::NotAllowed`] for someone oxbot can't place, a kid
+    /// account (the home browser is everyone's), a site not on their own
+    /// list or one their browser holds no cookies for;
+    /// [`HubError::BrowserBusy`] while a bot uses either browser,
+    /// or the browser's error.
+    pub async fn share_site(&self, site: &str, viewer: &Viewer) -> Result<(), HubError> {
+        let viewer = self.resolve(viewer);
+        let Some(person) = viewer.id.clone() else {
+            return Err(HubError::NotAllowed(
+                "oxbot doesn't know whose sign-in that is.".to_owned(),
+            ));
+        };
+        if self.role_of(&person) == Role::Kid {
+            return Err(HubError::NotAllowed(
+                "Ask a grown-up to share a sign-in with everyone at home.".to_owned(),
+            ));
+        }
+        let own = BrowserOwner::Person(person);
+        // Only a site on their own list, never any address a client sends.
+        let site = self
+            .store
+            .sites(&own)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.site)
+            .find(|s| s == site)
+            .ok_or_else(|| {
+                HubError::NotAllowed(format!("You aren't signed in to {site} on your own."))
+            })?;
+        let from = self.browser_for(&own).ok_or(HubError::NoBrowser)?;
+        let to = self
+            .browser_for(&BrowserOwner::Home)
+            .ok_or(HubError::NoBrowser)?;
+        let Ok(_from_lease) = Arc::clone(&from.lease).try_lock_owned() else {
+            return Err(self.busy_error(&from));
+        };
+        let Ok(_to_lease) = Arc::clone(&to.lease).try_lock_owned() else {
+            return Err(self.busy_error(&to));
+        };
+        let cookies = from.browser.site_cookies(&site).await?;
+        if cookies.is_empty() {
+            return Err(HubError::NotAllowed(format!(
+                "You're no longer signed in to {site}. Sign in again, then share it."
+            )));
+        }
+        to.browser.add_cookies(cookies).await?;
+        self.store.add_site(&BrowserOwner::Home, &site)?;
+        tracing::info!(browser = %own, "shared a sign-in with the home browser");
+        self.announce_sites(&to);
+        self.announce_sites(&from);
+        self.notice_for(
+            &own,
+            &format!("{site} is shared: bots everyone uses are signed in to it too."),
         );
         Ok(())
     }
@@ -566,5 +630,111 @@ mod tests {
         // Cookies from before unknown: any cookie for it will do.
         assert!(keep_signed_in_site("mail.example", false, None, &before));
         assert!(!keep_signed_in_site("other.example", false, None, &before));
+    }
+
+    #[tokio::test]
+    async fn sharing_a_sign_in_copies_it_into_the_home_browser() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let mut tools = oxbot_browser::ToolsConfig::in_home(&tmp.path().join("home"));
+        tools.tools_dir = tmp.path().join("no-tools");
+        let chrome = tools.chrome.exists();
+        let hub = Hub::new(
+            vec![],
+            crate::store::Store::open_in_memory().unwrap(),
+            crate::HubConfig {
+                browser: Some(oxbot_browser::Tools::new(tools)),
+                ..crate::HubConfig::new(&bots)
+            },
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let kim = hub.person_named("Kim").unwrap();
+        hub.store.set_role(&kim.id, Role::Kid).unwrap();
+        let jay_phone = Viewer::person(jay.id.clone(), "Jay", false);
+        let mine = BrowserOwner::Person(jay.id.clone());
+        let refused = |r: Result<(), HubError>| match r {
+            Err(HubError::NotAllowed(why)) => why,
+            other => panic!("{other:?}"),
+        };
+        // Only a site on their own list.
+        assert_eq!(
+            refused(hub.share_site("bank.example", &jay_phone).await),
+            "You aren't signed in to bank.example on your own."
+        );
+        // Never a kid's: the home browser is everyone's.
+        let kims = BrowserOwner::Person(kim.id.clone());
+        hub.store.add_site(&kims, "games.example").unwrap();
+        let kid = Viewer::person(kim.id.clone(), "Kim", false);
+        assert!(refused(hub.share_site("games.example", &kid).await).contains("grown-up"));
+        assert_eq!(hub.sites(BrowserOwner::Home), Vec::new());
+        if !chrome {
+            eprintln!("Chrome isn't installed; skipping the copy");
+            return;
+        }
+        // Jay is signed in to the bank in his own browser (a temp profile).
+        let own = hub.browser_for(&mine).unwrap();
+        own.browser
+            .add_cookies(vec![
+                json!({"name": "sid", "value": "s3cret", "domain": ".bank.example", "path": "/",
+                       "secure": true, "httpOnly": true, "expires": 2_000_000_000}),
+                json!({"name": "g", "value": "1", "domain": ".google.com", "path": "/",
+                       "secure": true, "expires": 2_000_000_000}),
+            ])
+            .await
+            .unwrap();
+        hub.store.add_site(&mine, "bank.example").unwrap();
+        let mut updates = hub.subscribe();
+        hub.share_site("bank.example", &jay_phone).await.unwrap();
+        let home = hub.browser_for(&BrowserOwner::Home).unwrap();
+        assert_eq!(home.browser.cookie_sites().await.unwrap(), ["bank.example"]);
+        assert_eq!(
+            own.browser.cookie_sites().await.unwrap(),
+            ["bank.example", "google.com"],
+            "the private copy stays"
+        );
+        let listed =
+            |o: BrowserOwner| -> Vec<String> { hub.sites(o).into_iter().map(|s| s.site).collect() };
+        assert_eq!(listed(BrowserOwner::Home), ["bank.example"]);
+        assert_eq!(listed(mine.clone()), ["bank.example"]);
+        // Both lists go out.
+        let mut lists = Vec::new();
+        while let Ok(msg) = updates.try_recv() {
+            if let ServerMsg::Sites { owner_id, .. } = msg {
+                lists.push(owner_id);
+            }
+        }
+        assert_eq!(lists, [None, Some(jay.id.to_string())]);
+        home.browser.shutdown().await;
+        own.browser.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_private_bot_signs_in_with_its_makers_own_browser() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let tools = oxbot_browser::ToolsConfig::in_home(&tmp.path().join("home"));
+        let hub = Hub::new(
+            vec![],
+            crate::store::Store::open_in_memory().unwrap(),
+            crate::HubConfig {
+                browser: Some(oxbot_browser::Tools::new(tools)),
+                ..crate::HubConfig::new(&bots)
+            },
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let phone = Viewer::person(jay.id.clone(), "Jay", false);
+        let diary = hub
+            .create_bot_as("Diary", "", Some(&phone), true)
+            .await
+            .unwrap();
+        let shared = hub
+            .create_bot_as("Recipes", "", Some(&phone), false)
+            .await
+            .unwrap();
+        let browser = |id: &str| hub.browser_of(&hub.bot(id).unwrap()).unwrap().owner.clone();
+        assert_eq!(browser(&diary.id), BrowserOwner::Person(jay.id.clone()));
+        assert_eq!(browser(&shared.id), BrowserOwner::Home);
     }
 }

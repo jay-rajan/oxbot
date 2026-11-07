@@ -41,8 +41,8 @@ pub struct Asker {
     pub step: u32,
     /// Whether the bot is private (providers that keep no data).
     pub privacy: Privacy,
-    /// Personal details were swapped for stand-ins before it leaves (see
-    /// [`Gateway::removes_personal_details`]): a private bot's request to
+    /// Personal details were swapped for stand-ins before it leaves (the
+    /// relay always does): a private bot's request to
     /// a free model then needn't refuse providers that keep data.
     pub filtered: bool,
     /// The pacer queue.
@@ -194,18 +194,6 @@ fn caller<'a>(
 impl Gateway {
     pub(crate) fn new(shared: Arc<Shared>) -> Self {
         Self { shared }
-    }
-
-    /// Whether the owner wants personal details swapped for stand-ins
-    /// before a request leaves (on unless they turned it off).
-    #[must_use]
-    pub fn removes_personal_details(&self) -> bool {
-        self.shared
-            .setup
-            .prefs
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove_personal_details
     }
 
     /// The model the router would ask first now for `choice`, the window a
@@ -539,7 +527,6 @@ mod tests {
         let store = Arc::new(MemoryLoopStore::new());
         let engine = engine(Arc::clone(&store));
         let gateway = engine.gateway();
-        assert!(gateway.removes_personal_details(), "on by default");
         let filtered = Asker {
             filtered: true,
             ..asker()

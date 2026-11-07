@@ -377,14 +377,23 @@ pub enum ClientMsg {
         #[serde(default)]
         mine: bool,
     },
-    /// Open a sign-in window on `url` so the user signs in to a site
-    /// before any bot needs it. Closing the window adds it to the list.
+    /// Open a sign-in window on `url` in the home browser (shared bots'),
+    /// so the user signs in to a site before any bot needs it. Closing the
+    /// window adds it to the home list. The home computer only. A private
+    /// bot gets its maker's own sign-in when it needs one (its
+    /// [`SignInRequest`] opens their browser).
     AddSignIn {
         /// The site's address, e.g. `gmail.com` or `https://www.amazon.ca`.
         url: String,
-        /// In your own browser (for your private bots) instead of the home one.
-        #[serde(default)]
-        mine: bool,
+    },
+    /// Share one of your own sign-ins with the home: the site's cookies
+    /// are copied from your browser into the home one, so shared bots are
+    /// signed in too; your copy stays for your private bots. Yours on any
+    /// device, never a kid account's. Everyone gets the new home list
+    /// ([`ServerMsg::Sites`]) and you your own.
+    ShareSite {
+        /// The site, as [`SiteInfo::site`] names it on your own list.
+        site: String,
     },
     /// Sign a browser out of one site; the others stay signed in.
     SignOutSite {
@@ -780,7 +789,9 @@ pub struct RouterUsage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EnginePrefs {
-    /// Use paid models when every free one failed (off).
+    /// Use paid models when every free one failed, within
+    /// `paid_monthly_cents` (on; settings stored without it load on, and
+    /// an owner's explicit `false` stays).
     pub paid_fallback: bool,
     /// Which paid models, by id.
     pub paid_models: Vec<String>,
@@ -794,26 +805,17 @@ pub struct EnginePrefs {
     pub person_daily_requests: Option<u32>,
     /// The model people's own Herders use (`None`: Auto).
     pub herder_model: Option<String>,
-    /// Ask providers not to keep data for every bot, not just private ones
-    /// (off: fewer free models take it).
-    pub no_data_collection: bool,
-    /// Swap personal details for stand-ins before anything is sent (on,
-    /// also for homes from before it): private bots may then use free
-    /// models. Off: private bots ask for providers that don't keep data.
-    pub remove_personal_details: bool,
 }
 
 impl Default for EnginePrefs {
     fn default() -> Self {
         Self {
-            paid_fallback: false,
+            paid_fallback: true,
             paid_models: Vec::new(),
             paid_monthly_cents: 1000,
             bot_daily_requests: 200,
             person_daily_requests: None,
             herder_model: None,
-            no_data_collection: false,
-            remove_personal_details: true,
         }
     }
 }
@@ -2086,17 +2088,20 @@ mod tests {
                 format!(r#"{{"type":"{tag}"}}"#)
             );
         }
-        // Missing settings take the defaults: paid models and asking every
-        // provider not to keep data both off, removing personal details on
-        // (homes from before it get it too).
-        let msg: ClientMsg =
-            serde_json::from_str(r#"{"type":"set_engine_prefs","prefs":{"paid_fallback":true}}"#)
-                .unwrap();
+        // Missing settings take the defaults: paid models on (within the
+        // monthly limit). Toggles since removed (asking every provider not
+        // to keep data, removing personal details) are ignored.
+        let msg: ClientMsg = serde_json::from_str(
+            r#"{"type":"set_engine_prefs","prefs":{"no_data_collection":true,"remove_personal_details":false}}"#,
+        )
+        .unwrap();
         let ClientMsg::SetEnginePrefs { prefs } = msg else {
             panic!("prefs")
         };
-        assert!(prefs.paid_fallback && !prefs.no_data_collection);
-        assert!(prefs.remove_personal_details);
+        assert!(prefs.paid_fallback, "on unless turned off");
+        assert!(!serde_json::to_string(&prefs).unwrap().contains("personal"));
+        let off: EnginePrefs = serde_json::from_str(r#"{"paid_fallback":false}"#).unwrap();
+        assert!(!off.paid_fallback, "an owner's explicit off stays");
         assert_eq!(
             (prefs.bot_daily_requests, prefs.paid_monthly_cents),
             (200, 1000)
@@ -2210,7 +2215,24 @@ mod tests {
             msg,
             ClientMsg::AddSignIn {
                 url: "gmail.com".into(),
-                mine: false
+            }
+        );
+        // An older page's "mine" is ignored: Settings signs in at home.
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"add_sign_in","url":"gmail.com","mine":true}"#)
+                .unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::AddSignIn {
+                url: "gmail.com".into(),
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"share_site","site":"bank.example"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::ShareSite {
+                site: "bank.example".into()
             }
         );
         let msg: ClientMsg =
