@@ -388,6 +388,7 @@ dialog.settings-dlg { width: min(820px, calc(100% - 32px)); height: min(600px, c
   .tabs.vtabs { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
 }
 .setup-line { margin: 0; font-weight: 600; color: var(--err); font-size: .9rem; }
+.setup-line.optional { color: var(--muted); }
 .ai-line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
 .ai-line .gate-dot { flex: none; }
 .ai-month { display: grid; gap: 4px; }
@@ -577,7 +578,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 
     <div id="setGeneral" role="tabpanel">
     <section id="setupSection" hidden>
-      <p class="setup-line">Something on the home computer needs a fix:</p>
+      <p class="setup-line" id="setupLine">Something on the home computer needs a fix:</p>
       <ul class="checks" id="setupList"></ul>
       <div class="btns"><button class="ghost" type="button" id="setupAgain2">Check again</button></div>
     </section>
@@ -894,7 +895,7 @@ function onMessage(m) {
       for (const k of Object.keys(usageAlerts)) delete usageAlerts[k]; // live ones too
       helloAt = Date.now(); renderAlert();
       break;
-    case "settings": settings = m; if (!m.dictation && dictating) { dictating = null; renderMic(); } renderSettings(); renderEngines(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
+    case "settings": settings = m; if (!m.dictation && dictating) { dictating = null; renderMic(); } renderSettings(); renderSetup(); renderEngines(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
     case "usage_alert": {
       const known = usageAlerts[m.limit];
       const fresh = !known || known.level !== m.level || known.resets_at_ms !== m.resets_at_ms;
@@ -1087,7 +1088,8 @@ function renderSiteRows() {
       label.append(box, " Several steps at once");
       label.title = "Bots may fill in, pick and click several things in a row here. They still ask before Add to cart, Submit, Post or Sign in.";
       acts.appendChild(label);
-      if (!s.stepOnly) {
+      // Only the home computer may open or sign the home browser out.
+      if (!s.stepOnly && farm) {
         const open = document.createElement("button"); open.type = "button"; open.className = "ghost"; open.textContent = "Open";
         open.onclick = () => send({ type: "open_site", site: s.site, mine: false });
         const out = document.createElement("button"); out.type = "button"; out.className = "ghost";
@@ -1103,7 +1105,7 @@ function renderSiteRows() {
     ul.appendChild(li);
   }
   $("signOutMine").hidden = !mySites.length;
-  $("signOutAll").hidden = !sites.length;
+  $("signOutAll").hidden = !sites.length || !farm;
 }
 let stepSites = [];
 // Devices (the home computer only): paired phones, tablets and laptops, shown
@@ -2740,11 +2742,11 @@ $("cards").addEventListener("load", () => {
 }, true);
 
 // Setup: what's missing, with what to do about it.
-function renderChecks(list, onlyMissing) {
+function renderChecks(list, onlyMissing, withOptional = false) {
   list.textContent = "";
   if (!setup) return;
   for (const c of setup.checks) {
-    if (onlyMissing && (c.ok || c.optional)) continue;
+    if (onlyMissing && (c.ok || (c.optional && !withOptional))) continue;
     const li = document.createElement("li"); li.className = c.ok ? "ok" : c.optional ? "opt" : "bad";
     const mark = document.createElement("span"); mark.textContent = c.ok ? "✓" : c.optional ? "–" : "✕";
     const body = document.createElement("span");
@@ -2767,8 +2769,13 @@ function renderSetup() {
   const ready = !setup || setup.checks.every((c) => c.ok || c.optional);
   $("setupBox").hidden = ready;
   renderChecks($("setupChecks"), true);
-  renderChecks($("setupList"), true);
-  $("setupSection").hidden = ready;
+  // On the home computer, optional parts that are off (the microphone) are
+  // listed too, so a missing button has a reason and a fix.
+  const optionalOff = !!(setup && settings && settings.farm && setup.checks.some((c) => !c.ok && c.optional));
+  renderChecks($("setupList"), true, optionalOff);
+  $("setupLine").textContent = ready ? "Optional, not turned on:" : "Something on the home computer needs a fix:";
+  $("setupLine").classList.toggle("optional", ready);
+  $("setupSection").hidden = ready && !optionalOff;
 }
 $("setupAgain").onclick = $("setupAgain2").onclick = () => send({ type: "check_setup" });
 $("signOutAll").onclick = () => {
