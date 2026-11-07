@@ -279,6 +279,7 @@ impl View {
             | ServerMsg::Scoreboard { .. }
             | ServerMsg::ComparePrefs(_)
             | ServerMsg::Schedules { .. }
+            | ServerMsg::NetLog { .. }
             | ServerMsg::SchedulesChanged
             | ServerMsg::Profile(_)
             | ServerMsg::ProfilesChanged => {}

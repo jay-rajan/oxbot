@@ -156,6 +156,12 @@ impl Endpoint {
         self.base.as_str().trim_end_matches('/')
     }
 
+    /// The service's host, e.g. `openrouter.ai`.
+    #[must_use]
+    pub fn host(&self) -> String {
+        self.base.host_str().unwrap_or_default().to_owned()
+    }
+
     /// An API address: the base plus `path` (e.g. `chat/completions`).
     #[must_use]
     pub fn url(&self, path: &str) -> String {
@@ -240,11 +246,38 @@ const MAX_ERROR_BODY: usize = 64 * 1024;
 /// Biggest JSON body read (the model list is a few MB).
 pub(crate) const MAX_JSON_BODY: usize = 32 * 1024 * 1024;
 
+/// One of the client's own calls (the model list, key info, the sign-in
+/// key exchange; not model requests), for the host's record of what left
+/// the machine. No body, key or query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiCall {
+    /// `GET` or `POST`.
+    pub method: &'static str,
+    /// The path under the API base, e.g. `models`, `key`, `auth/keys`.
+    pub path: String,
+    /// The service's host, e.g. `openrouter.ai`.
+    pub host: String,
+    /// Bytes sent (the body; headers aren't counted).
+    pub bytes_up: u64,
+    /// Bytes of the answer read.
+    pub bytes_down: u64,
+    /// How long it took.
+    pub ms: u64,
+    /// Why it failed, in the service's or oxbot's words; `None` if it
+    /// worked.
+    pub error: Option<String>,
+}
+
+/// Hears about each [`ApiCall`].
+pub type ApiObserver = Arc<dyn Fn(&ApiCall) + Send + Sync>;
+
 /// An OpenAI-style chat client (OpenRouter, or a loopback server).
 #[derive(Clone)]
 pub struct OpenAiClient {
     http: reqwest::Client,
     config: Arc<ClientConfig>,
+    /// Shared by every clone, so one set later reaches clones made before.
+    observer: Arc<std::sync::OnceLock<ApiObserver>>,
 }
 
 impl fmt::Debug for OpenAiClient {
@@ -281,7 +314,40 @@ impl OpenAiClient {
         Ok(Self {
             http,
             config: Arc::new(config),
+            observer: Arc::new(std::sync::OnceLock::new()),
         })
+    }
+
+    /// Tells `observer` about each of the client's own calls (not model
+    /// requests), on this client and every clone of it. Set once; later
+    /// calls are ignored.
+    pub fn observe(&self, observer: ApiObserver) {
+        let _ = self.observer.set(observer);
+    }
+
+    /// Runs `send` (a call to `path` with a body of `bytes_up`), telling
+    /// the observer how it went.
+    async fn observed(
+        &self,
+        method: &'static str,
+        path: &str,
+        bytes_up: u64,
+        send: impl Future<Output = Result<Zeroizing<Vec<u8>>, LlmError>>,
+    ) -> Result<Zeroizing<Vec<u8>>, LlmError> {
+        let started = std::time::Instant::now();
+        let result = send.await;
+        if let Some(observer) = self.observer.get() {
+            observer(&ApiCall {
+                method,
+                path: path.to_owned(),
+                host: self.config.endpoint.host(),
+                bytes_up,
+                bytes_down: result.as_ref().map_or(0, |b| b.len() as u64),
+                ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                error: result.as_ref().err().map(|e| e.message.clone()),
+            });
+        }
+        result
     }
 
     /// The client's endpoint.
@@ -303,7 +369,7 @@ impl OpenAiClient {
         if with_key {
             req = req.header(reqwest::header::AUTHORIZATION, self.bearer()?);
         }
-        self.send_json(req).await
+        self.observed("GET", path, 0, self.send_json(req)).await
     }
 
     /// POSTs a JSON body to `path` under the API base, without the key.
@@ -312,13 +378,15 @@ impl OpenAiClient {
         path: &str,
         body: Vec<u8>,
     ) -> Result<Zeroizing<Vec<u8>>, LlmError> {
+        let bytes_up = body.len() as u64;
         let req = self
             .http
             .post(self.config.endpoint.url(path))
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .body(body);
-        self.send_json(req).await
+        self.observed("POST", path, bytes_up, self.send_json(req))
+            .await
     }
 
     async fn send_json(

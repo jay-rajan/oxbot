@@ -396,6 +396,7 @@ async fn ws_upgrade(
     Query(query): Query<HashMap<String, String>>,
     State(state): State<AppState>,
     gate: Option<Extension<crate::door::http::GateAuth>>,
+    conn: Option<Extension<axum::extract::ConnectInfo<crate::door::listener::ConnBytes>>>,
 ) -> Response {
     let ws = ws
         .max_message_size(MAX_WS_MESSAGE)
@@ -404,14 +405,15 @@ async fn ws_upgrade(
     if let Some(Extension(auth)) = gate {
         let viewer = auth.viewer;
         let id = auth.gate.id;
-        return ws.on_upgrade(move |socket| connection(socket, state, viewer, Some(id)));
+        let bytes = conn.map(|Extension(c)| c.0);
+        return ws.on_upgrade(move |socket| connection(socket, state, viewer, Some(id), bytes));
     }
     let key = query.get("k").map(String::as_str);
     let viewer = match local_viewer(&state, &headers, key, query.get("as").map(String::as_str)) {
         Ok(viewer) => viewer,
         Err(refused) => return refused,
     };
-    ws.on_upgrade(move |socket| connection(socket, state, viewer, None))
+    ws.on_upgrade(move |socket| connection(socket, state, viewer, None, None))
 }
 
 /// Who a request from this Mac (not the Gate door) is: the Farm if it
@@ -973,13 +975,20 @@ fn herder_for(state: &AppState, viewer: &Viewer) -> String {
 }
 
 /// One client's connection. `gate` is the Gate's id when it came through
-/// the Gate door: it shows as online meanwhile, and is cut off if removed.
-async fn connection(socket: WebSocket, state: AppState, viewer: Viewer, gate: Option<String>) {
+/// the Gate door: it shows as online meanwhile, and is cut off if removed;
+/// `bytes` counts what its connection carried (Settings → Activity).
+async fn connection(
+    socket: WebSocket,
+    state: AppState,
+    viewer: Viewer,
+    gate: Option<String>,
+    bytes: Option<crate::door::listener::ConnBytes>,
+) {
     let door = state.door.clone().filter(|_| gate.is_some());
     let mut removals = door.as_ref().map(|d| d.removals());
     // Online until this connection ends, however it ends.
     let _online = match (&door, &gate) {
-        (Some(door), Some(id)) => Some(door.online(id)),
+        (Some(door), Some(id)) => Some(door.online(id, viewer.id.as_ref(), bytes)),
         _ => None,
     };
     let conn = state
@@ -1344,8 +1353,32 @@ async fn handle_engines(
                 .set_engine(&bot, from_wire(engine), model, models, viewer)
                 .await,
         ),
-        other => return Err(other),
+        other => return handle_net_log(other, state, viewer),
     })
+}
+
+/// Settings → Activity: the rows `viewer` may see (the hub decides: the
+/// owner all, others their own bots' and devices', kids none). Gives other
+/// messages back.
+fn handle_net_log(
+    msg: ClientMsg,
+    state: &AppState,
+    viewer: &Viewer,
+) -> Result<Vec<ServerMsg>, ClientMsg> {
+    let ClientMsg::ListNetLog {
+        kind,
+        before_ms,
+        limit,
+    } = msg
+    else {
+        return Err(msg);
+    };
+    Ok(
+        match state.hub.net_log_for(viewer, kind, before_ms, limit) {
+            Ok(log) => vec![log],
+            Err(e) => reply(Err(e)),
+        },
+    )
 }
 
 /// Sending messages (with files), the Mac's dictation, and the setup
@@ -1920,9 +1953,12 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // A bot's rules also go only to those who may manage it: see
         // [`for_viewer`].
         ServerMsg::AllowRules { ref bot, .. } if client.sees(bot) => Some(msg),
-        // A schedule list is a direct answer, made for its viewer: never
-        // passed on to anyone else.
-        ServerMsg::AllowRules { .. } | ServerMsg::Schedules { .. } | ServerMsg::Profile(_) => None,
+        // A schedule list (or Settings → Activity) is a direct answer, made
+        // for its viewer: never passed on to anyone else.
+        ServerMsg::AllowRules { .. }
+        | ServerMsg::Schedules { .. }
+        | ServerMsg::Profile(_)
+        | ServerMsg::NetLog { .. } => None,
         ServerMsg::Report(ref r) => client.sees(&r.bot).then_some(msg),
         ServerMsg::Bots { bots } => {
             client.see(&bots);

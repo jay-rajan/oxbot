@@ -16,6 +16,7 @@ mod http;
 pub mod netguard;
 pub mod sealed;
 pub mod trial;
+pub mod visits;
 mod web;
 
 use std::path::{Path, PathBuf};
@@ -28,6 +29,7 @@ pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
 pub use cookies::{CookieMarks, site_cookie_params};
 pub use element::{ELEMENT_FACTS_FN, ElementFacts};
 pub use netguard::{BlockedRequest, NetMode};
+pub use visits::{Visit, VisitSink};
 pub use web::{is_home_network, normalize_web_url, web_host};
 
 /// npm package for the browser tool.

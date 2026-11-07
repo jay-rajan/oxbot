@@ -31,6 +31,7 @@ mod elements;
 mod engine_prefs;
 mod engines;
 mod looped;
+mod net_log;
 mod people;
 mod profiles;
 mod reports;
@@ -54,6 +55,7 @@ pub use compare::{CaseKnowledge, NoKnowledge};
 pub use engine_prefs::{ENGINES_NOTICE, MAX_BOT_MODELS, checked_models};
 pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
+pub use net_log::{CONNECTED, DeviceVisit, OxbotCall};
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
@@ -289,6 +291,8 @@ pub struct Hub {
     data_policy_shown: std::sync::atomic::AtomicBool,
     /// When stored loop results were last swept (ms since the epoch).
     context_swept: std::sync::atomic::AtomicI64,
+    /// When Settings → Activity's old rows were last deleted.
+    net_pruned: std::sync::atomic::AtomicI64,
     runtimes: Mutex<HashMap<BotId, Runtime>>,
     /// Each owner's browser, made when first needed.
     browsers: std::sync::Mutex<HashMap<BrowserOwner, Arc<Shared>>>,
@@ -384,6 +388,7 @@ impl Hub {
             codex: std::sync::OnceLock::new(),
             data_policy_shown: std::sync::atomic::AtomicBool::new(false),
             context_swept: std::sync::atomic::AtomicI64::new(0),
+            net_pruned: std::sync::atomic::AtomicI64::new(0),
             store,
             turns: Arc::new(Semaphore::new(config.max_concurrent_turns.max(1))),
             config,
@@ -404,6 +409,8 @@ impl Hub {
             conversions: Semaphore::new(2),
             scheduler: schedules::Scheduler::default(),
         });
+        // Settings → Activity keeps 30 days (then checked daily).
+        hub.prune_net_log(true);
         // The home browser exists from the start, as before.
         let _ = hub.browser_for(&BrowserOwner::Home);
         // Partial uploads a crash left behind (then every minute, with idle bots).

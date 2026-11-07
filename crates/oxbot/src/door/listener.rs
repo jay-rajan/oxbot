@@ -6,10 +6,13 @@
 //! - A connection that sends nothing for [`IDLE_TIMEOUT`] is closed. Phones
 //!   ping every 15 s, so this is how the Farm notices one that walked away.
 //! - It stops (and frees the port) when its stop signal fires or drops.
+//! - Each connection counts the bytes it carried ([`ConnBytes`]), for
+//!   Settings → Activity.
 
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -105,11 +108,47 @@ impl axum::serve::Listener for TlsListener {
     }
 }
 
+/// The bytes one connection carried so far (inside TLS), readable while
+/// it's open. Handlers get it as `ConnectInfo<ConnBytes>`.
+#[derive(Debug, Clone, Default)]
+pub struct ConnBytes(Arc<[AtomicU64; 2]>);
+
+impl ConnBytes {
+    /// Bytes read from the device.
+    #[must_use]
+    pub fn read(&self) -> u64 {
+        self.0[0].load(Ordering::Relaxed)
+    }
+
+    /// Bytes written to the device.
+    #[must_use]
+    pub fn written(&self) -> u64 {
+        self.0[1].load(Ordering::Relaxed)
+    }
+
+    fn add_read(&self, n: usize) {
+        self.0[0].fetch_add(n as u64, Ordering::Relaxed);
+    }
+
+    fn add_written(&self, n: usize) {
+        self.0[1].fetch_add(n as u64, Ordering::Relaxed);
+    }
+}
+
+impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, TlsListener>>
+    for ConnBytes
+{
+    fn connect_info(stream: axum::serve::IncomingStream<'_, TlsListener>) -> Self {
+        stream.io().bytes.clone()
+    }
+}
+
 /// One Gate connection: closes after [`IDLE_TIMEOUT`] without anything
 /// from the Gate, and frees its slot when dropped.
 pub struct Conn {
     inner: TlsStream<TcpStream>,
     idle: Pin<Box<Sleep>>,
+    bytes: ConnBytes,
     _slot: OwnedSemaphorePermit,
 }
 
@@ -118,6 +157,7 @@ impl Conn {
         Self {
             inner,
             idle: Box::pin(tokio::time::sleep(IDLE_TIMEOUT)),
+            bytes: ConnBytes::default(),
             _slot: slot,
         }
     }
@@ -134,6 +174,7 @@ impl AsyncRead for Conn {
         match Pin::new(&mut this.inner).poll_read(cx, buf) {
             Poll::Ready(Ok(())) => {
                 if buf.filled().len() > before {
+                    this.bytes.add_read(buf.filled().len() - before);
                     this.idle.as_mut().reset(Instant::now() + IDLE_TIMEOUT);
                 }
                 Poll::Ready(Ok(()))
@@ -159,7 +200,12 @@ impl AsyncWrite for Conn {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+        let this = self.get_mut();
+        let written = Pin::new(&mut this.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = written {
+            this.bytes.add_written(n);
+        }
+        written
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -175,7 +221,12 @@ impl AsyncWrite for Conn {
         cx: &mut Context<'_>,
         bufs: &[std::io::IoSlice<'_>],
     ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
+        let this = self.get_mut();
+        let written = Pin::new(&mut this.inner).poll_write_vectored(cx, bufs);
+        if let Poll::Ready(Ok(n)) = written {
+            this.bytes.add_written(n);
+        }
+        written
     }
 
     fn is_write_vectored(&self) -> bool {

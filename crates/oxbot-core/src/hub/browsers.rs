@@ -80,6 +80,8 @@ impl Hub {
                 return None;
             }
         };
+        // Settings → Activity: which sites its bots visit.
+        browser.count_visits(self.visit_sink(owner));
         let shared = Arc::new(Shared {
             owner: owner.clone(),
             browser,
@@ -165,6 +167,7 @@ impl Hub {
                 runtime.elements.clear();
             }
             *lock(&shared.holder) = Some(bot.clone());
+            shared.browser.set_user(Some(bot.to_string()));
             *lock(&shared.last_used) = Instant::now();
             if previous.as_ref() == Some(bot) {
                 drop(runtimes);
@@ -203,6 +206,7 @@ impl Hub {
             let mut holder = lock(&shared.holder);
             if holder.as_ref() == Some(bot) {
                 *holder = None;
+                shared.browser.set_user(None);
             }
             *lock(&shared.last_used) = Instant::now();
         }

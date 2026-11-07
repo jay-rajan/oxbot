@@ -3,7 +3,9 @@
 //! using the browser, takes screenshots for approval cards, and reads pages
 //! for oxbot's safety checks (is this a password field? is this button a
 //! search form's?). Those reads run in an isolated world of their own, so
-//! the page's scripts can't see or change them.
+//! the page's scripts can't see or change them. With a visit sink, it also
+//! counts each tab's network use for Settings → Activity
+//! ([`crate::visits`]).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,6 +21,10 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::element::{ELEMENT_FACTS_FN, ElementFacts};
 use crate::http;
 use crate::sealed::{self, SealedTab};
+use crate::visits::{self, NetEvent, Visits, Watch};
+
+/// How often idle visits are checked for.
+const VISIT_TICK: Duration = Duration::from_secs(15);
 
 /// The name of oxbot's isolated world in each page.
 const WORLD: &str = "oxbot-check";
@@ -100,7 +106,11 @@ impl Guard {
     ///
     /// # Errors
     /// Fails if Chrome's `DevTools` connection can't be opened.
-    pub(crate) async fn start(port: u16, downloads: PathBuf) -> Result<Self, String> {
+    pub(crate) async fn start(
+        port: u16,
+        downloads: PathBuf,
+        watch: Option<Watch>,
+    ) -> Result<Self, String> {
         let version = http::get(port, "/json/version")
             .await
             .ok_or("Chrome's control port didn't answer")?;
@@ -113,10 +123,12 @@ impl Guard {
             .map_err(|e| e.to_string())?;
         let (commands, rx) = mpsc::channel(8);
         let mut session = Session::new(downloads);
+        session.watch = watch;
         let task = tokio::spawn(async move {
             if let Err(err) = session.run(socket, rx).await {
                 tracing::debug!(%err, "browser guard stopped");
             }
+            session.end_visits();
         });
         Ok(Self {
             commands,
@@ -565,6 +577,10 @@ struct Session {
     /// Browser contexts of oxbot's sealed tabs: their tabs are never used.
     sealed: std::collections::HashSet<String>,
     outbox: Vec<String>,
+    /// Where visits go, if they're counted.
+    watch: Option<Watch>,
+    /// Each tab's visit under way.
+    visits: Visits,
 }
 
 impl Session {
@@ -579,6 +595,70 @@ impl Session {
             errors_wanted: std::collections::HashSet::new(),
             sealed: std::collections::HashSet::new(),
             outbox: Vec::new(),
+            watch: None,
+            visits: Visits::default(),
+        }
+    }
+
+    /// Counts one network event for the visits.
+    fn visit_event(&mut self, event: &NetEvent<'_>) {
+        let Some(watch) = &self.watch else {
+            return;
+        };
+        let done = self.visits.on(event, now_ms(), watch.user().as_deref());
+        watch.send(done);
+    }
+
+    /// Ends the visits idle too long or started by someone else.
+    fn visit_tick(&mut self) {
+        let Some(watch) = &self.watch else {
+            return;
+        };
+        let done = self.visits.tick(now_ms(), watch.user().as_deref());
+        watch.send(done);
+    }
+
+    /// Ends every visit (the connection is closing).
+    fn end_visits(&mut self) {
+        if let Some(watch) = &self.watch {
+            watch.send(self.visits.end_all());
+        }
+    }
+
+    /// A `Network` event of an attached tab, for the visits.
+    fn network(&mut self, method: &str, session: &str, params: &Value) {
+        let Some(tab) = self.attached.get(session).cloned() else {
+            // Not a bot's tab (a sealed one, say).
+            return;
+        };
+        match method {
+            "Network.requestWillBeSent" => {
+                let request = params.get("request").unwrap_or(&Value::Null);
+                let redirect = params.get("redirectResponse");
+                if let Some(bytes) = redirect.and_then(|r| r["encodedDataLength"].as_f64()) {
+                    self.visit_event(&NetEvent::Received {
+                        tab: &tab,
+                        bytes: bytes_of(bytes),
+                    });
+                }
+                // A page's main frame has its tab's id.
+                let top = str_of(params, "type") == "Document" && str_of(params, "frameId") == tab;
+                self.visit_event(&NetEvent::Request {
+                    tab: &tab,
+                    url: str_of(request, "url"),
+                    top,
+                    redirect: redirect.is_some(),
+                    up: visits::request_bytes(request, visits::MAX_POST_DATA),
+                });
+            }
+            "Network.loadingFinished" => {
+                let bytes = params["encodedDataLength"].as_f64().unwrap_or(0.0);
+                self.visit_event(&NetEvent::Received {
+                    tab: &tab,
+                    bytes: bytes_of(bytes),
+                });
+            }
+            _ => {}
         }
     }
 
@@ -612,6 +692,7 @@ impl Session {
             &json!({ "autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true }),
             None,
         );
+        let mut tick = tokio::time::interval(VISIT_TICK);
         loop {
             for msg in self.outbox.drain(..) {
                 sink.send(Message::Text(msg.into()))
@@ -619,6 +700,7 @@ impl Session {
                     .map_err(|e| e.to_string())?;
             }
             tokio::select! {
+                _ = tick.tick() => self.visit_tick(),
                 frame = stream.next() => match frame {
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(msg) = serde_json::from_str::<Value>(&text) {
@@ -646,6 +728,7 @@ impl Session {
     fn command(&mut self, command: Command) {
         match command {
             Command::Close => {
+                self.end_visits();
                 self.call("Browser.close", &json!({}), None);
             }
             Command::SetDownloads(dir) => {
@@ -753,6 +836,12 @@ impl Session {
             return;
         }
         let params = msg.get("params").unwrap_or(&Value::Null);
+        let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
+        if method.starts_with("Network.") {
+            let session = msg.get("sessionId").and_then(Value::as_str).unwrap_or("");
+            self.network(method, session, params);
+            return;
+        }
         // A sealed tab is oxbot's own: never a bot's page.
         let context = params
             .pointer("/targetInfo/browserContextId")
@@ -772,12 +861,27 @@ impl Session {
                 }
             }
             Some("Target.targetDestroyed") => {
-                self.tabs.remove(str_of(params, "targetId"));
+                let tab = str_of(params, "targetId").to_owned();
+                self.tabs.remove(&tab);
+                self.visit_event(&NetEvent::TabGone { tab: &tab });
             }
             Some("Target.attachedToTarget") => {
                 let session = str_of(params, "sessionId").to_owned();
                 let info = params.get("targetInfo").unwrap_or(&Value::Null);
                 if str_of(info, "type") == "page" {
+                    if self.watch.is_some() {
+                        // oxbot's own buffers stay empty: only the events
+                        // are wanted.
+                        self.call(
+                            "Network.enable",
+                            &json!({
+                                "maxTotalBufferSize": 0,
+                                "maxResourceBufferSize": 0,
+                                "maxPostDataSize": visits::MAX_POST_DATA,
+                            }),
+                            Some(&session),
+                        );
+                    }
                     self.attached
                         .insert(session, str_of(info, "targetId").to_owned());
                 } else {
@@ -789,10 +893,27 @@ impl Session {
                 }
             }
             Some("Target.detachedFromTarget") => {
-                self.attached.remove(str_of(params, "sessionId"));
+                if let Some(tab) = self.attached.remove(str_of(params, "sessionId")) {
+                    self.visit_event(&NetEvent::TabGone { tab: &tab });
+                }
             }
             _ => {}
         }
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn bytes_of(n: f64) -> u64 {
+    if n.is_finite() && n > 0.0 {
+        n as u64
+    } else {
+        0
     }
 }
 
@@ -828,7 +949,7 @@ mod tests {
         let mut guard = None;
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(200)).await;
-            if let Ok(g) = Guard::start(port, dir.path().to_owned()).await {
+            if let Ok(g) = Guard::start(port, dir.path().to_owned(), None).await {
                 guard = Some(g);
                 break;
             }
@@ -905,7 +1026,7 @@ mod tests {
         let mut guard = None;
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(200)).await;
-            if let Ok(g) = Guard::start(port, dir.path().to_owned()).await {
+            if let Ok(g) = Guard::start(port, dir.path().to_owned(), None).await {
                 guard = Some(g);
                 break;
             }
@@ -1005,5 +1126,89 @@ mod tests {
             0,
             "nothing reached the network"
         );
+    }
+
+    /// Needs Chrome: `cargo test -p oxbot-browser -- --ignored real_chrome`.
+    #[tokio::test]
+    #[ignore = "starts Chrome"]
+    async fn real_chrome_counts_a_visit_with_its_other_sites() {
+        use std::io::{Read as _, Write as _};
+        // One local server answers for every site (Chrome maps them here).
+        let site = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let site_port = site.local_addr().unwrap().port();
+        // A thread per connection: Chrome opens some it never uses.
+        std::thread::spawn(move || {
+            for tcp in site.incoming() {
+                let Ok(mut tcp) = tcp else { continue };
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    let n = tcp.read(&mut buf).unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let body = if head.starts_with("GET / ") {
+                        format!(
+                            "<html><body>hi<img src='http://img.cdn-example.test:{site_port}/a.png'>\
+                         <script src='http://www.shop-example.test:{site_port}/app.js'></script></body></html>"
+                        )
+                    } else {
+                        "x".repeat(1000)
+                    };
+                    let _ = tcp.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+                });
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let port = 9950 + u16::try_from(std::process::id() % 40).unwrap();
+        let mut chrome = std::process::Command::new(crate::DEFAULT_CHROME)
+            .args([
+                "--headless=new",
+                &format!("--remote-debugging-port={port}"),
+                &format!("--user-data-dir={}", dir.path().display()),
+                "--no-first-run",
+                "--host-resolver-rules=MAP *.test 127.0.0.1",
+                "about:blank",
+            ])
+            .spawn()
+            .unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = std::sync::Arc::clone(&seen);
+        let watch = Watch {
+            sink: std::sync::Arc::new(move |v| kept.lock().unwrap().push(v)),
+            user: std::sync::Arc::new(std::sync::Mutex::new(Some("scout".to_owned()))),
+        };
+        let mut guard = None;
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            if let Ok(g) = Guard::start(port, dir.path().to_owned(), Some(watch.clone())).await {
+                guard = Some(g);
+                break;
+            }
+        }
+        let guard = guard.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let url = format!("http://www.shop-example.test:{site_port}/");
+        guard
+            .call("Page.navigate", json!({ "url": url }), true)
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        guard.close_browser().await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let _ = chrome.kill();
+        let _ = chrome.wait();
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        let v = &seen[0];
+        assert_eq!(v.site, "shop-example.test");
+        assert_eq!(v.user.as_deref(), Some("scout"));
+        assert_eq!(v.pages, 1);
+        assert_eq!(v.other_sites, 1, "the image's site");
+        assert!(v.bytes_down >= 2_000, "{v:?}");
+        assert!(v.bytes_up > 100, "{v:?}");
     }
 }

@@ -80,6 +80,16 @@ impl Kind {
         }
     }
 
+    /// Its name in counts of what was swapped, e.g. `postal_code`.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::IdNumber => "id_number",
+            Self::PostalCode => "postal_code",
+            other => other.word(),
+        }
+    }
+
     fn from_word(word: &str) -> Option<Self> {
         Some(match word.to_ascii_lowercase().as_str() {
             "email" => Self::Email,
@@ -468,6 +478,9 @@ const NOT_TEXT: [&str; 14] = [
 pub struct Redactor {
     names: Names,
     stand_ins: StandIns,
+    /// The stand-ins used since the last [`Redactor::redact_request`]
+    /// began, for counting what it swapped.
+    used: std::collections::BTreeSet<(Kind, String)>,
 }
 
 impl Redactor {
@@ -483,6 +496,7 @@ impl Redactor {
         Self {
             names: Names::new(known),
             stand_ins,
+            used: std::collections::BTreeSet::new(),
         }
     }
 
@@ -518,6 +532,7 @@ impl Redactor {
                 None => self.stand_ins.stand_in(s.kind, found),
             };
             out.push_str(&stand_in);
+            self.used.insert((s.kind, stand_in));
             at = s.end;
         }
         out.push_str(&text[at..]);
@@ -528,6 +543,18 @@ impl Redactor {
     #[must_use]
     pub fn restore(&self, text: &str) -> String {
         self.stand_ins.restore(text)
+    }
+
+    /// What the last [`Redactor::redact_request`] swapped: each kind
+    /// ([`Kind::key`]) → how many different details of it. Never the
+    /// details.
+    #[must_use]
+    pub fn swapped(&self) -> std::collections::BTreeMap<String, u32> {
+        let mut counts = std::collections::BTreeMap::new();
+        for (kind, _) in &self.used {
+            *counts.entry(kind.key().to_owned()).or_insert(0) += 1;
+        }
+        counts
     }
 
     /// Function call arguments: the strings in the JSON they hold, so
@@ -578,6 +605,7 @@ impl Redactor {
     /// such as pages and files, function call arguments, reasoning
     /// summaries). Tool definitions are oxbot's own and stay.
     pub fn redact_request(&mut self, request: &mut Map<String, Value>) {
+        self.used.clear();
         for key in ["instructions", "input"] {
             if let Some(v) = request.get_mut(key) {
                 self.redact_value(v, Some(key));

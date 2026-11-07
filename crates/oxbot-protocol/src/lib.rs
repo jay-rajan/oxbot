@@ -10,11 +10,13 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 mod compare;
+mod net;
 mod schedule;
 pub use compare::{
     BatchEstimate, CaseDraft, CaseResult, ComparePrefs, IntentMatch, JudgeCheck, JudgeView,
     RunInfo, RunVerdict, ScoreRow, Target, TestCaseInfo, TrialIntent, TrialNetwork, TrialReport,
 };
+pub use net::{DEFAULT_NET_ROWS, MAX_NET_ROWS, NetKind, NetRow, NetTotals};
 pub use schedule::{Day, ScheduleDraft, ScheduleEdit, ScheduleInfo, ScheduleRule};
 
 /// Version of the wire protocol. Bumped on any breaking change, so an old app
@@ -67,6 +69,21 @@ impl ServerHello {
 pub enum ClientMsg {
     /// Ask for the list of bots.
     ListBots,
+    /// Settings → Activity: the newest exchanges with the outside, newest
+    /// first. Answered with [`ServerMsg::NetLog`].
+    ListNetLog {
+        /// Only this kind (`None`: every kind).
+        #[serde(default)]
+        kind: Option<NetKind>,
+        /// Only rows older than this (ms since the Unix epoch), for paging
+        /// back.
+        #[serde(default)]
+        before_ms: Option<i64>,
+        /// Most rows (default [`DEFAULT_NET_ROWS`], at most
+        /// [`MAX_NET_ROWS`]).
+        #[serde(default)]
+        limit: Option<u32>,
+    },
     /// Start receiving a bot's events. The server first replays stored events
     /// with `seq > since`, then streams new ones. If more than [`MAX_PAGE`]
     /// were missed, it sends one [`ServerMsg::History`] of the latest page
@@ -829,6 +846,17 @@ pub enum ServerMsg {
     /// The app's settings. Sent after [`ServerMsg::Hello`] and whenever they
     /// change.
     Settings(AppSettings),
+    /// Reply to [`ClientMsg::ListNetLog`]: the rows the viewer may see,
+    /// newest first, and today's sums.
+    NetLog {
+        /// The rows, newest first.
+        rows: Vec<NetRow>,
+        /// Today's sums.
+        totals: NetTotals,
+        /// Older rows exist (ask again with `before_ms`).
+        #[serde(default)]
+        more: bool,
+    },
     /// Reply to [`ClientMsg::ListBots`], and sent to everyone when the list
     /// changes.
     Bots {
@@ -1953,6 +1981,67 @@ pub enum EventKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activity_messages_have_the_shape_the_page_reads() {
+        let ask: ClientMsg = serde_json::from_str(r#"{"type":"list_net_log"}"#).unwrap();
+        assert_eq!(
+            ask,
+            ClientMsg::ListNetLog {
+                kind: None,
+                before_ms: None,
+                limit: None
+            }
+        );
+        let ask: ClientMsg = serde_json::from_str(
+            r#"{"type":"list_net_log","kind":"website","before_ms":5,"limit":50}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            ask,
+            ClientMsg::ListNetLog {
+                kind: Some(NetKind::Website),
+                before_ms: Some(5),
+                limit: Some(50)
+            }
+        ));
+        let row = NetRow {
+            id: 1,
+            ts_ms: 2,
+            kind: NetKind::Ai,
+            who: "Scout".into(),
+            bot: Some("scout".into()),
+            person: Some("Sam".into()),
+            host: "openrouter.ai".into(),
+            label: "DeepSeek V4.1 Flash".into(),
+            bytes_up: 10,
+            bytes_down: 20,
+            cost_usd: Some(0.5),
+            swapped: BTreeMap::from([("email".to_owned(), 2)]),
+            ms: 900,
+            outcome: "ok".into(),
+            other_hosts: 0,
+        };
+        let msg = ServerMsg::NetLog {
+            rows: vec![row],
+            totals: NetTotals::default(),
+            more: true,
+        };
+        let v = serde_json::to_value(&msg).unwrap();
+        assert_eq!(v["type"], "net_log");
+        assert_eq!(v["rows"][0]["kind"], "ai");
+        assert_eq!(v["rows"][0]["swapped"]["email"], 2);
+        assert_eq!(v["totals"]["today_cost_usd"], 0.0);
+        assert_eq!(serde_json::from_value::<ServerMsg>(v).unwrap(), msg);
+        for kind in [
+            NetKind::Ai,
+            NetKind::Website,
+            NetKind::Device,
+            NetKind::Oxbot,
+        ] {
+            assert_eq!(NetKind::from_name(kind.as_str()), Some(kind));
+        }
+    }
 
     #[test]
     fn bot_flags_default_to_off_and_the_owner_is_never_sent() {
