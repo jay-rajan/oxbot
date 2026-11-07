@@ -180,8 +180,7 @@ impl UsageGuard for HubGuard {
             };
             if read(store.bot_requests(&day, q.bot)) >= cap {
                 return Err(LimitHit(format!(
-                    "{} has used its {cap} AI questions for today. It can go on tomorrow, or the \
-                     owner can raise the limit (Settings → General).",
+                    "{} has used its {cap} AI questions for today. It can go on tomorrow.",
                     bot.name
                 )));
             }
@@ -194,8 +193,7 @@ impl UsageGuard for HubGuard {
                 .and_then(|id| hub.person_name(&id))
                 .unwrap_or_else(|| "This person".to_owned());
             return Err(LimitHit(format!(
-                "{name} has used their {cap} AI questions for today. They can go on tomorrow, or \
-                 the owner can raise the limit (Settings → General)."
+                "{name} has used their {cap} AI questions for today. They can go on tomorrow."
             )));
         }
         if !q.free
