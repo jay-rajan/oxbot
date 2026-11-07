@@ -116,11 +116,6 @@ impl AppState {
             you: viewer.name.clone(),
             farm: viewer.farm,
             usage_alerts: self.hub.usage_alerts_on(),
-            notify_when_hidden: self
-                .app
-                .as_ref()
-                .and_then(|a| a.window_visible())
-                .map(|_| self.hub.notify_when_hidden()),
             // The Mac's own microphone: the Farm's alone.
             dictation: viewer.farm && self.dictation.available(),
             owner: self.hub.is_owner_viewer(viewer),
@@ -1542,10 +1537,6 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
-        ClientMsg::SetNotifyWhenHidden { on } => match state.hub.set_notify_when_hidden(on) {
-            Ok(()) => vec![ServerMsg::Settings(state.settings())],
-            Err(e) => error(&e),
-        },
         ClientMsg::OpenRouterSignIn
         | ClientMsg::OpenRouterSignOut
         | ClientMsg::RefreshModels
@@ -1669,7 +1660,6 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetDoorName { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
-            | ClientMsg::SetNotifyWhenHidden { .. }
             // The household's OpenRouter account and settings.
             | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut

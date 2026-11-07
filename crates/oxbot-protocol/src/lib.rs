@@ -346,13 +346,6 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
-    /// Farm only: turn the Mac notification for a bot waiting for an OK or
-    /// a sign-in while oxbot's window is hidden on or off (desktop app
-    /// only). The asker gets the new [`ServerMsg::Settings`].
-    SetNotifyWhenHidden {
-        /// On or off.
-        on: bool,
-    },
     /// Open the sign-in window for a [`SignInRequest`].
     OpenSignIn {
         /// The request's id.
@@ -1190,11 +1183,6 @@ pub struct AppSettings {
     /// household's `OpenRouter` limits.
     #[serde(default = "yes")]
     pub usage_alerts: bool,
-    /// Whether oxbot posts a Mac notification when a bot waits for an OK
-    /// or a sign-in while its window is hidden; `None` when this server
-    /// can't tell (it isn't the desktop app).
-    #[serde(default)]
-    pub notify_when_hidden: Option<bool>,
     /// Whether this client may dictate with the Mac's microphone: the Farm
     /// only, and only where the Mac can recognize speech on-device.
     #[serde(default)]
@@ -2461,7 +2449,6 @@ mod tests {
             you: "Jay".into(),
             farm: true,
             usage_alerts: true,
-            notify_when_hidden: None,
             dictation: false,
             owner: true,
             dev_tools: false,
@@ -2471,12 +2458,11 @@ mod tests {
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
-        assert!(json.contains(r#""notify_when_hidden":null"#));
         let back: ServerMsg = serde_json::from_str(&json).unwrap();
         let ServerMsg::Settings(back) = back else {
             panic!("settings")
         };
-        assert_eq!(back.notify_when_hidden, None);
+        assert_eq!(back.launch_at_login, None);
     }
 
     #[test]
@@ -2486,7 +2472,6 @@ mod tests {
         )
         .unwrap();
         assert!(settings.usage_alerts);
-        assert_eq!(settings.notify_when_hidden, None);
     }
 
     #[test]
@@ -2512,9 +2497,6 @@ mod tests {
         let msg: ClientMsg =
             serde_json::from_str(r#"{"type":"set_usage_alerts","on":false}"#).unwrap();
         assert_eq!(msg, ClientMsg::SetUsageAlerts { on: false });
-        let msg: ClientMsg =
-            serde_json::from_str(r#"{"type":"set_notify_when_hidden","on":true}"#).unwrap();
-        assert_eq!(msg, ClientMsg::SetNotifyWhenHidden { on: true });
     }
 
     #[test]

@@ -757,7 +757,6 @@ async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
         }
     };
     assert!(!settings.usage_alerts);
-    assert_eq!(settings.notify_when_hidden, None, "not the desktop app");
     subscribe(&mut ws).await;
     for turn in ["one", "two", "three", "four"] {
         assert_eq!(alerts_in_turn(&mut ws, turn).await, []);
