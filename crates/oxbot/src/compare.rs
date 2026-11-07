@@ -6,6 +6,9 @@ use oxbot_core::{Hub, HubError, Viewer};
 use oxbot_protocol::{ClientMsg, ServerMsg};
 use std::sync::Arc;
 
+/// What a comparison message gets when developer tools are off.
+pub const DEV_TOOLS_OFF: &str = "Comparing AI models is a developer tool, and it's off.";
+
 fn error(e: &HubError) -> Vec<ServerMsg> {
     vec![ServerMsg::Error {
         message: e.to_string(),
@@ -41,7 +44,8 @@ pub fn is_compare(msg: &ClientMsg) -> bool {
     )
 }
 
-/// Handles a comparison message from `viewer`. Gives other messages back.
+/// Handles a comparison message from `viewer`, refused unless the app
+/// runs with developer tools on (`dev_tools`). Gives other messages back.
 ///
 /// # Errors
 /// The message, if it isn't a comparison message.
@@ -49,9 +53,15 @@ pub async fn handle(
     msg: ClientMsg,
     hub: &Arc<Hub>,
     viewer: &Viewer,
+    dev_tools: bool,
 ) -> Result<Vec<ServerMsg>, ClientMsg> {
     if !is_compare(&msg) {
         return Err(msg);
+    }
+    if !dev_tools {
+        return Ok(vec![ServerMsg::Error {
+            message: DEV_TOOLS_OFF.to_owned(),
+        }]);
     }
     if !hub.is_owner_viewer(viewer) {
         return Ok(error(&HubError::NotAllowed(format!(
@@ -179,5 +189,39 @@ async fn runs(msg: ClientMsg, hub: &Arc<Hub>, viewer: &Viewer) -> Vec<ServerMsg>
             Err(e) => error(&e),
         },
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hub(dir: &std::path::Path) -> Arc<Hub> {
+        Hub::new(
+            vec![],
+            oxbot_core::Store::open_in_memory().unwrap(),
+            oxbot_core::HubConfig::new(dir),
+        )
+    }
+
+    #[tokio::test]
+    async fn comparing_is_refused_without_developer_tools() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = hub(tmp.path());
+        let farm = Viewer::farm("Jay");
+        let off = handle(ClientMsg::ListComparePrefs, &hub, &farm, false)
+            .await
+            .unwrap();
+        assert!(matches!(&off[..], [ServerMsg::Error { message }] if message == DEV_TOOLS_OFF));
+        let on = handle(ClientMsg::ListComparePrefs, &hub, &farm, true)
+            .await
+            .unwrap();
+        assert!(!matches!(&on[..], [ServerMsg::Error { message }] if message == DEV_TOOLS_OFF));
+        // Other messages pass through either way.
+        assert!(
+            handle(ClientMsg::ListBots, &hub, &farm, false)
+                .await
+                .is_err()
+        );
     }
 }

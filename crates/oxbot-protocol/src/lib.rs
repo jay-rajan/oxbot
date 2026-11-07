@@ -1203,6 +1203,11 @@ pub struct AppSettings {
     /// person on a Gate): the only one who compares engines.
     #[serde(default)]
     pub owner: bool,
+    /// Whether developer tools (comparing AI models) are on: only when the
+    /// app started with `OXBOT_DEV_TOOLS=1`. Off, the page hides Compare,
+    /// thumbs and test cases, and the server refuses their messages.
+    #[serde(default)]
+    pub dev_tools: bool,
     /// The Farm owner's name, e.g. `Jay`.
     #[serde(default)]
     pub owner_name: String,
@@ -2459,6 +2464,7 @@ mod tests {
             notify_when_hidden: None,
             dictation: false,
             owner: true,
+            dev_tools: false,
             owner_name: "Jay".into(),
             openrouter_ready: false,
             keychain_waiting: false,

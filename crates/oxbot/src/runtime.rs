@@ -13,6 +13,9 @@ use tokio::task::JoinHandle;
 
 use crate::logs::LogRelay;
 use crate::server::{self, AppControls, AppState};
+
+/// Set to `1` to turn on developer tools (comparing AI models).
+pub const DEV_TOOLS_ENV: &str = "OXBOT_DEV_TOOLS";
 use crate::setup;
 
 /// How to run the server.
@@ -253,6 +256,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         next_conn: Arc::default(),
         port: addr.port(),
         openrouter: Some(openrouter),
+        dev_tools: std::env::var_os(DEV_TOOLS_ENV).is_some_and(|v| v == "1"),
     };
     state.refresh_setup().await;
     load_key(&state);

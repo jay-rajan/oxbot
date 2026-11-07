@@ -78,6 +78,9 @@ pub struct AppState {
     pub port: u16,
     /// The household's `OpenRouter` account (`None`: not in this server).
     pub openrouter: Option<Arc<crate::openrouter_auth::OpenRouter>>,
+    /// Developer tools (comparing AI models): on only when the app started
+    /// with `OXBOT_DEV_TOOLS=1`. Homes never see them.
+    pub dev_tools: bool,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -121,6 +124,7 @@ impl AppState {
             // The Mac's own microphone: the Farm's alone.
             dictation: viewer.farm && self.dictation.available(),
             owner: self.hub.is_owner_viewer(viewer),
+            dev_tools: self.dev_tools,
             owner_name: self.hub.owner_display_name(),
             openrouter_ready: self.hub.openrouter_ready(),
             keychain_waiting: self
@@ -317,6 +321,7 @@ impl AppState {
             next_conn: Arc::default(),
             port: 0,
             openrouter: None,
+            dev_tools: false,
         }
     }
 }
@@ -1197,7 +1202,7 @@ async fn handle(
         return error(&"That can only be done on the home computer.");
     }
     // Comparing engines and models: the owner's only (the hub checks).
-    let msg = match crate::compare::handle(msg, &state.hub, &viewer).await {
+    let msg = match crate::compare::handle(msg, &state.hub, &viewer, state.dev_tools).await {
         Ok(reply) => return reply,
         Err(other) => other,
     };
