@@ -1,5 +1,5 @@
-name = "Signing in for your private bots only"
-about = "Settings → Websites can sign in for your own browser; the site lands under Yours, not Home."
+name = "Adding a website signs in the home browser"
+about = "Settings → Websites has one form, Add a website: it always signs in the home browser (no shared-or-mine picker), and the site lands in the one list as a home row with its actions on the row (Several steps at once, Open, Sign out). Sam's own sign-ins never show for Jay."
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/store.rs", "crates/oxbot-browser/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
@@ -9,9 +9,10 @@ click = "Websites"
 [[step]]
 expect = "wikipedia.org"
 [[step]]
-click = "Only for my private bots"
+expect_not = "Only for my private bots"
+note = "No picker: the home browser, always"
 [[step]]
-type = { into = "gmail.com", text = "{server}/" }
+type = { into = "Add a website", text = "{server}/" }
 note = "Signs in to a local page (oxbot's own), never a real site"
 [[step]]
 click = "Sign in"
@@ -19,12 +20,13 @@ click = "Sign in"
 close_sign_in_window = true
 note = "As a person would after signing in (once the window is open)"
 [[step]]
-expect_js = "document.getElementById('mySiteRows').innerText.includes('127.0.0.1')"
+expect_js = "[...document.querySelectorAll('#siteRows .site-row')].some((r) => r.innerText.includes('127.0.0.1') && r.innerText.includes('Shared bots') && !r.classList.contains('private'))"
 timeout_ms = 15000
-note = "Waits for the site's row: the toast about the window names the address too"
+note = "Waits for the site's row: a home row, for shared bots"
 [[step]]
-expect_js = "!document.getElementById('siteRows').innerText.includes('127.0.0.1')"
-note = "Under Yours, not Home"
+expect_js = "(() => { const r = [...document.querySelectorAll('#siteRows .site-row')].find((r) => r.innerText.includes('127.0.0.1')); const b = [...r.querySelectorAll('button')].map((b) => b.textContent); return b.includes('Open') && b.includes('Sign out') && !!r.querySelector('input[type=checkbox]'); })()"
+note = "Its actions are on the row"
+shot = "websites"
 [[step]]
 expect_not = "bank.example"
 note = "Sam's sign-ins never show for Jay"

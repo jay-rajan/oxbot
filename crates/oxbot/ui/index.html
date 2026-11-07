@@ -1077,7 +1077,8 @@ function renderSiteRows() {
     if (mine) {
       const share = document.createElement("button"); share.type = "button"; share.className = "ghost"; share.textContent = "Share with the home";
       share.title = "Shared bots can then use this sign-in too. Your private bots keep theirs.";
-      share.onclick = () => { send({ type: "share_site", site: s.site }); toast(`${s.site} is shared with the home.`); };
+      // The home computer says when it's shared (or why it couldn't be).
+      share.onclick = () => send({ type: "share_site", site: s.site });
       acts.appendChild(share);
     } else {
       const label = document.createElement("label"); label.className = "check steps";
@@ -1153,6 +1154,7 @@ $("pairForm").addEventListener("submit", (ev) => {
   pairAsked = true;
   send({ type: "start_pairing", person });
 });
+$("pairCancel").onclick = () => send({ type: "cancel_pairing" });
 $("pairCopy").onclick = async () => {
   if (!pairing) return;
   try { await navigator.clipboard.writeText(pairing.link); toast("Link copied. Send it to the phone some private way, e.g. AirDrop."); }
@@ -3302,10 +3304,17 @@ $("cmpDeleteRuns").onclick = () => {
   delete b.dataset.armed; b.textContent = "Delete all test runs"; send({ type: "delete_all_runs" });
 };
 
+// A modal dialog sits above everything else on the page, so the toast shows
+// inside the open one (Settings is tall enough to cover it otherwise).
 function toast(text, isError) {
   const t = $("toast"); t.textContent = text; t.className = "toast" + (isError ? " error" : ""); t.hidden = false;
+  const host = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
+  if (t.parentNode !== host) host.appendChild(t);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, isError ? 7000 : 9000);
 }
+
+// A dialog closing hands the toast back to the page, so it stays visible.
+document.addEventListener("close", (ev) => { const t = $("toast"); if (ev.target.contains(t)) document.body.appendChild(t); }, true);
 
 connect();
 </script>

@@ -1,0 +1,49 @@
+name = "Settings: four tabs down the side, one size"
+about = "Settings has four tabs stacked down the side (General, Websites, People, Activity) and no AI models, Schedules or Devices tab; the window keeps one size whichever tab is open, and its buttons stay at the bottom."
+covers = ["crates/oxbot/ui/**"]
+smoke = true
+
+[[step]]
+click = "Settings"
+[[step]]
+expect_js = "[...document.querySelectorAll('#appDlg [role=tab]')].map((t) => t.textContent.trim()).join('|') === 'General|Websites|People|Activity'"
+note = "Four tabs, in order"
+[[step]]
+expect_js = "![...document.querySelectorAll('#appDlg [role=tab]')].some((t) => /^(AI models|Schedules|Devices|Shadow)$/.test(t.textContent.trim()))"
+note = "No AI models, Schedules or Devices tab"
+[[step]]
+expect_js = "(() => { const r = [...document.querySelectorAll('#appDlg [role=tab]')].map((t) => t.getBoundingClientRect()); return document.querySelector('#appDlg [role=tablist]').getAttribute('aria-orientation') === 'vertical' && r.every((x, i) => i === 0 || (Math.abs(x.left - r[0].left) < 2 && x.top >= r[i - 1].bottom - 1)); })()"
+note = "Stacked down the side: same left edge, each below the last"
+[[step]]
+expect_js = "(() => { const r = document.getElementById('appDlg').getBoundingClientRect(); window.__dlg = [Math.round(r.width), Math.round(r.height)]; return r.width > 0 && r.height > 0; })()"
+note = "The window's size on General"
+shot = "general"
+[[step]]
+click = "Websites"
+[[step]]
+expect_js = "(() => { const r = document.getElementById('appDlg').getBoundingClientRect(); return Math.abs(r.width - window.__dlg[0]) < 1 && Math.abs(r.height - window.__dlg[1]) < 1 && !document.getElementById('setSignins').hidden; })()"
+note = "Same size on Websites"
+shot = "websites"
+[[step]]
+click = "People"
+[[step]]
+expect_js = "(() => { const r = document.getElementById('appDlg').getBoundingClientRect(); return Math.abs(r.width - window.__dlg[0]) < 1 && Math.abs(r.height - window.__dlg[1]) < 1 && !document.getElementById('setPeople').hidden; })()"
+note = "Same size on People"
+shot = "people"
+[[step]]
+click = "Activity"
+[[step]]
+expect_js = "(() => { const r = document.getElementById('appDlg').getBoundingClientRect(); return Math.abs(r.width - window.__dlg[0]) < 1 && Math.abs(r.height - window.__dlg[1]) < 1 && !document.getElementById('setActivity').hidden; })()"
+note = "Same size on Activity"
+shot = "activity"
+[[step]]
+click = "General"
+[[step]]
+expect_js = "(() => { const d = document.getElementById('appDlg').getBoundingClientRect(); const c = document.getElementById('appClose').getBoundingClientRect(); return c.top >= d.top && c.bottom <= d.bottom && c.right <= d.right; })()"
+note = "Close is inside the window"
+[[step]]
+key = "Escape"
+[[step]]
+expect_js = "(() => { const m = document.querySelector('.brand .mark'); const w = document.querySelector('.brand .wordmark'); const n = document.getElementById('newBot'); return !!m && m.getBoundingClientRect().right <= w.getBoundingClientRect().left && n.getAttribute('aria-label') === 'New bot'; })()"
+note = "Sidebar header: the app icon before the wordmark, and the small New bot plus"
+shot = "sidebar-header"

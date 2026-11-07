@@ -1,5 +1,5 @@
 name = "Several page steps at once, only where the owner allows it"
-about = "On a site nobody marked, page_steps is refused and the bot does steps one at a time. The owner marks shop.example.com in Settings → Websites (Let bots do several steps at once here); then a bot's fill and tick run in a row, it stops at Add to Cart without asking, and the bot asks for that click on its own: the usual approval request."
+about = "On a site nobody marked, page_steps is refused and the bot does steps one at a time. The owner marks shop.example.com (Settings → Websites shows it in the one list with Several steps at once ticked); then a bot's fill and tick run in a row, it stops at Add to Cart without asking, and the bot asks for that click on its own: the usual approval request."
 needs = ["codex"]
 covers = ["crates/oxbot-loop/src/tools/steps.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
 script = "scripts.toml"
@@ -15,20 +15,16 @@ timeout_ms = 60000
 expect = "Several steps at once aren't turned on for example.net"
 note = "Not marked: refused, and the bot is told where it could be turned on"
 [[step]]
+expect_js = "(send({ type: 'set_step_site', site: 'https://shop.example.com/', on: true }), true)"
+note = "The owner marks the shop, as a website row's Several steps at once box does (the separate add form is gone; the test shop has no sign-in row to tick)"
+[[step]]
 click = "Settings"
 [[step]]
 click = "Websites"
 [[step]]
-expect = "Several steps at once"
-[[step]]
-type = { into = "Website for several steps at once", text = "https://shop.example.com/" }
-[[step]]
-click = "Add"
-[[step]]
-wait_for = "Let bots do several steps at once here"
-[[step]]
-expect_js = "[...document.querySelectorAll('#stepRows .step-row')].some((r) => r.textContent.includes('example.com') && r.querySelector('input').checked)"
-note = "The site is marked by its main domain, switched on"
+expect_js = "[...document.querySelectorAll('#siteRows .site-row')].some((r) => r.textContent.includes('example.com') && r.textContent.includes('Several steps at once') && r.querySelector('input[type=checkbox]').checked)"
+timeout_ms = 5000
+note = "The site is marked by its main domain, switched on, in the one list"
 shot = "websites"
 [[step]]
 key = "Escape"

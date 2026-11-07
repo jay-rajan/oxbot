@@ -23,4 +23,5 @@ key = "Escape"
 [[step]]
 click = "Websites"
 [[step]]
-expect = "Sign in to a website"
+expect_js = "__e2e.shown(document.getElementById('addSiteUrl')) && document.querySelector('[data-tab=\"setSignins\"]').getAttribute('aria-selected') === 'true'"
+note = "Settings → Websites, with Add a website"

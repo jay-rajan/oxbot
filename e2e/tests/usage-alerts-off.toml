@@ -6,9 +6,10 @@ covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "cra
 [[step]]
 click = "Settings"
 [[step]]
-expect = "Notifications"
+expect = "Tell me when AI use passes 50% and 80% of a limit"
+note = "The Notifications section (its heading shows in capitals)"
 [[step]]
-click = "Tell me when AI spending passes"
+click = "Tell me when AI use passes"
 [[step]]
 expect_js = "!document.getElementById('usageAlerts').checked"
 shot = "alerts-off"
@@ -17,11 +18,8 @@ key = "Escape"
 [[step]]
 click = "Recipes"
 [[step]]
-click = "Bot settings"
-[[step]]
-type = { into = "Questions a day", text = "2" }
-[[step]]
-click = "Save"
+expect_js = "(send({ type: 'set_bot_daily_limit', bot: 'recipes', daily_requests: 2 }), true)"
+note = "A daily limit of 2 questions, as the bot settings' old field sent it (the field is gone; the limit and its alerts aren't)"
 [[step]]
 send = "one"
 [[step]]
@@ -37,6 +35,9 @@ expect_js = "document.getElementById('usageAlerts').checked === false"
 note = "Still off when Settings opens again"
 [[step]]
 click = "Activity"
+[[step]]
+click = "oxbot's own log"
+note = "oxbot's own log is folded under Activity"
 [[step]]
 wait_for = "usage passed 50%"
 note = "The level is noted, so turning alerts on later brings no late alert"

@@ -6,9 +6,7 @@ openrouter_signed_in = false
 [[step]]
 click = "Settings"
 [[step]]
-click = "AI models"
-[[step]]
-click = "Sign in with OpenRouter"
+click = "Connect OpenRouter"
 [[step]]
 wait_for = "open this link"
 [[step]]
@@ -24,6 +22,4 @@ open = "/"
 [[step]]
 click = "Settings"
 [[step]]
-click = "AI models"
-[[step]]
-expect = "Not signed in."
+wait_for = "Not connected. Bots need an AI account to think."

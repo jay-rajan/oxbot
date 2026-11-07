@@ -1,5 +1,5 @@
-name = "A bot's own models, in order"
-about = "A bot given a list of two free models in its settings (the second moved up) asks them in that order, and its settings show the list with Free tags."
+name = "A bot's own models, in order; Kind of job in Advanced"
+about = "A bot given its own list of two free models (the backup first; there's no list editor any more, so the test sends the list as the page would) asks them in that order, its header names the first, and its settings show Advanced → Kind of job as \"Its own list of models\". Switching it back to Automatic and saving clears the list."
 covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-core/src/model_lists.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
@@ -7,8 +7,8 @@ click = "New bot"
 [[step]]
 type = { into = "Name", text = "Scout" }
 [[step]]
-expect_js = "document.getElementById('nbKind').value === '' && document.getElementById('nbKind').options[0].text === 'Automatic: free models, best first'"
-note = "New bots start on Automatic"
+expect_js = "!document.getElementById('nbKind')"
+note = "No kind to pick when making a bot: the server picks from the instructions"
 [[step]]
 click = "Create"
 [[step]]
@@ -16,27 +16,21 @@ wait_for = "@scout"
 [[step]]
 click = "Bot settings"
 [[step]]
-expect = "Automatic: free models, best first."
-note = "No list yet"
+expect_js = "(() => { const a = document.getElementById('bdAdvanced'); const k = document.getElementById('bdKind'); return !a.hidden && !a.open && a.contains(k) && k.options[0].text === 'Automatic' && k.value === ''; })()"
+note = "Advanced is closed and holds Kind of job, on Automatic"
 [[step]]
-expect_js = "(() => { const s = document.getElementById('bdAddModel'); s.value = 'e2e/tool-model:free'; s.dispatchEvent(new Event('change')); return document.querySelectorAll('#bdModelList .model-item').length === 1; })()"
-note = "Add a model: the tool model"
+click = "Advanced"
 [[step]]
-expect_js = "(() => { const s = document.getElementById('bdAddModel'); s.value = 'e2e/backup:free'; s.dispatchEvent(new Event('change')); return document.querySelectorAll('#bdModelList .model-item').length === 2; })()"
-note = "…then the backup"
+expect = "Kind of job"
+shot = "advanced-automatic"
 [[step]]
-click = "Move E2E Backup (free) up"
+click = "Cancel"
 [[step]]
-expect_js = "[...document.querySelectorAll('#bdModelList .model-item .name')].map(e => e.textContent).join('|') === 'E2E Backup|E2E Tool Model'"
-note = "The backup is first now"
-[[step]]
-expect_js = "[...document.querySelectorAll('#bdModelList .model-tag')].every(e => e.textContent === 'Free') && document.getElementById('bdKind').value === 'own'"
-note = "Both tagged Free; Suggested for says it's your own list"
-shot = "models-list"
-[[step]]
-click = "Save"
+expect_js = "(send({ type: 'set_engine', bot: 'scout', engine: bots.get('scout').info.engine, models: ['e2e/backup:free', 'e2e/tool-model:free'] }), true)"
+note = "Its own list: the backup, then the tool model"
 [[step]]
 expect_js = "document.getElementById('engineBadge').textContent === 'backup'"
+timeout_ms = 5000
 note = "The header names the list's first model"
 [[step]]
 send = "hello"
@@ -48,6 +42,17 @@ note = "Asked in the bot's order"
 [[step]]
 click = "Bot settings"
 [[step]]
-expect_js = "[...document.querySelectorAll('#bdModelList .model-item .name')].map(e => e.textContent).join('|') === 'E2E Backup|E2E Tool Model'"
+click = "Advanced"
+[[step]]
+expect_js = "(() => { const k = document.getElementById('bdKind'); return k.value === 'own' && k.selectedOptions[0].text === 'Its own list of models'; })()"
 note = "The settings keep the list"
 shot = "models-kept"
+[[step]]
+expect_js = "(() => { const k = document.getElementById('bdKind'); k.value = ''; k.dispatchEvent(new Event('change')); return k.value === ''; })()"
+note = "Back to Automatic"
+[[step]]
+click = "Save"
+[[step]]
+expect_js = "document.getElementById('engineBadge').textContent === 'Free models'"
+timeout_ms = 5000
+note = "No list: free models, best first"

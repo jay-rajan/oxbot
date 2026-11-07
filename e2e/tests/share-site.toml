@@ -1,0 +1,26 @@
+name = "Sharing a private sign-in with the home"
+about = "Sam's own sign-in (bank.example, from the seed) shows in Settings → Websites as a private row: \"Private: your bots\" with one button, Share with the home, and none of a home row's actions. Share with the home asks the home computer to copy it; the test browser holds no real cookies, so oxbot says so plainly and changes nothing."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/sign_ins.rs", "crates/oxbot-browser/src/cookies.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+as = "Sam"
+
+[[step]]
+click = "Settings"
+[[step]]
+click = "Websites"
+[[step]]
+expect_js = "(() => { const r = [...document.querySelectorAll('#siteRows .site-row')].find((r) => r.innerText.includes('bank.example')); return !!r && r.classList.contains('private') && r.innerText.includes('Private: your bots') && [...r.querySelectorAll('button')].map((b) => b.textContent).join() === 'Share with the home' && !r.querySelector('input[type=checkbox]'); })()"
+timeout_ms = 5000
+note = "A private row: Private: your bots, and only Share with the home"
+[[step]]
+expect = "Sign out of all your private sites"
+shot = "private-row"
+[[step]]
+click = "Share with the home"
+[[step]]
+expect_js = "(() => { const t = document.getElementById('toast'); return !t.hidden && t.textContent === \"You're no longer signed in to bank.example. Sign in again, then share it.\" && document.getElementById('appDlg').contains(t); })()"
+timeout_ms = 10000
+note = "The test browser holds no bank cookies: oxbot says so, in Settings (not under it), and claims nothing was shared"
+shot = "not-shared"
+[[step]]
+expect_js = "[...document.querySelectorAll('#siteRows .site-row')].filter((r) => r.innerText.includes('bank.example')).every((r) => r.classList.contains('private'))"
+note = "Nothing changed: still only Sam's own"

@@ -1,5 +1,5 @@
 name = "Schedules: made on their card, run on their own, paused in bot settings"
-about = "Asked in plain words, a bot proposes a schedule on a card (Create, Change, Don't) and nothing is scheduled before Create. When it's due (the test moves oxbot's clock), the run is a turn as its person: a line in the chat says it's scheduled, the answer lands there, and the person's devices get its first line. Pausing it in the bot's settings stops the next run. Settings → Schedules lists it under Yours."
+about = "Asked in plain words, a bot proposes a schedule on a card (Create, Change, Don't) and nothing is scheduled before Create. When it's due (the test moves oxbot's clock), the run is a turn as its person: a line in the chat says it's scheduled, the answer lands there, and the person's devices get its first line. Pausing it in the bot's settings stops the next run. Schedules are only in bot settings (Settings has no Schedules tab)."
 needs = ["codex"]
 covers = ["crates/oxbot-core/src/hub/schedules.rs", "crates/oxbot-core/src/schedule.rs", "crates/oxbot-core/src/store/schedules.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
@@ -75,9 +75,7 @@ key = "Escape"
 [[step]]
 click = "Settings"
 [[step]]
-click = "Schedules"
+expect_js = "![...document.querySelectorAll('#appDlg [role=tab]')].some((t) => t.textContent.trim() === 'Schedules')"
+note = "Schedules live in each bot's settings only: no Schedules tab"
 [[step]]
-wait_for = "Yours"
-[[step]]
-expect = "in Recipes"
-shot = "settings-schedules"
+key = "Escape"
