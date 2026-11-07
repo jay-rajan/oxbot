@@ -49,6 +49,16 @@ def icon(ground=True):
             f'{bg}{board(160, 864, 24, 68, 48, 64, 54)}</svg>')
 
 
+# Mac app icon: Apple's grid puts the rounded tile at 824 x 824 in the 1024
+# canvas (radius 185), with clear space around it, so it sits at the same size
+# as other apps in the Dock. The board scales with the tile.
+def icon_mac():
+    k = 824 / 1024
+    b = board(100 + 160 * k, 100 + 864 * k, 24 * k, 68 * k, 48 * k, 64 * k, 54 * k)
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="oxbot">'
+            f'<rect x="100" y="100" width="824" height="824" rx="185" fill="{INK}"/>{b}</svg>')
+
+
 # iPhone Home Screen icon: full square, iOS rounds the corners itself.
 def icon_ios():
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="oxbot">'
@@ -147,6 +157,7 @@ def main():
     glyphs = bot_glyphs((REPO / "docs/brand/svg/wordmark-current.svg").read_text())
     files = {
         "icon.svg": icon(),
+        "icon-mac.svg": icon_mac(),
         "icon-android-foreground.svg": android_fg(),
         "tray.svg": tray(),
         "icon-ios.svg": icon_ios(),
