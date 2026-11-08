@@ -20,7 +20,7 @@ export function Sidebar() {
   const everConnected = useSel((s) => s.connection.everConnected);
   const serverName = useSel((s) => s.connection.serverName);
   const farm = useSel((s) => !!s.connection.settings?.farm);
-  const signedIn = useSel((s) => s.home.homeSites.length + s.home.mySites.length);
+  const signedIn = useSel((s) => s.home.homeSites.length + (s.connection.settings?.owner ? s.home.mySites.length : 0));
   const warnings = useSel((s) => s.sidebar.warnings);
   const query = useSel((s) => s.sidebar.query);
   const groupBy = useSel((s) => s.sidebar.groupBy);

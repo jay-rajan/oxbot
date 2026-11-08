@@ -155,6 +155,7 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .share-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
 .share-pick legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .share-pick .for-pick { flex-wrap: wrap; }
+.share-line { margin: 0; font-size: .9rem; }
 .people-pick { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 0 0 22px; }
 .people-pick label { display: flex; gap: 6px; align-items: center; font-size: .85rem; color: var(--ink); }
 .sched-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }

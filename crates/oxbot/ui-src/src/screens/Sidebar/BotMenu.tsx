@@ -7,6 +7,7 @@ import { useApp, useSel } from "../../app/context";
 import type { BotInfo } from "../../net/protocol";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
+import { mayKeepPrivate } from "../BotSettings/sharing";
 
 export type MenuFor = { bot: string; section?: undefined } | { section: string; bot?: undefined };
 export interface MenuAt {
@@ -32,7 +33,7 @@ interface Item {
 /** What the bot settings say about who sees a bot, when it's made private. */
 export function privacyHintPrivate(b: BotInfo): string {
   const maker = b.created_by || "its maker";
-  return `Only ${maker} and the owner see it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's. Personal details are swapped for stand-ins before anything is sent; details only described in words, and names oxbot was never told, aren't.`;
+  return `Only ${maker} sees it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's. Personal details are swapped for stand-ins before anything is sent; details only described in words, and names oxbot was never told, aren't.`;
 }
 
 export function menuKey(ev: KeyboardEvent): boolean {
@@ -148,7 +149,8 @@ export function BotMenu({
               send({ type: "set_private", bot: id, private: false });
             },
           });
-        } else {
+        } else if (mayKeepPrivate(b, settings)) {
+          // Only the owner keeps bots private, and only their own.
           items.push({
             label: "Make private",
             disabled: busy,

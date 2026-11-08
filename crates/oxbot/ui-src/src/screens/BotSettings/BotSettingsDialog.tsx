@@ -8,7 +8,7 @@ import { Dialog } from "../../components/Dialog";
 import type { BotInfo, ModelList, Person, Sharing } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ScheduleList } from "./ScheduleList";
-import { privacyHint, sharingOf } from "./sharing";
+import { mayKeepPrivate, privacyHint, sharingOf } from "./sharing";
 
 export function BotSettingsDialog() {
   const { dispatch } = useApp();
@@ -30,6 +30,7 @@ const sameList = (a: string[], b: string[]) => a.length === b.length && a.every(
 function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }) {
   const { send, dispatch } = useApp();
   const people = useSel((s) => s.home.people);
+  const settings = useSel((s) => s.connection.settings);
   const lists = useSel((s) => s.home.engines?.model_lists ?? NO_LISTS);
   const reports = useSel((s) => s.cards.reports);
   const schedules = useSel((s) => s.cards.schedules);
@@ -41,6 +42,9 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   const busy = b.busy;
   const central = b.central;
   const bdList = modelsOf(b);
+  // Only the owner picks who sees their own bots; everyone else's are
+  // shared with the whole home.
+  const picks = mayKeepPrivate(b, settings) || sharingOf(b) !== "everyone";
 
   const [name, setName] = useState(b.name || b.id);
   const [purpose, setPurpose] = useState((b.instructions || "").trim());
@@ -92,12 +96,14 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
       if (p !== (b.instructions || "").trim()) send({ type: "set_bot_instructions", bot: id, instructions: p });
     }
     if (!central) {
-      const people = sharing === "people" ? picked : [];
-      const was = b.members || [];
-      const same =
-        sharing === sharingOf(b) &&
-        (sharing !== "people" || (people.length === was.length && people.every((x) => was.includes(x))));
-      if (!same) send({ type: "set_sharing", bot: id, sharing, people });
+      if (picks) {
+        const people = sharing === "people" ? picked : [];
+        const was = b.members || [];
+        const same =
+          sharing === sharingOf(b) &&
+          (sharing !== "people" || (people.length === was.length && people.every((x) => was.includes(x))));
+        if (!same) send({ type: "set_sharing", bot: id, sharing, people });
+      }
       // The bot keeps its engine; only its models change here.
       const list = pickedKindList();
       if (!sameList(list, bdList)) send({ type: "set_engine", bot: id, engine: b.engine, model: null, models: list });
@@ -152,7 +158,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
         </p>
       </div>
       <div className="manage" id="bdManage2" hidden={!manage}>
-        <fieldset className="share-pick" id="bdShareBox" hidden={central}>
+        <fieldset className="share-pick" id="bdShareBox" hidden={central || !picks}>
           <legend>Shared with</legend>
           <div className="for-pick" role="radiogroup" aria-label="Shared with">
             {(
@@ -170,6 +176,9 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
           </div>
           <PeoplePick b={b} people={people} chosen={picked} setChosen={setPicked} hidden={sharing !== "people"} />
         </fieldset>
+        <p className="share-line" id="bdSharedLine" hidden={central || picks}>
+          Shared with everyone in the home
+        </p>
         <p className="hint" id="bdHint">
           {privacyHint(sharing, b) + (busy ? " (Wait until it's done working to change this.)" : "")}
         </p>

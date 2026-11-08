@@ -1,5 +1,6 @@
 // Settings → Websites: one list. The home's sites (shared bots) first, then
-// your private ones (your private bots ask for those themselves). A home
+// the owner's private ones (their private bots ask for those themselves;
+// nobody else has any). A home
 // row's actions are on the row: Fine-grained control, Open, Sign out (Open
 // and Sign out only on the home computer); a private row's only action is
 // Share with the home.
@@ -23,11 +24,16 @@ function SiteMark({ s }: { s: SiteInfo }) {
   return <span className="mono">{s.site.replace(/^www\./, "")[0] || "?"}</span>;
 }
 
+const NO_SITES: SiteInfo[] = [];
+
 export function WebsitesTab({ hidden }: { hidden: boolean }) {
   const { send, toast } = useApp();
   const farm = useSel((s) => !!s.connection.settings?.farm);
   const homeSites = useSel((s) => s.home.homeSites);
-  const mySites = useSel((s) => s.home.mySites);
+  // Only the owner of the home computer has private sign-ins.
+  const ownsHome = useSel((s) => !!s.connection.settings?.owner);
+  const allMine = useSel((s) => s.home.mySites);
+  const mySites = ownsHome ? allMine : NO_SITES;
   const fineSites = useSel((s) => s.home.fineSites);
   const urlRef = useRef<HTMLInputElement>(null);
   const row = useArm();
@@ -63,7 +69,11 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
             Sign in
           </button>
         </form>
-        <p className="hint">You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one.</p>
+        <p className="hint" id="siteHint">
+          {ownsHome
+            ? "You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one."
+            : "Bots use the home browser and the websites the home is signed in to."}
+        </p>
         <ul className="site-rows" id="siteRows">
           {rows.length === 0 ? <li className="hint">No websites yet.</li> : null}
           {rows.map(({ site: s, mine, stepOnly }) => {

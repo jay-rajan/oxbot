@@ -8,7 +8,7 @@ import { local } from "../../state/store";
 export const NB_SHARED =
   "It browses in the home browser, on the websites the home is signed in to, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
 export const NB_PRIVATE =
-  "Only you and the owner see it. Your own Assistant can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to websites even if the home is signed in. Anything that sends, posts or deletes asks you first.";
+  "Only you see it. Your Assistant can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to websites even if the home is signed in. Anything that sends, posts or deletes asks you first.";
 
 export function NewBotDialog() {
   const { dispatch } = useApp();
@@ -23,6 +23,8 @@ export function NewBotDialog() {
 
 function NewBotForm({ close }: { close: () => void }) {
   const { send } = useApp();
+  // Only the owner of the home computer can have private bots.
+  const ownsHome = useSel((s) => !!s.connection.settings?.owner);
   const [priv, setPriv] = useState(false);
   const name = useRef<HTMLInputElement>(null);
   const instr = useRef<HTMLTextAreaElement>(null);
@@ -33,7 +35,7 @@ function NewBotForm({ close }: { close: () => void }) {
       type: "create_bot",
       name: (name.current?.value ?? "").trim(),
       instructions: (instr.current?.value ?? "").trim(),
-      private: priv,
+      private: ownsHome && priv,
       engine: null,
       models: [],
     });
@@ -54,9 +56,9 @@ function NewBotForm({ close }: { close: () => void }) {
           placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."
         />
       </label>
-      <label className="check">
-        <input type="checkbox" id="nbPrivate" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private: only you and
-        the owner can see and use it, on the websites you're signed in to
+      <label className="check" id="nbPrivateRow" hidden={!ownsHome}>
+        <input type="checkbox" id="nbPrivate" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private: only you can
+        see and use it, on the websites you're signed in to
       </label>
       <p className="hint" id="nbHint">
         {priv ? NB_PRIVATE : NB_SHARED}
