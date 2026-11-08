@@ -32,7 +32,7 @@ function CaseForm({ draft, onClose }: { draft: CaseDraft; onClose: () => void })
   const [rubric, setRubric] = useState(draft.rubric);
   const [signIns, setSignIns] = useState(!!draft.uses_sign_ins);
   const [network, setNetwork] = useState<TrialNetwork>("strict");
-  const hint = `${draft.kind === "acts" ? "It changed something live: test runs record those steps instead of doing them." : "It only read."}${draft.sites.length ? ` Sites: ${draft.sites.join(", ")}.` : ""} Nothing a test run does reaches this chat.`;
+  const hint = `${draft.kind === "acts" ? "It changed something live: test runs record those steps instead of doing them." : "It only read."}${(draft.sites ?? []).length ? ` Sites: ${(draft.sites ?? []).join(", ")}.` : ""} Nothing a test run does reaches this chat.`;
   const submit = (ev: FormEvent) => {
     ev.preventDefault();
     send({ type: "mark_test_case", bot: draft.bot, seq: draft.seq, title: title.trim(), rubric, network, uses_sign_ins: signIns });

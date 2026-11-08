@@ -24,12 +24,13 @@ export function BotSettingsDialog() {
   );
 }
 
+const NO_LISTS: ModelList[] = [];
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }) {
   const { send, dispatch } = useApp();
   const people = useSel((s) => s.home.people);
-  const lists = useSel((s) => s.home.engines?.model_lists ?? []);
+  const lists = useSel((s) => s.home.engines?.model_lists ?? NO_LISTS);
   const reports = useSel((s) => s.cards.reports);
   const schedules = useSel((s) => s.cards.schedules);
   const schedulesChanged = useSel((s) => s.cards.schedulesChanged);
@@ -39,17 +40,17 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   const manage = b.can_manage;
   const busy = b.busy;
   const central = b.central;
-  const bdList = b.models.length ? b.models : b.model ? [b.model] : [];
+  const bdList = modelsOf(b);
 
   const [name, setName] = useState(b.name || b.id);
   const [purpose, setPurpose] = useState((b.instructions || "").trim());
   const [sharing, setSharing] = useState<Sharing>(sharingOf(b));
-  const [picked, setPicked] = useState<string[]>(b.members || []);
+  const [picked, setPicked] = useState<string[]>(b.members ?? []);
   const [kind, setKind] = useState<string>(() => kindOf(lists, bdList));
   // The kinds of job came (or changed): pick the bot's again.
   const firstLists = useRef(lists);
   useEffect(() => {
-    if (lists !== firstLists.current) setKind(kindOf(lists, b.models.length ? b.models : b.model ? [b.model] : []));
+    if (lists !== firstLists.current) setKind(kindOf(lists, modelsOf(b)));
   }, [lists, b]);
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [reportArmed, setReportArmed] = useState<string | null>(null);
@@ -75,7 +76,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   const pickedKindList = (): string[] => {
     if (kind === "own") return bdList;
     const k = lists.find((l) => l.kind === kind);
-    return k ? [...k.models] : [];
+    return k ? [...(k.models ?? [])] : [];
   };
 
   const submit = (ev: FormEvent) => {
@@ -248,10 +249,15 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   );
 }
 
+/** The bot's own models (the server leaves an empty list out). */
+function modelsOf(b: BotInfo): string[] {
+  return b.models?.length ? b.models : b.model ? [b.model] : [];
+}
+
 /** The kind of job whose models are the bot's list: "" automatic, "own" none of them. */
 function kindOf(lists: ModelList[], models: string[]): string {
   if (!models.length) return "";
-  return lists.find((l) => sameList(l.models, models))?.kind ?? "own";
+  return lists.find((l) => sameList(l.models ?? [], models))?.kind ?? "own";
 }
 
 // The people a bot may be shared with: everyone oxbot knows but its maker.

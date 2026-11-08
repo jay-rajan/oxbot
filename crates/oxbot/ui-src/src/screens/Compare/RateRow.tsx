@@ -10,8 +10,8 @@ export function RateRow({ bot, seq }: { bot: string; seq: number }) {
   const info = useSel((s) => s.bots.byId[bot]);
   const r = useSel((s) => s.cards.rated[bot]);
   if (!seq || !owner || !comparable(info)) return null;
-  const up = r?.ratings[seq];
-  const kept = !!r?.cases.includes(seq);
+  const up = r?.ratings?.[seq];
+  const kept = !!r?.cases?.includes(seq);
   return (
     <span className="rate-row">
       {(

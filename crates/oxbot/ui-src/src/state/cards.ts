@@ -127,7 +127,7 @@ export function estimateText(e: BatchEstimate): string {
     );
   parts.push(e.paid ? "paid models count against your daily limit" : "0 paid");
   let text = parts.join(" · ");
-  if (e.refused.length) text += `. Not run: ${e.refused.join("; ")}.`;
+  if (e.refused?.length) text += `. Not run: ${e.refused.join("; ")}.`;
   if (!e.fits && e.runs) text += " That doesn't fit what's left today: pick fewer cases or models.";
   return text;
 }
@@ -166,7 +166,7 @@ function onServer(state: CardsState, action: Extract<Action, { kind: "server" }>
     case "schedules_changed":
       return { ...state, schedulesChanged: state.schedulesChanged + 1 };
     case "ratings":
-      return { ...state, rated: { ...state.rated, [msg.bot]: { ratings: { ...msg.ratings } as Record<number, boolean>, cases: msg.cases } } };
+      return { ...state, rated: { ...state.rated, [msg.bot]: { ratings: { ...(msg.ratings ?? {}) } as Record<number, boolean>, cases: msg.cases ?? [] } } };
     case "case_draft": {
       const { type: _t, ...d } = msg;
       return { ...state, caseDraft: { ...d, n: (state.caseDraft?.n ?? 0) + 1 } };
@@ -197,7 +197,7 @@ function onServer(state: CardsState, action: Extract<Action, { kind: "server" }>
     case "trial_event": {
       const d = state.cmp.detail;
       if (!d || d.run.id !== msg.run) return state;
-      return { ...state, cmp: { ...state.cmp, detail: { ...d, events: [...d.events, msg.event] } } };
+      return { ...state, cmp: { ...state.cmp, detail: { ...d, events: [...(d.events ?? []), msg.event] } } };
     }
     case "runs":
       return msg.bot === state.cmp.bot ? { ...state, cmp: { ...state.cmp, runs: msg.runs } } : state;
@@ -292,7 +292,7 @@ export function editOf(state: CardsState, a: Approval): SchedEdit {
     kind: r.kind,
     time: ("time" in r ? r.time : "") || at[1] || "09:00",
     date: at[0] || "",
-    days: r.kind === "weekly" ? [...r.days] : [],
+    days: r.kind === "weekly" ? [...(r.days ?? [])] : [],
     day: r.kind === "monthly" ? r.day : 1,
   };
 }

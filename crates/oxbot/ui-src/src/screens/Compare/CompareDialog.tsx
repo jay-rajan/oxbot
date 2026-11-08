@@ -76,7 +76,7 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
 
   // Each free model bots can use now.
   const ready = !!(settings?.openrouter_ready && settings.codex_ready);
-  const choices: Target[] = (ready ? engines?.models ?? [] : []).map((m) => ({ engine: "codex", model: m.id }));
+  const choices: Target[] = (ready ? (engines?.models ?? []) : []).map((m) => ({ engine: "codex", model: m.id }));
 
   const tab = (t: CmpTab) => {
     dispatch(local("cards/cmpTab", { tab: t }));
@@ -213,12 +213,12 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
                   <div>
                     <span>{c.title}</span> <span className={`pill ${c.kind}`}>{c.kind}</span>
                     <small>
-                      {[c.sites.join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : ""]
+                      {[(c.sites ?? []).join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : ""]
                         .filter(Boolean)
                         .join(" · ")}
                     </small>
                     <small>
-                      {c.last.map((r) => (
+                      {(c.last ?? []).map((r) => (
                         <span key={`${r.engine}/${r.model}`} className={`vdot ${r.verdict || ""}`} title={`${targetName(r)}: ${r.verdict || r.status}`} />
                       ))}
                     </small>
@@ -437,7 +437,7 @@ function Detail({ d }: { d: RunDetail }) {
   const { send } = useApp();
   const run = d.run;
   const judge = run.judge;
-  const judgeText = judge?.checks
+  const judgeText = judge?.checks?.length
     ? `Judge: ${VERDICT[judge.verdict]} (${judge.score}/100). ${judge.checks.map((c) => `${c.met === "yes" ? "✓" : c.met === "no" ? "✗" : "?"} ${c.check}`).join(" · ")} ${judge.notes || ""}`
     : "";
   const verdicts = (
@@ -493,7 +493,7 @@ function RunSide({
   id: string;
   title: string;
   run: RunInfo | null;
-  events: BotEvent[];
+  events: BotEvent[] | null;
   isOriginal: boolean;
   match: IntentMatch | null;
   verdicts?: ReactNode;
@@ -508,13 +508,13 @@ function RunSide({
   const intents: string[] = [];
   if (!isOriginal && match) {
     for (const [list, mark] of [
-      [match.matched, "✓ matched"],
-      [match.missing, "✗ missing"],
-      [match.extra, "＋ extra"],
-      [match.should_not, "⚠ said no before"],
+      [match.matched ?? [], "✓ matched"],
+      [match.missing ?? [], "✗ missing"],
+      [match.extra ?? [], "＋ extra"],
+      [match.should_not ?? [], "⚠ said no before"],
     ] as const)
       for (const line of list) intents.push(`${mark}: ${line}`);
-  } else for (const i of run.intent_list) intents.push(`would ${i.action} ${i.target} on ${i.site}`);
+  } else for (const i of run.intent_list ?? []) intents.push(`would ${i.action} ${i.target} on ${i.site}`);
   const nums = [
     run.status,
     `${run.steps} steps`,
@@ -530,7 +530,7 @@ function RunSide({
   ]
     .filter(Boolean)
     .join(" · ");
-  const lines = events.map((e) => <EventLine key={`${e.seq}-${e.kind}`} e={e} />).filter(Boolean);
+  const lines = (events ?? []).map((e) => <EventLine key={`${e.seq}-${e.kind}`} e={e} />).filter(Boolean);
   return (
     <div id={id}>
       <h4>{title}</h4>
@@ -548,7 +548,7 @@ function RunSide({
         </ul>
       ) : null}
       <p className="hint">{nums}</p>
-      {events.length ? <div className="transcript">{lines}</div> : null}
+      {events?.length ? <div className="transcript">{lines}</div> : null}
     </div>
   );
 }
