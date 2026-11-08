@@ -1,0 +1,113 @@
+<title>oxbot Bot Settings</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--card:#ffffff;--x:#d92f2f;--ok:#1f7a45;--acc:#2563eb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--card:#18191c;--x:#ff4a4a;--ok:#4cc47e;--acc:#6b9bff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--card:#18191c;--x:#ff4a4a;--ok:#4cc47e;--acc:#6b9bff;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:36px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:20px;margin:0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+.cols{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.dlg{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-size:14px}
+.dlg h3{margin:0;font-size:17px}
+.f{display:flex;flex-direction:column;gap:5px}
+.lab{font-weight:600;font-size:13px}
+.inp{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg)}
+.ta{min-height:64px;line-height:1.45}
+.hint{font-size:12.5px;color:var(--mut)}
+.radios{display:flex;flex-wrap:wrap;gap:6px 14px}
+.lst{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.lst div{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.lst small{color:var(--mut)}
+.sum{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+.sum b{font-size:13.5px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:99px;padding:2px 10px;font-size:12.5px}
+.lock{font-size:12.5px;color:var(--mut)}
+.row{display:flex;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:12px}
+.btn{border:1px solid var(--line);border-radius:8px;padding:6px 12px;background:var(--bg)}
+.pri{color:var(--x);font-weight:600}
+.new{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);margin-left:6px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:600px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 8, 2026 · waiting for your OK</div>
+<h1>Bot settings: what it's for first, permissions optional</h1>
+<p class="mut">Today the window shows the name, who it's shared with, a hidden "Kind of job", the always-allowed list, reports and schedules. The bot's purpose (its instructions) can't be seen or changed after it's made. This puts the purpose at the top and gathers the controls under one optional Permissions section, with safe defaults so most people never open it.</p>
+</header>
+
+<section>
+<h2>1 · The window</h2>
+<div class="cols">
+<div class="dlg" role="img" aria-label="Mock-up of the new Bot settings window">
+  <h3>Bot settings</h3>
+  <div class="f"><span class="lab">Name</span><span class="inp">Groceries</span></div>
+  <div class="f"><span class="lab">What it's for<span class="new">new</span></span><span class="inp ta">Keep our weekly grocery list. On Fridays, fill the cart on loblaws.ca with it, and ask me before checking out.</span><span class="hint">The bot follows this. Changing it starts a fresh conversation for the AI; the chat stays.</span></div>
+  <div class="f"><span class="lab">Shared with</span><span class="radios"><span>◉ Everyone in the home</span><span>○ Just me</span><span>○ Picked people</span></span></div>
+  <div class="f"><span class="lab">Schedules</span><div class="lst"><div><span>Fridays at 9:00 AM: fill the cart</span><small>Pause · Remove</small></div></div></div>
+  <div class="f"><span class="lab">Reports</span><div class="lst"><div><span>Price check, Nov 6</span><small>Open</small></div></div></div>
+  <div class="sum">
+    <b>▾ Permissions</b>
+    <div class="f"><span class="lab">Websites<span class="new">new</span></span><span class="radios"><span>○ Any website</span><span>◉ Only these</span></span><span class="chips"><span class="chip">loblaws.ca ✕</span><span class="chip">flyerify.com ✕</span><span class="chip">+ Add</span></span></div>
+    <div class="f"><span class="lab">Always allowed</span><div class="lst"><div><span>Click "Add to cart" on loblaws.ca</span><small>Remove</small></div></div></div>
+    <div class="f"><span class="lab">Small programs on the home computer</span><span class="radios"><span>◉ Ask each time</span><span>○ Allowed</span></span></div>
+    <div class="f"><span class="lab">AI questions a day</span><span class="inp" style="max-width:90px">200</span></div>
+    <p class="lock">🔒 Always asks you before buying, sending, posting, deleting or signing in. This can't be turned off.</p>
+  </div>
+  <div class="sum"><b>▸ Advanced</b><span class="hint">Kind of job (picks the AI models)</span></div>
+  <div class="row"><span class="btn">Delete bot</span><span style="flex:1"></span><span class="btn">Cancel</span><span class="btn pri">Save</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:14px">
+<p><b>Order:</b> who the bot is (name, purpose, who uses it), then what it does on its own (schedules, reports), then limits, folded away.</p>
+<p><b>Permissions starts folded</b>, with one line saying what's set: "Any website · asks before buying, sending, posting, signing in". It opens by itself when something non-default is set.</p>
+<p><b>Who can change what:</b> the person who manages the bot (its maker, or the owner) edits everything. Others see the purpose and permissions read-only, so they know what the bot does. Kids see the purpose only.</p>
+<p><b>Buttons stay visible</b> at the bottom while the window scrolls, as in Settings.</p>
+<p><b>Gone from the top level:</b> "Kind of job" moves into Advanced (it already was), and nothing else is removed.</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2>2 · What each control does</h2>
+<div class="scroll"><table>
+<tr><th>Control</th><th>Default</th><th>What happens</th><th>Built today?</th></tr>
+<tr><td>What it's for</td><td>What was typed when it was made</td><td>Saved to the bot's <code>instructions.md</code>. The AI's context starts fresh so it follows the new purpose at once; the chat history stays on screen.</td><td>Stored, but no way to see or edit it. <b>New: edit.</b></td></tr>
+<tr><td>Websites: Only these</td><td>Any website</td><td>The bot may open pages only on the listed sites (and their subdomains). Anything else is refused with "This bot only uses loblaws.ca, flyerify.com." Search pages count as a site, so add the search engine if it needs one.</td><td><b>New</b> (checked by oxbot, not by the AI's prompt)</td></tr>
+<tr><td>Always allowed</td><td>Empty</td><td>The "Always" choices made on approval cards; remove any.</td><td>Yes (moves here)</td></tr>
+<tr><td>Small programs</td><td>Ask each time</td><td>"Allowed" is the same as answering Always on a small-program card. Still refused after the bot read outside text, as now.</td><td>Yes as an Always rule; <b>new switch</b></td></tr>
+<tr><td>AI questions a day</td><td>The home's default (200)</td><td>The bot pauses until tomorrow when it's reached.</td><td>Yes in the server; <b>new field</b></td></tr>
+<tr><td>Always asks before buying, sending…</td><td>On, fixed</td><td>Shown so people know it's there. Not a switch.</td><td>Yes</td></tr>
+</table></div>
+<p class="note">Fine-grained control stays per website in Settings → Websites, since it's about the site, not the bot.</p>
+</section>
+
+<section>
+<h2>3 · Building it</h2>
+<ul>
+<li><b>Protocol:</b> <code>SetBotInstructions {bot, text}</code> and <code>SetBotSites {bot, sites | any}</code>, each checked on the server (manage rights, not a kid, not from untrusted content).</li>
+<li><b>Bot file:</b> <code>bot.toml</code> gains <code>sites = ["loblaws.ca"]</code> (absent = any). Instructions are written all at once (temp file, then rename), like <code>bot.toml</code> today.</li>
+<li><b>Hub and gate:</b> the site check goes in the gate before every page visit, alongside the existing checks (home network, sign-ins). Changed instructions close the AI session so the next turn starts with the new purpose.</li>
+<li><b>Screen:</b> the window above, in the current page (and the same pieces in React later).</li>
+<li><b>Tests:</b> unit tests for the site check, edit rights and atomic writes; end-to-end: edit the purpose, limit sites and see a refusal, read-only view for another person, small-program switch.</li>
+</ul>
+</section>
+
+<section>
+<h2>4 · Decisions for you</h2>
+<ol>
+<li><b>Website limit:</b> include "Only these websites" (recommended), or keep permissions to what exists today?</li>
+<li><b>Editing the purpose:</b> start the AI fresh on change (recommended), or keep its memory and only add the new purpose?</li>
+<li><b>Others' view:</b> show the purpose and permissions read-only to everyone the bot is shared with (recommended), or hide them?</li>
+</ol>
+</section>
+</div>

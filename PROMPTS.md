@@ -450,3 +450,6 @@ Keep several steps at once always on. Flip the option so it says "Fine-grained c
 
 ## 139. React status (2026-11-08)
 Did you do the React version?
+
+## 140. Commit, clean up, and a Bot settings plan (2026-11-08)
+Start committing and remove the unwanted stuff. Bot settings should show the bot's purpose, with optional permission controls.
