@@ -5,7 +5,7 @@ import { useApp, useSel } from "../../app/context";
 import { Dialog } from "../../components/Dialog";
 import { ProfileFields, useProfileDraft } from "./ProfileFields";
 import { profileEdit } from "./profile";
-import { TttBoard } from "./TttBoard";
+import { Board } from "../../components/Board";
 
 const noop = () => {};
 
@@ -51,7 +51,7 @@ function WelcomeForm() {
   return (
     <form id="welcomeForm" className="profile-form" ref={formRef} onSubmit={save}>
       <div className="ttt-hero" id="welcomeArt" aria-hidden="true">
-        <TttBoard once />
+        <Board once />
       </div>
       <h2 id="welcomeTitle">Welcome to oxbot</h2>
       <p className="hint">

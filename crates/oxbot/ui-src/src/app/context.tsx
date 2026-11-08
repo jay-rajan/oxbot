@@ -13,6 +13,8 @@ export interface App {
   toast(text: string, error?: boolean): void;
   /** Whether this page came with the home computer's key, or a test `?as=` name. */
   hasKey: boolean;
+  /** The home computer's key for this window ("" if none), for uploads. */
+  key: string;
   /** The phone app's connection, when this page runs inside it. */
   phone: { farm?: string; person?: string } | null;
 }

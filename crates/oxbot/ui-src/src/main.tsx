@@ -54,6 +54,7 @@ const app: AppApi = {
   dispatch: (action) => store.dispatch(action),
   toast: (text, error = false) => store.dispatch(local("ui/toast", { text, error })),
   hasKey: key !== "" || as !== null,
+  key,
   phone: gate ? { ...(gate.farm ? { farm: gate.farm } : {}), ...(gate.person ? { person: gate.person } : {}) } : null,
 };
 exposeFn("send", app.send as never);

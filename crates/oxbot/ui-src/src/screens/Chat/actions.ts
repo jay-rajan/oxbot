@@ -4,7 +4,6 @@ import type { App } from "../../app/context";
 import type { BotInfo } from "../../net/protocol";
 import { type BotChat, type ChatState, PAGE, reportKey, uploading } from "../../state/chat";
 import { local } from "../../state/store";
-import { sessionStore, takeKey } from "../../web/address";
 
 /** Whether it's someone else's private bot (listed, but it won't open). */
 export const isLocked = (info: BotInfo | undefined) => !!info?.locked;
@@ -91,8 +90,7 @@ function upload(app: App, bot: string, key: number, name: string, file: File) {
   xhrs.set(key, xhr);
   xhr.open("POST", `/upload?${q}`);
   // The home computer's key goes in a header, not the address.
-  const farmKey = takeKey(location, sessionStore(), () => {});
-  if (farmKey && !as) xhr.setRequestHeader("X-Oxbot-Key", farmKey);
+  if (app.key && !as) xhr.setRequestHeader("X-Oxbot-Key", app.key);
   const patch = (p: Record<string, unknown>) => app.dispatch(local("chat/chip", { bot, key, patch: p }));
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) patch({ progress: e.loaded / e.total }); };
   const failed = (why: string) => { xhrs.delete(key); patch({ state: "error", error: why }); };

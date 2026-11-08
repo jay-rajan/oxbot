@@ -8,7 +8,7 @@ import { type BotChat, type Meter, type Ratings, newBotChat } from "../../state/
 import { local } from "../../state/store";
 import { isLocked, maybeLoadOlder, openReport, sizeText } from "./actions";
 import { type MdNode, md } from "./md";
-import { TttBoard } from "./Ttt";
+import { Board } from "../../components/Board";
 
 const LOCK = (
   <svg className="lock" viewBox="0 0 12 12" aria-label="Private" role="img">
@@ -282,7 +282,7 @@ export function Log() {
         {b.stream ? <div className="msg bot streaming"><MdView text={b.stream} /></div> : null}
         {b.busy && !b.stream ? (
           <div className="typing">
-            <span className="ttt"><TttBoard /></span>
+            <span className="ttt"><Board /></span>
             <span className="txt">{(b.activity || "Working…").replace(/…$/, "")}</span>
           </div>
         ) : null}
