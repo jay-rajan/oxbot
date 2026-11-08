@@ -192,7 +192,7 @@ export function Sidebar() {
               {String(warnings)}
             </span>
           </button>
-          <button className="foot-btn" id="gateBtn" type="button" aria-label="Connect a device" title="Connect a device: pair a phone, tablet or laptop" hidden={!farm} onClick={() => toSettings("setPeople")}>
+          <button className="foot-btn" id="gateBtn" type="button" aria-label="Connect a device" title="Connect a device: pair a phone, tablet or laptop" hidden={!farm} onClick={() => toSettings("addDevice")}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" />
               <rect x="14" y="3.5" width="6.5" height="6.5" rx="1" />
