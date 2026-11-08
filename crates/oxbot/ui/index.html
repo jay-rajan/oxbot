@@ -163,6 +163,7 @@ svg.herder { width: 100%; height: 100%; display: block; color: var(--ink); }
 .share-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
 .share-pick legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .share-pick .for-pick { flex-wrap: wrap; }
+.share-line { margin: 0; font-size: .9rem; }
 .people-pick { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 0 0 22px; }
 .people-pick label { display: flex; gap: 6px; align-items: center; font-size: .85rem; color: var(--ink); }
 .sched-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: .85rem; }
@@ -535,7 +536,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <h2>New bot</h2>
     <label>Name<input id="nbName" required placeholder="Daily News" autocomplete="off"></label>
     <label>What should it do?<textarea id="nbInstr" placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."></textarea></label>
-    <label class="check"><input type="checkbox" id="nbPrivate"> Private: only you and the owner can see and use it, on the websites you're signed in to</label>
+    <label class="check" id="nbPrivateRow"><input type="checkbox" id="nbPrivate"> Private: only you can see and use it, on the websites you're signed in to</label>
     <p class="hint" id="nbHint">It browses in the home browser, on the websites the home is signed in to, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.</p>
     <div class="row"><button class="ghost" type="button" id="nbCancel">Cancel</button><button class="primary" type="submit">Create</button></div>
   </form>
@@ -556,6 +557,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <div class="for-pick" role="radiogroup" aria-label="Shared with"><label><input type="radio" name="bdSharing" value="everyone"> Everyone in the home</label><label><input type="radio" name="bdSharing" value="me"> Just me</label><label><input type="radio" name="bdSharing" value="people"> Picked people</label></div>
       <div class="people-pick" id="bdPeople" hidden></div>
     </fieldset>
+    <p class="share-line" id="bdSharedLine" hidden>Shared with everyone in the home</p>
     <p class="hint" id="bdHint"></p>
     <details class="advanced" id="bdAdvanced"><summary>Advanced</summary>
       <label>Kind of job<select id="bdKind"></select></label>
@@ -618,7 +620,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <div id="setSignins" role="tabpanel" hidden>
     <section>
       <form class="add-site" id="addSiteForm"><input id="addSiteUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="e.g. gmail.com" aria-label="Add a website"><button class="primary" type="submit">Sign in</button></form>
-      <p class="hint">You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one.</p>
+      <p class="hint" id="siteHint">You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one.</p>
       <ul class="site-rows" id="siteRows"></ul>
       <div class="btns"><button class="ghost" type="button" id="signOutAll">Sign out of all sites</button><button class="ghost" type="button" id="signOutMine" hidden>Sign out of all your private sites</button></div>
     </section>
@@ -1042,8 +1044,18 @@ document.addEventListener("visibilitychange", () => { if (current && viewing(cur
 // ---------- signed-in sites: home (shared bots) and your own (your private
 // bots), listed in Settings → Sign-ins; the sidebar's bottom row links there.
 let sites = [], mySites = [], siteArmed = null;
+// Only the owner of the home computer has private bots and private sign-ins;
+// everyone else's bots are shared and use the home browser (the server says
+// who the owner is, and refuses anyone else).
+function ownsHome() { return !!(settings && settings.owner); }
+function ownSites() { return ownsHome() ? mySites : []; }
+// Whether the owner may make bot `b` private: only their own (or one nobody
+// is recorded as making).
+function mayKeepPrivate(b) {
+  return ownsHome() && (!b.info.created_by || b.info.created_by === (settings && settings.owner_name));
+}
 function renderSignedIn() {
-  const n = sites.length + mySites.length;
+  const n = sites.length + ownSites().length;
   $("signedInCount").textContent = String(n); $("signedInCount").hidden = n === 0;
 }
 // The site's own icon (from that browser's saved icons), else its first letter.
@@ -1057,7 +1069,8 @@ function siteMark(s) {
 }
 
 // Settings → Websites: one list. The home's sites (shared bots) first, then
-// your private ones (your private bots ask for those themselves). A home row's
+// the owner's private ones (their private bots ask for those themselves;
+// nobody else has any). A home row's
 // actions are on the row: fine-grained control, Open, Sign out; a private
 // row's only action is Share with the home.
 function renderSiteRows() {
@@ -1067,7 +1080,7 @@ function renderSiteRows() {
   // Sites set to fine-grained control that nobody is signed in to yet.
   for (const site of fineSites) if (!home.has(site)) home.set(site, { site, signed_in_ms: 0, stepOnly: true });
   const rows = [...home.values()].map((s) => ({ s, mine: false }))
-    .concat(mySites.filter((s) => !home.has(s.site) || home.get(s.site).stepOnly).map((s) => ({ s, mine: true })));
+    .concat(ownSites().filter((s) => !home.has(s.site) || home.get(s.site).stepOnly).map((s) => ({ s, mine: true })));
   if (!rows.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "No websites yet."; ul.appendChild(li); }
   for (const { s, mine } of rows) {
     const key = (mine ? "me:" : "home:") + s.site;
@@ -1108,8 +1121,11 @@ function renderSiteRows() {
     li.appendChild(acts);
     ul.appendChild(li);
   }
-  $("signOutMine").hidden = !mySites.length;
+  $("signOutMine").hidden = !ownSites().length;
   $("signOutAll").hidden = !sites.length || !farm;
+  $("siteHint").textContent = ownsHome()
+    ? "You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one."
+    : "Bots use the home browser and the websites the home is signed in to.";
 }
 let fineSites = [];
 // Devices (the home computer only): paired phones, tablets and laptops, shown
@@ -1451,10 +1467,11 @@ function menuItems() {
     if (canManage(b)) {
       items.push({ label: "Rename…", act: () => { closeMenu(); askName(`Rename ${name}`, name, 60, (n) => renameBot(id, n)); } });
       const busy = !!b.busy, wait = "Wait until it's done working";
+      // Only the owner keeps bots private, and only their own.
       if (b.info.private) {
         items.push({ label: "Make shared", confirm: "Yes, share with everyone", disabled: busy, title: busy ? wait : "Everyone sees and uses it, and its chat",
           act: () => { closeMenu(true); setPrivate(id, false); } });
-      } else {
+      } else if (mayKeepPrivate(b)) {
         items.push({ label: "Make private", disabled: busy, title: busy ? wait : "",
           act: () => { closeMenu(true); setPrivate(id, true); toast(privacyHint(true, b)); } });
       }
@@ -2115,9 +2132,11 @@ $("scrim").onclick = () => $("side").classList.remove("open");
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("side").classList.contains("open") && !document.querySelector("dialog[open]")) $("side").classList.remove("open"); });
 
 const NB_SHARED = "It browses in the home browser, on the websites the home is signed in to, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
-const NB_PRIVATE = "Only you and the owner see it. Your own Assistant can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to websites even if the home is signed in. Anything that sends, posts or deletes asks you first.";
+const NB_PRIVATE = "Only you see it. Your Assistant can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to websites even if the home is signed in. Anything that sends, posts or deletes asks you first.";
 $("newBot").onclick = () => {
   $("newForm").reset(); $("nbHint").textContent = NB_SHARED;
+  // Only the owner of the home computer can have private bots.
+  $("nbPrivateRow").hidden = !ownsHome();
   $("newDlg").showModal(); $("nbName").focus();
 };
 $("nbPrivate").onchange = () => { $("nbHint").textContent = $("nbPrivate").checked ? NB_PRIVATE : NB_SHARED; };
@@ -2125,7 +2144,7 @@ $("nbCancel").onclick = () => $("newDlg").close();
 $("newForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
   // oxbot picks the bot's models from its instructions.
-  send({ type: "create_bot", name: $("nbName").value.trim(), instructions: $("nbInstr").value.trim(), private: $("nbPrivate").checked, models: [] });
+  send({ type: "create_bot", name: $("nbName").value.trim(), instructions: $("nbInstr").value.trim(), private: ownsHome() && $("nbPrivate").checked, models: [] });
   $("newDlg").close();
 });
 
@@ -2134,9 +2153,9 @@ let deleteArmed = false, deleteTimer = null;
 function privacyHint(sharing, b) {
   if (sharing === true) sharing = "me"; else if (sharing === false) sharing = "everyone";
   const maker = b.info.created_by || "its maker";
-  if (sharing === "people") return `Only ${maker}, the people picked and the owner see it, its chat and its reports, give it tasks and answer its approval requests. It acts with the websites ${maker} is signed in to, in ${maker}'s own browser, whoever asks it; only ${maker} signs it in to websites.` + personalNote();
+  if (sharing === "people") return `Only ${maker} and the people picked see it, its chat and its reports, give it tasks and answer its approval requests. It acts with the websites ${maker} is signed in to, in ${maker}'s own browser, whoever asks it; only ${maker} signs it in to websites.` + personalNote();
   return (sharing === "me"
-    ? `Only ${maker} and the owner see it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's.`
+    ? `Only ${maker} sees it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's.`
     : "Everyone in the home sees and uses it, its chat and its reports. It uses the websites the home is signed in to.") + personalNote();
 }
 // Personal details are always swapped for stand-ins before anything is sent.
@@ -2187,7 +2206,11 @@ $("botMore").onclick = () => {
   $("bdPurposeHint").hidden = !manage;
   const sharing = sharingOf(b);
   for (const r of document.querySelectorAll('input[name="bdSharing"]')) { r.checked = r.value === sharing; r.disabled = b.busy; }
-  $("bdShareBox").hidden = !!b.info.central;
+  // Only the owner picks who sees their own bots; everyone else's are
+  // shared with the whole home.
+  const picks = mayKeepPrivate(b) || sharing !== "everyone";
+  $("bdShareBox").hidden = !!b.info.central || !picks;
+  $("bdSharedLine").hidden = !!b.info.central || picks;
   renderPeoplePick(b, b.info.members || []);
   showSharing(b);
   // The kind of job (the Assistant's is fixed).
@@ -2235,7 +2258,7 @@ $("botForm").addEventListener("submit", (ev) => {
     const purpose = $("bdPurpose").value.trim();
     if (purpose !== (b.info.instructions || "").trim()) send({ type: "set_bot_instructions", bot: b.info.id, instructions: purpose });
   }
-  if (!b.info.central) {
+  if (!b.info.central && !$("bdShareBox").hidden) {
     const sharing = pickedSharing(), picked = sharing === "people" ? pickedPeople() : [];
     const was = b.info.members || [];
     const same = sharing === sharingOf(b) && (sharing !== "people" || (picked.length === was.length && picked.every((n) => was.includes(n))));

@@ -230,8 +230,8 @@ impl Hub {
             .collect();
         sites.sort();
         sites.dedup();
-        let signed_in: Vec<String> = bot
-            .browser_owner()
+        let signed_in: Vec<String> = self
+            .browser_owner_of(bot)
             .and_then(|o| self.store.sites(o).ok())
             .unwrap_or_default()
             .into_iter()
@@ -486,8 +486,8 @@ impl Hub {
             fixtures: serde_json::to_value(&fixtures).unwrap_or(Value::Null),
             sites: json!(sites),
             uses_sign_ins: uses_sign_ins.unwrap_or(signed_in),
-            browser_owner: bot
-                .browser_owner()
+            browser_owner: self
+                .browser_owner_of(&bot)
                 .map(|o| o.as_ref().to_owned())
                 .unwrap_or_default(),
             network: trial_mode(network).as_str().to_owned(),

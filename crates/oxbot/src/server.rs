@@ -1866,16 +1866,16 @@ async fn send_as(hub: Arc<Hub>, msg: Outgoing, from: Viewer, out: mpsc::Sender<S
 
 /// Handles sign-in cards and the sign-in lists. A card for a bot the
 /// viewer can't see is ignored; "mine" means the viewer's own browser
-/// (never home's, even for someone oxbot can't place), else the home one.
+/// (the owner only: the hub refuses anyone else; never home's, even for
+/// someone oxbot can't place), else the home one.
 async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
     let viewer = &*state.hub.resolve(viewer);
+    // Only the owner has a browser of their own: the hub refuses anyone else.
     let owner = |mine: bool| -> Result<BrowserOwner, oxbot_core::HubError> {
-        match (mine, &viewer.id) {
-            (false, _) => Ok(BrowserOwner::Home),
-            (true, Some(id)) => Ok(BrowserOwner::Person(id.clone())),
-            (true, None) => Err(oxbot_core::HubError::NotAllowed(
-                "oxbot doesn't know whose browser that is.".to_owned(),
-            )),
+        if mine {
+            state.hub.own_browser_of(viewer)
+        } else {
+            Ok(BrowserOwner::Home)
         }
     };
     // The home browser holds everyone's shared sign-ins: only the Farm

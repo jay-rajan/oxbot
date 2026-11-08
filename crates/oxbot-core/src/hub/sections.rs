@@ -195,7 +195,8 @@ mod tests {
     use crate::hub::HubConfig;
     use crate::store::Store;
 
-    /// Herder, Jay's shared Recipes and Sam's private Bank.
+    /// Herder, Jay's shared Recipes and private Bank (Jay is the owner:
+    /// only the owner has private bots), and Sam.
     async fn hub(dir: &std::path::Path) -> Arc<Hub> {
         let herder = Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap();
         let hub = Hub::new(
@@ -203,12 +204,14 @@ mod tests {
             Store::open_in_memory().unwrap(),
             HubConfig::new(dir),
         );
+        hub.farm_person("Jay").unwrap();
         hub.create_bot_with("Recipes", "", Some("Jay"), false)
             .await
             .unwrap();
-        hub.create_bot_with("Bank", "", Some("Sam"), true)
+        hub.create_bot_with("Bank", "", Some("Jay"), true)
             .await
             .unwrap();
+        hub.person_named("Sam").unwrap();
         hub
     }
 
@@ -309,16 +312,20 @@ mod tests {
         let after = hub.bot("recipes").unwrap();
         assert_eq!((after.name.as_str(), after.private), ("Recipes", false));
 
-        // Sam's private bot is locked for Jay, but listed: Jay may file it.
-        hub.create_section("Other", Some("bank"), &jay).unwrap();
+        // Jay's private bot is locked for Sam, but listed: Sam may file it.
+        hub.create_section("Other", Some("bank"), &sam).unwrap();
         assert_eq!(
-            view(&hub, &jay).1,
-            [("bank".to_owned(), "Other".to_owned())]
+            view(&hub, &sam).1,
+            [
+                ("bank".to_owned(), "Other".to_owned()),
+                ("recipes".to_owned(), "Mine".to_owned())
+            ]
         );
-        assert!(hub.bot_for("bank", &jay).is_err(), "still locked");
+        assert!(hub.bot_for("bank", &sam).is_err(), "still locked");
 
         // Out again.
         hub.move_bot("recipes", None, &sam).unwrap();
+        hub.move_bot("bank", None, &sam).unwrap();
         assert_eq!(view(&hub, &sam).1, []);
 
         // Herder stays at the top; unknown bots aren't filed.
@@ -338,7 +345,11 @@ mod tests {
             Err(HubError::UnknownBot(_))
         ));
         assert!(hub.create_section("H", Some("assistant"), &sam).is_err());
-        assert_eq!(view(&hub, &sam).0, ["Mine"], "nothing made on a refusal");
+        assert_eq!(
+            view(&hub, &sam).0,
+            ["Mine", "Other"],
+            "nothing made on a refusal"
+        );
     }
 
     #[tokio::test]

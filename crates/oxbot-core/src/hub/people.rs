@@ -9,7 +9,7 @@ use std::sync::PoisonError;
 use oxbot_protocol::{GateInfo, Person, ServerMsg};
 
 use super::{Hub, HubError, MAX_PERSON, RESERVED_PEOPLE, lock};
-use crate::bot::{Bot, CENTRAL_NAME, DEFAULT_BOT, Viewer, is_personal_herder};
+use crate::bot::{Bot, CENTRAL_NAME, DEFAULT_BOT, Sharing, Viewer, is_personal_herder};
 use crate::id::{BotId, PersonId};
 use crate::store::{PersonRecord, Store};
 
@@ -73,6 +73,63 @@ fn adopt(bot: &mut Bot, store: &Store, farm: Option<&PersonRecord>) -> Result<bo
     bot.save()?;
     tracing::info!(bot = %bot.id, owner = %person.id, "gave a bot its owner");
     Ok(new)
+}
+
+/// Only the owner may have private bots: every bot someone else made that
+/// isn't shared with everyone (private, or shared with picked people)
+/// becomes the owner's own private bot. Its picked people are cleared and its
+/// file says the owner made it; its chat history stays. Assistants are
+/// left as they are. Once per bot: a handed-over bot is the owner's, so a
+/// second run changes nothing, and one that couldn't be saved is tried
+/// again next start. Returns how many were handed over.
+pub(super) fn hand_over_private_bots(
+    bots: &mut [Bot],
+    store: &Store,
+    owner: &PersonRecord,
+) -> usize {
+    let mut handed = 0;
+    for bot in bots.iter_mut().filter(|b| needs_hand_over(b, &owner.id)) {
+        let from = bot.owner.clone();
+        let was = bot.effective_sharing();
+        // The picked people go first: a file saved without them would
+        // still be read with them until the database lets go.
+        if let Err(err) = store.set_bot_members(&bot.id, &[]) {
+            tracing::warn!(bot = %bot.id, %err, "couldn't hand a private bot to the owner");
+            continue;
+        }
+        let mut handed_bot = bot.clone();
+        handed_bot.owner = Some(owner.id.clone());
+        handed_bot.created_by = Some(owner.name.clone());
+        handed_bot.set_sharing(Sharing::Me, Vec::new());
+        match handed_bot.save() {
+            Ok(()) => {
+                tracing::info!(
+                    bot = %bot.id,
+                    from = from.as_ref().map_or("nobody", PersonId::as_str),
+                    ?was,
+                    to = %owner.id,
+                    "only the owner may have private bots: handed this one to the owner"
+                );
+                *bot = handed_bot;
+                handed += 1;
+            }
+            Err(err) => {
+                bot.members.clear();
+                tracing::warn!(bot = %bot.id, %err, "couldn't hand a private bot to the owner");
+            }
+        }
+    }
+    handed
+}
+
+/// Whether `bot` is a private bot (not shared with everyone) that someone
+/// other than `owner` made, so it goes to them (see
+/// [`hand_over_private_bots`]). One nobody is recorded as making is left
+/// alone: only the home computer itself can open it already.
+fn needs_hand_over(bot: &Bot, owner: &PersonId) -> bool {
+    !bot.is_central()
+        && bot.effective_sharing() != Sharing::Everyone
+        && bot.owner.as_ref().is_some_and(|o| o != owner)
 }
 
 /// A person's name made safe: trimmed, one space between words, at most
@@ -294,6 +351,7 @@ impl Hub {
         *farm = Some(person.id.clone());
         drop(farm);
         self.adopt_ownerless(&person);
+        self.hand_over_to(&person);
         Ok(person)
     }
 
@@ -365,6 +423,40 @@ impl Hub {
         if anyone_new {
             self.announce_people();
         }
+    }
+
+    /// Private bots that aren't the owner's become theirs (see
+    /// [`hand_over_private_bots`]); for when the owner is first chosen
+    /// after the hub started.
+    fn hand_over_to(&self, owner: &PersonRecord) {
+        let handed = {
+            let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
+            let mut list: Vec<Bot> = bots
+                .values()
+                .filter(|b| needs_hand_over(b, &owner.id))
+                .cloned()
+                .collect();
+            if list.is_empty() {
+                return;
+            }
+            let n = hand_over_private_bots(&mut list, &self.store, owner);
+            for bot in list {
+                bots.insert(bot.id.clone(), bot);
+            }
+            n
+        };
+        if handed > 0
+            && let Some(hub) = self.me.upgrade()
+            && let Ok(rt) = tokio::runtime::Handle::try_current()
+        {
+            rt.spawn(async move { hub.announce_bots().await });
+        }
+    }
+
+    /// Whether `person` may have private bots: only the owner (the home
+    /// computer's own person) may.
+    pub(super) fn may_keep_private(&self, person: Option<&PersonId>) -> bool {
+        person.is_some_and(|p| self.is_farm_person(p.as_str()))
     }
 
     /// Whether `herder` is `asker`'s own Herder: their personal one, or the

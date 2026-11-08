@@ -65,8 +65,27 @@ impl Hub {
         sites
     }
 
-    /// The site lists `viewer` gets: the home browser's, then their own,
-    /// then the websites with fine-grained control.
+    /// `viewer`'s own browser, for Settings → Websites. Only the owner has
+    /// one: everyone else's bots use the home browser.
+    ///
+    /// # Errors
+    /// [`HubError::NotAllowed`] for someone oxbot can't place, or anyone
+    /// but the owner.
+    pub fn own_browser_of(&self, viewer: &Viewer) -> Result<BrowserOwner, HubError> {
+        let viewer = self.resolve(viewer);
+        let Some(id) = viewer.id.clone() else {
+            return Err(HubError::NotAllowed(
+                "oxbot doesn't know whose browser that is.".to_owned(),
+            ));
+        };
+        let owner = BrowserOwner::Person(id);
+        self.own_browser_allowed(&owner)?;
+        Ok(owner)
+    }
+
+    /// The site lists `viewer` gets: the home browser's, then their own
+    /// (the owner only: nobody else has a browser of their own), then the
+    /// websites with fine-grained control.
     #[must_use]
     pub fn sites_for(&self, viewer: &Viewer) -> Vec<ServerMsg> {
         let viewer = self.resolve(viewer);
@@ -75,7 +94,11 @@ impl Hub {
             owner: None,
             owner_id: None,
         }];
-        if let Some(id) = &viewer.id {
+        if let Some(id) = viewer
+            .id
+            .as_ref()
+            .filter(|id| self.is_farm_person(id.as_str()))
+        {
             lists.push(ServerMsg::Sites {
                 sites: self.sites(BrowserOwner::Person(id.clone())),
                 owner: Some(viewer.name.clone()),
@@ -115,7 +138,9 @@ impl Hub {
             format!("https://{url}")
         };
         let host = web_host(&url).ok_or_else(|| HubError::BadSite(url.clone()))?;
-        let shared = self.idle_browser(&owner.into())?;
+        let owner = owner.into();
+        self.own_browser_allowed(&owner)?;
+        let shared = self.idle_browser(&owner)?;
         let before = self.cookies_before_sign_in(&shared).await;
         *lock(&shared.adding_site) = Some(AddingSite { host, before });
         if let Err(err) = shared.browser.open_window(&url).await {
@@ -240,6 +265,7 @@ impl Hub {
         owner: impl Into<BrowserOwner>,
     ) -> Result<(), HubError> {
         let owner = owner.into();
+        self.own_browser_allowed(&owner)?;
         // Only a site on that browser's list, never any address a client sends.
         let known = self
             .store
@@ -269,6 +295,7 @@ impl Hub {
         owner: impl Into<BrowserOwner>,
     ) -> Result<(), HubError> {
         let owner = owner.into();
+        self.own_browser_allowed(&owner)?;
         let shared = self.browser_for(&owner).ok_or(HubError::NoBrowser)?;
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
             return Err(self.busy_error(&shared));
@@ -309,6 +336,8 @@ impl Hub {
             ));
         }
         let own = BrowserOwner::Person(person);
+        // Only the owner has sign-ins of their own to share.
+        self.own_browser_allowed(&own)?;
         // Only a site on their own list, never any address a client sends.
         let site = self
             .store
@@ -513,7 +542,7 @@ impl Hub {
                 r.window_open
                     && self
                         .bot(&r.bot)
-                        .is_ok_and(|b| b.browser_owner().as_ref() == Some(&shared.owner))
+                        .is_ok_and(|b| self.browser_owner_of(&b).as_ref() == Some(&shared.owner))
             })
             .map(|(id, _)| *id)
             .collect();

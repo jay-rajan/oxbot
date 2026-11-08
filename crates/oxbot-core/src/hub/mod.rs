@@ -48,6 +48,7 @@ mod trials;
 mod turns;
 mod uploads;
 
+pub use access::PRIVATE_IS_OWNERS;
 pub use alerts::PREF_USAGE_ALERTS;
 pub use approvals::answers;
 pub use codex::CodexParts;
@@ -371,7 +372,11 @@ impl Hub {
         // Nobody is listening yet: no need to tell anyone who's new.
         let (bots, _) = people::adopt_bots(bots, &store, farm.as_ref());
         // Who each bot is shared with: its file says how, the database whom.
-        let bots = access::with_members(bots, &store);
+        let mut bots = access::with_members(bots, &store);
+        // Only the owner may have private bots: anyone else's become theirs.
+        if let Some(owner) = farm.as_ref() {
+            people::hand_over_private_bots(&mut bots, &store, owner);
+        }
         crate::bot::write_sharing_once(&bots);
         let seqs = seqs::LatestSeqs::load(&store);
         let store = Arc::new(store);
@@ -514,8 +519,9 @@ mod tests {
     use super::session::{activity_label, listed_selected_page, selected_page, tool_label};
     use super::turns::{relayed_line, sender_line};
     use super::*;
-    use crate::bot::Viewer;
+    use crate::bot::{Sharing, Viewer};
     use crate::engine::Activity;
+    use crate::store::PersonRecord;
     use oxbot_browser::Tools;
     use oxbot_protocol::ApprovalKind;
 
@@ -781,16 +787,16 @@ mod tests {
         );
         let jay = hub.farm_person("Jay").unwrap();
         let (sam, _) = hub.store.find_or_create_person("Sam").unwrap();
-        hub.create_bot_with("Bank", "", Some("Ann"), true)
-            .await
-            .unwrap();
+        // Only the owner has private bots: Ann's own Assistant is hers alone.
+        let anns = hub.herder_for("Ann").unwrap();
+        let bank = anns.as_str();
 
         // Sam's Gate showing the Farm person's name is still Sam.
         let lookalike = Viewer::person(sam.id.clone(), "Jay", false);
         let herder = hub.herder_of(&lookalike).unwrap();
         assert_ne!(herder.as_str(), crate::bot::DEFAULT_BOT);
         assert_eq!(herder, hub.herder_for_person(&sam.id).unwrap());
-        assert!(hub.bot_for("bank", &lookalike).is_err(), "no Farm rights");
+        assert!(hub.bot_for(bank, &lookalike).is_err(), "no Farm rights");
         assert!(
             hub.herder_of(&Viewer::gate("")).is_err(),
             "nobody gets no Herder"
@@ -803,10 +809,10 @@ mod tests {
             hub.herder_of(&phone).unwrap().as_str(),
             crate::bot::DEFAULT_BOT
         );
-        assert!(hub.bot_for("bank", &phone).is_err());
+        assert!(hub.bot_for(bank, &phone).is_err());
         let farm = hub.farm_viewer("Jay");
         assert!(farm.farm && farm.id == Some(jay.id.clone()));
-        assert!(hub.bot_for("bank", &farm).is_ok());
+        assert!(hub.bot_for(bank, &farm).is_ok());
     }
 
     #[tokio::test]
@@ -857,15 +863,17 @@ mod tests {
             Store::open_in_memory().unwrap(),
             HubConfig::new(tmp.path()),
         );
-        hub.create_bot_with("Bank", "", Some("Sam"), true)
-            .await
-            .unwrap();
         // A bot nobody is recorded as making becomes the Farm's person's.
         let farm = hub.farm_viewer("Jay");
         let old = hub.bot("old").unwrap();
         assert_eq!(old.owner, farm.id);
         assert_eq!(old.created_by.as_deref(), Some("Jay"));
         assert_eq!(Bot::load(&old.dir).unwrap().owner, farm.id, "saved");
+        // Only the owner has private bots: Bank is Jay's.
+        hub.create_bot_with("Bank", "", Some("Jay"), true)
+            .await
+            .unwrap();
+        hub.person_named("Sam").unwrap();
 
         let flags = |list: &[oxbot_protocol::BotInfo], id: &str| {
             let b = list.iter().find(|b| b.id == id).unwrap();
@@ -880,13 +888,13 @@ mod tests {
             ),
             (
                 Viewer::gate("Sam"),
-                (false, true),
+                (true, false),
                 (false, false),
                 (false, false),
             ),
             (
                 Viewer::gate("Jay"),
-                (true, false),
+                (false, true),
                 (false, true),
                 (false, false),
             ),
@@ -938,6 +946,7 @@ mod tests {
             Store::open_in_memory().unwrap(),
             HubConfig::new(tmp.path()),
         );
+        hub.farm_person("Jay").unwrap();
         hub.create_bot_with("Groceries", "Keep the list.", Some("Sam"), false)
             .await
             .unwrap();
@@ -977,10 +986,23 @@ mod tests {
         assert_eq!(seen.instructions, "Fill the cart on Fridays.");
         assert!(!seen.can_manage);
 
-        // Private to Sam: Ben sees neither its activity nor what it's for.
-        hub.set_private("groceries", true, &sam).await.unwrap();
+        // Only the owner has private bots: Sam's stays shared.
+        assert!(matches!(
+            hub.set_private("groceries", true, &sam).await,
+            Err(HubError::NotAllowed(m)) if m == PRIVATE_IS_OWNERS
+        ));
+        assert!(!hub.bot("groceries").unwrap().private);
+
+        // Private to Jay (the owner): Ben sees neither its activity nor
+        // what it's for.
+        hub.create_bot_with("Diary", "Keep my notes.", Some("Jay"), false)
+            .await
+            .unwrap();
+        hub.set_private("diary", true, &Viewer::gate("Jay"))
+            .await
+            .unwrap();
         let list = hub.bots_for(&ben).await.unwrap();
-        let seen = list.iter().find(|b| b.id == "groceries").unwrap();
+        let seen = list.iter().find(|b| b.id == "diary").unwrap();
         assert!(seen.locked && seen.instructions.is_empty());
     }
 
@@ -997,7 +1019,9 @@ mod tests {
     async fn a_name_alone_never_makes_a_person_and_gets_nothing_of_theirs() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
-        hub.create_bot_with("Bank", "", Some("Sam"), true)
+        // Only the owner has private bots: Bank is Jay's.
+        hub.farm_person("Jay").unwrap();
+        hub.create_bot_with("Bank", "", Some("Jay"), true)
             .await
             .unwrap();
         let people = hub.people().unwrap().len();
@@ -1030,11 +1054,11 @@ mod tests {
         assert_eq!(hub.people().unwrap().len(), people, "nobody new");
 
         // Someone oxbot knows is found by their exact name.
-        let sam = hub.store.person_by_name("Sam").unwrap().unwrap();
-        let found = hub.resolve(&Viewer::gate("Sam")).into_owned();
-        assert_eq!(found.id, Some(sam.id));
+        let jay = hub.store.person_by_name("Jay").unwrap().unwrap();
+        let found = hub.resolve(&Viewer::gate("Jay")).into_owned();
+        assert_eq!(found.id, Some(jay.id));
         assert!(hub.bot_for("bank", &found).is_ok());
-        assert!(hub.resolve(&Viewer::gate("sam")).id.is_none(), "exactly");
+        assert!(hub.resolve(&Viewer::gate("jay")).id.is_none(), "exactly");
     }
 
     #[tokio::test]
@@ -1229,11 +1253,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_persons_own_sites_carry_their_id() {
+    async fn only_the_owners_own_sites_are_listed_and_carry_their_id() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
-        let sam = hub.person_named("Sam").unwrap();
-        let lists = hub.sites_for(&Viewer::person(sam.id.clone(), "Sam", false));
+        let jay = hub.farm_person("Jay").unwrap();
+        let lists = hub.sites_for(&Viewer::person(jay.id.clone(), "Jay", false));
         assert!(matches!(
             &lists[0],
             ServerMsg::Sites {
@@ -1244,8 +1268,248 @@ mod tests {
         ));
         assert!(
             matches!(&lists[1], ServerMsg::Sites { owner: Some(n), owner_id: Some(id), .. }
-                if n == "Sam" && id == sam.id.as_str())
+                if n == "Jay" && id == jay.id.as_str())
         );
+        // Nobody else has a browser of their own: home's list only.
+        let sam = hub.person_named("Sam").unwrap();
+        let lists = hub.sites_for(&Viewer::person(sam.id.clone(), "Sam", false));
+        assert_eq!(lists.len(), 2, "{lists:?}");
+        assert!(matches!(&lists[0], ServerMsg::Sites { owner: None, .. }));
+        assert!(matches!(lists[1], ServerMsg::FineGrainedSites { .. }));
+    }
+
+    /// A bot on disk owned by `owner` (named `maker`), shared as `sharing`.
+    fn bot_on_disk(dir: &std::path::Path, id: &str, owner: &PersonRecord, sharing: Sharing) -> Bot {
+        let mut bot = Bot::create_owned(
+            dir,
+            BotId::new(id).unwrap(),
+            id,
+            "",
+            Some(&owner.id),
+            Some(&owner.name),
+        )
+        .unwrap();
+        bot.set_sharing(sharing, Vec::new());
+        bot.save().unwrap();
+        bot
+    }
+
+    #[tokio::test]
+    async fn someone_elses_private_bots_are_handed_to_the_owner_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("oxbot.db");
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let store = Store::open(&db).unwrap();
+        let (jay, _) = store.find_or_create_person("Jay").unwrap();
+        store.set_farm_person(&jay.id).unwrap();
+        let (sam, _) = store.find_or_create_person("Sam").unwrap();
+        let (ann, _) = store.find_or_create_person("Ann").unwrap();
+        bot_on_disk(&bots, "bank", &sam, Sharing::Me);
+        let garden = bot_on_disk(&bots, "garden", &sam, Sharing::People);
+        store
+            .set_bot_members(&garden.id, std::slice::from_ref(&ann.id))
+            .unwrap();
+        bot_on_disk(&bots, "recipes", &sam, Sharing::Everyone);
+        bot_on_disk(&bots, "journal", &jay, Sharing::Me);
+        let herder = crate::bot::personal_herder_id("Sam");
+        bot_on_disk(&bots, herder.as_str(), &sam, Sharing::Me);
+        let bank = BotId::new("bank").unwrap();
+        store
+            .append(
+                &bank,
+                EventKind::Note {
+                    text: "Sam's chat".into(),
+                },
+            )
+            .unwrap();
+        drop(store);
+
+        let hub = Hub::new(
+            crate::bot::load_all(&bots).unwrap(),
+            Store::open(&db).unwrap(),
+            HubConfig::new(&bots),
+        );
+        for id in ["bank", "garden"] {
+            let bot = hub.bot(id).unwrap();
+            assert_eq!(
+                (
+                    bot.owner.as_ref(),
+                    bot.effective_sharing(),
+                    bot.created_by.as_deref()
+                ),
+                (Some(&jay.id), Sharing::Me, Some("Jay")),
+                "{id}"
+            );
+            let saved = Bot::load(&bot.dir).unwrap();
+            assert_eq!(
+                (saved.owner.as_ref(), saved.effective_sharing()),
+                (Some(&jay.id), Sharing::Me),
+                "{id} saved"
+            );
+        }
+        assert_eq!(hub.bot("garden").unwrap().members, []);
+        assert!(
+            !hub.store.bot_members().unwrap().contains_key(&garden.id),
+            "Ann isn't picked any more"
+        );
+        // Shared bots, the owner's own and Sam's Assistant stay as they were.
+        let recipes = hub.bot("recipes").unwrap();
+        assert_eq!(
+            (recipes.owner.as_ref(), recipes.effective_sharing()),
+            (Some(&sam.id), Sharing::Everyone)
+        );
+        assert_eq!(hub.bot("journal").unwrap().owner.as_ref(), Some(&jay.id));
+        assert_eq!(
+            hub.bot(herder.as_str()).unwrap().owner.as_ref(),
+            Some(&sam.id)
+        );
+        // Its chat stays; Sam and Ann lose it, the owner has it.
+        let history = hub.store.history(&bank, 0).unwrap();
+        assert!(
+            history
+                .iter()
+                .any(|e| matches!(&e.kind, EventKind::Note { text } if text == "Sam's chat"))
+        );
+        let (sam_v, ann_v) = (
+            Viewer::person(sam.id.clone(), "Sam", false),
+            Viewer::person(ann.id.clone(), "Ann", false),
+        );
+        assert!(hub.bot_for("bank", &sam_v).is_err());
+        assert!(hub.bot_for("garden", &ann_v).is_err());
+        assert!(
+            hub.bot_for("bank", &Viewer::person(jay.id.clone(), "Jay", false))
+                .is_ok()
+        );
+        hub.shutdown().await;
+        drop(hub);
+
+        // The next start changes nothing.
+        let files = || {
+            ["bank", "garden", "recipes", "journal"]
+                .map(|id| std::fs::read_to_string(bots.join(id).join("bot.toml")).unwrap())
+        };
+        let before = files();
+        let hub = Hub::new(
+            crate::bot::load_all(&bots).unwrap(),
+            Store::open(&db).unwrap(),
+            HubConfig::new(&bots),
+        );
+        assert_eq!(before, files());
+        assert_eq!(hub.bot("bank").unwrap().owner.as_ref(), Some(&jay.id));
+        hub.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn private_bots_go_to_the_owner_when_the_owner_is_first_chosen() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let (sam, _) = store.find_or_create_person("Sam").unwrap();
+        let bank = bot_on_disk(tmp.path(), "bank", &sam, Sharing::Me);
+        let hub = Hub::new(vec![bank], store, HubConfig::new(tmp.path()));
+        assert_eq!(hub.bot("bank").unwrap().owner.as_ref(), Some(&sam.id));
+        let jay = hub.farm_person("Jay").unwrap();
+        let bank = hub.bot("bank").unwrap();
+        assert_eq!(
+            (bank.owner.as_ref(), bank.effective_sharing()),
+            (Some(&jay.id), Sharing::Me)
+        );
+        assert_eq!(Bot::load(&bank.dir).unwrap().owner.as_ref(), Some(&jay.id));
+    }
+
+    #[tokio::test]
+    async fn only_the_owner_makes_or_keeps_private_bots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        let jay = hub.farm_person("Jay").unwrap();
+        let sam = hub.person_named("Sam").unwrap();
+        let ann = hub.person_named("Ann").unwrap();
+        let (jay_v, sam_v) = (
+            Viewer::person(jay.id.clone(), "Jay", false),
+            Viewer::person(sam.id.clone(), "Sam", false),
+        );
+        // Sam asks for a private bot: it's shared with everyone instead.
+        let made = hub
+            .create_bot_as("Sam's bank", "", Some(&sam_v), true)
+            .await
+            .unwrap();
+        assert!(!made.private && made.sharing == Sharing::Everyone);
+        // The owner's is private, from any device.
+        let mine = hub
+            .create_bot_as("Jay's bank", "", Some(&jay_v), true)
+            .await
+            .unwrap();
+        assert!(mine.private && mine.sharing == Sharing::Me);
+
+        // Sam may only share his with everyone.
+        for sharing in [Sharing::Me, Sharing::People] {
+            assert!(matches!(
+                hub.set_sharing(&made.id, sharing, &["Ann".into()], &sam_v).await,
+                Err(HubError::NotAllowed(m)) if m == PRIVATE_IS_OWNERS
+            ));
+        }
+        assert!(
+            hub.set_sharing(&made.id, Sharing::Everyone, &[], &sam_v)
+                .await
+                .is_ok()
+        );
+        // The owner can't make Sam's private either: only their own.
+        let farm = hub.farm_viewer("Jay");
+        assert!(matches!(
+            hub.set_private(&made.id, true, &farm).await,
+            Err(HubError::NotAllowed(m)) if m.contains("Only your own bots can be private")
+        ));
+        assert!(!hub.bot(&made.id).unwrap().private);
+        // Their own: picked people too.
+        hub.set_sharing(&mine.id, Sharing::People, &["Ann".into()], &jay_v)
+            .await
+            .unwrap();
+        assert_eq!(hub.bot(&mine.id).unwrap().members, [ann.id]);
+    }
+
+    #[tokio::test]
+    async fn only_the_owner_has_a_browser_of_their_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bots = tmp.path().join("bots");
+        std::fs::create_dir_all(&bots).unwrap();
+        let hub = Hub::new(
+            vec![],
+            Store::open_in_memory().unwrap(),
+            browsing_config(tmp.path(), &bots),
+        );
+        let jay = hub.farm_person("Jay").unwrap();
+        let sam = hub.person_named("Sam").unwrap();
+        let sam_v = Viewer::person(sam.id.clone(), "Sam", false);
+        let sams = BrowserOwner::Person(sam.id.clone());
+        assert!(hub.browser_for(&sams).is_none(), "no Chrome of his own");
+        assert!(
+            hub.browser_for(&BrowserOwner::Person(jay.id.clone()))
+                .is_some()
+        );
+        // His own Assistant (his alone) uses the home browser.
+        let herder = hub.herder_for_person(&sam.id).unwrap();
+        let herder = hub.bot(herder.as_str()).unwrap();
+        assert_eq!(hub.browser_owner_of(&herder), Some(BrowserOwner::Home));
+        // Every way to his own sign-ins says why not.
+        let refused = |r: Result<(), HubError>| matches!(r, Err(HubError::NotAllowed(ref m)) if m.contains("Only the owner"));
+        assert!(matches!(
+            hub.own_browser_of(&sam_v),
+            Err(HubError::NotAllowed(_))
+        ));
+        assert!(refused(hub.sign_out_all(sams.clone()).await));
+        assert!(refused(hub.open_site("bank.example", sams.clone()).await));
+        assert!(refused(
+            hub.sign_out_site("bank.example", sams.clone()).await
+        ));
+        assert!(refused(hub.add_sign_in("bank.example", sams.clone()).await));
+        hub.store.add_site(&sams, "bank.example").unwrap();
+        assert!(refused(hub.share_site("bank.example", &sam_v).await));
+        assert_eq!(
+            hub.own_browser_of(&Viewer::person(jay.id.clone(), "Jay", false))
+                .unwrap(),
+            BrowserOwner::Person(jay.id)
+        );
+        hub.shutdown().await;
     }
 
     #[test]

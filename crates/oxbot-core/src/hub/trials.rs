@@ -982,7 +982,7 @@ impl Hub {
         let Some(tools) = self.config.browser.clone() else {
             return Ok(None);
         };
-        let owner = real.browser_owner().unwrap_or(BrowserOwner::Home);
+        let owner = self.browser_owner_of(real).unwrap_or(BrowserOwner::Home);
         let profile = dir.join("profile");
         if input.uses_sign_ins {
             let source = self

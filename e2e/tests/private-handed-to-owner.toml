@@ -1,0 +1,47 @@
+name = "Someone else's private bot is handed to the owner"
+about = "Only the owner of the home computer can have private bots. The seed's Bank is Sam's private bot from before that rule, shared with Jay as a picked person; when oxbot starts it becomes Jay's own private bot (Just me): listed by Jay with a lock, its chat kept, nobody picked any more. A restart changes nothing. Sam, who made it, can no longer open it."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/hub/mod.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/store/members.rs"]
+
+[[step]]
+expect_js = "[...document.querySelectorAll('.bot-item')].some((b) => b.innerText.includes('Bank') && b.innerText.includes('by Jay') && b.querySelector('.lock'))"
+timeout_ms = 5000
+note = "Listed as Jay's, with a lock"
+[[step]]
+click = "Bank"
+[[step]]
+wait_for = "private · @bank"
+note = "Just Jay's: private, not shared with picked people"
+[[step]]
+expect = "SECRET-BALANCE"
+note = "Its chat (Sam's old messages) is kept, and the owner sees it"
+shot = "owners-now"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "!document.getElementById('bdShareBox').hidden && document.querySelector('input[name=bdSharing][value=me]').checked && document.getElementById('bdPeople').hidden"
+note = "Shared with: Just me, which the owner may still change"
+[[step]]
+click = "Cancel"
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM bot_members WHERE bot = 'bank'", equals = "0" }
+note = "The people Sam picked are cleared"
+[[step]]
+restart = true
+note = "Once only: the next start finds it the owner's already"
+[[step]]
+wait_for = "private · @bank"
+timeout_ms = 20000
+[[step]]
+expect_js = "bots.get('bank').info.created_by === 'Jay' && bots.get('bank').info.sharing === 'me'"
+timeout_ms = 5000
+[[step]]
+open = "/?as=Sam"
+[[step]]
+click = "Bank"
+[[step]]
+expect = "Jay's private bot"
+note = "Sam made it, but it's the owner's now"
+[[step]]
+expect_js = "!document.documentElement.innerHTML.includes('SECRET-BALANCE')"
+note = "Nothing of its chat reaches Sam"
+shot = "locked-for-sam"

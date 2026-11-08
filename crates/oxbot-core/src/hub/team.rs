@@ -115,6 +115,17 @@ impl Hub {
                     .create_bot_as(&text("name"), &text("instructions"), maker, private)
                     .await
                 {
+                    // Only the owner may have private bots: anyone else's
+                    // is shared, and the Assistant says so.
+                    Ok(info) if private && !info.private => (
+                        true,
+                        format!(
+                            "Created \"{}\" (id {}). It's shared with everyone in the home: only the \
+                             owner of the home computer can have private bots, so tell the user that. \
+                             It's in their sidebar. Give it tasks with give_task.",
+                            info.name, info.id
+                        ),
+                    ),
                     Ok(info) => (
                         true,
                         format!(
