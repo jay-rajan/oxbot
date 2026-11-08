@@ -334,10 +334,42 @@ mod next_page {
 }
 
 /// The React page's Content-Security-Policy: its own script and stylesheet
-/// only, no inline scripts, and connections back to this server only.
-const NEXT_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
-     img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'none'; \
-     object-src 'none'; base-uri 'none'";
+/// only, no inline scripts, and connections back to this server only. The
+/// report frame (`srcdoc`, which inherits this policy) may use exactly the
+/// reports' own stylesheet, allowed by its hash; nothing else inline.
+fn next_csp() -> &'static str {
+    static CSP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CSP.get_or_init(|| {
+        let style =
+            ring::digest::digest(&ring::digest::SHA256, oxbot_core::report::STYLE.as_bytes());
+        format!(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'sha256-{}'; \
+             img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'none'; \
+             object-src 'none'; base-uri 'none'",
+            base64(style.as_ref())
+        )
+    })
+}
+
+/// Standard base64 with padding, for CSP hashes.
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ABC[(n >> (18 - 6 * i) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
 
 /// The React page's routes, added to both routers so it's reached (and
 /// checked) the same way on this Mac and through the device door.
@@ -379,7 +411,7 @@ fn next_file(content_type: &'static str, body: &'static str) -> Response {
     (
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CONTENT_SECURITY_POLICY, NEXT_CSP),
+            (header::CONTENT_SECURITY_POLICY, next_csp()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             (header::REFERRER_POLICY, "no-referrer"),
             (header::CACHE_CONTROL, "no-cache"),
@@ -2197,6 +2229,17 @@ where
 mod tests {
     use super::*;
     use oxbot_protocol::{BotEvent, EventKind};
+
+    #[test]
+    fn base64_matches_the_standard_examples() {
+        assert_eq!(super::base64(b""), "");
+        assert_eq!(super::base64(b"f"), "Zg==");
+        assert_eq!(super::base64(b"fo"), "Zm8=");
+        assert_eq!(super::base64(b"foo"), "Zm9v");
+        assert_eq!(super::base64(b"foobar"), "Zm9vYmFy");
+        // The page's policy allows the reports' stylesheet by its hash.
+        assert!(super::next_csp().contains("style-src 'self' 'sha256-"));
+    }
 
     #[test]
     fn the_phone_gets_the_page_with_its_script_and_styles_inside() {

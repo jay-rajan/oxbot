@@ -38,10 +38,12 @@ export function ReportDialog() {
     const d = ref.current;
     const f = frame.current;
     if (!d || !f) return;
-    // A property: the HTML never passes through this page's parser.
-    f.srcdoc = open && report ? report.html : "";
+    // Opened first, then filled: a frame filled while its dialog is closed
+    // can stay blank in Chrome. srcdoc is a property, so the HTML never
+    // passes through this page's parser.
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
+    f.srcdoc = open && report ? report.html : "";
   }, [open, report]);
 
   useEffect(() => {
