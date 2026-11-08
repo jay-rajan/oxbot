@@ -12,7 +12,8 @@ note = "No kind to pick when making a bot: the server picks from the instruction
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 click = "Bot settings"
 [[step]]
@@ -29,9 +30,9 @@ click = "Cancel"
 expect_js = "(send({ type: 'set_engine', bot: 'scout', engine: bots.get('scout').info.engine, models: ['e2e/backup:free', 'e2e/tool-model:free'] }), true)"
 note = "Its own list: the backup, then the tool model"
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'backup'"
+expect_js = "!document.getElementById('engineBadge')"
 timeout_ms = 5000
-note = "The header names the list's first model"
+note = "No model pill in the header"
 [[step]]
 send = "hello"
 [[step]]
@@ -53,6 +54,6 @@ note = "Back to Automatic"
 [[step]]
 click = "Save"
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'Free models'"
+expect_js = "!document.getElementById('engineBadge')"
 timeout_ms = 5000
-note = "No list: free models, best first"
+note = "Still no model pill"

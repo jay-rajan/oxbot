@@ -12,7 +12,8 @@ click = "Private: only you"
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "private · @diary"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'diary' && document.getElementById('botStatus').textContent.startsWith('private')"
+timeout_ms = 10000
 [[step]]
 send = "remember my contact: ann.lee@example.com, ask Jay"
 [[step]]

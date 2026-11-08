@@ -12,12 +12,7 @@ import { Cards } from "../Cards/Cards";
 import { addFiles, follow, isLocked, openEngines, openReport, stopDictation } from "./actions";
 import { Composer } from "./Composer";
 import { Log } from "./Log";
-
-/** The badge's words: the short name of the bot's first model, else "Free models". */
-function engineLabel(info: BotInfo): string {
-  const first = info.models?.[0] || info.model || "";
-  return first.replace(/^.*\//, "").replace(/:free$/, "") || "Free models";
-}
+import { purposeLine } from "./purpose";
 
 const KEYCHAIN_WAITING = "Waiting for the Mac's Keychain: allow oxbot in the dialog.";
 
@@ -166,8 +161,10 @@ function EngineNote({ info }: { info: BotInfo | undefined }) {
 function statusText(info: BotInfo, busy: boolean, activity: string | null, dictating: boolean): string {
   if (isLocked(info)) return `private to ${info.created_by || "someone"}`;
   if (dictating) return "Listening… (on the home computer)";
-  const shared = info.sharing === "people" ? `shared with ${info.members?.join(", ") || "picked people"} · ` : info.private ? "private · " : "";
-  return busy ? activity || "Working…" : info.central ? "leads your bots" : `${shared}@${info.id}`;
+  const shared = info.sharing === "people" ? `shared with ${info.members?.join(", ") || "picked people"}` : info.private ? "private" : "";
+  if (busy) return activity || "Working…";
+  if (info.central) return "leads your bots";
+  return [shared, purposeLine(info.instructions)].filter(Boolean).join(" · ");
 }
 
 /** Follows the open bot and catches up after a reconnect, like the old page. */
@@ -260,11 +257,8 @@ export function ChatMain() {
         <div>
           <div className="head-title">
             <h1 id="botName">{current ? info?.name || current : "oxbot"}</h1>
-            <span className="engine-badge" id="engineBadge" hidden={!info || locked} title={info && !locked ? "Which AI model answers this bot" : undefined}>
-              {info && !locked ? engineLabel(info) : ""}
-            </span>
           </div>
-          <div className="status" id="botStatus">{info ? statusText(info, busy, chat?.activity ?? null, dictating) : ""}</div>
+          <div className="status" id="botStatus" data-bot={current ?? undefined}>{info ? statusText(info, busy, chat?.activity ?? null, dictating) : ""}</div>
         </div>
         <button
           className="head-more"

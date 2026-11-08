@@ -14,13 +14,14 @@ click = "Picked people"
 [[step]]
 click = "Sam"
 [[step]]
-expect = "only Jay signs it in to websites"
-note = "It acts with Jay's sign-ins, whoever asks it"
+expect_not = "signs it in to websites"
+note = "No long explanation under the choice"
 shot = "shared-with"
 [[step]]
 click = "Save"
 [[step]]
-wait_for = "shared with Sam · @recipes"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'recipes' && document.getElementById('botStatus').textContent.startsWith('shared with Sam')"
+timeout_ms = 10000
 [[step]]
 expect_db = { query = "SELECT p.name FROM bot_members m JOIN people p ON p.id = m.person WHERE m.bot = 'recipes'", equals = "Sam" }
 [[step]]
@@ -32,7 +33,8 @@ click = "Everyone in the home"
 [[step]]
 click = "Save"
 [[step]]
-wait_for = "@recipes"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'recipes'"
+timeout_ms = 5000
 [[step]]
 expect_not = "shared with Sam"
 [[step]]

@@ -29,9 +29,10 @@ expect_not = "Uses free AI models first."
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@pantry"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'pantry'"
+timeout_ms = 5000
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'Free models'"
+expect_js = "!document.getElementById('engineBadge')"
 [[step]]
 click = "Bot settings"
 [[step]]

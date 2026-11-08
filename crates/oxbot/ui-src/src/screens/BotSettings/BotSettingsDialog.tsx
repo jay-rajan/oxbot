@@ -8,7 +8,7 @@ import { Dialog } from "../../components/Dialog";
 import type { BotInfo, ModelList, Person, Sharing } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ScheduleList } from "./ScheduleList";
-import { mayKeepPrivate, privacyHint, sharingOf } from "./sharing";
+import { mayKeepPrivate, sharingOf } from "./sharing";
 
 export function BotSettingsDialog() {
   const { dispatch } = useApp();
@@ -183,8 +183,8 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
         <p className="share-line" id="bdSharedLine" hidden={central || picks}>
           Shared with everyone in the home
         </p>
-        <p className="hint" id="bdHint">
-          {privacyHint(sharing, b) + (busy ? " (Wait until it's done working to change this.)" : "")}
+        <p className="hint" id="bdHint" hidden={!busy}>
+          Wait until it's done working to change this.
         </p>
         <details className="advanced" id="bdAdvanced" hidden={!manage || central}>
           <summary>Advanced</summary>
@@ -201,15 +201,10 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
           <p className="hint">Picked from the bot's instructions when it was made. It decides which AI models the bot tries, free ones first.</p>
         </details>
       </div>
-      <section className="reports-box" aria-labelledby="bdReportsTitle">
+      <section className="reports-box" aria-labelledby="bdReportsTitle" hidden={!reports?.length}>
         <h3 id="bdReportsTitle">Reports</h3>
         <ul className="rules" id="bdReports">
-          {!reports ? (
-            <li className="hint">Loading…</li>
-          ) : !reports.length ? (
-            <li className="hint">None yet. When this bot researches something, its report shows here.</li>
-          ) : (
-            reports.map((r) => (
+          {(reports ?? []).map((r) => (
               <li className="report-row" key={r.id}>
                 <button
                   type="button"
@@ -238,8 +233,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
                   </button>
                 ) : null}
               </li>
-            ))
-          )}
+            ))}
         </ul>
       </section>
       <section className="rules-box" aria-labelledby="bdSchedTitle">

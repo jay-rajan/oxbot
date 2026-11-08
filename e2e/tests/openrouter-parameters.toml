@@ -9,7 +9,8 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 send = "everyone's busy"
 [[step]]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppSettings, BotInfo } from "../../net/protocol";
-import { mayKeepPrivate, ownsHome, privacyHint } from "./sharing";
+import { mayKeepPrivate, ownsHome } from "./sharing";
 
 const set = (owner: boolean) => ({ owner, owner_name: "Jay" }) as AppSettings;
 const bot = (created_by: string | null) => ({ id: "b", created_by }) as unknown as BotInfo;
@@ -16,9 +16,5 @@ describe("only the owner keeps bots private", () => {
     expect(mayKeepPrivate(bot(null), set(true))).toBe(true);
     expect(mayKeepPrivate(bot("Sam"), set(true))).toBe(false);
     expect(mayKeepPrivate(bot("Jay"), set(false))).toBe(false);
-  });
-  it("the hints no longer mention the owner", () => {
-    expect(privacyHint("me", bot("Jay"))).toMatch(/^Only Jay sees it/);
-    expect(privacyHint("people", bot("Jay"))).toMatch(/^Only Jay and the people picked see it/);
   });
 });

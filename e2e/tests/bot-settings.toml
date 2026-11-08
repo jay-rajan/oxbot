@@ -16,7 +16,7 @@ click = "Just me"
 [[step]]
 click = "Save"
 [[step]]
-wait_for = "private · @recipes"
+wait_for = "private · Find dinner recipes when asked."
 [[step]]
 expect = "Family Recipes"
 [[step]]

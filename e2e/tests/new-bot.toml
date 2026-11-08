@@ -11,7 +11,8 @@ type = { into = "What should it do?", text = "Give me five headlines when I ask.
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@daily-news"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'daily-news'"
+timeout_ms = 5000
 note = "The new bot opens"
 [[step]]
 expect = "by Jay"

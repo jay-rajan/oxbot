@@ -5,11 +5,6 @@ import { useApp, useSel } from "../../app/context";
 import { Dialog } from "../../components/Dialog";
 import { local } from "../../state/store";
 
-export const NB_SHARED =
-  "It browses in the home browser, on the websites the home is signed in to, and keeps files in its own folder. Anything that sends, posts or deletes asks you first.";
-export const NB_PRIVATE =
-  "Only you see it. Your Assistant can give it tasks; it asks you first if it has read web content or other bots' replies. It browses in your own browser, so it asks you to sign in to websites even if the home is signed in. Anything that sends, posts or deletes asks you first.";
-
 export function NewBotDialog() {
   const { dispatch } = useApp();
   const open = useSel((s) => s.ui.dialog === "newBot");
@@ -58,11 +53,8 @@ function NewBotForm({ close }: { close: () => void }) {
       </label>
       <label className="check" id="nbPrivateRow" hidden={!ownsHome}>
         <input type="checkbox" id="nbPrivate" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private: only you can
-        see and use it, on the websites you're signed in to
+        see and use it
       </label>
-      <p className="hint" id="nbHint">
-        {priv ? NB_PRIVATE : NB_SHARED}
-      </p>
       <div className="row">
         <button className="ghost" type="button" id="nbCancel" onClick={close}>
           Cancel

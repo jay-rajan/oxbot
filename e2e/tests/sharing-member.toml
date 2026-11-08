@@ -7,7 +7,8 @@ as = "Sam"
 [[step]]
 click = "Journal"
 [[step]]
-wait_for = "shared with Sam · @journal"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'journal' && document.getElementById('botStatus').textContent.startsWith('shared with Sam')"
+timeout_ms = 10000
 note = "Not locked for Sam"
 [[step]]
 expect_js = "!document.getElementById('input').disabled"

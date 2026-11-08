@@ -14,9 +14,10 @@ type = { into = "Name", text = "Garden" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@garden"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'garden'"
+timeout_ms = 5000
 [[step]]
-expect_js = "document.getElementById('botStatus').textContent === '@garden' && !bots.get('garden').info.private && bots.get('garden').info.sharing === 'everyone'"
+expect_js = "!document.getElementById('botStatus').textContent.startsWith('private') && !bots.get('garden').info.private && bots.get('garden').info.sharing === 'everyone'"
 note = "Shared with everyone, no lock"
 [[step]]
 click = "Bot settings"
@@ -47,7 +48,8 @@ note = "Nobody picked"
 expect_js = "(send({ type: 'create_bot', name: 'Sneaky', instructions: '', private: true, models: [] }), true)"
 note = "Ask for a private bot outright"
 [[step]]
-wait_for = "@sneaky"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'sneaky'"
+timeout_ms = 5000
 [[step]]
 expect_js = "!bots.get('sneaky').info.private && bots.get('sneaky').info.sharing === 'everyone' && !document.querySelector('.bot-item[data-bot=sneaky] .lock')"
 note = "It's made shared with everyone"

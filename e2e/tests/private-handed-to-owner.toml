@@ -9,7 +9,8 @@ note = "Listed as Jay's, with a lock"
 [[step]]
 click = "Bank"
 [[step]]
-wait_for = "private · @bank"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'bank' && document.getElementById('botStatus').textContent.startsWith('private')"
+timeout_ms = 10000
 note = "Just Jay's: private, not shared with picked people"
 [[step]]
 expect = "SECRET-BALANCE"
@@ -29,7 +30,7 @@ note = "The people Sam picked are cleared"
 restart = true
 note = "Once only: the next start finds it the owner's already"
 [[step]]
-wait_for = "private · @bank"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'bank' && document.getElementById('botStatus').textContent.startsWith('private')"
 timeout_ms = 20000
 [[step]]
 expect_js = "bots.get('bank').info.created_by === 'Jay' && bots.get('bank').info.sharing === 'me'"

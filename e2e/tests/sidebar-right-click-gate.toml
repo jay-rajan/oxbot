@@ -25,7 +25,8 @@ type = { into = "Name", text = "Garden" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@garden"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'garden'"
+timeout_ms = 5000
 note = "Sam's own bot, shared with everyone"
 [[step]]
 right_click = "Garden by Sam"

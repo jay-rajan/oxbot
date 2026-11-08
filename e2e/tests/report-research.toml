@@ -45,7 +45,9 @@ click = "Delete"
 [[step]]
 click = "Yes, delete"
 [[step]]
-wait_for = "None yet."
+expect_js = "document.querySelector('.reports-box').hidden"
+timeout_ms = 5000
+note = "With no reports left, the Reports section is gone"
 [[step]]
 click = "Cancel"
 [[step]]

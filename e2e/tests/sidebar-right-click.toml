@@ -24,7 +24,7 @@ right_click = "Family Recipes by Jay"
 [[step]]
 click = "Make private"
 [[step]]
-wait_for = "private · @recipes"
+wait_for = "private · Find dinner recipes when asked."
 [[step]]
 right_click = "Family Recipes by Jay"
 [[step]]
@@ -35,7 +35,8 @@ note = "Sharing shows a private chat to everyone: it asks again"
 [[step]]
 click = "Yes, share with everyone"
 [[step]]
-expect_js = "document.getElementById('botStatus').textContent === '@recipes'"
+expect_js = "document.getElementById('botStatus').textContent === 'Find dinner recipes when asked.'"
+note = "Shared again: the line under the name says only what it's for"
 [[step]]
 right_click = "Family Recipes by Jay"
 [[step]]

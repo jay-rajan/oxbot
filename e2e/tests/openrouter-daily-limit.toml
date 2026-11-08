@@ -9,7 +9,8 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 expect_js = "(send({ type: 'set_bot_daily_limit', bot: 'scout', daily_requests: 2 }), true)"
 note = "A limit of 2, as the bot settings' old field sent it (the field is gone; the limit isn't)"

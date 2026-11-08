@@ -4,7 +4,6 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useApp, useSel } from "../../app/context";
-import type { BotInfo } from "../../net/protocol";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
 import { mayKeepPrivate } from "../BotSettings/sharing";
@@ -28,12 +27,6 @@ interface Item {
   indent?: boolean;
   checked?: boolean;
   act?: () => void;
-}
-
-/** What the bot settings say about who sees a bot, when it's made private. */
-export function privacyHintPrivate(b: BotInfo): string {
-  const maker = b.created_by || "its maker";
-  return `Only ${maker} sees it, its chat and its reports. ${maker}'s own Assistant can give it tasks; it asks ${maker} first if it has read web content or other bots' replies. It uses the websites ${maker} is signed in to, never the home's. Personal details are swapped for stand-ins before anything is sent; details only described in words, and names oxbot was never told, aren't.`;
 }
 
 export function menuKey(ev: KeyboardEvent): boolean {
@@ -158,7 +151,7 @@ export function BotMenu({
             act: () => {
               close(true);
               send({ type: "set_private", bot: id, private: true });
-              toast(privacyHintPrivate(b));
+              toast("Private now: only you see it.");
             },
           });
         }

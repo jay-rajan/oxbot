@@ -10,10 +10,11 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
-expect_js = "bots.get('scout').info.engine === 'codex' && document.getElementById('engineBadge').textContent === 'Free models'"
-note = "New bots run on Codex; the page says only which AI models"
+expect_js = "bots.get('scout').info.engine === 'codex' && !document.getElementById('engineBadge')"
+note = "New bots run on Codex; no model pill in the header"
 [[step]]
 send = "search jobs"
 [[step]]

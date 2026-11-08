@@ -10,12 +10,13 @@ type = { into = "Name", text = "Diary" }
 click = "Private: only you"
 note = "The box under the instructions (matched on its first words, so wording tweaks don't break the test)"
 [[step]]
-expect = "It browses in your own browser"
-note = "The hint explains the private browser"
+expect_not = "It browses in your own browser"
+note = "No long explanation under the box"
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "private · @diary"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'diary' && document.getElementById('botStatus').textContent.startsWith('private')"
+timeout_ms = 10000
 [[step]]
 expect_js = "[...document.querySelectorAll('.bot-item')].some(b => b.innerText.includes('Diary') && b.querySelector('.lock'))"
 note = "A lock next to its name"
