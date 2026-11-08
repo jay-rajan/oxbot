@@ -344,7 +344,7 @@ impl Hub {
     }
 
     /// A create-bot card says who the bot will be for: the person whose
-    /// turn asked for it (private), or everyone (shared).
+    /// turn asked for it (private, the owner only), or everyone (shared).
     async fn with_maker(&self, bot: &Bot, mut ask: policy::Ask) -> policy::Ask {
         if ask.kind != ApprovalKind::CreateBot {
             return ask;
@@ -356,6 +356,11 @@ impl Hub {
             .get(&bot.id)
             .and_then(|r| r.origin.asker().cloned());
         let name = asker.as_ref().and_then(|id| self.person_name(id));
+        // Only the owner's bot can be private: anyone else's card says
+        // shared, as the bot will be.
+        if ask.private && !self.may_keep_private(asker.as_ref()) {
+            ask.private = false;
+        }
         ask.action = match (ask.private, name) {
             (true, Some(name)) => format!("create a private bot for {name}"),
             (true, None) => "create a private bot".to_owned(),

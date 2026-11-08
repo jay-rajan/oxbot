@@ -15,6 +15,10 @@ use crate::id::{BotId, BrowserOwner};
 #[cfg(test)]
 pub(super) use crate::store::person_folder;
 
+/// What anyone but the owner hears when they ask for a browser of their own.
+pub(super) const NO_OWN_BROWSER: &str = "Only the owner of the home computer has private sign-ins. \
+     Your bots use the home browser, which everyone shares.";
+
 impl Hub {
     /// What the home browser is doing.
     #[must_use]
@@ -38,6 +42,14 @@ impl Hub {
     /// get no browser (or the person is unknown).
     pub(super) fn browser_for(&self, owner: &BrowserOwner) -> Option<Arc<Shared>> {
         let tools = self.config.browser.clone()?;
+        // Only the owner has a browser of their own; anyone else's folder
+        // stays on disk, unused.
+        if let BrowserOwner::Person(id) = owner
+            && !self.is_farm_person(id.as_str())
+        {
+            tracing::debug!(person = %id, "only the owner has a browser of their own");
+            return None;
+        }
         let mut browsers = lock(&self.browsers);
         if let Some(shared) = browsers.get(owner) {
             return Some(Arc::clone(shared));
@@ -104,7 +116,33 @@ impl Hub {
         if super::trials::is_trial(&bot.id) {
             return self.trial_browser(&bot.id);
         }
-        self.browser_for(&bot.browser_owner()?)
+        self.browser_for(&self.browser_owner_of(bot)?)
+    }
+
+    /// Whose browser `bot` uses (see [`Bot::browser_owner`]), except that
+    /// only the owner has a browser of their own: anyone else's private
+    /// bot (their own Assistant) uses the home browser.
+    pub(super) fn browser_owner_of(&self, bot: &Bot) -> Option<BrowserOwner> {
+        match bot.browser_owner()? {
+            BrowserOwner::Person(id) if !self.is_farm_person(id.as_str()) => {
+                Some(BrowserOwner::Home)
+            }
+            owner => Some(owner),
+        }
+    }
+
+    /// Refuses a browser of their own for anyone but the owner (`Ok` for
+    /// the home browser and the owner's).
+    ///
+    /// # Errors
+    /// [`HubError::NotAllowed`] for someone else's own browser.
+    pub(super) fn own_browser_allowed(&self, owner: &BrowserOwner) -> Result<(), HubError> {
+        match owner {
+            BrowserOwner::Person(id) if !self.is_farm_person(id.as_str()) => {
+                Err(HubError::NotAllowed(NO_OWN_BROWSER.to_owned()))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// `None` for the home browser, else its owner's name, as
@@ -235,6 +273,7 @@ impl Hub {
     /// be deleted.
     pub async fn sign_out_all(&self, owner: impl Into<BrowserOwner>) -> Result<(), HubError> {
         let owner = owner.into();
+        self.own_browser_allowed(&owner)?;
         let shared = self.browser_for(&owner).ok_or(HubError::NoBrowser)?;
         let Ok(_guard) = Arc::clone(&shared.lease).try_lock_owned() else {
             return Err(self.busy_error(&shared));

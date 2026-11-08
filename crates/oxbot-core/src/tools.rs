@@ -160,7 +160,7 @@ fn tools(set: ToolSet) -> Vec<Value> {
                     "properties": {
                         "name": { "type": "string", "description": "A short name, e.g. \"Gmail Checker\"." },
                         "instructions": { "type": "string", "description": "What the bot is for and how it should work, written to the bot (\"You check…\"). A few short lines." },
-                        "private": { "type": "boolean", "description": "Only for the person asking: hidden from everyone else, and it uses their own browser sign-ins. Only when they ask for a private bot." }
+                        "private": { "type": "boolean", "description": "Only for the person asking: hidden from everyone else, and it uses their own browser sign-ins. Only when they ask for a private bot. Only the owner of the home computer can have private bots; anyone else's is shared with everyone in the home." }
                     },
                     "required": ["name", "instructions"]
                 }

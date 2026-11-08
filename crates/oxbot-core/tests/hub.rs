@@ -570,14 +570,21 @@ async fn a_create_bot_card_says_who_the_bot_is_for() {
     if codex().await.is_none() {
         return;
     }
-    for (env, action) in [
-        (&[][..], "create a shared bot"),
-        (&[("FAKE_PRIVATE", "1")][..], "create a private bot for Sam"),
+    // Only the owner (Jay) can have private bots: Sam's card says shared.
+    for (env, who, action) in [
+        (&[][..], "Sam", "create a shared bot"),
+        (&[("FAKE_PRIVATE", "1")][..], "Sam", "create a shared bot"),
+        (
+            &[("FAKE_PRIVATE", "1")][..],
+            "Jay",
+            "create a private bot for Jay",
+        ),
     ] {
         let tmp = tempfile::tempdir().unwrap();
         let hub = asking_hub_env(tmp.path(), "createbot", &["assistant"], env).await;
+        hub.farm_person("Jay").unwrap();
         let mut updates = hub.subscribe();
-        hub.send("assistant", "make me a mail bot", Some("Sam"))
+        hub.send("assistant", "make me a mail bot", Some(who))
             .await
             .unwrap();
         let card = next_card(&mut updates).await;
@@ -637,31 +644,36 @@ async fn a_private_bot_is_seen_only_by_its_maker_and_the_farm() {
         return;
     }
     let hub = asking_hub_with(tmp.path(), "upload", &["assistant"]).await;
+    // Only the owner (Jay) can have private bots.
+    hub.farm_person("Jay").unwrap();
     let bank = hub
-        .create_bot_with("Bank", "Check my bank.", Some("Sam"), true)
+        .create_bot_with("Bank", "Check my bank.", Some("Jay"), true)
         .await
         .unwrap();
     assert!(bank.private);
-    hub.create_bot_with("Recipes", "", Some("Sam"), false)
+    let recipes = hub
+        .create_bot_with("Recipes", "", Some("Sam"), true)
         .await
         .unwrap();
-    let (sam, ann, farm) = (
-        Viewer::gate("Sam"),
+    assert!(!recipes.private, "Sam asked for private: it's shared");
+    let (jay, ann, farm) = (
+        Viewer::gate("Jay"),
         Viewer::gate("Ann"),
         Viewer::farm("Jay"),
     );
 
     // Ann sees its name and lock, but not what it does, and can't open it.
     assert_eq!(ids(&hub.bots_for(&ann).await.unwrap()).len(), 3);
-    assert_eq!(ids(&hub.bots_for(&sam).await.unwrap()).len(), 3);
+    assert_eq!(ids(&hub.bots_for(&jay).await.unwrap()).len(), 3);
     assert_eq!(ids(&hub.bots_for(&farm).await.unwrap()).len(), 3);
-    // To Ann it's as if it didn't exist.
+    // To Ann (and Sam) it's as if it didn't exist.
     assert!(matches!(
         hub.bot_for("bank", &ann),
         Err(HubError::UnknownBot(_))
     ));
     assert!(hub.history_for("bank", 0, &ann).is_err());
-    assert!(hub.history_for("bank", 0, &sam).is_ok());
+    assert!(hub.history_for("bank", 0, &Viewer::gate("Sam")).is_err());
+    assert!(hub.history_for("bank", 0, &jay).is_ok());
     assert!(hub.history_for("bank", 0, &farm).is_ok());
     hub.shutdown().await;
 }
@@ -690,9 +702,13 @@ async fn only_the_maker_or_the_farm_can_change_or_delete_a_bot() {
         hub.delete_bot("recipes", &ann).await,
         Err(HubError::NotAllowed(_))
     ));
-    hub.set_private("recipes", true, &sam).await.unwrap();
-    assert!(hub.bot("recipes").unwrap().private);
-    assert!(hub.bot_for("recipes", &ann).is_err(), "locked to Ann");
+    // Only the owner can have private bots: Sam's stays shared.
+    assert!(matches!(
+        hub.set_private("recipes", true, &sam).await,
+        Err(HubError::NotAllowed(m)) if m == oxbot_core::hub::PRIVATE_IS_OWNERS
+    ));
+    assert!(!hub.bot("recipes").unwrap().private);
+    assert!(hub.bot_for("recipes", &ann).is_ok(), "still Ann's to use");
     hub.rename_bot("recipes", "Sam's Recipes", &sam)
         .await
         .unwrap();
@@ -751,12 +767,14 @@ async fn herder_never_relays_a_private_bot() {
         return;
     }
     let hub = asking_hub_with(tmp.path(), "task", &["assistant", "helper"]).await;
-    hub.set_private("helper", true, &Viewer::farm("Sam"))
+    // Only the owner (Jay) can have private bots.
+    hub.farm_person("Jay").unwrap();
+    hub.set_private("helper", true, &hub.farm_viewer("Jay"))
         .await
         .unwrap();
     assert_eq!(
         hub.bot("helper").unwrap().created_by.as_deref(),
-        Some("Sam")
+        Some("Jay")
     );
     let mut updates = hub.subscribe();
 
@@ -765,7 +783,7 @@ async fn herder_never_relays_a_private_bot() {
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
     assert!(
-        said.starts_with("tool_ok=false helper is private to Sam"),
+        said.starts_with("tool_ok=false helper is private to Jay"),
         "{said}"
     );
     assert!(
@@ -773,9 +791,17 @@ async fn herder_never_relays_a_private_bot() {
         "nothing reached it"
     );
 
-    // Not even for its maker: the reply would land in Herder's chat, which
-    // everyone can read.
-    hub.send("assistant", "ask the helper to say hi", Some("Sam"))
+    // Not even for someone it's shared with, from an Assistant that isn't
+    // theirs: the reply would land in a chat others can read.
+    hub.set_sharing(
+        "helper",
+        oxbot_protocol::Sharing::People,
+        &["Ann".into()],
+        &hub.farm_viewer("Jay"),
+    )
+    .await
+    .unwrap();
+    hub.send("assistant", "ask the helper to say hi", Some("Ann"))
         .await
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
@@ -931,7 +957,7 @@ async fn someone_elses_herder_cant_task_a_private_bot() {
 }
 
 #[tokio::test]
-async fn a_persons_own_herder_tasks_their_private_bot() {
+async fn a_persons_own_herder_tasks_a_bot_they_cant_make_private() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
@@ -943,11 +969,23 @@ async fn a_persons_own_herder_tasks_their_private_bot() {
         &[("FAKE_NO_PAGE", "1")],
     )
     .await;
+    hub.farm_person("Jay").unwrap();
     let sam = Viewer::gate("Sam");
-    // An unowned bot made private on the Farm under Sam's name becomes his.
-    hub.set_private("helper", true, &Viewer::farm("Sam"))
+    // Only the owner (Jay) can have private bots: Sam can't make helper
+    // (Jay's) private, nor one of his own.
+    assert!(matches!(
+        hub.set_private("helper", true, &sam).await,
+        Err(HubError::NotAllowed(_))
+    ));
+    assert!(!hub.bot("helper").unwrap().private);
+    let his = hub
+        .create_bot_with("Garden", "", Some("Sam"), false)
         .await
         .unwrap();
+    assert!(matches!(
+        hub.set_private(&his.id, true, &sam).await,
+        Err(HubError::NotAllowed(m)) if m == oxbot_core::hub::PRIVATE_IS_OWNERS
+    ));
     let sams = hub.herder_of(&sam).unwrap();
     assert_ne!(sams.as_str(), "assistant");
     let mut updates = hub.subscribe();
@@ -967,7 +1005,9 @@ async fn herder_lists_only_the_bots_the_asker_may_see() {
         return;
     }
     let hub = asking_hub_with(tmp.path(), "list", &["assistant"]).await;
-    hub.create_bot_with("Bank", "", Some("Sam"), true)
+    // Only the owner (Jay) can have private bots.
+    hub.farm_person("Jay").unwrap();
+    hub.create_bot_with("Bank", "", Some("Jay"), true)
         .await
         .unwrap();
     hub.create_bot_with("Recipes", "", Some("Sam"), false)
@@ -981,15 +1021,15 @@ async fn herder_lists_only_the_bots_the_asker_may_see() {
     let said = reply_of(&hub, &mut updates, "assistant").await;
     assert!(said.contains("Recipes (id recipes), made by Sam"), "{said}");
     assert!(
-        said.contains("Bank (id bank): private to Sam, locked"),
+        said.contains("Bank (id bank): private to Jay, locked"),
         "{said}"
     );
 
-    hub.send("assistant", "what bots are there?", Some("Sam"))
+    hub.send("assistant", "what bots are there?", Some("Jay"))
         .await
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
-    assert!(said.contains("Bank (id bank), private to Sam"), "{said}");
+    assert!(said.contains("Bank (id bank), private to Jay"), "{said}");
     hub.shutdown().await;
 }
 
@@ -1544,27 +1584,29 @@ async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
         return;
     }
     let store = Store::open_in_memory().unwrap();
-    let sam = store.find_or_create_person("Sam").unwrap().0;
+    // Only the owner (Jay) can have private bots.
+    let jay = store.find_or_create_person("Jay").unwrap().0;
+    store.set_farm_person(&jay.id).unwrap();
     let ann = store.find_or_create_person("Ann").unwrap().0;
     let bots = tmp.path().join("bots");
     std::fs::create_dir_all(&bots).unwrap();
     for id in ["bank", "scout"] {
         let mut bot = Bot::create(&bots, BotId::new(id).unwrap(), id, "").unwrap();
-        bot.owner = Some(sam.id.clone());
-        bot.created_by = Some("Sam".into());
+        bot.owner = Some(jay.id.clone());
+        bot.created_by = Some("Jay".into());
         bot.private = id == "bank";
         bot.save().unwrap();
     }
     let hub = asking_hub_store(tmp.path(), "report", &["bank", "scout"], &[], store).await;
     let mut updates = hub.subscribe();
-    let sam = Viewer::person(sam.id, "Sam", false);
+    let jay = Viewer::person(jay.id, "Jay", false);
     let ann = Viewer::person(ann.id, "Ann", false);
-    hub.send_as("bank", "research my bank", &sam).await.unwrap();
+    hub.send_as("bank", "research my bank", &jay).await.unwrap();
     let said = reply_of(&hub, &mut updates, "bank").await;
     assert!(said.starts_with("tool_ok=true"), "{said}");
-    let id = hub.reports_for("bank", &sam).unwrap()[0].id.clone();
+    let id = hub.reports_for("bank", &jay).unwrap()[0].id.clone();
 
-    assert!(hub.report_for("bank", &id, &sam, 0).is_ok());
+    assert!(hub.report_for("bank", &id, &jay, 0).is_ok());
     assert!(
         hub.report_for("bank", &id, &hub.farm_viewer("Jay"), 0)
             .is_ok()
@@ -1583,7 +1625,7 @@ async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
     };
     assert_eq!(why, "That report was deleted.");
     // Only those who manage the bot delete its reports.
-    hub.set_private("bank", false, &sam).await.unwrap();
+    hub.set_private("bank", false, &jay).await.unwrap();
     assert!(
         hub.report_for("bank", &id, &ann, 0).is_ok(),
         "made shared, its reports follow it, like its chat"
@@ -1592,8 +1634,8 @@ async fn a_private_bots_reports_open_only_for_its_owner_and_the_farm() {
         hub.delete_report("bank", &id, &ann),
         Err(HubError::NotAllowed(_))
     ));
-    assert_eq!(hub.delete_report("bank", &id, &sam).unwrap(), []);
-    assert!(hub.report_for("bank", &id, &sam, 0).is_err());
+    assert_eq!(hub.delete_report("bank", &id, &jay).unwrap(), []);
+    assert!(hub.report_for("bank", &id, &jay, 0).is_err());
     hub.shutdown().await;
 }
 
@@ -1754,11 +1796,13 @@ async fn a_notification_names_shared_bots_but_not_someone_elses_private_one() {
     assert_eq!(hub.notice_name("poster").as_deref(), Some("poster"));
     assert_eq!(hub.notice_name("nobody"), None);
     hub.farm_person_from("Jay", true).unwrap();
+    // Only the owner can have private bots: Sam's is shared, so named.
     let sams = hub
         .create_bot_with("Sam's bank", "", Some("Sam"), true)
         .await
         .unwrap();
-    assert_eq!(hub.notice_name(&sams.id), None);
+    assert!(!sams.private);
+    assert_eq!(hub.notice_name(&sams.id).as_deref(), Some("Sam's bank"));
     let jays = hub
         .create_bot_with("Jay's notes", "", Some("Jay"), true)
         .await
@@ -1768,6 +1812,7 @@ async fn a_notification_names_shared_bots_but_not_someone_elses_private_one() {
         Some("Jay's notes"),
         "the Farm's own private bot is the Mac owner's"
     );
+    // Sam's own Assistant is his alone: not named.
     let herder = hub.herder_for("Sam").unwrap();
     assert_eq!(hub.notice_name(herder.as_str()), None);
     hub.shutdown().await;
@@ -1952,15 +1997,21 @@ async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
     hub.drop_upload("notes", &sams.id, &sam).unwrap();
     assert!(!saved.exists());
 
-    // A private bot takes no uploads from those it's hidden from.
-    hub.create_bot_with("Diary", "", Some("Sam"), true)
+    // A private bot (only the owner, Jay, has them) takes no uploads from
+    // those it's hidden from.
+    hub.farm_person("Jay").unwrap();
+    hub.create_bot_with("Diary", "", Some("Jay"), true)
         .await
         .unwrap();
     let err = upload(&hub, "diary", &ann, "a.txt", b"x")
         .await
         .unwrap_err();
     assert!(err.contains("diary"), "{err}");
-    assert!(upload(&hub, "diary", &sam, "a.txt", b"x").await.is_ok());
+    assert!(
+        upload(&hub, "diary", &Viewer::gate("Jay"), "a.txt", b"x")
+            .await
+            .is_ok()
+    );
 
     // What oxbot can't read is refused at upload, with nothing kept.
     let err = upload(&hub, "notes", &sam, "photos.zip", b"PK\x03\x04junk")

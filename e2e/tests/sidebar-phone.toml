@@ -13,7 +13,8 @@ note = "Search and group by are in the drawer"
 expect_js = "(() => { const side = document.getElementById('side').getBoundingClientRect(); const items = [...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden); return items.length === 2 && items.every((b) => b.getBoundingClientRect().right <= side.right + 0.5); })()"
 note = "A device's bottom row: Settings and Websites, inside the drawer"
 [[step]]
-right_click = "Bank by Sam"
+right_click = "Recipes by Jay"
+note = "Any bot's menu (Sam has no bot of his own: the seed's Bank was handed to the owner)"
 [[step]]
 expect_js = "(() => { const m = document.getElementById('botMenu'); const r = m.getBoundingClientRect(); return !m.hidden && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && document.elementFromPoint(r.left + 20, r.top + 15).closest('#botMenu'); })()"
 note = "The menu is on screen, above the drawer"

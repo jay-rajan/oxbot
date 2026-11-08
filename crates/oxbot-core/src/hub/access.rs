@@ -13,6 +13,10 @@ use crate::store::Store;
 /// The most people one bot may be shared with, besides its maker.
 pub const MAX_MEMBERS: usize = 20;
 
+/// What anyone but the owner hears when they ask for a private bot.
+pub const PRIVATE_IS_OWNERS: &str = "Only the owner of the home computer can have private bots. \
+     Bots you make are shared with everyone in the home.";
+
 /// The longest a bot's instructions may be, in characters.
 pub const MAX_INSTRUCTIONS: usize = 8_000;
 
@@ -94,8 +98,8 @@ impl Hub {
                     last_seq: seq.last,
                     last_reply_seq: seq.last_reply,
                     central: b.is_central(),
-                    browser_state: b
-                        .browser_owner()
+                    browser_state: self
+                        .browser_owner_of(&b)
                         .map_or(BrowserState::Off, |owner| self.owner_state(&owner)),
                     created_by: maker_name(&b, &names),
                     private: b.private,
@@ -225,7 +229,9 @@ impl Hub {
     }
 
     /// Chooses who a bot is shared with: everyone in the home, just its
-    /// owner, or its owner and `people` (by name, exactly; at most
+    /// owner, or its owner and `people`. Only the owner of the home
+    /// computer may choose anything but everyone, and only for their own
+    /// bots (by name, exactly; at most
     /// [`MAX_MEMBERS`]). Shared with anyone but everyone, it uses its
     /// owner's own browser and their sign-ins. A bot nobody owns becomes
     /// `viewer`'s when it stops being everyone's.
@@ -254,6 +260,23 @@ impl Hub {
             ));
         }
         let owner = bot.owner.clone().or_else(|| viewer.id.clone());
+        // Only the owner may have private bots, and only their own.
+        if sharing != Sharing::Everyone && !self.may_keep_private(owner.as_ref()) {
+            return Err(HubError::NotAllowed(if self.is_owner_viewer(viewer) {
+                match maker_name(&bot, &self.person_names()) {
+                    Some(who) => format!(
+                        "Only your own bots can be private. {} is {who}'s, so it stays shared with everyone in the home.",
+                        bot.name
+                    ),
+                    None => format!(
+                        "Only your own bots can be private. {} stays shared with everyone in the home.",
+                        bot.name
+                    ),
+                }
+            } else {
+                PRIVATE_IS_OWNERS.to_owned()
+            }));
+        }
         let members = if sharing == Sharing::People {
             self.picked_people(people, owner.as_ref())?
         } else {
@@ -615,8 +638,8 @@ impl Hub {
             .await
     }
 
-    /// Like [`Hub::create_bot`]; a `private` bot (which needs a creator) is
-    /// seen only by its creator and the Farm.
+    /// Like [`Hub::create_bot`]; a `private` bot is seen only by its
+    /// creator, who must be the owner (anyone else's is shared).
     ///
     /// # Errors
     /// Fails if its files can't be written.
@@ -645,7 +668,8 @@ impl Hub {
     }
 
     /// Creates a bot owned by `maker` (a viewer with a person id; `None`
-    /// for nobody). A `private` bot needs a maker.
+    /// for nobody). Only the owner's bot can be `private`: anyone else's
+    /// is shared with everyone (the returned bot says which).
     ///
     /// # Errors
     /// Fails if its files can't be written.
@@ -689,7 +713,9 @@ impl Hub {
             owner,
             created_by,
         )?;
-        if private && owner.is_some() {
+        // Only the owner may have private bots: anyone else's is shared
+        // with everyone in the home.
+        if private && self.may_keep_private(owner) {
             bot.set_sharing(Sharing::Me, Vec::new());
             bot.save()?;
         }
