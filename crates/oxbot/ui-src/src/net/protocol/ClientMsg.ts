@@ -185,7 +185,15 @@ bot: string,
 /**
  * The new name.
  */
-name: string, } | { "type": "delete_bot", 
+name: string, } | { "type": "set_bot_instructions", 
+/**
+ * Bot id.
+ */
+bot: string, 
+/**
+ * The new instructions.
+ */
+instructions: string, } | { "type": "delete_bot", 
 /**
  * Bot id.
  */
@@ -307,13 +315,13 @@ site: string,
 /**
  * Your own browser instead of the home one.
  */
-mine: boolean, } | { "type": "set_step_site", 
+mine: boolean, } | { "type": "set_fine_grained_site", 
 /**
  * The site: a main domain (`amazon.ca`) or an address on it.
  */
 site: string, 
 /**
- * Allowed from now on.
+ * One step at a time from now on.
  */
 on: boolean, } | { "type": "start_pairing", 
 /**

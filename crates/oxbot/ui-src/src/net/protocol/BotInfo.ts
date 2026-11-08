@@ -74,6 +74,11 @@ models: Array<string>,
  */
 can_task: boolean, 
 /**
+ * What it's for: its instructions, as its maker wrote them. Empty for
+ * a locked bot (decided by the server for each client).
+ */
+instructions: string, 
+/**
  * The bot's own cap on model requests a day, if it has one.
  */
 daily_requests: number | null, 

@@ -107,7 +107,7 @@ sites: Array<SiteInfo>,
  * Whose browser: `None` for home, else the person's name. A client
  * only gets home and its own person's.
  */
-owner: string | null, } | { "type": "step_sites", 
+owner: string | null, } | { "type": "fine_grained_sites", 
 /**
  * The sites.
  */

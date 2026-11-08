@@ -21,6 +21,7 @@ function bot(id: string, name = id): BotInfo {
     model: null,
     models: [],
     can_task: true,
+    instructions: "",
     daily_requests: null,
     sharing: "everyone",
     members: [],
