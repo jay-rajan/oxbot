@@ -77,9 +77,13 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
     if (schedulesChanged !== firstChange.current) send({ type: "list_schedules", bot: id });
   }, [schedulesChanged, id, send]);
 
+  // Read from the select itself at Save, as the old page did, so a change
+  // made to the element directly (assistive tools, tests) still counts.
+  const kindRef = useRef<HTMLSelectElement>(null);
   const pickedKindList = (): string[] => {
-    if (kind === "own") return bdList;
-    const k = lists.find((l) => l.kind === kind);
+    const v = kindRef.current?.value ?? kind;
+    if (v === "own") return bdList;
+    const k = lists.find((l) => l.kind === v);
     return k ? [...(k.models ?? [])] : [];
   };
 
@@ -186,7 +190,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
           <summary>Advanced</summary>
           <label>
             Kind of job
-            <select id="bdKind" disabled={busy} value={kind} onChange={(e) => setKind(e.target.value)}>
+            <select id="bdKind" ref={kindRef} disabled={busy} value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="">Automatic</option>
               {lists.map((l) => (
                 <option key={l.kind} value={l.kind}>{`${l.label} — ${l.about}`}</option>
