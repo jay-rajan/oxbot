@@ -1,0 +1,132 @@
+<title>oxbot React UI</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--x:#d92f2f;--ok:#1f7a45;--chip:#ecebe6}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;--chip:#26272b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;--chip:#26272b;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:36px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px;text-wrap:balance}
+p{margin:0;max-width:70ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:75ch}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.note{border-left:3px solid var(--x);padding:6px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+pre.tree{background:var(--soft);border-radius:10px;padding:14px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace;margin:0}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 7, 2026 · waiting for your OK</div>
+<h1>Move the app's screens to React</h1>
+<p class="mut">Today every screen lives in one hand-written page of about 3,300 lines: HTML, CSS and JavaScript together. This plan rebuilds it as React components in TypeScript, one per piece of the design system. Users see no change, and every behavior and automated test is kept.</p>
+</header>
+
+<section>
+<h2>1 · Why</h2>
+<div class="scroll"><table>
+<tr><th>Today</th><th>With React + TypeScript</th></tr>
+<tr><td>One 3,300-line file. Every change means finding the right spot among hundreds of functions.</td><td>About 60 small files, one per screen or piece (Sidebar, Composer, SiteRow, SettingsTabs…), matching the design system.</td></tr>
+<tr><td>Each screen redraws itself by hand when a message arrives. It's easy to forget one, which is where most UI bugs come from.</td><td>Screens are drawn from the app's state, so a change shows everywhere it should.</td></tr>
+<tr><td>Messages from the server are untyped. A renamed field breaks silently.</td><td>Message types are generated from the Rust protocol, so a rename stops the build.</td></tr>
+<tr><td>Inline scripts, so no strict security policy can be set on the page.</td><td>Scripts load from files, so the page can forbid any other script (a strict Content-Security-Policy). That's a real gain against injected content.</td></tr>
+<tr><td>No unit tests for screen logic.</td><td>Unit tests for the state rules (Vitest), plus the end-to-end tests we have.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · What it's built with</h2>
+<ul>
+<li><b>React 18 and TypeScript</b>, built with <b>Vite</b> into plain files: one script, one stylesheet, index.html.</li>
+<li><b>No outside requests, as today:</b> the built files go inside the oxbot program (as index.html does now), with no CDN and no fonts from the web.</li>
+<li><b>Few packages:</b> react and react-dom at run time. Vite, TypeScript, Vitest and ts-rs only while building. The exact versions are locked, and installs use the lockfile (<span class="mono">npm ci</span>).</li>
+<li><b>Types from Rust:</b> the protocol crate derives TypeScript types (ts-rs), so the page and the server always agree.</li>
+<li><b>State:</b> one store fed by the server's messages (a reducer per area: bots, chat, cards, settings, people, websites, activity). Components read the parts they need. No extra state library.</li>
+<li><b>Styles:</b> the design system's tokens become one tokens.css, and each component has a small CSS file. The design system page and the app share the same values.</li>
+</ul>
+</section>
+
+<section>
+<h2>3 · Where the files go</h2>
+<pre class="tree">crates/oxbot/ui-src/
+  package.json, package-lock.json, vite.config.ts, tsconfig.json
+  src/
+    main.tsx              start: connect, then draw App
+    net/socket.ts         the WebSocket: reconnect, send, receive
+    net/protocol.ts       generated from oxbot-protocol (ts-rs)
+    state/                store + one reducer per area (bots, chat, cards,
+                          settings, people, sites, activity, compare)
+    tokens.css            from the design system's tokens.json
+    components/           Button, Dialog (pinned footer), Tabs, Row, Chip, Toast,
+                          AppMark, Wordmark, Avatar
+    screens/
+      Sidebar/            header (mark, wordmark, New bot), search, sections, people
+      Chat/               log, message, tool line, meter, composer, attachments
+      Cards/              approval, sign-in, upload, schedule cards
+      BotSettings/, NewBot/, Welcome/, Report/
+      Settings/           General, Websites, People, Activity
+      Compare/            developer tool, only with dev tools on
+crates/oxbot/ui/          the BUILT files (index.html, app.js, app.css), embedded
+                          in the program as now; rebuilt by a make step</pre>
+</section>
+
+<section>
+<h2>4 · How it gets there</h2>
+<ol>
+<li><b>Set up:</b> the Vite project, the generated protocol types, the socket and the store, and a page that connects and shows the bot list. Built files are embedded the same way index.html is today.</li>
+<li><b>Port screen by screen,</b> keeping every element id, label and message the end-to-end tests look for: sidebar, then chat and composer, cards, bot settings and New bot, Welcome, Settings (the new four-tab version), reports, Compare.</li>
+<li><b>Parity:</b> the whole end-to-end suite passes on the React page with no unexplained screen changes. You approve any changed screens.</li>
+<li><b>Switch:</b> the built React page replaces the hand-written one, and the old file is deleted. The strict security policy goes on the page.</li>
+<li><b>Builds:</b> make-dmg.sh and the Android build run the UI build first. The tests check that the built files match the sources.</li>
+</ol>
+<p class="note">Your phones and the Mac app use the same page, so they all move together. Nothing changes on the server or in stored data.</p>
+</section>
+
+<section>
+<h2>5 · How the pieces fit (C4)</h2>
+<pre class="mermaid">
+C4Container
+title oxbot screens after the move
+Person(user, "Someone in the home")
+System_Boundary(home, "Home computer") {
+  Container(page, "oxbot page", "React + TypeScript (built by Vite)", "Sidebar, Chat, Cards, Settings…")
+  Container(server, "oxbot server", "Rust (axum)", "serves the built page, WebSocket messages")
+  ContainerDb(db, "oxbot.db", "SQLite", "bots, chats, settings, Activity")
+}
+System_Ext(or, "OpenRouter", "AI models")
+Rel(user, page, "uses, on the Mac app or a phone")
+Rel(page, server, "WebSocket: typed messages generated from Rust")
+Rel(server, db, "reads and writes")
+Rel(server, or, "AI questions, details swapped out")
+</pre>
+<pre class="mermaid">
+C4Component
+title Inside the page
+Container_Boundary(page, "oxbot page") {
+  Component(sock, "socket.ts", "WebSocket", "connects, reconnects, sends")
+  Component(store, "state/", "reducers", "one per area, fed by server messages")
+  Component(screens, "screens/", "React", "Sidebar, Chat, Cards, Settings, BotSettings")
+  Component(parts, "components/", "React", "Button, Dialog, Tabs, Row, Chip (the design system)")
+  Component(types, "protocol.ts", "generated", "message types from oxbot-protocol")
+}
+Rel(sock, store, "messages in")
+Rel(screens, store, "reads state")
+Rel(screens, sock, "sends actions")
+Rel(screens, parts, "built from")
+Rel(sock, types, "typed by")
+Rel(store, types, "typed by")
+</pre>
+</section>
+
+<section>
+<h2>6 · Decisions for you</h2>
+<ol>
+<li>Start after the simpler settings are merged and you've approved its screens (planned), or now in parallel?</li>
+<li>Keep the built files in the repo, so the program builds without Node (planned), or build them during every program build?</li>
+</ol>
+</section>
+</div>
