@@ -776,6 +776,10 @@ impl Client {
                 bot: self.inner(bot),
                 name,
             },
+            ClientMsg::SetBotInstructions { bot, instructions } => ClientMsg::SetBotInstructions {
+                bot: self.inner(bot),
+                instructions,
+            },
             ClientMsg::DeleteBot { bot } => ClientMsg::DeleteBot {
                 bot: self.inner(bot),
             },
@@ -1171,6 +1175,26 @@ async fn next_removal(rx: Option<&mut broadcast::Receiver<String>>) -> String {
     }
 }
 
+/// Bot settings: who it's shared with, its name, what it's for, and
+/// deleting it. The hub checks that `viewer` may manage it.
+async fn handle_bot_settings(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
+    let hub = &state.hub;
+    reply(match msg {
+        ClientMsg::SetPrivate { bot, private } => hub.set_private(&bot, private, viewer).await,
+        ClientMsg::SetSharing {
+            bot,
+            sharing,
+            people,
+        } => hub.set_sharing(&bot, sharing, &people, viewer).await,
+        ClientMsg::RenameBot { bot, name } => hub.rename_bot(&bot, &name, viewer).await,
+        ClientMsg::SetBotInstructions { bot, instructions } => {
+            hub.set_instructions(&bot, &instructions, viewer).await
+        }
+        ClientMsg::DeleteBot { bot } => hub.delete_bot(&bot, viewer).await,
+        _ => Ok(()),
+    })
+}
+
 /// The viewer's own sidebar sections.
 fn handle_sections(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
     match msg {
@@ -1246,18 +1270,11 @@ async fn handle(
             engine,
             models,
         } => create_bot(state, client, &name, &instructions, private, engine, models).await,
-        ClientMsg::SetPrivate { bot, private } => {
-            reply(state.hub.set_private(&bot, private, &viewer).await)
-        }
-        ClientMsg::SetSharing {
-            bot,
-            sharing,
-            people,
-        } => reply(state.hub.set_sharing(&bot, sharing, &people, &viewer).await),
-        ClientMsg::RenameBot { bot, name } => {
-            reply(state.hub.rename_bot(&bot, &name, &viewer).await)
-        }
-        ClientMsg::DeleteBot { bot } => reply(state.hub.delete_bot(&bot, &viewer).await),
+        ClientMsg::SetPrivate { .. }
+        | ClientMsg::SetSharing { .. }
+        | ClientMsg::RenameBot { .. }
+        | ClientMsg::SetBotInstructions { .. }
+        | ClientMsg::DeleteBot { .. } => handle_bot_settings(msg, state, &viewer).await,
         ClientMsg::Answer {
             id,
             answer,

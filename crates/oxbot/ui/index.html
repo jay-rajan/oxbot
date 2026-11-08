@@ -546,6 +546,12 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <h2 id="bdTitle">Bot settings</h2>
     <div class="manage" id="bdManage">
     <label>Name<input id="bdName" required autocomplete="off"></label>
+    </div>
+    <div id="bdPurposeBox">
+    <label>What it's for<textarea id="bdPurpose" rows="4" maxlength="8000" placeholder="What should it do?"></textarea></label>
+    <p class="hint" id="bdPurposeHint"></p>
+    </div>
+    <div class="manage" id="bdManage2">
     <fieldset class="share-pick" id="bdShareBox"><legend>Shared with</legend>
       <div class="for-pick" role="radiogroup" aria-label="Shared with"><label><input type="radio" name="bdSharing" value="everyone"> Everyone in the home</label><label><input type="radio" name="bdSharing" value="me"> Just me</label><label><input type="radio" name="bdSharing" value="people"> Picked people</label></div>
       <div class="people-pick" id="bdPeople" hidden></div>
@@ -555,7 +561,6 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <label>Kind of job<select id="bdKind"></select></label>
       <p class="hint">Picked from the bot's instructions when it was made. It decides which AI models the bot tries, free ones first.</p>
     </details>
-    <section class="rules-box" aria-labelledby="bdRulesTitle"><h3 id="bdRulesTitle">Always allowed</h3><ul class="rules" id="bdRules"></ul></section>
     </div>
     <section class="reports-box" aria-labelledby="bdReportsTitle"><h3 id="bdReportsTitle">Reports</h3><ul class="rules" id="bdReports"></ul></section>
     <section class="rules-box" aria-labelledby="bdSchedTitle"><h3 id="bdSchedTitle">Schedules</h3><ul class="rules" id="bdScheds"></ul></section>
@@ -906,7 +911,6 @@ function onMessage(m) {
     }
     case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); forgetScheduleEdits(); renderCards(); break;
-    case "allow_rules": if (m.bot === rulesFor) { rules = m.rules; renderRules(); } break;
     case "report": keepReport(m); if (wantReport === reportKey(m.bot, m.id)) showReport(m); break;
     case "reports": if (m.bot === reportsFor) { reportList = m.reports; renderReportList(); } break;
     case "sign_in_needed": signIns.set(m.id, arrived(signIns, m)); renderCards(); break;
@@ -2167,7 +2171,7 @@ $("botMore").onclick = () => {
   const b = current && bots.get(current); if (!b || isLocked(b)) return;
   const manage = canManage(b);
   $("bdTitle").textContent = manage ? "Bot settings" : b.info.name || b.info.id;
-  $("bdManage").hidden = !manage; $("bdDelete").hidden = !manage; $("bdSave").hidden = !manage;
+  $("bdManage").hidden = $("bdManage2").hidden = !manage; $("bdDelete").hidden = !manage; $("bdSave").hidden = !manage;
   $("bdName").disabled = !manage;
   $("bdCancel").textContent = manage ? "Cancel" : "Close";
   reportsFor = b.info.id; reportList = null; reportArmed = null; renderReportList();
@@ -2175,6 +2179,12 @@ $("botMore").onclick = () => {
   schedFor = b.info.id; schedBot = null; schedArmed = null; renderScheduleList($("bdScheds"), null, false);
   send({ type: "list_schedules", bot: b.info.id });
   $("bdName").value = b.info.name || b.info.id;
+  // What it's for: its instructions. Others read them; the Assistant's are built in.
+  $("bdPurposeBox").hidden = !!b.info.central;
+  $("bdPurpose").value = (b.info.instructions || "").trim();
+  $("bdPurpose").readOnly = !manage; $("bdPurpose").disabled = manage && !!b.busy;
+  $("bdPurposeHint").textContent = !manage ? "" : b.busy ? "Wait until it's done working to change this." : "The bot follows this. Changing it starts a fresh conversation for the AI; the chat stays.";
+  $("bdPurposeHint").hidden = !manage;
   const sharing = sharingOf(b);
   for (const r of document.querySelectorAll('input[name="bdSharing"]')) { r.checked = r.value === sharing; r.disabled = b.busy; }
   $("bdShareBox").hidden = !!b.info.central;
@@ -2185,30 +2195,9 @@ $("botMore").onclick = () => {
   bdList = (b.info.models && b.info.models.length) ? [...b.info.models] : b.info.model ? [b.info.model] : [];
   renderKindPick(); $("bdKind").disabled = !!b.busy;
   resetDelete();
-  // Its "Always allowed" rules come from the server (only for those who manage it).
-  if (manage) { rulesFor = b.info.id; rules = null; renderRules(); send({ type: "list_allow_rules", bot: b.info.id }); }
   $("botDlg").showModal();
 };
-$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; reportsFor = null; reportList = null; schedFor = null; schedBot = null; });
-// The open bot's rules; Remove takes effect at once (it's a permission, not a setting to Save).
-let rulesFor = null, rules = null;
-function renderRules() {
-  const ul = $("bdRules"); ul.textContent = "";
-  const note = (text) => { const li = document.createElement("li"); li.className = "hint"; li.textContent = text; ul.appendChild(li); };
-  if (!rules) return note("Loading…");
-  if (!rules.length) return note("None. When an approval request offers Always allow and you pick it, it shows here.");
-  for (const r of rules) {
-    const li = document.createElement("li"); li.className = "rule-row";
-    const name = document.createElement("span"); name.className = "name";
-    const when = document.createElement("small");
-    const day = new Date(r.created_ms).toLocaleDateString([], { month: "short", day: "numeric" });
-    when.textContent = `${r.by ? "by " + r.by : "by the home computer"} · ${day}`;
-    name.append(document.createTextNode(`${r.action} ${r.label} on ${r.site}`), when);
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "ghost"; remove.textContent = "Remove";
-    remove.onclick = () => send({ type: "remove_allow_rule", bot: rulesFor, id: r.id });
-    li.append(name, remove); ul.appendChild(li);
-  }
-}
+$("botDlg").addEventListener("close", () => { reportsFor = null; reportList = null; schedFor = null; schedBot = null; });
 // Bot settings → Advanced: the kind of job, which picks the bot's models.
 // oxbot picks it from the instructions; "Automatic" is free models, best first.
 let bdList = [];
@@ -2242,6 +2231,10 @@ $("botForm").addEventListener("submit", (ev) => {
   const b = bots.get(current); if (!b || !canManage(b)) { $("botDlg").close(); return; }
   const name = $("bdName").value.trim();
   renameBot(b.info.id, name);
+  if (!b.info.central && !b.busy) {
+    const purpose = $("bdPurpose").value.trim();
+    if (purpose !== (b.info.instructions || "").trim()) send({ type: "set_bot_instructions", bot: b.info.id, instructions: purpose });
+  }
   if (!b.info.central) {
     const sharing = pickedSharing(), picked = sharing === "people" ? pickedPeople() : [];
     const was = b.info.members || [];

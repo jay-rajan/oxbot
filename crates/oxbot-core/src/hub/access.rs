@@ -13,6 +13,9 @@ use crate::store::Store;
 /// The most people one bot may be shared with, besides its maker.
 pub const MAX_MEMBERS: usize = 20;
 
+/// The longest a bot's instructions may be, in characters.
+pub const MAX_INSTRUCTIONS: usize = 8_000;
+
 /// `bots` with the people each is shared with, from the database.
 pub(super) fn with_members(mut bots: Vec<Bot>, store: &Store) -> Vec<Bot> {
     match store.bot_members() {
@@ -107,6 +110,7 @@ impl Hub {
                     owner: b.owner.as_ref().map(ToString::to_string),
                     id: b.id.to_string(),
                     name: b.name,
+                    instructions: b.instructions,
                     ..info
                 })
             })
@@ -353,6 +357,61 @@ impl Hub {
             )));
         }
         self.update_bot(&bot.id, |b| name.clone_into(&mut b.name))?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
+    /// Changes what a bot is for: writes its instructions and stops its
+    /// session, so the next message starts the AI fresh with them (the
+    /// chat stays).
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's the Assistant, the text is
+    /// longer than [`MAX_INSTRUCTIONS`], it's working, or the file can't be
+    /// written.
+    pub async fn set_instructions(
+        &self,
+        id: &str,
+        instructions: &str,
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed(
+                "The Assistant's instructions are built in.".to_owned(),
+            ));
+        }
+        let instructions = instructions.trim();
+        if instructions.chars().count() > MAX_INSTRUCTIONS {
+            return Err(HubError::NotAllowed(format!(
+                "A bot's instructions are at most {MAX_INSTRUCTIONS} characters."
+            )));
+        }
+        if bot.instructions.trim() == instructions {
+            return Ok(());
+        }
+        // Held until its session is stopped, so a waiting message can't
+        // start it with the old instructions.
+        self.claim(&bot.id).await?;
+        let changed = {
+            let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
+            match bots.get(&bot.id).cloned() {
+                None => Err(HubError::UnknownBot(bot.id.to_string())),
+                Some(mut b) => {
+                    instructions.clone_into(&mut b.instructions);
+                    b.save_instructions().map_err(HubError::from).map(|()| {
+                        bots.insert(bot.id.clone(), b);
+                    })
+                }
+            }
+        };
+        if changed.is_ok() {
+            tracing::info!(bot = %bot.id, "changed what it's for");
+            self.stop_session(&bot.id).await;
+        }
+        lock(&self.starting).remove(&bot.id);
+        changed?;
         self.announce_bots().await;
         Ok(())
     }

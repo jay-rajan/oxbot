@@ -263,6 +263,14 @@ pub enum ClientMsg {
         /// The new name.
         name: String,
     },
+    /// Change what a bot is for: its instructions. Whoever may manage it;
+    /// not the Assistant. Its AI conversation starts fresh; the chat stays.
+    SetBotInstructions {
+        /// Bot id.
+        bot: String,
+        /// The new instructions.
+        instructions: String,
+    },
     /// Delete a bot and its history (its folder goes to oxbot's trash).
     /// Its creator or the Farm only; Herder can't be deleted.
     DeleteBot {
@@ -1838,6 +1846,10 @@ pub struct BotInfo {
     /// private bot). Decided by the server for each client.
     #[serde(default = "yes")]
     pub can_task: bool,
+    /// What it's for: its instructions, as its maker wrote them. Empty for
+    /// a locked bot (decided by the server for each client).
+    #[serde(default)]
+    pub instructions: String,
     /// The bot's own cap on model requests a day, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,

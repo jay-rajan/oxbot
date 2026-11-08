@@ -218,8 +218,9 @@ impl Viewer {
                 b.last_seq = 0;
                 b.last_reply_seq = 0;
                 b.browser_state = oxbot_protocol::BrowserState::Off;
-                // Who else it's shared with is theirs to know.
+                // Who else it's shared with, and what it's for, are theirs to know.
                 b.members.clear();
+                b.instructions.clear();
             }
         }
         bots
@@ -654,6 +655,23 @@ impl Bot {
                 openrouter: (!self.loop_settings.is_empty()).then(|| self.loop_settings.clone()),
             },
         )
+    }
+
+    /// Writes `instructions.md` all at once: a crash mid-write leaves the
+    /// old file, never half of the new one.
+    ///
+    /// # Errors
+    /// Fails if the file can't be written.
+    pub fn save_instructions(&self) -> Result<(), BotError> {
+        let path = self.dir.join("instructions.md");
+        let tmp = self.dir.join("instructions.md.tmp");
+        let write = || -> io::Result<()> {
+            let mut f = fs::File::create(&tmp)?;
+            io::Write::write_all(&mut f, self.instructions.as_bytes())?;
+            f.sync_all()?;
+            fs::rename(&tmp, &path)
+        };
+        write().map_err(io_err(&path))
     }
 
     /// Moves the bot's folder into `trash` (as `<id>-<when>`), so a deleted
