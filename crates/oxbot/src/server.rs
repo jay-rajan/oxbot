@@ -324,8 +324,9 @@ impl AppState {
 /// The chat page, baked into the binary.
 const INDEX_HTML: &str = include_str!("../ui/index.html");
 
-/// The React page being built to replace it (`crates/oxbot/ui-src`, built
-/// into `ui-dist/`), served at `/next/` until it takes over.
+/// The React page (`crates/oxbot/ui-src`, built into `ui-dist/`), served at
+/// `/` (and at `/next/`, its address while it was being built). The
+/// hand-written page stays at `/old/` until the React one has replaced it.
 mod next_page {
     pub const INDEX_HTML: &str = include_str!("../ui-dist/index.html");
     pub const APP_JS: &str = include_str!("../ui-dist/app.js");
@@ -338,10 +339,19 @@ const NEXT_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self';
      img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'none'; \
      object-src 'none'; base-uri 'none'";
 
-/// The React page's routes (`/next/…`), added to both routers so it's
-/// reached (and checked) exactly like the chat page at `/`.
+/// The React page's routes, added to both routers so it's reached (and
+/// checked) the same way on this Mac and through the device door.
 fn with_next_page(router: Router<AppState>) -> Router<AppState> {
     router
+        .route(
+            "/app.js",
+            get(|| async { next_file("text/javascript; charset=utf-8", next_page::APP_JS) }),
+        )
+        .route(
+            "/app.css",
+            get(|| async { next_file("text/css; charset=utf-8", next_page::APP_CSS) }),
+        )
+        .route("/old/", get(index))
         .route(
             "/next",
             get(|| async { axum::response::Redirect::permanent("/next/") }),
@@ -384,7 +394,10 @@ fn next_file(content_type: &'static str, body: &'static str) -> Response {
 /// Gate door).
 pub fn router(state: AppState) -> Router {
     with_next_page(Router::new())
-        .route("/", get(index))
+        .route(
+            "/",
+            get(|| async { next_file("text/html; charset=utf-8", next_page::INDEX_HTML) }),
+        )
         .route("/ws", get(ws_upgrade))
         // "Sign in with OpenRouter" comes back here: this Mac only.
         .route(
@@ -407,7 +420,9 @@ const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 /// page and WebSocket for paired Gates only (see [`crate::door`]).
 pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
     with_next_page(Router::new())
-        .route("/", get(index))
+        // The phone app fetches `/` once and puts it in its own window, so
+        // it gets the page with its script and styles inside.
+        .route("/", get(|| async { Html(inline_page()) }))
         .route("/ws", get(ws_upgrade))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(door),
@@ -435,6 +450,38 @@ pub async fn serve(
         .await
 }
 
+/// The React page as one file, its script and stylesheet inside, for the
+/// phone app (which loads the page through its own connection, not by
+/// address). Built once.
+fn inline_page() -> &'static str {
+    static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| inline_into(next_page::INDEX_HTML, next_page::APP_JS, next_page::APP_CSS))
+}
+
+/// `html` with its `app.js` script and `app.css` link replaced by their
+/// contents. A `</script` inside the script is escaped so it can't end it.
+fn inline_into(html: &str, js: &str, css: &str) -> String {
+    let script = js.replace("</script", "<\\/script");
+    let style = css.replace("</style", "<\\/style");
+    let mut page = String::with_capacity(html.len() + js.len() + css.len());
+    for line in html.split_inclusive('\n') {
+        let t = line.trim();
+        if t.starts_with("<script") && t.contains("app.js") {
+            page.push_str("<script type=\"module\">");
+            page.push_str(&script);
+            page.push_str("</script>\n");
+        } else if t.starts_with("<link") && t.contains("app.css") {
+            page.push_str("<style>");
+            page.push_str(&style);
+            page.push_str("</style>\n");
+        } else {
+            page.push_str(line);
+        }
+    }
+    page
+}
+
+/// The hand-written page (at `/old/` while the React page replaces it).
 async fn index(State(state): State<AppState>) -> Html<String> {
     if let Some(dir) = &state.ui_dir {
         match tokio::fs::read_to_string(dir.join("index.html")).await {
@@ -2150,6 +2197,24 @@ where
 mod tests {
     use super::*;
     use oxbot_protocol::{BotEvent, EventKind};
+
+    #[test]
+    fn the_phone_gets_the_page_with_its_script_and_styles_inside() {
+        let html = "<head>\n<script type=\"module\" crossorigin src=\"./app.js\"></script>\n<link rel=\"stylesheet\" crossorigin href=\"./app.css\">\n</head><div id=\"root\"></div>\n";
+        let page = super::inline_into(html, "let s = '</script>';", "a{color:red}");
+        assert!(
+            page.contains("<script type=\"module\">let s = '<\\/script>';</script>"),
+            "{page}"
+        );
+        assert!(page.contains("<style>a{color:red}</style>"), "{page}");
+        assert!(
+            !page.contains("app.js") && !page.contains("app.css"),
+            "{page}"
+        );
+        assert!(page.contains("<div id=\"root\">"));
+        // The built page is one file too.
+        assert!(!super::inline_page().contains("src=\"./app.js\""));
+    }
 
     fn event(bot: &str, seq: u64) -> ServerMsg {
         ServerMsg::Event(BotEvent {
