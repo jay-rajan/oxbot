@@ -20,3 +20,6 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+
+/* The React root fills the window, like <body> did on the hand-written page. */
+#root { height: 100%; }
