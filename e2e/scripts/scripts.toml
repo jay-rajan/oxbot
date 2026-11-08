@@ -20,7 +20,7 @@ return { name, price: t('.price'), rating: t('.rating'), net };
 then = [{ tool = "read_pages", args = { follow = "no such link", max_pages = 1, script = "return { now: doc.querySelector('h1').textContent, loaded: doc.body.dataset.loaded || 'no' };" } }]
 after = "Checked the page again: {result}"
 
-# page_steps on a site nobody marked for it: refused.
+# page_steps on a site set to fine-grained control: refused.
 [[reply]]
 when = "order two on the form site"
 snapshot = "## Pages\n1: Order form (https://forms.example.net/order) [selected]\n## Latest page snapshot\nuid=9_1 RootWebArea \"Order form\"\n  uid=9_2 textbox \"Quantity\"\n  uid=9_3 button \"Next\""
@@ -29,7 +29,7 @@ args = { steps = [{ action = "fill", uid = "9_2", value = "2" }, { action = "cli
 after = "Filled in the form."
 denied = "Okay, one step at a time there."
 
-# page_steps on a shop marked for it: the fill and the tick run, and it
+# page_steps on a shop nobody set to fine-grained control: the fill and the tick run, and it
 # stops at Add to Cart, which the bot then asks for on its own.
 [[reply]]
 when = "order two frothers"

@@ -5,8 +5,8 @@
 //! the site), and says what ran and where it stopped, so the bot calls that
 //! step on its own and the person is asked the usual way.
 //!
-//! Only on websites the person marked for it (Settings → Websites); the
-//! hub's gate refuses the call anywhere else. This module is the pure part:
+//! On any website except those the owner set to fine-grained control
+//! (Settings → Websites); the hub's gate refuses the call there. This module is the pure part:
 //! the tool as the model sees it, reading the steps, the browser call each
 //! one is, and the report.
 
@@ -29,8 +29,8 @@ pub fn spec() -> ToolSpec {
         name: PAGE_STEPS.to_owned(),
         description: "Do several steps on the page you're on in one go: fill in fields, pick \
             options, tick boxes, click, press keys, scroll to an element and wait for text, up \
-            to 15 in a row, with uids from your latest snapshot. Only on websites the person \
-            marked for this in Settings → Websites; on other sites do the steps one at a time. \
+            to 15 in a row, with uids from your latest snapshot. Not on websites the person set \
+            to fine-grained control in Settings → Websites: there, do the steps one at a time. \
             oxbot checks each step as usual and stops at the first one that needs the person's \
             OK (Add to cart, Submit, Post, Sign in…) or that leaves the site, and tells you what \
             ran and where it stopped: call that step on its own so the person is asked. Take a \

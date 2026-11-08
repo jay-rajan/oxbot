@@ -963,9 +963,9 @@ mod tests {
         assert_eq!(
             lists.len(),
             2,
-            "home's only, and where bots may do several steps at once"
+            "home's only, and the websites with fine-grained control"
         );
-        assert!(matches!(lists[1], ServerMsg::StepSites { .. }));
+        assert!(matches!(lists[1], ServerMsg::FineGrainedSites { .. }));
         assert!(hub.herder_of(&ghost).is_err());
         assert!(!hub.approval_visible(1, &ghost));
         assert!(!hub.sign_in_visible(1, &ghost));

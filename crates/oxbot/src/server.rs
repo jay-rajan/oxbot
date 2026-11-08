@@ -1274,7 +1274,9 @@ async fn handle(
             reply(state.hub.remove_allow_rule(&bot, id, &viewer))
         }
         // The hub checks it's the Farm too.
-        ClientMsg::SetStepSite { site, on } => reply(state.hub.set_step_site(&site, on, &viewer)),
+        ClientMsg::SetFineGrainedSite { site, on } => {
+            reply(state.hub.set_fine_grained_site(&site, on, &viewer))
+        }
         // Sections are the viewer's own view: anyone oxbot can place.
         ClientMsg::CreateSection { .. }
         | ClientMsg::RenameSection { .. }
@@ -1700,8 +1702,8 @@ fn farm_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetEnginePrefs { .. }
             // Which program runs Codex bots on this Mac.
             | ClientMsg::FindCodex { .. }
-            // Where bots may do several steps at once.
-            | ClientMsg::SetStepSite { .. }
+            // Websites with fine-grained control (one step at a time).
+            | ClientMsg::SetFineGrainedSite { .. }
             // The Mac's own microphone, and opening files on its screen.
             | ClientMsg::Dictate { .. }
             | ClientMsg::OpenFile { .. }
@@ -2052,8 +2054,8 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::ProfilesChanged
         | ServerMsg::Setup(_)
         | ServerMsg::People { .. }
-        // Which websites allow several steps at once: no person's.
-        | ServerMsg::StepSites { .. }
+        // Which websites have fine-grained control: no person's.
+        | ServerMsg::FineGrainedSites { .. }
         // The household's limits: an alert names at most a bot, by the
         // name everyone sees in the list.
         | ServerMsg::UsageAlert(_)

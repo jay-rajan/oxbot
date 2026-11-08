@@ -102,7 +102,7 @@ async fn next(ws: &mut Ws) -> ServerMsg {
 
 /// Connects and reads the opening messages: hello, settings, setup,
 /// people, your own profile, the home and own site lists, the websites
-/// for several steps at once, and your own
+/// with fine-grained control, and your own
 /// sections.
 async fn connect(url: &str) -> (Ws, ServerHello, oxbot_protocol::AppSettings) {
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
@@ -123,7 +123,10 @@ async fn connect(url: &str) -> (Ws, ServerHello, oxbot_protocol::AppSettings) {
         next(&mut ws).await,
         ServerMsg::Sites { owner: Some(_), .. }
     ));
-    assert!(matches!(next(&mut ws).await, ServerMsg::StepSites { .. }));
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMsg::FineGrainedSites { .. }
+    ));
     assert!(matches!(next(&mut ws).await, ServerMsg::Sections { .. }));
     (ws, hello, settings)
 }

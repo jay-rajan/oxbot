@@ -925,7 +925,7 @@ function onMessage(m) {
     case "sites":
       if (m.owner) mySites = m.sites; else sites = m.sites;
       renderSiteRows(); renderSignedIn(); break;
-    case "step_sites": stepSites = m.sites; renderSiteRows(); break;
+    case "fine_grained_sites": fineSites = m.sites; renderSiteRows(); break;
     case "sections": setSections(m); break;
     case "bot_created": pendingSelect = m.id; if (bots.has(m.id)) { pendingSelect = null; select(m.id); } break;
     case "activity": {
@@ -1054,14 +1054,14 @@ function siteMark(s) {
 
 // Settings → Websites: one list. The home's sites (shared bots) first, then
 // your private ones (your private bots ask for those themselves). A home row's
-// actions are on the row: several steps at once, Open, Sign out; a private
+// actions are on the row: fine-grained control, Open, Sign out; a private
 // row's only action is Share with the home.
 function renderSiteRows() {
   const ul = $("siteRows"); ul.textContent = "";
   const farm = !!(settings && settings.farm);
   const home = new Map(sites.map((s) => [s.site, s]));
-  // Sites marked for several steps at once that nobody is signed in to yet.
-  for (const site of stepSites) if (!home.has(site)) home.set(site, { site, signed_in_ms: 0, stepOnly: true });
+  // Sites set to fine-grained control that nobody is signed in to yet.
+  for (const site of fineSites) if (!home.has(site)) home.set(site, { site, signed_in_ms: 0, stepOnly: true });
   const rows = [...home.values()].map((s) => ({ s, mine: false }))
     .concat(mySites.filter((s) => !home.has(s.site) || home.get(s.site).stepOnly).map((s) => ({ s, mine: true })));
   if (!rows.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "No websites yet."; ul.appendChild(li); }
@@ -1083,10 +1083,10 @@ function renderSiteRows() {
       acts.appendChild(share);
     } else {
       const label = document.createElement("label"); label.className = "check steps";
-      const box = document.createElement("input"); box.type = "checkbox"; box.checked = stepSites.includes(s.site); box.disabled = !farm;
-      box.onchange = () => send({ type: "set_step_site", site: s.site, on: box.checked });
-      label.append(box, " Several steps at once");
-      label.title = "Bots may fill in, pick and click several things in a row here. They still ask before Add to cart, Submit, Post or Sign in.";
+      const box = document.createElement("input"); box.type = "checkbox"; box.checked = fineSites.includes(s.site); box.disabled = !farm;
+      box.onchange = () => send({ type: "set_fine_grained_site", site: s.site, on: box.checked });
+      label.append(box, " Fine-grained control");
+      label.title = "Bots do one step at a time here, so each fill and click shows on its own. Off: they may fill in, pick and click several things in a row. Either way they ask before Add to cart, Submit, Post or Sign in.";
       acts.appendChild(label);
       // Only the home computer may open or sign the home browser out.
       if (!s.stepOnly && farm) {
@@ -1107,7 +1107,7 @@ function renderSiteRows() {
   $("signOutMine").hidden = !mySites.length;
   $("signOutAll").hidden = !sites.length || !farm;
 }
-let stepSites = [];
+let fineSites = [];
 // Devices (the home computer only): paired phones, tablets and laptops, shown
 // under their person in Settings → People. The Wi-Fi networks phones may use
 // are hidden for now: adding a device lets phones use the network the home

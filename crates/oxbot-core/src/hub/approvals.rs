@@ -256,8 +256,8 @@ impl Hub {
         }
     }
 
-    /// Several steps at once: only on websites the owner marked for it.
-    /// `Some` refusal for a `page_steps` call anywhere else.
+    /// Several steps at once: anywhere but websites with fine-grained
+    /// control. `Some` refusal for a `page_steps` call there.
     fn steps_gate(
         &self,
         bot_id: &BotId,

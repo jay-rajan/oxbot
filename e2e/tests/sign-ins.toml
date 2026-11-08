@@ -1,5 +1,5 @@
 name = "Adding a website signs in the home browser"
-about = "Settings → Websites has one form, Add a website: it always signs in the home browser (no shared-or-mine picker), and the site lands in the one list as a home row with its actions on the row (Several steps at once, Open, Sign out). Sam's own sign-ins never show for Jay."
+about = "Settings → Websites has one form, Add a website: it always signs in the home browser (no shared-or-mine picker), and the site lands in the one list as a home row with its actions on the row (Fine-grained control, Open, Sign out). Sam's own sign-ins never show for Jay."
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/store.rs", "crates/oxbot-browser/**", "crates/oxbot/src/server.rs"]
 
 [[step]]

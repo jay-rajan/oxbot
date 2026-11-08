@@ -1,7 +1,8 @@
 //! Scripts and batches: what the hub does for `read_pages` (copying a page
 //! of the bot's browser and running the bot's script on the copy in the
-//! sealed tab), which websites allow `page_steps` (marked by the owner in
-//! Settings → Websites), and the approval request before a bot runs a
+//! sealed tab), which websites refuse `page_steps` (set to fine-grained
+//! control by the owner in Settings → Websites; every other website allows
+//! it), and the approval request before a bot runs a
 //! small script in its folder (Yes · Always for this bot · No).
 
 use std::sync::Arc;
@@ -16,12 +17,14 @@ use crate::id::BotId;
 use crate::policy::{self, SCRIPT_RULE_ACTION, SCRIPT_RULE_LABEL, SCRIPT_SITE};
 use crate::store::RuleKey;
 
-/// Where the websites marked for several steps at once are kept (a JSON
-/// list of main domains).
-const PREF_STEP_SITES: &str = "page_steps_sites";
+/// Where the websites with fine-grained control are kept (a JSON list of
+/// main domains). The older `page_steps_sites` list (where several steps
+/// were allowed, when that was off by default) is no longer read: those
+/// sites now allow it like every other.
+const PREF_FINE_GRAINED_SITES: &str = "fine_grained_sites";
 
-/// The most websites that may be marked.
-const MAX_STEP_SITES: usize = 200;
+/// The most websites that may be set to fine-grained control.
+const MAX_FINE_GRAINED_SITES: usize = 200;
 
 /// A bot's Always rule for small scripts: it may run them in its own
 /// folder without asking (while it hasn't read untrusted text).
@@ -73,56 +76,71 @@ fn with_site(mut sites: Vec<String>, site: &str, on: bool) -> Vec<String> {
 pub(super) fn steps_refusal(site: Option<&str>) -> String {
     match site {
         Some(site) => format!(
-            "Several steps at once aren't turned on for {site}. Do the steps one at a time. (The \
-             person can turn it on for {site} in Settings → Websites.)"
+            "{site} is set to fine-grained control: do the steps one at a time there. (The \
+             person chose this in Settings → Websites.)"
         ),
-        None => "Several steps at once only work on a website the person marked for it. Do the \
-                 steps one at a time."
+        None => "Several steps at once only work on websites on the internet. Do the steps one at \
+                 a time."
             .to_owned(),
     }
 }
 
 impl Hub {
-    /// The websites where bots may do several steps at once, sorted.
+    /// The websites with fine-grained control (bots do one step at a
+    /// time there), sorted.
     #[must_use]
-    pub fn step_sites(&self) -> Vec<String> {
-        read_sites(self.store.pref(PREF_STEP_SITES).ok().flatten().as_deref())
+    pub fn fine_grained_sites(&self) -> Vec<String> {
+        read_sites(
+            self.store
+                .pref(PREF_FINE_GRAINED_SITES)
+                .ok()
+                .flatten()
+                .as_deref(),
+        )
     }
 
-    /// Lets bots do several steps at once on `site` (`on`), or not. The
-    /// Farm only; everyone gets the new list.
+    /// Sets fine-grained control on `site` (`on`: one step at a time), or
+    /// clears it (several steps at once, the default). The Farm only;
+    /// everyone gets the new list.
     ///
     /// # Errors
     /// [`HubError::NotAllowed`] for anyone but the Farm,
     /// [`HubError::BadSite`] for something that isn't a website, or the
     /// database failed.
-    pub fn set_step_site(&self, site: &str, on: bool, viewer: &Viewer) -> Result<(), HubError> {
+    pub fn set_fine_grained_site(
+        &self,
+        site: &str,
+        on: bool,
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
         if !self.resolve(viewer).farm {
             return Err(HubError::NotAllowed(
-                "Only the home computer can change where bots do several steps at once.".to_owned(),
+                "Only the home computer can change fine-grained control on websites.".to_owned(),
             ));
         }
         let main = step_site_of(site).ok_or_else(|| HubError::BadSite(site.trim().to_owned()))?;
-        let sites = with_site(self.step_sites(), &main, on);
-        if sites.len() > MAX_STEP_SITES {
+        let sites = with_site(self.fine_grained_sites(), &main, on);
+        if sites.len() > MAX_FINE_GRAINED_SITES {
             return Err(HubError::NotAllowed(format!(
-                "At most {MAX_STEP_SITES} websites can be marked."
+                "At most {MAX_FINE_GRAINED_SITES} websites can have fine-grained control."
             )));
         }
         let json = serde_json::to_string(&sites).unwrap_or_else(|_| "[]".to_owned());
-        self.store.set_pref(PREF_STEP_SITES, &json)?;
-        tracing::info!(site = main, on, "several steps at once");
-        self.announce(ServerMsg::StepSites { sites });
+        self.store.set_pref(PREF_FINE_GRAINED_SITES, &json)?;
+        tracing::info!(site = main, on, "fine-grained control");
+        self.announce(ServerMsg::FineGrainedSites { sites });
         Ok(())
     }
 
     /// Why `page_steps` may not run on the page at `page_url`, or `None`
-    /// if its website is marked for it.
+    /// if it may: any website on the internet without fine-grained control.
     pub(super) fn steps_not_allowed(&self, page_url: Option<&str>) -> Option<String> {
-        let site = page_url.and_then(step_site_of);
-        match site {
-            Some(site) if self.step_sites().contains(&site) => None,
-            other => Some(steps_refusal(other.as_deref())),
+        match page_url.and_then(step_site_of) {
+            Some(site) if self.fine_grained_sites().contains(&site) => {
+                Some(steps_refusal(Some(&site)))
+            }
+            Some(_) => None,
+            None => Some(steps_refusal(None)),
         }
     }
 
@@ -282,15 +300,18 @@ mod tests {
     }
 
     #[test]
-    fn refusals_say_where_to_turn_it_on() {
+    fn refusals_say_where_it_was_chosen() {
         let text = steps_refusal(Some("example.com"));
-        assert!(text.contains("aren't turned on for example.com"), "{text}");
+        assert!(
+            text.contains("example.com is set to fine-grained control"),
+            "{text}"
+        );
         assert!(text.contains("Settings → Websites"), "{text}");
         assert!(steps_refusal(None).contains("one at a time"));
     }
 
     #[tokio::test]
-    async fn only_the_home_computer_marks_websites_and_everyone_hears() {
+    async fn only_the_home_computer_sets_fine_grained_control_and_everyone_hears() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = Hub::new(
             vec![],
@@ -299,40 +320,53 @@ mod tests {
         );
         let mut updates = hub.subscribe();
         assert!(matches!(
-            hub.set_step_site("shop.example.com", true, &Viewer::gate("Sam")),
+            hub.set_fine_grained_site("shop.example.com", true, &Viewer::gate("Sam")),
             Err(HubError::NotAllowed(_))
         ));
         assert!(matches!(
-            hub.set_step_site("192.168.1.1", true, &Viewer::farm("Jay")),
+            hub.set_fine_grained_site("192.168.1.1", true, &Viewer::farm("Jay")),
             Err(HubError::BadSite(_))
         ));
-        assert_eq!(hub.step_sites(), Vec::<String>::new());
-        hub.set_step_site(
+        assert_eq!(hub.fine_grained_sites(), Vec::<String>::new());
+        // By default every website may do several steps at once.
+        assert_eq!(
+            hub.steps_not_allowed(Some("https://shop.example.com/p/1")),
+            None
+        );
+        hub.set_fine_grained_site(
             "https://www.shop.example.com/cart",
             true,
             &Viewer::farm("Jay"),
         )
         .unwrap();
-        assert_eq!(hub.step_sites(), ["example.com"]);
+        assert_eq!(hub.fine_grained_sites(), ["example.com"]);
         let heard = loop {
-            if let ServerMsg::StepSites { sites } = updates.recv().await.unwrap() {
+            if let ServerMsg::FineGrainedSites { sites } = updates.recv().await.unwrap() {
                 break sites;
             }
         };
         assert_eq!(heard, ["example.com"]);
-        // Any page of the site may do several steps at once; others not.
+        // Every page of that site goes one step at a time; others don't.
+        let no = hub
+            .steps_not_allowed(Some("https://shop.example.com/p/1"))
+            .unwrap();
+        assert!(no.contains("example.com"), "{no}");
+        assert_eq!(
+            hub.steps_not_allowed(Some("https://forms.example.net/")),
+            None
+        );
+        assert!(hub.steps_not_allowed(None).is_some());
+        assert!(
+            hub.steps_not_allowed(Some("http://192.168.1.1/")).is_some(),
+            "never on the home network"
+        );
+        hub.set_fine_grained_site("example.com", false, &Viewer::farm("Jay"))
+            .unwrap();
+        assert_eq!(hub.fine_grained_sites(), Vec::<String>::new());
         assert_eq!(
             hub.steps_not_allowed(Some("https://shop.example.com/p/1")),
             None
         );
-        let no = hub
-            .steps_not_allowed(Some("https://forms.example.net/"))
-            .unwrap();
-        assert!(no.contains("example.net"), "{no}");
-        assert!(hub.steps_not_allowed(None).is_some());
-        hub.set_step_site("example.com", false, &Viewer::farm("Jay"))
-            .unwrap();
-        assert_eq!(hub.step_sites(), Vec::<String>::new());
     }
 
     #[test]
