@@ -1,0 +1,201 @@
+<title>oxbot Simpler Settings</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--x:#d92f2f;--ok:#1f7a45;--chip:#ecebe6;--win:#ffffff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;--chip:#26272b;--win:#17181b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;--chip:#26272b;--win:#17181b;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:36px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px;text-wrap:balance}h3{font-size:15px;margin:0}
+p{margin:0;max-width:70ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:75ch}
+.note{border-left:3px solid var(--x);padding:6px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+.gone{text-decoration:line-through;color:var(--mut)}
+/* mockups */
+.mocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:20px}
+.win{border:1px solid var(--line);border-radius:12px;background:var(--win);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.win-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:600;font-size:14px}
+.win-top span{font-weight:400;color:var(--mut);font-size:13px}
+.win-body{display:grid;grid-template-columns:118px 1fr;height:330px}
+.nav{border-right:1px solid var(--line);padding:10px 8px;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.nav div{padding:6px 10px;border-radius:7px;color:var(--mut)}
+.nav .on{background:var(--chip);color:var(--fg);font-weight:600}
+.pane{padding:12px 14px;display:flex;flex-direction:column;gap:12px;font-size:13px;overflow:hidden;min-width:0}
+.pane h4{margin:0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--line);padding-bottom:7px}
+.row:last-child{border-bottom:0}
+.row small{color:var(--mut);display:block;font-size:12px}
+.btn{border:1px solid var(--line);border-radius:7px;padding:3px 9px;font-size:12px;white-space:nowrap}
+.btn.p{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.sw{width:28px;height:16px;border-radius:9px;background:var(--ok);position:relative;flex:none}
+.sw::after{content:"";position:absolute;right:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+.bar{height:6px;border-radius:4px;background:var(--chip);overflow:hidden}.bar i{display:block;height:100%;width:34%;background:var(--ok)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chips b{font-weight:500;font-size:12px;padding:2px 8px;border-radius:10px;background:var(--chip)}.chips b.on{background:var(--fg);color:var(--bg)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.ex{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:start;border-bottom:1px solid var(--line);padding-bottom:6px}
+.ex:last-child{border-bottom:0}.ex .t{color:var(--mut);font-variant-numeric:tabular-nums}.ex .s{color:var(--mut);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 7, 2026 · waiting for your OK</div>
+<h1>Simpler settings: four tabs down the side, one fixed size</h1>
+<p class="mut">Settings goes from seven tabs to four, listed down the left side. The window keeps one size whatever is open, and anything long scrolls inside it. AI models and Schedules leave Settings. Devices joins People. Activity shows everything that left the home computer.</p>
+</header>
+
+<section>
+<h2>1 · What moves where</h2>
+<div class="scroll"><table>
+<tr><th>Today</th><th>After</th></tr>
+<tr><td>General: notifications (2 switches), Setup, Browser, Startup, About</td><td><b>General</b>: one notification switch, the AI account (status and this month's use), Startup, About. Setup shows only when something is wrong, as a line at the top.</td></tr>
+<tr><td>Websites: sign-in picker (shared or mine), Home, Yours, Several steps at once</td><td><b>Websites</b>: one list. Add a site, and shared bots use it. A private bot that needs a sign-in gets its own automatically. A private row's only action is <b>Share with the home</b>.</td></tr>
+<tr><td>Devices: networks phones can use, name phones see, pairing, paired devices</td><td>Joins <b>People</b>: each person with their devices, plus "Add a device". Wi-Fi networks and the name phones see are hidden for this trial version.</td></tr>
+<tr><td>AI models: AI helper, account, free models, spending and privacy, usage, comparison</td><td class="gone">Removed. It all runs automatically (section 3). The account line moves to General.</td></tr>
+<tr><td>Schedules (everyone's)</td><td class="gone">Removed from Settings. Each bot's schedules are in its ··· settings, where they already show.</td></tr>
+<tr><td>People: your profile form, everyone in the home</td><td><b>People</b>: one row per person with their devices. Tap a person to edit their details.</td></tr>
+<tr><td>Activity: oxbot's log lines</td><td><b>Activity</b>: what left the home computer, and where it went (section 4)</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · The new screens</h2>
+<div class="mocks">
+
+<div class="win" role="img" aria-label="General tab">
+<div class="win-top">Settings <span>Close</span></div>
+<div class="win-body">
+<div class="nav"><div class="on">General</div><div>Websites</div><div>People</div><div>Activity</div></div>
+<div class="pane">
+<h4>Notifications</h4>
+<div class="row"><div>Tell me when AI use passes 50% and 80% of a limit</div><span class="sw"></span></div>
+<h4>AI</h4>
+<div class="row"><div>Connected to OpenRouter<small>Free models first · $3.40 of $10 this month</small></div><span class="btn">Sign out</span></div>
+<div class="bar"><i></i></div>
+<h4>Startup</h4>
+<div class="row"><div>Open oxbot when I log in to my Mac</div><span class="sw"></span></div>
+<h4>About</h4>
+<div class="mut">Jayadev's MacBook Pro · version 0.9 · data folder</div>
+</div></div></div>
+
+<div class="win" role="img" aria-label="Websites tab">
+<div class="win-top">Settings <span>Close</span></div>
+<div class="win-body">
+<div class="nav"><div>General</div><div class="on">Websites</div><div>People</div><div>Activity</div></div>
+<div class="pane">
+<div class="row"><div class="mono mut">gmail.com</div><span class="btn p">Sign in</span></div>
+<div class="row"><div>amazon.ca<small>Shared bots</small></div><span class="btn">···</span></div>
+<div class="row"><div>instacart.ca<small>Shared bots</small></div><span class="btn">···</span></div>
+<div class="row"><div>td.com<small>Private: Bank (Sam)</small></div><span class="btn">Share with the home</span></div>
+<div class="row"><div>substack.com<small>Private: Journal (Jay)</small></div><span class="btn">Share with the home</span></div>
+<p class="mut">··· holds Open, Sign out, and "Several steps at once".</p>
+</div></div></div>
+
+<div class="win" role="img" aria-label="People tab">
+<div class="win-top">Settings <span>Close</span></div>
+<div class="win-body">
+<div class="nav"><div>General</div><div>Websites</div><div class="on">People</div><div>Activity</div></div>
+<div class="pane">
+<div class="row"><div>Jay (owner)<small>This Mac · iPhone, seen 2 min ago</small></div><span class="btn">Edit</span></div>
+<div class="row"><div>Sam<small>Pixel 8, seen yesterday</small></div><span class="btn">Edit</span></div>
+<div class="row"><div>Divit (kid account)<small>No devices yet</small></div><span class="btn">Edit</span></div>
+<div class="row"><div></div><span class="btn p">Add a device</span></div>
+<p class="mut">Add a device asks who it's for, then shows the pairing code. Edit opens the person's details and their devices, each with Remove.</p>
+</div></div></div>
+
+<div class="win" role="img" aria-label="Activity tab">
+<div class="win-top">Settings <span>Close</span></div>
+<div class="win-body">
+<div class="nav"><div>General</div><div>Websites</div><div>People</div><div class="on">Activity</div></div>
+<div class="pane">
+<div class="chips"><b class="on">All</b><b>AI</b><b>Websites</b><b>Devices</b><b>oxbot</b></div>
+<div class="ex"><span class="t">10:42</span><div>Recipes → AI (DeepSeek Flash)<small class="mut" style="display:block">3 personal details swapped out</small></div><span class="s">8.1 KB ↑ 1.2 KB ↓<br>$0.002</span></div>
+<div class="ex"><span class="t">10:41</span><div>Recipes → loblaws.ca<small class="mut" style="display:block">read 2 pages</small></div><span class="s">1.9 MB ↓</span></div>
+<div class="ex"><span class="t">10:30</span><div>Sam's Pixel 8 → home<small class="mut" style="display:block">home Wi-Fi</small></div><span class="s">42 KB</span></div>
+<div class="ex"><span class="t">09:00</span><div>oxbot → OpenRouter<small class="mut" style="display:block">checked the free models list</small></div><span class="s">14 KB ↓</span></div>
+</div></div></div>
+</div>
+<p class="mut">The window is one fixed size (about 760 × 560). Only the right side scrolls, so switching tabs never resizes it. Below 600px wide, the tabs become a row across the top.</p>
+</section>
+
+<section>
+<h2>3 · AI without the AI models tab</h2>
+<ul>
+<li><b>Models per bot are picked automatically.</b> When a bot is made, oxbot reads its instructions and picks the kind of job (lookup, research, shopping, writing…). That picks the ordered model list we already have, free first. The bot settings lose the AI models box.</li>
+<li><b>Paid models are on by default, within the monthly limit</b> ($10 for your own account, the trial's $2, or the paid plan's key). The owner changes the limit with one field under General → AI, which shows only when the account has credit.</li>
+<li><b>Personal details are always removed</b> before anything is sent, so private bots can use free models too. The switch goes away, and so does "Ask AI companies not to keep what's sent".</li>
+<li><b>Daily question limits stay</b> at their defaults with no fields. A bot that hits one says so in the chat.</li>
+<li><b>Shadow is removed</b> (Nov 7): the Shadow button in the message bar, its dialog, and the side-by-side answers it adds to the chat.</li>
+<li><b>Hidden as developer tools:</b> Compare, the comparison settings and the usage table. They're switched on with a developer flag, not shown to homes.</li>
+<li>The "AI helper" section is gone from view. If it's missing, Setup's line at the top of General says so.</li>
+</ul>
+</section>
+
+<section>
+<h2>4 · Activity: what left the home computer</h2>
+<ul>
+<li>One row for each exchange with the outside: <b>AI</b> (each question to OpenRouter: bot, model, sent and received sizes, cost, personal details swapped), <b>Websites</b> (each page visit by a bot: the site and the bytes in and out, with third-party hosts folded under it), <b>Devices</b> (phones connecting), and <b>oxbot</b> (its own calls: the OpenRouter sign-in, the free models list, update checks).</li>
+<li>Filter chips: All, AI, Websites, Devices, oxbot. Newest first, with the day's totals at the top.</li>
+<li><b>Who sees what:</b> the owner sees the whole home. Everyone else sees their own bots and devices. Kid accounts see nothing (their parent does).</li>
+<li><b>Tap a row</b> for details: the host, the time it took, and the outcome. For an AI row: the model that answered, tokens, and which kinds of personal detail were swapped (for example "2 emails, 1 name"), never the values.</li>
+<li><b>Kept for 30 days,</b> on the home computer only, then deleted.</li>
+<li><b>Built from:</b> AI rows come from the <span class="mono">model_calls</span> table, which already exists. Website rows come from the browser's network events per page, added up per site. Device and oxbot rows come from the server. All of them go into one new <span class="mono">net_log</span> table.</li>
+</ul>
+<p class="note">Not shown: the text of what was sent. Keeping it would mean storing every question and page a bot read. That's another copy of private data to protect, so it's left out unless you want it (decision 3).</p>
+</section>
+
+<section>
+<h2>5 · Notifications</h2>
+<ul>
+<li>One switch: <b>"Tell me when AI use passes 50% and 80% of a limit."</b> The list of limits (free questions, paid spending, account credit, each bot's questions) moves out of the label.</li>
+<li>"Waiting for my OK or a sign-in while oxbot is hidden" becomes automatic, with no switch. Mac notifications still need permission in System Settings. If permission is off, General shows one line saying so.</li>
+<li>The Browser section is removed. "Sign out of all sites" moves to the bottom of Websites.</li>
+</ul>
+</section>
+
+<section>
+<h2>6 · Code changes</h2>
+<div class="scroll"><table>
+<tr><th>Where</th><th>Change</th></tr>
+<tr><td class="mono">ui/index.html</td><td>Settings dialog: fixed size, a vertical tab list, and 4 panels. Websites: one list. People: merged with Devices. Activity: the exchanges list. Bot settings: the AI models box is removed.</td></tr>
+<tr><td class="mono">oxbot-core store</td><td>New <span class="mono">net_log</span> table (forward migration), with writes and a 30-day cleanup. Pick the job kind from the bot's instructions when the bot is made.</td></tr>
+<tr><td class="mono">oxbot-core sign-ins</td><td>A private bot's first sign-in goes to its maker's browser automatically. New <span class="mono">ShareSite</span> action moves a private sign-in to the home browser.</td></tr>
+<tr><td class="mono">browser (CDP)</td><td>Add up the network events of each page visit per site and write them to <span class="mono">net_log</span></td></tr>
+<tr><td class="mono">server.rs</td><td>New messages: <span class="mono">Activity {filter}</span>, <span class="mono">ShareSite</span>, and People with devices in one reply</td></tr>
+<tr><td class="mono">prefs</td><td>The personal-details switch and the data-collection switch are removed (always on). Paid on by default, within the limit.</td></tr>
+<tr><td class="mono">e2e</td><td>Update the settings, websites, gates, engines and scheduler tests to the new screens. New tests for Activity and Share with the home.</td></tr>
+</table></div>
+<pre class="mermaid">
+C4Component
+title Settings after the change
+Container_Boundary(app, "oxbot on the home computer") {
+  Component(ui, "Settings window", "index.html", "General, Websites, People, Activity")
+  Component(srv, "Server", "server.rs", "messages for each tab")
+  Component(store, "Store", "SQLite", "prefs, sign-ins, people, devices, net_log")
+  Component(relay, "Model relay", "oxbot-relay", "removes personal details, writes model_calls")
+  Component(br, "Browsers", "Chrome via CDP", "home and private; per-site traffic")
+}
+System_Ext(or, "OpenRouter")
+System_Ext(web, "Websites")
+Rel(ui, srv, "asks and listens")
+Rel(srv, store, "reads and writes")
+Rel(relay, or, "AI questions")
+Rel(relay, store, "model_calls, net_log")
+Rel(br, web, "pages")
+Rel(br, store, "net_log")
+</pre>
+</section>
+
+<section>
+<h2>7 · Decisions for you</h2>
+<ol>
+<li>Notifications for "waiting for my OK" while hidden: always on with no switch (planned), or remove that kind of notification?</li>
+<li>"Several steps at once": keep it in each site's ··· menu (planned), or drop it from the screen?</li>
+<li>Activity: sizes and counts only (planned), or also keep the text sent to AI for a few days?</li>
+</ol>
+</section>
+</div>

@@ -1,5 +1,5 @@
 name = "First start: the welcome screen asks the owner who they are"
-about = "On an empty home the owner gets a welcome screen: name, colour, home area, food needs, languages and notes, each saying whether bots may use it (never the name). The owner confirms they're 18 or older and accept OpenRouter's terms before it saves; Settings → People shows it after."
+about = "On an empty home the owner gets a welcome screen: name, colour, home area, food needs, languages and notes, each saying whether bots may use it (never the name). The owner confirms they're 18 or older and accept OpenRouter's terms before it saves; Settings → People shows it after (Edit on your own row)."
 fresh = true
 covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/profiles.rs", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/store/profiles.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
@@ -40,7 +40,12 @@ click = "Settings"
 [[step]]
 click = "People"
 [[step]]
-wait_for = "Everyone in the home"
+wait_for = "this Mac"
+note = "The owner's row: their devices (this Mac)"
 [[step]]
-expect_js = "document.querySelector('#meFields [data-key=food]').value === 'vegetarian'"
+click = "Edit"
+note = "Your own row opens your details"
+[[step]]
+expect_js = "!!document.querySelector('#meFields [data-key=food]') && document.querySelector('#meFields [data-key=food]').value === 'vegetarian'"
+timeout_ms = 5000
 shot = "settings-people"

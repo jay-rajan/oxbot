@@ -1,5 +1,5 @@
 name = "A bot's daily limit on OpenRouter"
-about = "With a limit of 2 model requests a day in its settings, a bot answers twice, then says plainly it has used them, sends nothing more to OpenRouter, and the usage banner shows."
+about = "With a limit of 2 model requests a day (set as the page would; there's no field for it now), a bot answers twice, then says plainly it has used them, sends nothing more to OpenRouter, and the usage banner shows."
 covers = ["crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-core/src/hub/alerts.rs", "crates/oxbot-loop/src/meter.rs", "crates/oxbot-core/src/store/**", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
@@ -11,11 +11,8 @@ click = "Create"
 [[step]]
 wait_for = "@scout"
 [[step]]
-click = "Bot settings"
-[[step]]
-type = { into = "Questions a day", text = "2" }
-[[step]]
-click = "Save"
+expect_js = "(send({ type: 'set_bot_daily_limit', bot: 'scout', daily_requests: 2 }), true)"
+note = "A limit of 2, as the bot settings' old field sent it (the field is gone; the limit isn't)"
 [[step]]
 send = "hello"
 [[step]]
@@ -33,7 +30,7 @@ send = "and once more"
 wait_for = "Scout has used its 2 AI questions for today."
 note = "The third is stopped, and says why"
 [[step]]
-expect = "the owner can raise the limit (Settings → General)"
+expect = "AI questions for today. It can go on tomorrow."
 [[step]]
 expect = "Scout's questions today at 100%"
 note = "The usage banner names the bot's limit"

@@ -1,0 +1,104 @@
+<title>Scheduler and Grok Move</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--muted:#62666e;--line:#dcd8ce;--card:#fff;--accent:#c81e1e;--soft:#f4efe6;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#33363c;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#33363c;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 "IBM Plex Sans",-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:940px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance} h2{font-size:20px;margin:0 0 8px;text-wrap:balance} h3{font-size:16px;margin:14px 0 4px}
+p,li{max-width:72ch} .eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.muted{color:var(--muted)} .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:13px}
+ol,ul{padding-left:22px;margin:6px 0} li{margin:3px 0}
+.callout{background:var(--soft);border-left:4px solid var(--accent);padding:12px 16px;border-radius:4px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)} tr:last-child td{border-bottom:0}
+.c4{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:10px;overflow-x:auto}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<div class="wrap">
+<header>
+  <div class="eyebrow">oxbot · design for OK · Nov 4, 2026</div>
+  <h1>Bots that run on a schedule, and moving your Grok bots in</h1>
+  <p class="muted">You asked for a scheduler and for your Grok Bot bots in the main oxbot app, signing in when a task needs it. This is the design before code. It builds after step 2 lands and the new app is installed.</p>
+</header>
+
+<section>
+  <div class="eyebrow">1 · Scheduler</div>
+  <h2>What a person sees</h2>
+  <ul>
+    <li>Say it in plain words to any bot: <i>"Every weekday at 8:15 AM, send me today's prep plan"</i>, <i>"Every Saturday at 6 PM, check Divit's presentation"</i>, <i>"Remind me Oct 20 to renew the car insurance"</i>. The bot answers with a <b>schedule card</b>: <i>"Every weekday at 8:15 AM: today's prep plan. Create / Change / Don't"</i>. Nothing is scheduled without that yes.</li>
+    <li>Each bot's settings list its schedules (next run, last run, pause, delete). Settings → <b>Schedules</b> shows the whole home's, by person.</li>
+    <li>When a run finishes, its answer lands in the bot's chat and a notification goes to that person's devices: <i>"Doordash prep: Day 3 plan is ready."</i> A reminder is just a run whose task is the reminder text.</li>
+    <li>If a run needs an approval or a sign-in, it waits in the chat and notifies the person; it never acts unattended on anything that would ask.</li>
+  </ul>
+  <h3>Rules that keep it safe and cheap</h3>
+  <ul>
+    <li><b>Runs as the person who made it</b>: their private bots, their Chrome profile, their AI spending. A shared bot's schedule belongs to its maker.</li>
+    <li><b>Counts against AI spending</b> like any task; a run that would go over the cap is skipped and says so.</li>
+    <li><b>Missed runs</b> (Mac asleep or oxbot closed): run once when oxbot is back if it's within 2 hours, otherwise skip and note it. oxbot can keep the Mac awake for a run (Settings, off by default).</li>
+    <li><b>Kid accounts</b>: a parent approves each new schedule.</li>
+    <li><b>Limits</b>: at most one run at a time per bot; at most every 15 minutes; up to 30 schedules per person.</li>
+    <li><b>Untrusted text never makes a schedule</b>: a web page or email that says "schedule this" can't create one; only the person's own message, and only through the card.</li>
+  </ul>
+  <h3>How it's built</h3>
+  <div class="c4"><pre class="mermaid">
+flowchart LR
+  P["Person: 'every Saturday 6 PM…'"] --> B["Bot (Codex)"]
+  B -->|"schedule_task tool"| G["Gate + card<br/>Create / Change / Don't"]
+  G -->|yes| S[("schedules table")]
+  T["Scheduler (hub)<br/>wakes each minute"] --> S
+  T -->|"due: start a turn as the maker"| H["Hub: same path as a typed task"]
+  H --> B
+  H -->|"done / waiting"| N["Notify the person's devices"]
+  </pre></div>
+  <ul>
+    <li><b>Data</b> (new migration): <span class="mono">schedules(id, bot, person, task_text, rule, tz, next_run, last_run, paused, created_by_card, created_ms)</span> and <span class="mono">schedule_runs(schedule, started_ms, ended_ms, outcome, turn)</span>. Rules: once (date-time), daily, weekdays, weekly (days), monthly (day) at a time, in the home's time zone; stored as a small structured rule, not free cron text.</li>
+    <li><b>New bot tools</b> (oxbot's own, through the gate): <span class="mono">schedule_task</span> (asks with a card), <span class="mono">list_schedules</span>, <span class="mono">pause_schedule</span>, <span class="mono">delete_schedule</span> (asks).</li>
+    <li><b>Scheduler loop</b> in the hub: a one-minute tick; due runs become turns with origin "scheduled by &lt;person&gt;", so every existing rule (approvals, limits, private bots, untrusted text) applies unchanged.</li>
+    <li><b>UI</b>: schedule card, bot-settings list, Settings → Schedules, notifications (the phone app already receives them).</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">2 · Your Grok Bot bots</div>
+  <h2>19 bots found on this Mac; 14 to move</h2>
+  <p class="muted">Read from Grok Bot's local cache (its bot list and chats), read only; the app and its sign-in files weren't touched. Grok Bot runs each bot on a computer in xAI's cloud; in oxbot they run on your home computer.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Grok bot</th><th>In oxbot</th><th>Schedules it needs</th><th>Sign-ins it will ask for</th></tr></thead>
+    <tbody>
+      <tr><td>Substack Growth</td><td>Move (private): Note drafts, engagement picks with draft replies, weekly plan; posts only after your yes</td><td>daily Notes, twice-daily picks, Saturday plan</td><td>Substack</td></tr>
+      <tr><td>Home Organizer</td><td>Move (shared, so the household can use it): reminders, home to-do list, plans</td><td>its reminders</td><td>—</td></tr>
+      <tr><td>Meal Plan</td><td>Move (shared): weekly meals for two, grocery list (always milk, 8 bananas, 3 apples, a snack)</td><td>weekly plan</td><td>Walmart (adding to cart asks)</td></tr>
+      <tr><td>Doordash (interview prep)</td><td>Move (private): 21-day staff-engineer prep plan</td><td>weekdays 8:15 AM</td><td>—</td></tr>
+      <tr><td>Divit Learning Management</td><td>Move (private): check your son's presentation weekly</td><td>Saturdays 6 PM</td><td>Google Drive</td></tr>
+      <tr><td>AI Engineering Tutor</td><td>Move: weekly brief and quizzes</td><td>weekly</td><td>—</td></tr>
+      <tr><td>Job Scout</td><td>Move (private): Staff/AI roles on LinkedIn</td><td>optional weekly</td><td>LinkedIn</td></tr>
+      <tr><td>Interview Coach</td><td>Move (private)</td><td>—</td><td>—</td></tr>
+      <tr><td>Toptal (two bots)</td><td>Merge into one (private)</td><td>—</td><td>—</td></tr>
+      <tr><td>Forma AI / Senpilot, IFS</td><td>Move (private): company and interview research</td><td>—</td><td>—</td></tr>
+      <tr><td>Substack – Evolving Engineering Org</td><td>Move (private): research topics</td><td>—</td><td>—</td></tr>
+      <tr><td>Watch Finder</td><td>Move (shared): product comparison</td><td>—</td><td>—</td></tr>
+      <tr><td>Google Search (fix my search results)</td><td>Move (private)</td><td>—</td><td>Google</td></tr>
+      <tr><td>Grok Bot, New Bot, Conversation, Substack Claude Research</td><td>Don't move: setup chats, or they drove Claude on this Mac (oxbot no longer uses Claude)</td><td>—</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><b>Privacy note</b>: some of these chats hold interview emails with meeting links and phone PINs. oxbot's bots get only their purpose and standing instructions, not those old chats. Divit's and Google Search's bots browse Google sites as you; the parts they read go to the AI model.</div>
+  <h3>Then the comparison</h3>
+  <p>For each moved bot, 1–2 of your real past requests run in oxbot, graded against Grok's answer from the same chat: right / partly / wrong, what left the Mac, and the cost. Requests that would act (post, order, reply) stop at the approval request, which is the point.</p>
+</section>
+
+<section>
+  <div class="eyebrow">3 · Order</div>
+  <h2>What happens when</h2>
+  <ol>
+    <li>Step 2 finishes (Claude and the old loop gone, plain words, Add to cart asks) and its tests pass.</li>
+    <li>Back up, build, replace the installed oxbot; you sign in to OpenRouter.</li>
+    <li>Build the Android app; you install and pair it.</li>
+    <li>Recreate the 14 bots in your real oxbot (through the Assistant, so each one is a "create bot" card you approve).</li>
+    <li>Build the scheduler (design above) and the "Shared with…" choice per bot; then add the routines.</li>
+    <li>Run the comparison with Grok.</li>
+  </ol>
+</section>
+</div>

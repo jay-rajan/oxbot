@@ -275,6 +275,9 @@ pub fn interpreter(language: Language, path: &str) -> Option<Interpreter> {
     Some(Interpreter { exec, home })
 }
 
+/// Where Homebrew installs: Apple silicon, then Intel Macs.
+const HOMEBREW: [&str; 2] = ["/opt/homebrew", "/usr/local"];
+
 /// A path as an SBPL string.
 fn sbpl(path: &Path) -> String {
     let text = path.display().to_string();
@@ -302,6 +305,17 @@ pub fn profile(work: &Path, interp: &Interpreter) -> String {
     if let Some(home) = &interp.home {
         read.push(format!("(subpath {})", sbpl(home)));
         exec.push(format!("(subpath {})", sbpl(home)));
+    }
+    // A Homebrew interpreter loads its libraries from other Homebrew
+    // packages (node needs llhttp, icu4c…): read-only, and they hold no
+    // one's data.
+    for prefix in HOMEBREW {
+        if interp.exec.starts_with(prefix) {
+            // …and node reads OpenSSL's settings file at start.
+            for dir in ["lib", "opt", "Cellar", "etc/openssl@3"] {
+                read.push(format!("(subpath {})", sbpl(&Path::new(prefix).join(dir))));
+            }
+        }
     }
     read.push(format!("(subpath {})", sbpl(work)));
     format!(
@@ -644,6 +658,40 @@ mod tests {
     }
 
     #[test]
+    fn a_homebrew_interpreter_may_read_homebrew_libraries_only() {
+        let (_tmp, w) = work();
+        let node = Interpreter {
+            exec: PathBuf::from("/opt/homebrew/Cellar/node/26.7.0/bin/node"),
+            home: Some(PathBuf::from("/opt/homebrew/Cellar/node/26.7.0")),
+        };
+        let p = profile(&w, &node);
+        let read = p
+            .lines()
+            .find(|l| l.starts_with("(allow file-read* "))
+            .unwrap();
+        for want in [
+            "(subpath \"/opt/homebrew/lib\")",
+            "(subpath \"/opt/homebrew/opt\")",
+            "(subpath \"/opt/homebrew/Cellar\")",
+        ] {
+            assert!(read.contains(want), "{want}");
+        }
+        let write = p
+            .lines()
+            .find(|l| l.starts_with("(allow file-write* "))
+            .unwrap();
+        assert!(!write.contains("homebrew"), "never writable");
+        let exec = p
+            .lines()
+            .find(|l| l.starts_with("(allow process-exec "))
+            .unwrap();
+        assert!(
+            !exec.contains("/opt/homebrew/opt"),
+            "libraries are read, not run"
+        );
+    }
+
+    #[test]
     fn the_profile_denies_by_default_and_lists_what_it_allows() {
         let (_tmp, w) = work();
         let node = Interpreter {
@@ -689,6 +737,10 @@ mod tests {
             .find(|l| l.starts_with("(allow process-exec "))
             .unwrap();
         assert!(exec.contains("(literal \"/opt/oxbot/tools/node/bin/node\")"));
+        assert!(
+            !read.contains("/opt/homebrew"),
+            "not a Homebrew interpreter"
+        );
         // No network, no system services.
         assert!(!p.contains("network"));
         assert!(!p.contains("mach-lookup"));

@@ -6,11 +6,8 @@ covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "cra
 [[step]]
 click = "Recipes"
 [[step]]
-click = "Bot settings"
-[[step]]
-type = { into = "Questions a day", text = "5" }
-[[step]]
-click = "Save"
+expect_js = "(send({ type: 'set_bot_daily_limit', bot: 'recipes', daily_requests: 5 }), true)"
+note = "A daily limit of 5 questions, as the bot settings' old field sent it (the field is gone; the limit and its alerts aren't)"
 [[step]]
 send = "one"
 [[step]]
@@ -43,6 +40,9 @@ note = "One banner, showing the highest level"
 click = "Settings"
 [[step]]
 click = "Activity"
+[[step]]
+click = "oxbot's own log"
+note = "oxbot's own log is folded under Activity"
 [[step]]
 expect = "Mac notification"
 [[step]]

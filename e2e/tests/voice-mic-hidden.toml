@@ -1,5 +1,5 @@
 name = "No microphone without on-device dictation"
-about = "Where the Mac can't dictate on-device, there's no microphone button at all, and Setup says why."
+about = "Where the Mac can't dictate on-device, there's no microphone button at all, and Settings → General says why and how to turn it on."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
 
 [[step]]
@@ -11,5 +11,5 @@ shot = "no-mic"
 [[step]]
 click = "Settings"
 [[step]]
-expect = "Video and dictation"
-note = "Setup says why"
+expect_js = "!document.getElementById('setupSection').hidden && document.getElementById('setupLine').textContent.startsWith('Optional') && document.getElementById('setupList').textContent.includes('No microphone')"
+note = "Settings → General says why there's no microphone (optional, not turned on)"

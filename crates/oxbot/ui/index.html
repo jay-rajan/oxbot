@@ -365,7 +365,7 @@ label textarea { min-height: 110px; resize: vertical; }
 .profile-form .confirms { display: grid; gap: 6px; }
 .row { display: flex; gap: 8px; justify-content: flex-end; }
 .hint { font-size: .78rem; color: var(--muted); }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; max-width: min(520px, calc(100% - 32px)); box-shadow: 0 6px 24px rgb(0 0 0 / .2); z-index: 10; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; max-width: min(520px, calc(100% - 32px)); box-shadow: 0 6px 24px rgb(0 0 0 / .2); z-index: 10; overflow-wrap: anywhere; }
 .toast.error { background: var(--err); color: #fff; }
 /* while cards are open, the toast moves to the top so it never covers their buttons */
 body.has-cards .toast { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
@@ -388,6 +388,7 @@ dialog.settings-dlg { width: min(820px, calc(100% - 32px)); height: min(600px, c
   .tabs.vtabs { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
 }
 .setup-line { margin: 0; font-weight: 600; color: var(--err); font-size: .9rem; }
+.setup-line.optional { color: var(--muted); }
 .ai-line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
 .ai-line .gate-dot { flex: none; }
 .ai-month { display: grid; gap: 4px; }
@@ -545,6 +546,12 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
     <h2 id="bdTitle">Bot settings</h2>
     <div class="manage" id="bdManage">
     <label>Name<input id="bdName" required autocomplete="off"></label>
+    </div>
+    <div id="bdPurposeBox">
+    <label>What it's for<textarea id="bdPurpose" rows="4" maxlength="8000" placeholder="What should it do?"></textarea></label>
+    <p class="hint" id="bdPurposeHint"></p>
+    </div>
+    <div class="manage" id="bdManage2">
     <fieldset class="share-pick" id="bdShareBox"><legend>Shared with</legend>
       <div class="for-pick" role="radiogroup" aria-label="Shared with"><label><input type="radio" name="bdSharing" value="everyone"> Everyone in the home</label><label><input type="radio" name="bdSharing" value="me"> Just me</label><label><input type="radio" name="bdSharing" value="people"> Picked people</label></div>
       <div class="people-pick" id="bdPeople" hidden></div>
@@ -554,7 +561,6 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
       <label>Kind of job<select id="bdKind"></select></label>
       <p class="hint">Picked from the bot's instructions when it was made. It decides which AI models the bot tries, free ones first.</p>
     </details>
-    <section class="rules-box" aria-labelledby="bdRulesTitle"><h3 id="bdRulesTitle">Always allowed</h3><ul class="rules" id="bdRules"></ul></section>
     </div>
     <section class="reports-box" aria-labelledby="bdReportsTitle"><h3 id="bdReportsTitle">Reports</h3><ul class="rules" id="bdReports"></ul></section>
     <section class="rules-box" aria-labelledby="bdSchedTitle"><h3 id="bdSchedTitle">Schedules</h3><ul class="rules" id="bdScheds"></ul></section>
@@ -577,7 +583,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 
     <div id="setGeneral" role="tabpanel">
     <section id="setupSection" hidden>
-      <p class="setup-line">Something on the home computer needs a fix:</p>
+      <p class="setup-line" id="setupLine">Something on the home computer needs a fix:</p>
       <ul class="checks" id="setupList"></ul>
       <div class="btns"><button class="ghost" type="button" id="setupAgain2">Check again</button></div>
     </section>
@@ -611,7 +617,7 @@ table.usage tr.total td { font-weight: 600; border-bottom: 0; }
 
     <div id="setSignins" role="tabpanel" hidden>
     <section>
-      <form class="add-site" id="addSiteForm"><input id="addSiteUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Add a website, e.g. gmail.com" aria-label="Site address"><button class="primary" type="submit">Sign in</button></form>
+      <form class="add-site" id="addSiteForm"><input id="addSiteUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="e.g. gmail.com" aria-label="Add a website"><button class="primary" type="submit">Sign in</button></form>
       <p class="hint">You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one.</p>
       <ul class="site-rows" id="siteRows"></ul>
       <div class="btns"><button class="ghost" type="button" id="signOutAll">Sign out of all sites</button><button class="ghost" type="button" id="signOutMine" hidden>Sign out of all your private sites</button></div>
@@ -894,7 +900,7 @@ function onMessage(m) {
       for (const k of Object.keys(usageAlerts)) delete usageAlerts[k]; // live ones too
       helloAt = Date.now(); renderAlert();
       break;
-    case "settings": settings = m; if (!m.dictation && dictating) { dictating = null; renderMic(); } renderSettings(); renderEngines(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
+    case "settings": settings = m; if (!m.dictation && dictating) { dictating = null; renderMic(); } renderSettings(); renderSetup(); renderEngines(); renderBots(); if (current) { renderLog(); updateStatus(); } break;
     case "usage_alert": {
       const known = usageAlerts[m.limit];
       const fresh = !known || known.level !== m.level || known.resets_at_ms !== m.resets_at_ms;
@@ -905,7 +911,6 @@ function onMessage(m) {
     }
     case "approval_needed": approvals.set(m.id, arrived(approvals, m)); renderCards(); break;
     case "approval_resolved": approvals.delete(m.id); forgetScheduleEdits(); renderCards(); break;
-    case "allow_rules": if (m.bot === rulesFor) { rules = m.rules; renderRules(); } break;
     case "report": keepReport(m); if (wantReport === reportKey(m.bot, m.id)) showReport(m); break;
     case "reports": if (m.bot === reportsFor) { reportList = m.reports; renderReportList(); } break;
     case "sign_in_needed": signIns.set(m.id, arrived(signIns, m)); renderCards(); break;
@@ -924,7 +929,7 @@ function onMessage(m) {
     case "sites":
       if (m.owner) mySites = m.sites; else sites = m.sites;
       renderSiteRows(); renderSignedIn(); break;
-    case "step_sites": stepSites = m.sites; renderSiteRows(); break;
+    case "fine_grained_sites": fineSites = m.sites; renderSiteRows(); break;
     case "sections": setSections(m); break;
     case "bot_created": pendingSelect = m.id; if (bots.has(m.id)) { pendingSelect = null; select(m.id); } break;
     case "activity": {
@@ -1053,14 +1058,14 @@ function siteMark(s) {
 
 // Settings → Websites: one list. The home's sites (shared bots) first, then
 // your private ones (your private bots ask for those themselves). A home row's
-// actions are on the row: several steps at once, Open, Sign out; a private
+// actions are on the row: fine-grained control, Open, Sign out; a private
 // row's only action is Share with the home.
 function renderSiteRows() {
   const ul = $("siteRows"); ul.textContent = "";
   const farm = !!(settings && settings.farm);
   const home = new Map(sites.map((s) => [s.site, s]));
-  // Sites marked for several steps at once that nobody is signed in to yet.
-  for (const site of stepSites) if (!home.has(site)) home.set(site, { site, signed_in_ms: 0, stepOnly: true });
+  // Sites set to fine-grained control that nobody is signed in to yet.
+  for (const site of fineSites) if (!home.has(site)) home.set(site, { site, signed_in_ms: 0, stepOnly: true });
   const rows = [...home.values()].map((s) => ({ s, mine: false }))
     .concat(mySites.filter((s) => !home.has(s.site) || home.get(s.site).stepOnly).map((s) => ({ s, mine: true })));
   if (!rows.length) { const li = document.createElement("li"); li.className = "hint"; li.textContent = "No websites yet."; ul.appendChild(li); }
@@ -1077,16 +1082,18 @@ function renderSiteRows() {
     if (mine) {
       const share = document.createElement("button"); share.type = "button"; share.className = "ghost"; share.textContent = "Share with the home";
       share.title = "Shared bots can then use this sign-in too. Your private bots keep theirs.";
-      share.onclick = () => { send({ type: "share_site", site: s.site }); toast(`${s.site} is shared with the home.`); };
+      // The home computer says when it's shared (or why it couldn't be).
+      share.onclick = () => send({ type: "share_site", site: s.site });
       acts.appendChild(share);
     } else {
       const label = document.createElement("label"); label.className = "check steps";
-      const box = document.createElement("input"); box.type = "checkbox"; box.checked = stepSites.includes(s.site); box.disabled = !farm;
-      box.onchange = () => send({ type: "set_step_site", site: s.site, on: box.checked });
-      label.append(box, " Several steps at once");
-      label.title = "Bots may fill in, pick and click several things in a row here. They still ask before Add to cart, Submit, Post or Sign in.";
+      const box = document.createElement("input"); box.type = "checkbox"; box.checked = fineSites.includes(s.site); box.disabled = !farm;
+      box.onchange = () => send({ type: "set_fine_grained_site", site: s.site, on: box.checked });
+      label.append(box, " Fine-grained control");
+      label.title = "Bots do one step at a time here, so each fill and click shows on its own. Off: they may fill in, pick and click several things in a row. Either way they ask before Add to cart, Submit, Post or Sign in.";
       acts.appendChild(label);
-      if (!s.stepOnly) {
+      // Only the home computer may open or sign the home browser out.
+      if (!s.stepOnly && farm) {
         const open = document.createElement("button"); open.type = "button"; open.className = "ghost"; open.textContent = "Open";
         open.onclick = () => send({ type: "open_site", site: s.site, mine: false });
         const out = document.createElement("button"); out.type = "button"; out.className = "ghost";
@@ -1102,9 +1109,9 @@ function renderSiteRows() {
     ul.appendChild(li);
   }
   $("signOutMine").hidden = !mySites.length;
-  $("signOutAll").hidden = !sites.length;
+  $("signOutAll").hidden = !sites.length || !farm;
 }
-let stepSites = [];
+let fineSites = [];
 // Devices (the home computer only): paired phones, tablets and laptops, shown
 // under their person in Settings → People. The Wi-Fi networks phones may use
 // are hidden for now: adding a device lets phones use the network the home
@@ -1153,6 +1160,7 @@ $("pairForm").addEventListener("submit", (ev) => {
   pairAsked = true;
   send({ type: "start_pairing", person });
 });
+$("pairCancel").onclick = () => send({ type: "cancel_pairing" });
 $("pairCopy").onclick = async () => {
   if (!pairing) return;
   try { await navigator.clipboard.writeText(pairing.link); toast("Link copied. Send it to the phone some private way, e.g. AirDrop."); }
@@ -2163,7 +2171,7 @@ $("botMore").onclick = () => {
   const b = current && bots.get(current); if (!b || isLocked(b)) return;
   const manage = canManage(b);
   $("bdTitle").textContent = manage ? "Bot settings" : b.info.name || b.info.id;
-  $("bdManage").hidden = !manage; $("bdDelete").hidden = !manage; $("bdSave").hidden = !manage;
+  $("bdManage").hidden = $("bdManage2").hidden = !manage; $("bdDelete").hidden = !manage; $("bdSave").hidden = !manage;
   $("bdName").disabled = !manage;
   $("bdCancel").textContent = manage ? "Cancel" : "Close";
   reportsFor = b.info.id; reportList = null; reportArmed = null; renderReportList();
@@ -2171,6 +2179,12 @@ $("botMore").onclick = () => {
   schedFor = b.info.id; schedBot = null; schedArmed = null; renderScheduleList($("bdScheds"), null, false);
   send({ type: "list_schedules", bot: b.info.id });
   $("bdName").value = b.info.name || b.info.id;
+  // What it's for: its instructions. Others read them; the Assistant's are built in.
+  $("bdPurposeBox").hidden = !!b.info.central;
+  $("bdPurpose").value = (b.info.instructions || "").trim();
+  $("bdPurpose").readOnly = !manage; $("bdPurpose").disabled = manage && !!b.busy;
+  $("bdPurposeHint").textContent = !manage ? "" : b.busy ? "Wait until it's done working to change this." : "The bot follows this. Changing it starts a fresh conversation for the AI; the chat stays.";
+  $("bdPurposeHint").hidden = !manage;
   const sharing = sharingOf(b);
   for (const r of document.querySelectorAll('input[name="bdSharing"]')) { r.checked = r.value === sharing; r.disabled = b.busy; }
   $("bdShareBox").hidden = !!b.info.central;
@@ -2181,30 +2195,9 @@ $("botMore").onclick = () => {
   bdList = (b.info.models && b.info.models.length) ? [...b.info.models] : b.info.model ? [b.info.model] : [];
   renderKindPick(); $("bdKind").disabled = !!b.busy;
   resetDelete();
-  // Its "Always allowed" rules come from the server (only for those who manage it).
-  if (manage) { rulesFor = b.info.id; rules = null; renderRules(); send({ type: "list_allow_rules", bot: b.info.id }); }
   $("botDlg").showModal();
 };
-$("botDlg").addEventListener("close", () => { rulesFor = null; rules = null; reportsFor = null; reportList = null; schedFor = null; schedBot = null; });
-// The open bot's rules; Remove takes effect at once (it's a permission, not a setting to Save).
-let rulesFor = null, rules = null;
-function renderRules() {
-  const ul = $("bdRules"); ul.textContent = "";
-  const note = (text) => { const li = document.createElement("li"); li.className = "hint"; li.textContent = text; ul.appendChild(li); };
-  if (!rules) return note("Loading…");
-  if (!rules.length) return note("None. When an approval request offers Always allow and you pick it, it shows here.");
-  for (const r of rules) {
-    const li = document.createElement("li"); li.className = "rule-row";
-    const name = document.createElement("span"); name.className = "name";
-    const when = document.createElement("small");
-    const day = new Date(r.created_ms).toLocaleDateString([], { month: "short", day: "numeric" });
-    when.textContent = `${r.by ? "by " + r.by : "by the home computer"} · ${day}`;
-    name.append(document.createTextNode(`${r.action} ${r.label} on ${r.site}`), when);
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "ghost"; remove.textContent = "Remove";
-    remove.onclick = () => send({ type: "remove_allow_rule", bot: rulesFor, id: r.id });
-    li.append(name, remove); ul.appendChild(li);
-  }
-}
+$("botDlg").addEventListener("close", () => { reportsFor = null; reportList = null; schedFor = null; schedBot = null; });
 // Bot settings → Advanced: the kind of job, which picks the bot's models.
 // oxbot picks it from the instructions; "Automatic" is free models, best first.
 let bdList = [];
@@ -2238,6 +2231,10 @@ $("botForm").addEventListener("submit", (ev) => {
   const b = bots.get(current); if (!b || !canManage(b)) { $("botDlg").close(); return; }
   const name = $("bdName").value.trim();
   renameBot(b.info.id, name);
+  if (!b.info.central && !b.busy) {
+    const purpose = $("bdPurpose").value.trim();
+    if (purpose !== (b.info.instructions || "").trim()) send({ type: "set_bot_instructions", bot: b.info.id, instructions: purpose });
+  }
   if (!b.info.central) {
     const sharing = pickedSharing(), picked = sharing === "people" ? pickedPeople() : [];
     const was = b.info.members || [];
@@ -2738,11 +2735,11 @@ $("cards").addEventListener("load", () => {
 }, true);
 
 // Setup: what's missing, with what to do about it.
-function renderChecks(list, onlyMissing) {
+function renderChecks(list, onlyMissing, withOptional = false) {
   list.textContent = "";
   if (!setup) return;
   for (const c of setup.checks) {
-    if (onlyMissing && (c.ok || c.optional)) continue;
+    if (onlyMissing && (c.ok || (c.optional && !withOptional))) continue;
     const li = document.createElement("li"); li.className = c.ok ? "ok" : c.optional ? "opt" : "bad";
     const mark = document.createElement("span"); mark.textContent = c.ok ? "✓" : c.optional ? "–" : "✕";
     const body = document.createElement("span");
@@ -2765,8 +2762,13 @@ function renderSetup() {
   const ready = !setup || setup.checks.every((c) => c.ok || c.optional);
   $("setupBox").hidden = ready;
   renderChecks($("setupChecks"), true);
-  renderChecks($("setupList"), true);
-  $("setupSection").hidden = ready;
+  // On the home computer, optional parts that are off (the microphone) are
+  // listed too, so a missing button has a reason and a fix.
+  const optionalOff = !!(setup && settings && settings.farm && setup.checks.some((c) => !c.ok && c.optional));
+  renderChecks($("setupList"), true, optionalOff);
+  $("setupLine").textContent = ready ? "Optional, not turned on:" : "Something on the home computer needs a fix:";
+  $("setupLine").classList.toggle("optional", ready);
+  $("setupSection").hidden = ready && !optionalOff;
 }
 $("setupAgain").onclick = $("setupAgain2").onclick = () => send({ type: "check_setup" });
 $("signOutAll").onclick = () => {
@@ -3302,10 +3304,17 @@ $("cmpDeleteRuns").onclick = () => {
   delete b.dataset.armed; b.textContent = "Delete all test runs"; send({ type: "delete_all_runs" });
 };
 
+// A modal dialog sits above everything else on the page, so the toast shows
+// inside the open one (Settings is tall enough to cover it otherwise).
 function toast(text, isError) {
   const t = $("toast"); t.textContent = text; t.className = "toast" + (isError ? " error" : ""); t.hidden = false;
+  const host = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
+  if (t.parentNode !== host) host.appendChild(t);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, isError ? 7000 : 9000);
 }
+
+// A dialog closing hands the toast back to the page, so it stays visible.
+document.addEventListener("close", (ev) => { const t = $("toast"); if (ev.target.contains(t)) document.body.appendChild(t); }, true);
 
 connect();
 </script>

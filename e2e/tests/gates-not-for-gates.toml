@@ -1,5 +1,5 @@
 name = "A device can't connect other devices"
-about = "Someone on a device (Ann) has no Connect a device button and no Devices tab in Settings: only the home computer pairs phones. Their bottom row is Settings and Websites."
+about = "Someone on a device (Ann) has no Connect a device button, no Devices tab and no Add a device in Settings → People: only the home computer pairs phones. Their bottom row is Settings and Websites."
 covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/door/**"]
 as = "Ann"
 
@@ -9,10 +9,20 @@ note = "No Connect a device button"
 [[step]]
 click = "Settings"
 [[step]]
-expect = "Notifications"
+expect = "Tell me when AI use passes 50% and 80% of a limit"
+note = "The Notifications section (its heading shows in capitals)"
 [[step]]
-expect_js = "document.getElementById('gatesTab').hidden"
+expect_js = "![...document.querySelectorAll('#appDlg [role=tab]')].some((t) => /^Devices$/.test(t.textContent.trim()))"
 note = "No Devices tab"
+[[step]]
+click = "People"
+[[step]]
+expect_js = "document.getElementById('addDeviceRow').hidden && document.getElementById('pairForm').hidden"
+note = "No Add a device"
+[[step]]
+expect_js = "![...document.querySelectorAll('#peopleRows button')].some((b) => b.textContent === 'Devices')"
+note = "No one's device list to manage"
+shot = "people-on-device"
 [[step]]
 key = "Escape"
 [[step]]

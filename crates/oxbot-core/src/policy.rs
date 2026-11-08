@@ -28,7 +28,7 @@
 //! | Herder's `create_bot` | card with the name and instructions |
 //! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
 //! | `read_pages` | run: each page it opens is checked as a visit, and its script only reads a sealed copy |
-//! | `page_steps` | run on websites marked for several steps at once (the hub checks), each step checked as itself; it stops at the first that would ask |
+//! | `page_steps` | run on any website without fine-grained control (the hub checks), each step checked as itself; it stops at the first that would ask |
 //! | `run_program`: a small script oxbot runs in the bot's folder, sandboxed | card (Yes · Always for this bot · No); an Always rule doesn't apply after untrusted text |
 //!
 //! Labels come from the page snapshot (`button "Post"`), so a change behind
@@ -341,7 +341,7 @@ pub const LOOP_CONTEXT_TOOLS: [&str; 10] = [
 /// copies. Each page it opens asks the gate as a visit.
 pub const READ_PAGES_TOOL: &str = "read_pages";
 /// `page_steps`: several steps on the page at once, each asked of the gate
-/// as itself. Only on websites the owner marked for it (the hub checks).
+/// as itself. Not on websites with fine-grained control (the hub checks).
 pub const PAGE_STEPS_TOOL: &str = "page_steps";
 /// `run_program`: a small script oxbot runs in the bot's folder, in
 /// macOS's sandbox (its folder only, no internet): a card first.

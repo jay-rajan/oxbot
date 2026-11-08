@@ -1,0 +1,249 @@
+<title>oxbot on Codex</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--muted:#5f636b;--line:#dedad1;--card:#ffffff;--accent:#c81e1e;--soft:#f3efe6;--ok:#1d6b2f;--warn:#9a4b00;--code:#efece5;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#2e3136;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;--ok:#7fd08f;--warn:#e0a052;--code:#24272c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#2e3136;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;--ok:#7fd08f;--warn:#e0a052;--code:#24272c;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 "IBM Plex Sans",-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:40px}
+h1{font-size:30px;line-height:1.15;margin:0;text-wrap:balance}
+h2{font-size:21px;margin:0 0 10px;text-wrap:balance}
+h3{font-size:16px;margin:18px 0 6px}
+p,li{max-width:70ch}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.muted{color:var(--muted)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:13px;background:var(--code);padding:1px 4px;border-radius:3px}
+.pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.pillars>div{min-width:0;background:var(--card);border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:4px;padding:12px 14px}
+.pillars b{display:block;margin-bottom:4px}
+@media (max-width:700px){.pillars{grid-template-columns:1fr}}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+.diagram{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:12px;overflow-x:auto}
+.callout{background:var(--soft);border-left:4px solid var(--accent);padding:14px 16px;border-radius:4px}
+section ul,section ol{padding-left:20px;margin:6px 0}
+.new{color:var(--accent);font-weight:600}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">oxbot · Step 6 design · draft for OK · Nov 4, 2026</div>
+  <h1>oxbot on Codex: a household AI you budget, that keeps your data home</h1>
+  <p class="muted">Replaces the two-engine plan (Claude + OpenRouter). OpenRouter only; Codex CLI runs the agent loop; oxbot keeps the gate, page tools, a model relay, budgets, kid profiles and the UI. Sources: the Codex study (claude.ai/artifact/3CAfrb1neeeiioeva79x4U), the 12-task benchmark (claude.ai/artifact/RA9KdSqGMEuKCWTcuqxLAj), OpenRouter's terms (Aug 31, 2026), and the draft docs/legal/TERMS.md and PRIVACY.md.</p>
+</header>
+
+<section>
+  <div class="eyebrow">Positioning</div>
+  <h2>Three controls the household keeps</h2>
+  <div class="pillars">
+    <div><b>Cost</b>The household sets how much AI to spend, in dollars, per person and per bot. Free models first; paid only if allowed.</div>
+    <div><b>Data</b>You're not the product. Sign-ins, history, files and scripts stay on the Mac. What a task sends out is stripped of anything that identifies you, and you can see it.</div>
+    <div><b>Model</b>Pick any model on OpenRouter, or a local one, per bot. The loop is open source and model-neutral.</div>
+  </div>
+  <div class="callout" style="margin-top:14px">
+    <b>Decisions in this design</b>
+    <ul>
+      <li>OpenRouter only. Claude Code is removed from the product and kept only as a private benchmark yardstick.</li>
+      <li>Codex CLI (Apache-2.0, pinned version) is the loop, run as <span class="mono">codex app-server</span>, one process per person.</li>
+      <li>Coding is allowed, but never on its own: the first script in a task needs a yes, scripts run with no network inside the bot's folder, and only their output goes to the model.</li>
+      <li>Kids make and run bots in kid profiles; the parent approves anything risky.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">C4 · Level 1 · Context</div>
+  <h2>Who and what oxbot talks to</h2>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  A["Household admin (18+)<br/>sets budgets, privacy level, kid profiles"]
+  M["Household member<br/>makes and uses bots"]
+  K["Kid (kid profile)<br/>bots under parental control"]
+  OX["oxbot on the Farm (Mac)<br/>bots, browser, scripts, data"]
+  OR["OpenRouter<br/>one household account"]
+  MP["Model providers<br/>(chosen by the household)"]
+  W["Websites"]
+  LM["Local model<br/>(on the Mac, later)"]
+  A -->|"app on the Mac or a Gate on home Wi-Fi"| OX
+  M --> OX
+  K -->|"risky steps go to the parent"| OX
+  OX -->|"task text only, personal details removed"| OR --> MP
+  OX -->|"browsing, as a normal Chrome"| W
+  OX -.->|"kid profiles, Local level"| LM
+  </pre></div>
+  <p class="muted">Gone from this picture: Anthropic (Claude), chatgpt.com and github.com (Codex's plugin calls, switched off), and any oxbot server: there isn't one.</p>
+</section>
+
+<section>
+  <div class="eyebrow">C4 · Level 2 · Containers</div>
+  <h2>What runs on the Mac</h2>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph G["Gates (phones, laptops)"]
+    UIg["oxbot app / web UI"]
+  end
+  subgraph F["Farm (Mac)"]
+    UI["oxbot UI<br/>chat, cards, Settings,<br/>What was sent, Parent view"]
+    HUB["oxbot hub (Rust)<br/>people, bots, turns, approvals"]
+    ENG["Codex engine adapter<br/>JSON-RPC client"]
+    CX["codex app-server × 1 per person<br/>pinned binary, own CODEX_HOME,<br/>written config"]
+    GATE["oxbot gate<br/>click rules, cards, untrusted text,<br/>kid rules"]
+    PT["oxbot page tools<br/>map, find, section, rows, ask"]
+    REL["oxbot relay 127.0.0.1<br/>Responses API: budgets, model choice,<br/>PII removal, ID strip, What was sent"]
+    SB["Script sandbox (Seatbelt)<br/>bot folder only, no network"]
+    BR["chrome-devtools-mcp + Chrome<br/>profile per person / home"]
+    DB[("SQLite + files<br/>chats, pages, budgets, logs")]
+  end
+  OR["OpenRouter"]
+  UIg -->|"encrypted link (Gates)"| HUB
+  UI --> HUB
+  HUB --> ENG -->|"stdio JSON-RPC"| CX
+  CX -->|"item/tool/call"| ENG --> GATE
+  GATE --> PT
+  GATE --> BR
+  CX -->|"commandExecution/requestApproval"| ENG
+  CX -->|"runs approved scripts in"| SB
+  CX -->|"/v1/responses"| REL -->|"HTTPS"| OR
+  HUB --- DB
+  REL --- DB
+  </pre></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Container</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>oxbot hub, UI, store, Gates link</td><td>exists</td><td>Engine field per bot shrinks to one engine; Claude paths removed.</td></tr>
+      <tr><td>Codex engine adapter</td><td class="new">new</td><td>Spawns <span class="mono">codex app-server --listen stdio://</span> per person, maps threads to bot sessions, events to chat, approvals to cards, enforces step/time/token limits by <span class="mono">turn/interrupt</span>.</td></tr>
+      <tr><td>codex app-server</td><td class="new">new (shipped binary)</td><td>Pinned version inside oxbot.app with LICENSE + NOTICE. Config written by oxbot, never by hand (below).</td></tr>
+      <tr><td>Gate + page tools</td><td>exists (oxbot-core policy, oxbot-loop page tools)</td><td>Moved behind one interface that Codex reaches as dynamic tools. <span class="mono">evaluate_script</span> stays denied.</td></tr>
+      <tr><td>Relay</td><td class="new">new</td><td>Replaces oxbot-llm's direct OpenRouter client and the pacer's position; it is where the three controls are enforced.</td></tr>
+      <tr><td>Script sandbox</td><td class="new">new use of Codex's Seatbelt</td><td>Codex's own sandbox, with reads limited to the bot's folder and system runtimes, writes to the bot's folder, network off.</td></tr>
+      <tr><td>oxbot's own loop (oxbot-loop turn/context)</td><td>retire after the spike passes</td><td>Context trimming, compaction, retries move to Codex. Page tools, rows, numbers check and stores stay.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <div class="eyebrow">C4 · Level 3 · Components</div>
+  <h2>Inside the new parts</h2>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  subgraph E["Codex engine adapter (oxbot-core::engine::codex)"]
+    SP["Supervisor<br/>spawn, restart, version check"]
+    CFG["Config writer<br/>config.toml + permissions profile"]
+    RPC["JSON-RPC client<br/>initialize, thread/start|resume, turn/start|interrupt"]
+    EV["Event mapper<br/>items, deltas, usage → chat + model_calls"]
+    TL["Dynamic tools<br/>list + dispatch item/tool/call"]
+    AP["Approval mapper<br/>command/file approvals → cards"]
+    LIM["Task limits<br/>steps, minutes, tokens → interrupt"]
+  end
+  subgraph R["Relay (oxbot-relay crate)"]
+    IN["/v1/responses server<br/>loopback + per-process token"]
+    BUD["Budget check<br/>household · person · bot · task"]
+    RT["Model router<br/>bot's model, free fallback, 429 handling"]
+    PII["PII removal<br/>placeholders out, real values back"]
+    STR["Strip IDs + metadata<br/>installation, session, thread, turn"]
+    POL["Privacy level<br/>Free / Private (ZDR) / Local"]
+    LOG["What was sent<br/>exact outgoing text per request"]
+  end
+  subgraph Q["Gate (oxbot-core::policy + kid rules)"]
+    CL["Click verdicts + cards"]
+    TA["Untrusted-text marks"]
+    KR["Kid rules<br/>allowed sites, unsafe flags, parent approver"]
+  end
+  TL --> CL
+  TL --> TA
+  CL --> KR
+  AP --> KR
+  IN --> BUD --> POL --> PII --> STR --> RT
+  RT --> LOG
+  </pre></div>
+</section>
+
+<section>
+  <div class="eyebrow">Flows</div>
+  <h2>Three tasks, step by step</h2>
+  <h3>A · "Find 3 well-reviewed books on amazon.ca"</h3>
+  <ol>
+    <li>Hub starts a turn on the person's Codex process with the bot's instructions (<span class="mono">baseInstructions</span>, written by oxbot, not Codex's coding prompt).</li>
+    <li>Codex calls <span class="mono">browser_navigate</span> → <span class="mono">item/tool/call</span> → gate allows (a GET) → chrome-devtools-mcp. The snapshot is stored whole; Codex gets the page map, marked untrusted.</li>
+    <li>Codex calls <span class="mono">extract_rows</span> / <span class="mono">query_rows</span>; Rust filters and counts.</li>
+    <li>Each model request goes Codex → relay: budget ok → privacy level picks providers → "Hello, Jay" on the page becomes "Hello, [NAME_1]" → IDs stripped → OpenRouter. The outgoing text is saved for "What was sent".</li>
+    <li>The final answer comes back with [NAME_1] restored locally; the numbers check runs; the chat shows the answer and the cost.</li>
+  </ol>
+  <h3>B · "Here's my bank CSV; how much did we spend on groceries per month?"</h3>
+  <ol>
+    <li>The file lands in the bot's folder (upload card, as today).</li>
+    <li>Codex wants to run <span class="mono">python3 summarize.py</span>. The first script in a task sends <span class="mono">commandExecution/requestApproval</span> → card: <i>"This task needs a small script. It runs on this Mac, reads only this bot's folder and can't use the internet. Allow scripts for this task?"</i> Allow for this task · Show the script · No.</li>
+    <li>The script runs in Codex's Seatbelt sandbox: reads the bot folder (and system Python), writes only there, no network (loopback blocked too, so it can't reach Chrome or the relay).</li>
+    <li>Only the script's printed output goes to the model, through the relay's PII removal. The CSV itself never leaves.</li>
+    <li>Bots have a <b>Coding</b> setting: Off (no shell at all), Ask (default), or Allowed for this bot (admin only). Kid profiles: Ask, and the parent answers.</li>
+  </ol>
+  <h3>C · A kid asks a bot to "sign me up for this game site"</h3>
+  <ol>
+    <li>The site isn't on the parent's allowed list → the card goes to the parent's devices, not the kid's.</li>
+    <li>Signing up is a change → parent card again; kid profiles never get Always allow and can't sign in themselves.</li>
+    <li>The kid sees "Waiting for a parent"; the parent sees the task, the page and why it was flagged.</li>
+  </ol>
+</section>
+
+<section>
+  <div class="eyebrow">Config oxbot writes for every Codex home</div>
+  <h2>Pinned, never edited by hand</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Setting</th><th>Value</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>model_provider</td><td>oxbot relay at 127.0.0.1 (Responses API, token in env)</td><td>Budgets, privacy, PII and logs in one place</td></tr>
+      <tr><td>features</td><td>plugins, apps, memories, multi_agent, image_generation off; shell_tool only if the bot's Coding isn't Off</td><td>No calls home; no tools the household didn't choose</td></tr>
+      <tr><td>analytics, feedback, otel, update check, web_search</td><td>off</td><td>Network check: only the relay is contacted</td></tr>
+      <tr><td>approval_policy</td><td>granular: commands and file changes ask; MCP elicitation never used</td><td>Oxbot shows its own cards; Codex never auto-approves</td></tr>
+      <tr><td>sandbox</td><td>workspace-write on the bot folder, network off, reads limited to the bot folder + system runtimes</td><td>Scripts can't read the rest of the Mac or reach the internet</td></tr>
+      <tr><td>baseInstructions, include_* context, project docs</td><td>oxbot's prompt; environment/AGENTS.md off</td><td>A household bot, not a coding agent in a repo</td></tr>
+      <tr><td>model window, compaction limit, tool output limit</td><td>from the relay's model catalog (real window per model)</td><td>Unknown-model defaults (272k, 10 KB) are wrong for free models</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <div class="eyebrow">Data</div>
+  <h2>New tables and what leaves</h2>
+  <ul>
+    <li><b>budgets</b>: household, person, bot; dollars per month and requests per day; reset times. <b>spend</b> rolls up from model_calls.</li>
+    <li><b>relay_log</b> ("What was sent"): per request the outgoing text after PII removal, model, provider, tokens, cost. Owner and the person only; kept 30 days by default.</li>
+    <li><b>pii_map</b>: placeholder ↔ real value, per task, never leaves the Mac, deleted when the task ends.</li>
+    <li><b>kid_profiles</b>: parent, allowed sites, hours, coding setting; <b>approvals</b> gain an <span class="mono">approver</span>.</li>
+    <li><b>coding_consents</b>: per task, who allowed scripts and when.</li>
+    <li>Codex's own files (rollouts, state DB) live in each person's CODEX_HOME inside oxbot's data folder; oxbot's retention sweep covers them.</li>
+  </ul>
+  <p class="muted">Migrations forward-only, numbered after the current 20.</p>
+</section>
+
+<section>
+  <div class="eyebrow">Order of work</div>
+  <h2>Prove first, then build out</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Step</th><th>Done when</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><b>Spike</b>: Codex engine adapter + dynamic tools (gate + page tools) + a minimal relay (forward, log, strip IDs). Coding off.</td><td>The 12 tasks score at least as well as oxbot's loop (6/8, 3/4), with no page scripts, and only the relay is contacted.</td></tr>
+      <tr><td>2</td><td>Gate parity: every oxbot e2e safety test passes on the Codex engine; Claude engine removed from the product.</td><td>e2e green; cards, Always allow and untrusted marks behave as today.</td></tr>
+      <tr><td>3</td><td>Relay: model router with free fallback and 429 handling, budgets in dollars, privacy levels.</td><td>A free model's 429 moves to the next model; a budget stop shows a clear message.</td></tr>
+      <tr><td>4</td><td>PII removal + "What was sent".</td><td>Test pages with names, addresses, orders: none reach the relay log unmasked; answers show real values.</td></tr>
+      <tr><td>5</td><td>Coding with consent (sandbox profile, card, Coding setting).</td><td>Scripts can't read outside the bot folder or open a socket (tests); first script asks.</td></tr>
+      <tr><td>6</td><td>Kid profiles and parental control, unsafe-content flags.</td><td>Kid cards go to the parent; allowed-site list enforced.</td></tr>
+      <tr><td>7</td><td>Terms screen on first run; README and Settings text updated.</td><td>Terms drafts' [Needs] lines all resolved or removed.</td></tr>
+      <tr><td>8</td><td>Local models (#22) for Local level and kids.</td><td>A kid task runs with no network to any AI company.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <div class="eyebrow">Open</div>
+  <h2>For you to decide</h2>
+  <ul>
+    <li><b>Cloud models for kids</b> need OpenRouter's written OK (their §2: 18+). Until then, kid bots are Local only, so step 6 waits on step 8 unless OpenRouter says yes.</li>
+    <li><b>Keep oxbot's own loop as a fallback</b> after the spike, or retire it? Retiring halves the code to maintain; keeping it guards against Codex changing its protocol.</li>
+    <li><b>Which Python</b> scripts use: the Mac's own python3 (may be missing), or ship one with oxbot (bigger app).</li>
+  </ul>
+</section>
+</div>

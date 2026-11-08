@@ -1,0 +1,348 @@
+<title>oxbot Storage and Cleanup</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--x:#d92f2f;--ok:#1f7a45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:40px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:20px;margin:0;text-wrap:balance}h3{font-size:15px;margin:6px 0 0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.tree{background:var(--soft);border-radius:10px;padding:14px;overflow-x:auto;font:12.5px/1.55 ui-monospace,Menlo,monospace;margin:0}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+.note{border-left:3px solid var(--x);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+.ok{border-left-color:var(--ok)}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · architecture · Nov 8, 2026 · cleanup waits for your OK</div>
+<h1>Where oxbot keeps things, and cleaning up the repo</h1>
+<p class="mut">Why the editor shows 1,000+ changed files and how to clear them, how oxbot is built, where chats and reports are stored on the home computer, the database's tables, how backups will work, and which database fits production.</p>
+</header>
+
+<section>
+<h2>1 · Why 1,000+ files show as changed</h2>
+<div class="scroll"><table>
+<tr><th>What</th><th class="num">Files</th><th>Why</th></tr>
+<tr><td>Approved test screenshots (<code>e2e/baselines</code>, 64 MB)</td><td class="num">879</td><td>Never added to git and never ignored, so every worktree that has them lists them as new files. This is most of the count.</td></tr>
+<tr><td><code>settings</code> branch vs <code>main</code></td><td class="num">421</td><td><code>main</code> stopped at "Docs: architecture for Step 2" (47fbeef). Every branch since then (engines, codex, pii, scripts, models, rebrand, settings-core, settings-net, settings) was merged into the next branch instead of into <code>main</code>: 140 commits.</td></tr>
+<tr><td>Plans and docs in <code>~/src/oxbot</code></td><td class="num">15</td><td>Plan pages written for you (docs/plan, docs/arch, docs/legal…) and PROMPTS.md, never committed.</td></tr>
+<tr><td>Worktrees</td><td class="num">12 folders</td><td>One folder per branch under <code>~/src/oxbot-wt/</code>. All but <code>react</code> are fully merged into <code>settings</code>, and all are clean.</td></tr>
+</table></div>
+
+<h3>The cleanup (nothing is pushed; nothing is deleted outright)</h3>
+<ol>
+<li><b>Screenshots out of git:</b> add <code>/e2e/baselines</code> to <code>.gitignore</code>. They stay on disk as the approved set. The repo is public and 64 MB of PNGs would bloat every clone. If you later want them shared, Git LFS or a private bucket is the place.</li>
+<li><b>Bring <code>main</code> up to date:</b> <code>main</code> is an ancestor of <code>settings</code>, so it moves forward to <code>settings</code> with no merge commit (fast-forward). Local only.</li>
+<li><b>Docs:</b> commit the architecture and plan pages that are safe to be public. <b>Keep the business pages private</b> (home-cloud: trial price and caps; legal): add them to a local-only ignore (<code>.git/info/exclude</code>), not the public repo.</li>
+<li><b>Worktrees:</b> remove the 11 merged worktrees (codex, ctx, eng-review, eng-try, pii, rebrand, release, scripts, settings-core, settings-net) with <code>git worktree remove</code>. The branches stay in git, so nothing is lost. The one untracked folder (rebrand's screenshots) is moved to the settings worktree first. Keep <code>settings</code> and <code>react</code>.</li>
+<li><b>Old branch names:</b> keep them for now; deleting merged names is optional and can wait.</li>
+</ol>
+<p class="note ok">After this: <code>main</code> = everything built so far, the editor shows only real work in progress, and two worktrees remain (settings, react).</p>
+</section>
+
+<section>
+<h2>2 · How oxbot is built</h2>
+<p>One program runs on the home computer (the Mac). It serves the app's page to the Mac window and to phones, runs the bots, and is the only thing that talks to the internet. Phones are just screens: they never store chats and never run bots.</p>
+<pre class="mermaid">
+C4Context
+title oxbot: system context
+Person(owner, "Owner", "sets up the home, approves actions")
+Person(member, "Family member", "uses bots from a phone or laptop")
+System(oxbot, "oxbot on the home computer", "bots, chats, browser, all data")
+System_Ext(or, "OpenRouter", "AI models, free and paid")
+System_Ext(web, "Websites", "what bots read and act on")
+System_Ext(cloud, "oxbot service (later)", "trial key, device connection from anywhere, encrypted backups")
+Rel(owner, oxbot, "Mac app")
+Rel(member, oxbot, "phone app / browser, paired device")
+Rel(oxbot, or, "questions, personal details swapped out")
+Rel(oxbot, web, "home browser and private browsers")
+Rel(oxbot, cloud, "later: trial key, backups (encrypted)")
+</pre>
+<pre class="mermaid">
+C4Container
+title oxbot: containers on the home computer
+Person(user, "Someone in the home")
+System_Boundary(home, "Home computer") {
+  Container(app, "Mac app", "Tauri", "window, Dock icon, notifications")
+  Container(page, "oxbot page", "HTML/JS today, React next", "sidebar, chat, cards, settings")
+  Container(server, "oxbot server", "Rust (axum)", "WebSocket, devices, permissions")
+  Container(hub, "Hub", "Rust (oxbot-core)", "bots, turns, cards, schedules")
+  Container(engines, "Engines", "Rust", "oxbot loop, Codex, relay (personal-details filter)")
+  Container(browser, "Browsers", "Chrome via CDP", "one shared home browser, one per person")
+  Container(helper, "Mac helper", "Swift", "dictation, video frames")
+  ContainerDb(db, "oxbot.db", "SQLite (WAL)", "chats, reports, people, devices, usage")
+  ContainerDb(files, "bots/ folders", "files", "bot.toml, instructions, work/, inbox/")
+  ContainerDb(kc, "Keychain", "macOS", "OpenRouter key")
+}
+System_Ext(or, "OpenRouter")
+Rel(user, page, "uses")
+Rel(app, page, "shows")
+Rel(page, server, "WebSocket")
+Rel(server, hub, "calls")
+Rel(hub, db, "reads, writes")
+Rel(hub, files, "reads, writes")
+Rel(hub, engines, "runs turns")
+Rel(engines, or, "HTTPS")
+Rel(engines, browser, "browse tools")
+Rel(server, helper, "dictation")
+Rel(engines, kc, "key, in memory only")
+</pre>
+<div class="scroll"><table>
+<tr><th>Crate</th><th>Job</th></tr>
+<tr><td class="mono">oxbot</td><td>The program: server, settings, notifications, Keychain, dictation, setup checks.</td></tr>
+<tr><td class="mono">oxbot-core</td><td>The hub (bots, turns, cards, schedules, people, devices) and the store (all SQLite access).</td></tr>
+<tr><td class="mono">oxbot-protocol</td><td>Every message between page and server (and the TypeScript types for React).</td></tr>
+<tr><td class="mono">oxbot-loop, oxbot-llm, oxbot-engine</td><td>oxbot's own agent loop, model calls and the engine interface.</td></tr>
+<tr><td class="mono">oxbot-codex, oxbot-claude</td><td>Other engines (Codex; Claude for the owner's dev tools only).</td></tr>
+<tr><td class="mono">oxbot-relay</td><td>Sits in front of OpenRouter: swaps personal details out and back, counts, logs.</td></tr>
+<tr><td class="mono">oxbot-browser</td><td>Chrome control, sign-ins, cookies, website visit counts.</td></tr>
+<tr><td class="mono">oxbot-gate</td><td>Device pairing and connections.</td></tr>
+<tr><td class="mono">oxbot-e2e</td><td>End-to-end test runner and stand-ins.</td></tr>
+<tr><td class="mono">app/src-tauri</td><td>The Mac (and later phone) shell around the page.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>3 · Where things live on the home computer</h2>
+<pre class="tree">~/Library/Application Support/oxbot/
+  oxbot.db               the database (SQLite, WAL mode): every chat, report, person, device
+  oxbot.db-wal, -shm     SQLite's write log (part of the database)
+  oxbot.db.v27.bak       a full copy taken before a schema upgrade that rebuilds tables
+  bots/
+    assistant/
+      bot.toml           name, engine, owner, who it's shared with, model limits
+      instructions.md    what the bot is told to do
+      work/              the only folder the bot may touch
+        inbox/2026-11-07/  files sent with messages (and readable copies of Word, photos…)
+        .oxbot/results/    large tool results kept out of the database
+      context/           what was sent to the AI (relay copies, for Activity)
+      reports.jsonl      written only when a bot is deleted: its reports, kept
+    .oxbot/cases/        saved test cases (developer tools)
+  browser/profile        the home browser (shared sign-ins)
+  (per person)           each person's private browser profile
+macOS Keychain            the OpenRouter key (never in a file)</pre>
+<div class="scroll"><table>
+<tr><th>Thing you see</th><th>Where it's stored</th></tr>
+<tr><td><b>A chat</b> (messages, tool steps, cards)</td><td><code>events</code>: one row per thing that happened, in order (<code>bot, seq</code>), the content as JSON. Append-only: the chat is replayed from it.</td></tr>
+<tr><td><b>What the AI remembers</b> in a chat</td><td><code>loop_sessions</code> + <code>loop_messages</code> (oxbot's loop), <code>codex_threads</code> (Codex). Separate from the chat so the context can be trimmed without losing the chat.</td></tr>
+<tr><td><b>Reports</b> (the documents bots write)</td><td><code>reports</code>: title, summary, Markdown, sources. Its card in the chat points to it by <code>seq</code>.</td></tr>
+<tr><td><b>Files</b> people send</td><td>On disk in the bot's <code>work/inbox/</code>; the chat event holds the name and path.</td></tr>
+<tr><td><b>Activity</b></td><td><code>net_log</code> (30 days), <code>model_calls</code>, <code>relay_log</code>.</td></tr>
+<tr><td><b>Settings</b></td><td><code>prefs</code> (key/value) and each <code>bot.toml</code>.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>4 · The database (ER diagram)</h2>
+<p>About 40 tables. Bots are folders on disk, not rows, so the <code>bot</code> column everywhere is the folder's id. The lines below are the links the code relies on; SQLite doesn't enforce them (there are no foreign keys). The test-only tables (test_cases, trial_*) and the old Claude usage tables are left out.</p>
+<pre class="mermaid">
+erDiagram
+  BOT_FOLDER ||--o{ EVENTS : "chat"
+  BOT_FOLDER ||--o{ REPORTS : "writes"
+  BOT_FOLDER ||--o{ SESSIONS : "current session"
+  BOT_FOLDER ||--o{ LOOP_SESSIONS : "AI memory"
+  BOT_FOLDER ||--o{ BOT_MEMBERS : "shared with"
+  BOT_FOLDER ||--o{ SCHEDULES : "runs on"
+  BOT_FOLDER ||--o{ ALLOW_RULES : "always allow"
+  BOT_FOLDER ||--o{ MODEL_CALLS : "costs"
+  PEOPLE ||--|| PROFILES : "details"
+  PEOPLE ||--o{ GATES : "devices"
+  PEOPLE ||--o{ BOT_MEMBERS : "member of"
+  PEOPLE ||--o{ SECTIONS : "sidebar"
+  SECTIONS ||--o{ BOT_SECTIONS : "holds"
+  PEOPLE ||--o{ SITES : "private sign-ins"
+  PEOPLE ||--o{ SCHEDULES : "runs as"
+  SCHEDULES ||--o{ SCHEDULE_RUNS : "history"
+  EVENTS ||--o| TURN_ORIGINS : "who started it"
+  EVENTS ||--o| REPORTS : "card"
+  LOOP_SESSIONS ||--o{ LOOP_MESSAGES : "messages"
+  LOOP_SESSIONS ||--o{ LOOP_TURNS : "turns"
+  LOOP_SESSIONS ||--o{ LOOP_RESULTS : "big results"
+  PEOPLE ||--o{ NET_LOG : "activity"
+  GATES ||--o{ NET_LOG : "device rows"
+  BOT_FOLDER {
+    text id "folder name, e.g. assistant"
+    text bot_toml "name, engine, owner, private"
+  }
+  EVENTS {
+    text bot PK
+    int seq PK
+    int ts_ms
+    json body "message, tool step, card"
+  }
+  REPORTS {
+    text id PK
+    text bot
+    int seq "its card"
+    text asked_by "person id"
+    text title
+    text markdown
+    json sources
+  }
+  PEOPLE {
+    text id PK "p_..."
+    text name UK
+    int farm "1 = owner of the home computer"
+  }
+  PROFILES {
+    text person PK
+    text role "owner, adult, kid"
+    text photo
+    text food
+    text languages
+  }
+  GATES {
+    text id PK
+    text person_id
+    text name "Sam's iPhone"
+    text key_hash UK
+    int last_seen_ms
+  }
+  SITES {
+    text owner PK "'' = home browser"
+    text site PK
+    int signed_in_ms
+  }
+  BOT_MEMBERS {
+    text bot PK
+    text person PK
+  }
+  SECTIONS {
+    text id PK
+    text person_id
+    text name
+    int position
+  }
+  BOT_SECTIONS {
+    text person_id PK
+    text bot PK
+    text section_id
+  }
+  SESSIONS {
+    text bot PK
+    text claude_session "current session id"
+    text engine
+  }
+  LOOP_SESSIONS {
+    text id PK
+    text bot
+    json context
+  }
+  LOOP_MESSAGES {
+    text session PK
+    int idx PK
+    text role
+    json body
+    int untrusted
+  }
+  LOOP_TURNS {
+    text session PK
+    int turn PK
+    text status
+    text model
+  }
+  LOOP_RESULTS {
+    text session PK
+    text handle PK
+    text tool
+    int bytes
+  }
+  TURN_ORIGINS {
+    text bot PK
+    int seq PK
+    text person
+    text entry "home computer, device, test"
+  }
+  SCHEDULES {
+    int id PK
+    text bot
+    text person
+    json rule_json
+    int next_run_ms
+  }
+  SCHEDULE_RUNS {
+    int id PK
+    int schedule
+    text outcome
+  }
+  ALLOW_RULES {
+    int id PK
+    text bot
+    text site
+    text action
+  }
+  MODEL_CALLS {
+    int id PK
+    text day
+    text bot
+    text person
+    text model
+    real cost_usd
+  }
+  NET_LOG {
+    int id PK
+    int ts_ms
+    text kind "ai, website, device, oxbot"
+    text person
+    text gate
+    int bytes_up
+    int bytes_down
+  }
+</pre>
+<p class="mut">Also: <code>prefs</code> (settings), <code>limits</code>/<code>limit_alerts</code> (usage alerts), <code>relay_log</code>, <code>turn_tools</code>, <code>turn_ratings</code>, <code>loop_progress</code>, <code>loop_checks</code>, <code>token_calibration</code>, <code>session_pages</code>, <code>codex_threads</code>, <code>engine_upgrades</code>, <code>site_checks</code>.</p>
+</section>
+
+<section>
+<h2>5 · Backups: today and later</h2>
+<h3>Today</h3>
+<ul>
+<li>Before a schema upgrade that rebuilds tables, oxbot copies the whole database next to itself (<code>oxbot.db.vN.bak</code>, made with SQLite's <code>VACUUM INTO</code>, which gives one consistent file).</li>
+<li>Time Machine covers the folder if the user has it on. A copy taken while oxbot is writing can be inconsistent, though, and Time Machine skips nothing on purpose.</li>
+<li>No regular backup, no off-computer copy. A lost or broken Mac loses every chat.</li>
+</ul>
+<h3>Planned, in three layers</h3>
+<div class="scroll"><table>
+<tr><th>Layer</th><th>What</th><th>How</th></tr>
+<tr><td><b>1 · Daily snapshot on the Mac</b></td><td>The database plus every <code>bots/</code> folder, once a day, keep 7 daily and 4 weekly.</td><td>SQLite's online backup (<code>VACUUM INTO</code>) to <code>Backups/</code>, then the bot folders copied with it, into one dated folder. Safe while oxbot runs. Settings → General: "Last backup: today 3:00".</td></tr>
+<tr><td><b>2 · Encrypted copy off the Mac</b> (with the oxbot service)</td><td>The same snapshot, encrypted on the Mac before it leaves.</td><td>Encrypted with a key only the home has (a recovery phrase the owner writes down). The service stores sealed blobs it can't read, in object storage. Only changed pieces are sent each day. Off by default; the owner turns it on.</td></tr>
+<tr><td><b>3 · Restore</b></td><td>New Mac, or roll back.</td><td>Install oxbot, choose "Restore from backup", enter the recovery phrase. Devices pair again (their keys stay on the old Mac on purpose), and websites need signing in again (cookies aren't backed up).</td></tr>
+</table></div>
+<p class="note">Never in a backup: the OpenRouter key (Keychain; reconnect after a restore), browser cookies and passwords, device keys. Restored chats keep their personal details, so layer 2 must be end-to-end encrypted, not just "encrypted at rest" by a cloud provider.</p>
+</section>
+
+<section>
+<h2>6 · What's the best database for production?</h2>
+<p><b>On the home computer: keep SQLite.</b> It's the right tool here, not a stopgap. One program writes, one home's data is small (megabytes to a few GB), and there's nothing for a family to install, run or update. Postgres on every Mac would add a server process, upgrades, and a new way for the app to break. Apple Notes, Photos and Messages all run on SQLite for the same reason.</p>
+<p><b>For the oxbot service (trial keys, accounts, device connections, backup records): Postgres</b>, managed (for example on AWS RDS or Neon; no Google, per the rules). Many writers, many homes, it needs real users and roles, point-in-time recovery and replicas. It never holds chats, only accounts and sealed backup records; the encrypted blobs go to object storage (S3 or Cloudflare R2).</p>
+<div class="scroll"><table>
+<tr><th>Data</th><th>Where</th><th>Why</th></tr>
+<tr><td>Chats, reports, people, devices, activity</td><td>SQLite on the home computer</td><td>Private by design; works offline; nothing to run.</td></tr>
+<tr><td>Accounts, trials, billing, which homes exist</td><td>Postgres (oxbot service)</td><td>Many writers, needs backups and replicas.</td></tr>
+<tr><td>Encrypted home backups</td><td>Object storage (S3 / R2)</td><td>Cheap, large, the service can't read them.</td></tr>
+</table></div>
+<h3>Worth fixing in the SQLite schema before launch</h3>
+<ul>
+<li><b>A <code>bots</code> table:</b> today a bot exists only as a folder, so nothing in the database can check that a <code>bot</code> value is real. A table (id, created, deleted) would allow foreign keys and clean deletes.</li>
+<li><b>Foreign keys and <code>STRICT</code> tables</b> for the core tables (people, gates, profiles, bot_members, schedules), so bad rows are refused instead of found later.</li>
+<li><b>Retention</b> for the growing logs (<code>model_calls</code>, <code>relay_log</code>, <code>loop_messages</code> of closed sessions), like <code>net_log</code>'s 30 days.</li>
+<li><b>Big JSON in <code>events.body</code></b> is fine at a home's scale; keep large content (files, page snapshots) on disk, as now.</li>
+</ul>
+</section>
+
+<section>
+<h2>7 · What happens on your OK</h2>
+<ol>
+<li>The cleanup in section 1 (local only; no push).</li>
+<li>The daily snapshot (backup layer 1) and the schema fixes are built later, each with its own plan for your OK.</li>
+</ol>
+</section>
+</div>

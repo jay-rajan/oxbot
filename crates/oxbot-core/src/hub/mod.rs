@@ -930,6 +930,60 @@ mod tests {
         assert_eq!(hub.bot("bank").unwrap().owner, Some(sam.id));
     }
 
+    #[tokio::test]
+    async fn its_maker_changes_what_a_bot_is_for_and_others_only_read_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = Hub::new(
+            vec![],
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        hub.create_bot_with("Groceries", "Keep the list.", Some("Sam"), false)
+            .await
+            .unwrap();
+        let dir = hub.bot("groceries").unwrap().dir;
+        let (sam, ben) = (Viewer::gate("Sam"), Viewer::gate("Ben"));
+
+        assert!(matches!(
+            hub.set_instructions("groceries", "Order wine.", &ben).await,
+            Err(HubError::NotAllowed(_))
+        ));
+        let long = "x".repeat(access::MAX_INSTRUCTIONS + 1);
+        assert!(
+            hub.set_instructions("groceries", &long, &sam)
+                .await
+                .is_err()
+        );
+        assert_eq!(hub.bot("groceries").unwrap().instructions, "Keep the list.");
+
+        hub.set_instructions("groceries", "  Fill the cart on Fridays.\n", &sam)
+            .await
+            .unwrap();
+        assert_eq!(
+            hub.bot("groceries").unwrap().instructions,
+            "Fill the cart on Fridays."
+        );
+        let text = std::fs::read_to_string(dir.join("instructions.md")).unwrap();
+        assert_eq!(text, "Fill the cart on Fridays.");
+        assert!(!dir.join("instructions.md.tmp").exists(), "written whole");
+        assert_eq!(
+            Bot::load(&dir).unwrap().instructions,
+            "Fill the cart on Fridays."
+        );
+
+        // Shared with everyone: Ben reads it but may not change it.
+        let list = hub.bots_for(&ben).await.unwrap();
+        let seen = list.iter().find(|b| b.id == "groceries").unwrap();
+        assert_eq!(seen.instructions, "Fill the cart on Fridays.");
+        assert!(!seen.can_manage);
+
+        // Private to Sam: Ben sees neither its activity nor what it's for.
+        hub.set_private("groceries", true, &sam).await.unwrap();
+        let list = hub.bots_for(&ben).await.unwrap();
+        let seen = list.iter().find(|b| b.id == "groceries").unwrap();
+        assert!(seen.locked && seen.instructions.is_empty());
+    }
+
     /// A hub that, like a normal build, never makes a person from a name.
     fn strict_hub(dir: &std::path::Path, bots: Vec<Bot>, store: Store) -> Arc<Hub> {
         let config = HubConfig {
@@ -963,9 +1017,9 @@ mod tests {
         assert_eq!(
             lists.len(),
             2,
-            "home's only, and where bots may do several steps at once"
+            "home's only, and the websites with fine-grained control"
         );
-        assert!(matches!(lists[1], ServerMsg::StepSites { .. }));
+        assert!(matches!(lists[1], ServerMsg::FineGrainedSites { .. }));
         assert!(hub.herder_of(&ghost).is_err());
         assert!(!hub.approval_visible(1, &ghost));
         assert!(!hub.sign_in_visible(1, &ghost));

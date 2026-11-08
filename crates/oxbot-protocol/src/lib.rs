@@ -270,6 +270,14 @@ pub enum ClientMsg {
         /// The new name.
         name: String,
     },
+    /// Change what a bot is for: its instructions. Whoever may manage it;
+    /// not the Assistant. Its AI conversation starts fresh; the chat stays.
+    SetBotInstructions {
+        /// Bot id.
+        bot: String,
+        /// The new instructions.
+        instructions: String,
+    },
     /// Delete a bot and its history (its folder goes to oxbot's trash).
     /// Its creator or the Farm only; Herder can't be deleted.
     DeleteBot {
@@ -434,12 +442,13 @@ pub enum ClientMsg {
         #[serde(default)]
         mine: bool,
     },
-    /// Farm only: let bots do several steps at once on a website (`on`),
-    /// or not. The answer is [`ServerMsg::StepSites`].
-    SetStepSite {
+    /// Farm only: fine-grained control on a website (`on`): bots there
+    /// do one step at a time instead of several at once. The answer is
+    /// [`ServerMsg::FineGrainedSites`].
+    SetFineGrainedSite {
         /// The site: a main domain (`amazon.ca`) or an address on it.
         site: String,
-        /// Allowed from now on.
+        /// One step at a time from now on.
         on: bool,
     },
     /// Farm only: show a pairing code (and QR code) for a new Gate that
@@ -975,10 +984,11 @@ pub enum ServerMsg {
         #[serde(skip)]
         owner_id: Option<String>,
     },
-    /// The websites where bots may do several steps at once (main
-    /// domains, sorted). Sent after [`ServerMsg::Hello`] and whenever it
+    /// The websites with fine-grained control, where bots do one step at
+    /// a time (main domains, sorted). Everywhere else they may do several
+    /// steps at once. Sent after [`ServerMsg::Hello`] and whenever it
     /// changes; only the Farm changes it.
-    StepSites {
+    FineGrainedSites {
         /// The sites.
         sites: Vec<String>,
     },
@@ -1916,6 +1926,10 @@ pub struct BotInfo {
     /// private bot). Decided by the server for each client.
     #[serde(default = "yes")]
     pub can_task: bool,
+    /// What it's for: its instructions, as its maker wrote them. Empty for
+    /// a locked bot (decided by the server for each client).
+    #[serde(default)]
+    pub instructions: String,
     /// The bot's own cap on model requests a day, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,

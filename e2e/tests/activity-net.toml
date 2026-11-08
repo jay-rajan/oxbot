@@ -1,0 +1,57 @@
+name = "Settings → Activity: what left the home computer"
+about = "After a bot answers once (the stand-in), Settings → Activity shows today's totals and at least one row (or says Nothing yet), and the chips (All, AI, Websites, Devices, oxbot) switch what it lists. oxbot's own log is folded away below."
+covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/store/**", "crates/oxbot-relay/**", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "hello"
+[[step]]
+wait_for = "Hello! I'm the stand-in bot."
+timeout_ms = 60000
+[[step]]
+click = "Settings"
+[[step]]
+click = "Activity"
+[[step]]
+wait_for = "Today:"
+note = "The totals came back from the home computer"
+[[step]]
+expect_js = "document.querySelectorAll('#netRows .net-row').length > 0 || document.getElementById('netRows').innerText.includes('Nothing yet.')"
+timeout_ms = 5000
+note = "Rows, or the empty state"
+[[step]]
+expect_js = "document.querySelectorAll('#netRows .net-row').length > 0"
+timeout_ms = 5000
+note = "The bot's AI questions left the home computer: at least one row"
+shot = "activity-all"
+[[step]]
+click = "AI"
+[[step]]
+expect_js = "document.querySelector('.net-chips [data-net=\"ai\"]').getAttribute('aria-checked') === 'true' && document.querySelector('.net-chips [data-net=\"\"]').getAttribute('aria-checked') === 'false'"
+note = "The AI chip is on"
+[[step]]
+wait_for = "Today:"
+[[step]]
+expect_js = "document.querySelectorAll('#netRows .net-row').length > 0 && [...document.querySelectorAll('#netRows .net-row .what > span')].every((s) => s.textContent.endsWith('→ AI'))"
+timeout_ms = 5000
+note = "Only AI rows"
+shot = "activity-ai"
+[[step]]
+click = "Devices"
+[[step]]
+wait_for = "Today:"
+[[step]]
+expect_js = "document.querySelector('.net-chips [data-net=\"device\"]').getAttribute('aria-checked') === 'true' && (document.querySelectorAll('#netRows .net-row').length > 0 || document.getElementById('netRows').innerText.includes('Nothing yet.'))"
+timeout_ms = 5000
+note = "The Devices chip switches the list"
+[[step]]
+click = "All"
+[[step]]
+expect_js = "document.querySelector('.net-chips [data-net=\"\"]').getAttribute('aria-checked') === 'true' && document.querySelectorAll('#netRows .net-row').length > 0"
+timeout_ms = 5000
+[[step]]
+expect_js = "(() => { const d = document.querySelector('#setActivity details.oxlog'); return !!d && !d.open && d.contains(document.getElementById('logList')); })()"
+note = "oxbot's own log, folded away"
+[[step]]
+key = "Escape"

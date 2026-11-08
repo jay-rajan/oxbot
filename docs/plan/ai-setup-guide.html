@@ -1,0 +1,153 @@
+<title>oxbot AI Setup Guide</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--muted:#62666e;--line:#dcd8ce;--card:#fff;--accent:#c81e1e;--soft:#f4efe6;--ok:#1f7a4a;--screen:#f7f5f0;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#33363c;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;--ok:#5cc18c;--screen:#191b1f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#33363c;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;--ok:#5cc18c;--screen:#191b1f;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 "IBM Plex Sans",-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:940px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance} h2{font-size:20px;margin:0 0 8px;text-wrap:balance} h3{font-size:16px;margin:14px 0 4px}
+p,li{max-width:72ch} .eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.muted{color:var(--muted)} .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:13px}
+ol,ul{padding-left:22px;margin:6px 0} li{margin:3px 0}
+.callout{background:var(--soft);border-left:4px solid var(--accent);padding:12px 16px;border-radius:4px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)} tr:last-child td{border-bottom:0}
+.screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+.screen{background:var(--screen);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.screen .n{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.screen h4{margin:0;font-size:17px}
+.screen p{margin:0;font-size:14px}
+.btn{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:4px 10px;font-size:13px;background:var(--card)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;font-size:14px}
+.steps li{counter-increment:s;padding-left:24px;position:relative}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:17px;height:17px;border-radius:50%;background:var(--soft);font-size:11px;text-align:center;line-height:17px}
+.ok{color:var(--ok);font-weight:600}
+.meter{height:6px;background:var(--line);border-radius:3px;overflow:hidden} .meter i{display:block;height:100%;background:var(--accent)}
+.flow{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:10px;overflow-x:auto}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<div class="wrap">
+<header>
+  <div class="eyebrow">oxbot · design for OK · Nov 5, 2026</div>
+  <h1>Set up the home's AI from inside oxbot, step by step</h1>
+  <p class="muted">You asked whether the app can guide people through OpenRouter. Today it's one button buried in Settings → AI models. This page moves it into the welcome screen as a short guide that a non-technical parent can finish in a few minutes, and that checks each step itself.</p>
+</header>
+
+<section>
+  <div class="eyebrow">1 · What's there today</div>
+  <h2>The pieces already work; the guidance is missing</h2>
+  <ul>
+    <li><b>Sign in without keys</b>: "Sign in with OpenRouter" opens the browser, the person approves, and the key goes straight into the Keychain. Nobody copies anything.</li>
+    <li><b>oxbot can read the account's state</b>: free questions used today (of 50 or 1,000), whether credit was ever bought, spending today and the limit.</li>
+    <li><b>Owner confirms 18+ and OpenRouter's terms</b> on the welcome screen.</li>
+    <li><b>Missing</b>: nothing explains what OpenRouter is, that a new account can be made during sign-in, why adding $10 once matters, or what to do next. A bot simply fails with "The home's AI account isn't connected yet."</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">2 · The guide</div>
+  <h2>Five screens, right after the owner's welcome profile</h2>
+  <div class="screens">
+    <div class="screen">
+      <div class="n">Screen 1</div>
+      <h4>Your bots need an AI account</h4>
+      <p>Bots think with AI models from OpenRouter, a service that connects to many AI companies. oxbot doesn't sell AI, so the home uses its own account: you see every cent, and nothing is shared with us.</p>
+      <p class="muted">Free to start. About 3 minutes.</p>
+      <div class="btns"><span class="btn p">Set it up</span><span class="btn">Later</span></div>
+    </div>
+    <div class="screen">
+      <div class="n">Screen 2</div>
+      <h4>Sign in or create an account</h4>
+      <p>Your browser opens OpenRouter.</p>
+      <ol class="steps">
+        <li>New? Choose <b>Sign up</b>: Google, GitHub or email.</li>
+        <li>Press <b>Authorize</b> to let oxbot use it.</li>
+        <li>Come back here. oxbot notices by itself.</li>
+      </ol>
+      <div class="btns"><span class="btn p">Open OpenRouter</span></div>
+    </div>
+    <div class="screen">
+      <div class="n">Screen 3 · waiting</div>
+      <h4>Finish in your browser…</h4>
+      <p>Waiting for OpenRouter. If the browser didn't open, <u>open it here</u>.</p>
+      <p class="muted">Closed the tab by mistake? Press Try again. Nothing is lost.</p>
+      <div class="btns"><span class="btn">Try again</span><span class="btn">Later</span></div>
+    </div>
+    <div class="screen">
+      <div class="n">Screen 4</div>
+      <h4><span class="ok">Connected.</span> One more step makes it useful</h4>
+      <div class="meter"><i style="width:5%"></i></div>
+      <p>Free AI: <b>50 questions a day</b> for the whole home. One bot task uses 10–25, so that's only a few tasks.</p>
+      <p>Add <b>$10 once</b> on OpenRouter and free AI goes to <b>1,000 questions a day</b>. The $10 stays as credit; it's spent only if you allow paid AI.</p>
+      <div class="btns"><span class="btn p">Add $10 on OpenRouter</span><span class="btn">Skip for now</span></div>
+      <p class="muted">Card details go to OpenRouter only. oxbot never sees them. Then come back; oxbot checks by itself.</p>
+    </div>
+    <div class="screen">
+      <div class="n">Screen 5</div>
+      <h4>Paid AI when free is busy?</h4>
+      <p>Free models are sometimes slow or full. Paid ones answer faster, for a few cents a task.</p>
+      <div class="btns"><span class="btn p">Off</span><span class="btn">Up to $1 a day</span><span class="btn">Up to $5 a day</span></div>
+      <p class="muted">Change any time in Settings → AI spending.</p>
+    </div>
+    <div class="screen">
+      <div class="n">Done</div>
+      <h4><span class="ok">Your home's AI is ready</span></h4>
+      <p>Free: 1,000 questions a day · Paid: off · Account: OpenRouter, in the Keychain.</p>
+      <p>Next: connect the family's phones.</p>
+      <div class="btns"><span class="btn p">Connect a device</span><span class="btn">Start chatting</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">3 · After setup</div>
+  <h2>Gentle nudges, only when they help</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>When</th><th>Who sees it</th><th>Text</th></tr></thead>
+    <tbody>
+      <tr><td>Free questions 80% used, no credit bought</td><td>Owner</td><td>"Free AI is almost used up today (40 of 50). Add $10 once to get 1,000 a day." <span class="btn">Show me how</span></td></tr>
+      <tr><td>Free questions used up</td><td>Everyone (in the bot's chat)</td><td>"Free AI is used up for today. It resets at 8 PM." Owner also gets the $10 button.</td></tr>
+      <tr><td>Credit below $2 and paid AI on</td><td>Owner</td><td>"AI credit is low ($1.40). Paid AI stops at $0." (existing alert, new words)</td></tr>
+      <tr><td>Not connected, someone gives a task</td><td>That person</td><td>Owner: "Set up AI" opens the guide. Others: "Ask Jay to finish AI setup on the home computer."</td></tr>
+      <tr><td>Signed out or key revoked</td><td>Owner</td><td>"The AI account was disconnected." <span class="btn">Connect again</span> (screen 2)</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">The reset time comes from OpenRouter's daily limit (midnight UTC), shown in the home's time zone.</p>
+</section>
+
+<section>
+  <div class="eyebrow">4 · How it's built</div>
+  <h2>A small state machine on the home computer</h2>
+  <div class="flow"><pre class="mermaid">
+flowchart LR
+  A["not_connected"] -->|"sign-in returns (Keychain)"| B["connected_free<br/>50/day"]
+  B -->|"key shows credit bought"| C["credit_added<br/>1,000/day"]
+  B -->|"Skip"| D["paid_choice"]
+  C --> D
+  D -->|"Off / $1 / $5"| E["ready"]
+  E -->|"key revoked"| A
+  </pre></div>
+  <ul>
+    <li><b>Setup state</b> is derived, not stored: from the key's state (signed in, free tier or not) plus one saved flag per screen the owner skipped. So it fixes itself if the account changes outside oxbot.</li>
+    <li><b>Checking by itself</b>: while screens 3 or 4 are open, the home computer re-reads the key every 5 s (screen 3 already gets the sign-in callback; screen 4 polls the key's free-tier flag) and moves on. No "I've done it" button needed, but Refresh stays as a fallback.</li>
+    <li><b>Links</b>: oxbot opens only fixed openrouter.ai pages (sign-in, credits) in the person's normal browser. It never fills forms there and never handles card details or passwords.</li>
+    <li><b>Home computer only</b>: setup and spending choices stay farm-only (as today). Devices see the "Ask Jay…" line.</li>
+    <li><b>Words</b>: "OpenRouter" is named (it's their account). Never Codex or relay. "Free questions" not "requests"; "AI spending" not "cap".</li>
+    <li><b>Tests</b>: unit tests for the derived state; e2e with the fake OpenRouter (already serves the sign-in page) plus a free-tier switch and a "credit bought" switch: guide → sign in → 50/day screen → credit → 1,000/day → paid choice → done. Nudges at 80% and 100%.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">5 · To check before code</div>
+  <h2>Two things to verify</h2>
+  <ol>
+    <li><b>Sign-up during sign-in</b>: does OpenRouter's authorize page let a brand-new person create an account and then return to oxbot in one go? I'll test it in a fresh browser profile without signing up (no account made). If it doesn't, screen 2 gets a "Create account" link first.</li>
+    <li><b>Card fee wording</b>: OpenRouter charges a small fee on card top-ups; the guide will say "plus OpenRouter's card fee" with the number read from their page at build time, not hard-coded.</li>
+  </ol>
+  <div class="callout"><b>Later, with an AI model on this computer</b>: screen 1 gains a first choice, "Use AI on this computer (private, free)", when the Mac is strong enough; then OpenRouter becomes optional, for web tasks. That's a separate design.</div>
+</section>
+</div>

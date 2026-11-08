@@ -1,0 +1,14 @@
+name = "Someone who doesn't manage a bot reads what it's for"
+about = "Sam opens Recipes (shared with everyone, made by Jay): its window shows What it's for read-only, with no hint about changing it and no Save."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**"]
+as = "Sam"
+
+[[step]]
+click = "Recipes"
+[[step]]
+expect_js = "(document.getElementById('botMore').click(), true)"
+[[step]]
+expect_js = "document.getElementById('botDlg').open && document.getElementById('bdPurpose').value === 'Find dinner recipes when asked.' && document.getElementById('bdPurpose').readOnly && document.getElementById('bdPurposeHint').hidden && document.getElementById('bdSave').hidden"
+timeout_ms = 5000
+note = "Read-only: Sam sees what it's for but can't change it"
+shot = "read-only"

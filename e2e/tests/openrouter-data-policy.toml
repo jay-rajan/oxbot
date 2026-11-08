@@ -1,5 +1,5 @@
 name = "OpenRouter's privacy settings rule out the free models"
-about = "When the OpenRouter account's own privacy settings leave the free models no provider, the bot says what to change on OpenRouter's site, in plain words and with OpenRouter's own message, and Settings → AI models shows the same. oxbot changes nothing there itself."
+about = "When the OpenRouter account's own privacy settings leave the free models no provider, the bot says what to change on OpenRouter's site, in plain words and with OpenRouter's own message. oxbot changes nothing there itself. (Settings no longer has a models page to repeat it on.)"
 covers = ["crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/src/error.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
 
 [[step]]
@@ -23,11 +23,3 @@ note = "With OpenRouter's own words"
 expect_not = "No model can take this request"
 [[step]]
 expect_openrouter = '"status":404'
-[[step]]
-click = "Settings"
-[[step]]
-click = "AI models"
-[[step]]
-expect_js = "(() => { const p = document.getElementById('orPolicy'); return !p.hidden && p.textContent.includes('openrouter.ai/settings/privacy'); })()"
-note = "Settings → AI models shows the same"
-shot = "data-policy-engines"

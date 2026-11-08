@@ -1,0 +1,34 @@
+name = "Bot settings show what a bot is for, and its maker can change it"
+about = "Jay opens Recipes' settings: under the name is What it's for, filled with the bot's instructions. He rewrites it and saves; it's kept (instructions.md and the bot list), the window shows it again, and the permissions list is gone. Sam, who doesn't manage Recipes, sees the same text read-only."
+covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "document.getElementById('bdPurpose').value === 'Find dinner recipes when asked.' && !document.getElementById('bdPurpose').readOnly"
+timeout_ms = 5000
+note = "What it's for: the bot's instructions, editable by its maker"
+[[step]]
+expect = "Changing it starts a fresh conversation for the AI; the chat stays."
+[[step]]
+expect_not = "Always allowed"
+note = "No permissions section for now"
+shot = "purpose"
+[[step]]
+type = { into = "What it's for", text = "Find quick vegetarian dinners, under 30 minutes." }
+[[step]]
+click = "Save"
+[[step]]
+expect_js = "!document.getElementById('botDlg').open"
+[[step]]
+expect_js = "bots.get('recipes').info.instructions === 'Find quick vegetarian dinners, under 30 minutes.'"
+timeout_ms = 5000
+note = "The server sent the new purpose back in the bot list"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "document.getElementById('bdPurpose').value === 'Find quick vegetarian dinners, under 30 minutes.'"
+note = "Kept when the window opens again"
+shot = "saved"

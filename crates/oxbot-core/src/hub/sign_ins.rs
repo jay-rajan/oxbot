@@ -66,7 +66,7 @@ impl Hub {
     }
 
     /// The site lists `viewer` gets: the home browser's, then their own,
-    /// then where bots may do several steps at once.
+    /// then the websites with fine-grained control.
     #[must_use]
     pub fn sites_for(&self, viewer: &Viewer) -> Vec<ServerMsg> {
         let viewer = self.resolve(viewer);
@@ -82,8 +82,8 @@ impl Hub {
                 owner_id: Some(id.to_string()),
             });
         }
-        lists.push(ServerMsg::StepSites {
-            sites: self.step_sites(),
+        lists.push(ServerMsg::FineGrainedSites {
+            sites: self.fine_grained_sites(),
         });
         lists
     }

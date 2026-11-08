@@ -1,0 +1,98 @@
+<title>oxbot Local Release</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--muted:#62666e;--line:#dcd8ce;--card:#fff;--accent:#c81e1e;--soft:#f4efe6;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#33363c;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141518;--fg:#e8e6e1;--muted:#a2a6ad;--line:#33363c;--card:#1c1e22;--accent:#f0605d;--soft:#22252a;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 "IBM Plex Sans",-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance} h2{font-size:20px;margin:0 0 8px;text-wrap:balance}
+p,li{max-width:70ch} .eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.muted{color:var(--muted)} .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:13px}
+ol,ul{padding-left:22px;margin:6px 0} li{margin:3px 0}
+.callout{background:var(--soft);border-left:4px solid var(--accent);padding:12px 16px;border-radius:4px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)} tr:last-child td{border-bottom:0}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<div class="wrap">
+<header>
+  <div class="eyebrow">oxbot · plan for OK · Nov 4, 2026</div>
+  <h1>Install the new oxbot on your Mac, the Android app, Grok's bots, and working together</h1>
+  <p class="muted">Your choices: replace the installed oxbot (after a full backup), Android for the device app, and move your Grok bots into oxbot to compare. New: multi-user collaboration as a feature, designed here first.</p>
+</header>
+
+<section>
+  <div class="eyebrow">1 · Your Mac</div>
+  <h2>Replace the installed oxbot, safely</h2>
+  <ol>
+    <li><b>Wait for step 2</b> (Claude and the old loop removed, plain words, the Add to cart fix) and its full test run.</li>
+    <li><b>Back up</b> <span class="mono">~/Library/Application Support/oxbot</span> (446 MB: 7 bots, the database, sign-in profiles, paired devices) to a dated folder, and copy the current <span class="mono">/Applications/oxbot.app</span> beside it. Rolling back = put both back.</li>
+    <li><b>Build</b> the release app with the existing <span class="mono">scripts/make-dmg.sh</span> (universal, ad-hoc signed, browser tool and Node inside). Codex is found from its Homebrew install for now; shipping it inside the app is a later step.</li>
+    <li><b>Install</b>: you quit oxbot; I replace the app in /Applications. You open it once (macOS may ask to allow it, as before).</li>
+    <li><b>What you'll see on first start</b>: your 7 bots move to the new engine, each with one line saying so; their chats and the websites they're signed in to stay. Bots need the home's OpenRouter account: <b>you sign in to OpenRouter</b> in Settings (I don't do sign-ins).</li>
+    <li><b>Check</b>: one task per bot (read-only), with you watching; anything that needs a sign-in or approval waits for you.</li>
+  </ol>
+  <div class="tbl"><table><thead><tr><th>Your bot</th><th>What happens</th></tr></thead><tbody>
+    <tr><td>assistant</td><td>Becomes the Assistant on Codex; keeps its tools (list, make, hand tasks to bots).</td></tr>
+    <tr><td>amazon-books, rover-search, research-on-substack, substack-notes</td><td>Same instructions and sign-ins; now answered by free (then paid, under your cap) models.</td></tr>
+    <tr><td>check-gmail, search-gmail</td><td>Same, but note: these read your Gmail in the bot's Chrome, so the parts of emails they read go to the AI model (with personal details removed once the relay's removal step ships). Your call whether to keep them shared or private.</td></tr>
+  </tbody></table></div>
+</section>
+
+<section>
+  <div class="eyebrow">2 · Android</div>
+  <h2>The device app</h2>
+  <ol>
+    <li>Build the Android app with <span class="mono">scripts/android-build.sh</span> (Java 17 and the Android SDK are on this Mac), with the new words (home computer, device, Assistant).</li>
+    <li>You install the APK on your phone (USB, or AirDrop/Drive to the phone). Pairing: Settings → Devices → Connect a device shows a code and QR on the Mac; the phone scans it.</li>
+    <li>Test on the phone: send a task, answer an approval request, see a private bot only as you.</li>
+  </ol>
+</section>
+
+<section>
+  <div class="eyebrow">3 · Grok</div>
+  <h2>Move your Grok bots into oxbot, then compare</h2>
+  <ol>
+    <li><b>Read your Grok bots</b> in a tab of your signed-in Chrome: grok.com's Tasks (scheduled tasks), Projects and custom instructions. I only read; I don't change or delete anything in Grok.</li>
+    <li><b>Recreate each one in oxbot</b> with the same instructions (one oxbot bot per Grok task or project). Scheduled ones: oxbot has no scheduler yet, so they run when asked; a scheduler is a gap to note.</li>
+    <li><b>Compare</b> on the same prompts: Grok's latest answer (copied from Grok) vs oxbot's, graded the same way as the household evaluation: right / partly / wrong, plus what each sent off the device and the cost.</li>
+  </ol>
+  <p class="muted">I need: your OK to read grok.com in your signed-in Chrome, or a list of the bots and their instructions if you'd rather paste them.</p>
+</section>
+
+<section>
+  <div class="eyebrow">4 · New feature</div>
+  <h2>Multi-user collaboration: what it could mean</h2>
+  <p>oxbot already lets the household share bots: everyone sees a shared bot's chat, each message shows who sent it, and approval requests go to people who may answer. Collaboration would add:</p>
+  <ul>
+    <li><b>Shared lists and files</b>: the grocery list as one file several people edit through their bots ("add milk"), with who-changed-what.</li>
+    <li><b>Asking someone</b>: "@Sam can you check this?" in a chat, or a bot handing a step to a person ("Ann needs to approve the order").</li>
+    <li><b>Who may approve what</b>: per bot, a list of people who can answer its approval requests (e.g. any parent).</li>
+    <li><b>Activity and notifications</b>: a per-person feed of what bots did for them, on the phone too.</li>
+    <li><b>Live together</b>: see who else is in a bot's chat, typing or approving.</li>
+  </ul>
+  <div class="callout"><b>For you to pick</b>: which of these matter first? I'd start with shared lists + who may approve, since they serve groceries and kids. The full design (C4, data, flows) comes as its own page before any code.</div>
+</section>
+
+<section>
+  <div class="eyebrow">5 · Devices</div>
+  <h2>What a device can do (already built)</h2>
+  <p>A paired phone or tablet acts as its person: it can <b>make bots</b>, rename or delete their own bots, make them private, give tasks, answer approval requests, and sign in to websites through the live view. Only the home computer can: pair or remove devices, connect the OpenRouter account and change AI settings, use the Mac's microphone, and open files on the Mac's screen (<span class="mono">server.rs:1538 farm_only</span>).</p>
+</section>
+
+<section>
+  <div class="eyebrow">6 · New: first start</div>
+  <h2>Ask each person's name and profile when they join</h2>
+  <p>Today oxbot takes the Mac account's first name (home computer) or the name typed when pairing (device), and nothing else. Proposed welcome screen, once per person:</p>
+  <div class="tbl"><table><thead><tr><th>Field</th><th>Who</th><th>Used for</th><th>Leaves the home computer?</th></tr></thead><tbody>
+    <tr><td>Name, colour/photo</td><td>everyone</td><td>labels in chats, approvals, activity</td><td>Never (the relay strips names)</td></tr>
+    <tr><td>Owner (18+, confirms OpenRouter's terms) · adult · kid (age)</td><td>owner sets; first person is the owner</td><td>who may approve what, kid accounts</td><td>No</td></tr>
+    <tr><td>Home area (e.g. Toronto, ON)</td><td>household</td><td>local searches: stores, library, weather, city services</td><td>Only the city, when a task needs it</td></tr>
+    <tr><td>Food needs (vegetarian, allergies), languages</td><td>each person, optional</td><td>meal plans, recipes, answers</td><td>Only when a task needs it</td></tr>
+    <tr><td>Notes for bots ("I prefer metric", "no paid apps")</td><td>each person, optional</td><td>added to that person's tasks</td><td>As part of the task</td></tr>
+  </tbody></table></div>
+  <p class="muted">Each field shows whether bots may use it, and every field can be changed later in Settings → People. Kept in oxbot's database on the home computer only.</p>
+</section>
+</div>

@@ -1,0 +1,100 @@
+<title>oxbot Simpler Settings Build</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--x:#d92f2f;--ok:#1f7a45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:36px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:680px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+.mono,code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · built · Nov 7, 2026 · branch settings (local)</div>
+<h1>Simpler settings: what was built</h1>
+<p class="mut">The approved settings plan, built across three branches and merged: the settings screens and icons (settings), the backend cleanup (settings-core), and the Activity record (settings-net). The change touches 49 Rust and UI files: about 3,800 lines added and 1,200 removed.</p>
+</header>
+
+<section>
+<h2>1 · Files and what they do</h2>
+<div class="scroll"><table>
+<tr><th>File</th><th>Key functions</th><th>Role</th></tr>
+<tr><td class="mono">crates/oxbot/ui/index.html</td><td><code>renderSiteRows</code>, <code>renderPeopleTab</code>, <code>deviceRow</code>, <code>meForm</code>, <code>renderEngines</code>, <code>renderNet</code>, <code>onNetLog</code>, <code>renderKindPick</code></td><td>Settings with 4 side tabs at a fixed size; Websites in one list; People with devices; General → AI; Activity; Advanced "Kind of job"; pinned dialog buttons; app icon in the sidebar; Shadow removed.</td></tr>
+<tr><td class="mono">oxbot-protocol/src/net.rs</td><td><code>NetKind</code>, <code>NetRow</code>, <code>NetTotals</code></td><td>Activity message types. <code>ListNetLog</code> and <code>NetLog</code> are in lib.rs, along with <code>ShareSite</code> and <code>AppSettings.dev_tools</code>.</td></tr>
+<tr><td class="mono">oxbot-core/src/store/net_log.rs</td><td><code>add_net</code>, <code>finish_net</code>, <code>end_open_net</code>, <code>net_log</code>, <code>net_totals</code>, <code>prune_net_log</code>, <code>note_ai</code>, <code>note_call</code></td><td>The <code>net_log</code> table (migration 27): writes, the list for each viewer, today's totals, and removal after 30 days.</td></tr>
+<tr><td class="mono">oxbot-core/src/hub/net_log.rs</td><td><code>note_oxbot_call</code>, <code>device_connected</code>, <code>device_disconnected</code>, <code>net_log_for</code></td><td>Who sees which rows (the owner sees all; others see their own; kid accounts see none), device rows, oxbot's own calls.</td></tr>
+<tr><td class="mono">oxbot-browser/src/visits.rs, guard.rs</td><td><code>Visits::on</code>, <code>tick</code>, <code>end_all</code>, <code>request_bytes</code></td><td>Adds up each tab's network traffic into one website visit per site (bytes in and out, other hosts, pages).</td></tr>
+<tr><td class="mono">oxbot-relay/src/lib.rs</td><td><code>Relay::redact</code>, <code>NetNote</code></td><td>Always swaps out personal details. Counts bytes sent and received and the kinds swapped, then writes one AI row per question.</td></tr>
+<tr><td class="mono">oxbot-core/src/model_lists.rs</td><td><code>kind_for</code>, <code>models_for_new_bot</code></td><td>Picks the kind of job from a new bot's name and instructions using local keywords. No AI call.</td></tr>
+<tr><td class="mono">oxbot-core/src/hub/sign_ins.rs, oxbot-browser/cookies.rs</td><td><code>Hub::share_site</code>, <code>site_cookies</code>, <code>add_cookies</code></td><td>Share with the home copies a site's cookies from the person's own browser into the home browser. Their own copy stays.</td></tr>
+<tr><td class="mono">oxbot-core/src/hub/compare.rs, turns.rs, trials.rs</td><td>(removed shadow paths)</td><td>Shadow is removed. Compare refuses all messages unless <code>OXBOT_DEV_TOOLS=1</code>.</td></tr>
+<tr><td class="mono">oxbot/src/notify.rs</td><td>(pref removed)</td><td>The "waiting for you while hidden" notification always fires.</td></tr>
+<tr><td class="mono">oxbot-loop/src/tools/program.rs</td><td><code>profile</code></td><td>Homebrew interpreters may read Homebrew's lib, opt and Cellar folders, read-only.</td></tr>
+<tr><td class="mono">oxbot/src/server.rs</td><td><code>handle_net_log</code>, ShareSite routing</td><td>New handlers, each in its own function.</td></tr>
+<tr><td class="mono">docs/brand/ttt/gen.py, app/src-tauri/icons</td><td><code>icon_mac</code></td><td>The Mac icon on Apple's 824px tile (icns and desktop PNGs). iPhone and Android icons are unchanged.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · Call flow: one AI question appears in Activity</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant Bot as Bot (loop)
+  participant Relay as Relay (oxbot-relay)
+  participant OR as OpenRouter
+  participant Store as Store (net_log)
+  participant Page as Settings → Activity
+  Bot->>Relay: question
+  Relay->>Relay: redact: swap personal details, count kinds
+  Relay->>OR: request (bytes_up counted)
+  OR-->>Relay: answer (bytes_down counted)
+  Relay->>Relay: restore details in the answer
+  Relay->>Store: note_ai(row: model, sizes, cost, swapped)
+  Page->>Store: list_net_log {kind?} (via server, viewer checked)
+  Store-->>Page: net_log {rows, totals, more}
+</pre>
+</section>
+
+<section>
+<h2>3 · C4: where it sits</h2>
+<pre class="mermaid">
+C4Component
+title Simpler settings and Activity on the home computer
+Container_Boundary(home, "oxbot on the home computer") {
+  Component(ui, "Settings page", "index.html", "General, Websites, People, Activity")
+  Component(srv, "Server", "server.rs", "handle_net_log, share_site, settings")
+  Component(hub, "Hub", "oxbot-core", "net_log_for, share_site, kind_for")
+  ComponentDb(store, "Store", "SQLite", "net_log, prefs, sign-ins")
+  Component(relay, "Relay", "oxbot-relay", "redact, AI rows")
+  Component(browser, "Browsers", "oxbot-browser", "visits, cookies")
+}
+System_Ext(or, "OpenRouter")
+System_Ext(web, "Websites")
+Rel(ui, srv, "list_net_log, share_site")
+Rel(srv, hub, "calls")
+Rel(hub, store, "reads, writes")
+Rel(relay, or, "questions")
+Rel(relay, store, "AI rows")
+Rel(browser, web, "pages")
+Rel(browser, hub, "website visits")
+</pre>
+</section>
+
+<section>
+<h2>4 · Checks</h2>
+<ul>
+<li><code>cargo fmt</code> and <code>clippy -D warnings</code> pass, and so do the workspace unit tests. One door test sometimes fails under heavy load and passes on its own.</li>
+<li>End-to-end, first run: 67 of 68 passed. The one failure was the program sandbox blocking Homebrew's node, which is now fixed. A second full run against the approved screenshots is in progress.</li>
+<li>New end-to-end tests: settings-layout, activity-net, share-site.</li>
+</ul>
+</section>
+</div>
