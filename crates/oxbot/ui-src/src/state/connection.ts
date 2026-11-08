@@ -51,6 +51,7 @@ export function connectionReducer(
   action: Action,
 ): ConnectionState {
   if (action.kind === "server") return onServer(state, action.msg);
+  if (action.kind !== "status") return state;
   if (action.status === state.status) return state;
   return {
     ...state,

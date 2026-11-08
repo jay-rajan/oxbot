@@ -6,6 +6,8 @@
 export interface GateBridge {
   socket(): WebSocket;
   farm?: string;
+  /** The person this phone is paired as. */
+  person?: string;
 }
 
 declare global {
