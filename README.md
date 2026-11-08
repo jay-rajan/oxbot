@@ -283,16 +283,19 @@ because `cargo tauri android init` rewrites `gen/android`. `cargo test` fails if
 there.
 
 ## Desktop app
-`sh scripts/make-dmg.sh` builds the universal app with the browser tool and Node.js inside
-(`scripts/fetch-tools.sh`, pinned versions and checksums) and the Mac helper
+`sh scripts/make-dmg.sh` builds one app per chip with the browser tool, Node.js and Codex inside
+(`scripts/fetch-tools.sh`, pinned versions and checksums; the app always runs its own Codex, not one
+installed elsewhere) and the Mac helper
 (`scripts/build-mac-helper.sh`, which needs Xcode's Command Line Tools; without them the app
 builds with no video frames or microphone), and packs the friends dmg.
 `cd app && cargo tauri build` makes `target/release/bundle/macos/oxbot.app` without them. `cargo tauri dev`
 runs it from source. The app runs the server inside it; closing the window keeps oxbot in the
 menu bar (Open, Launch at login, Quit).
 
-For friends: `scripts/make-dmg.sh` builds one universal app (Apple chip + Intel) with a local
-signature and packs it in `target/universal-apple-darwin/release/bundle/dmg/oxbot_<version>_universal.dmg`.
+For friends: `scripts/make-dmg.sh` builds two apps with a local signature, one for Apple chip Macs
+(`target/aarch64-apple-darwin/release/bundle/dmg/oxbot_<version>_apple-chip.dmg`) and one for Intel
+(`target/x86_64-apple-darwin/release/bundle/dmg/oxbot_<version>_intel.dmg`); `make-dmg.sh arm64` builds
+only the first. Codex is ~260 MB per chip, so one universal app would double everyone's download.
 There's no Apple developer account, so the first time they open it via System Settings →
 Privacy & Security → Open Anyway. Setup steps for friends: the oxbot Setup Guide doc.
 

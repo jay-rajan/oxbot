@@ -227,7 +227,7 @@ async fn run(
             .unwrap_or("asked for")
             .to_owned();
         eprintln!("▶ {} ({})", test.name, engine.name());
-        let run = match missing(&config, &test, scratch.path()).await {
+        let run = match missing(repo, &config, &test, scratch.path()).await {
             Some(why) => skipped(repo, &config, engine, &test, why),
             None => run_one(repo, &config, out, engine, &mut driver, &test, reason).await?,
         };
@@ -254,11 +254,20 @@ async fn run(
 
 /// Why `test` can't run on this Mac (a program it needs is missing), if
 /// it can't.
-async fn missing(config: &Config, test: &Test, scratch: &Path) -> Option<String> {
+async fn missing(repo: &Path, config: &Config, test: &Test, scratch: &Path) -> Option<String> {
     for need in config.needs.iter().chain(&test.needs) {
         match need.as_str() {
             "codex" => {
-                let configured = std::env::var_os("OXBOT_CODEX").map(PathBuf::from);
+                // The order oxbot uses: `OXBOT_CODEX`, then the Codex in
+                // the built-in tools folder, then `PATH`.
+                let configured = std::env::var_os("OXBOT_CODEX")
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        config
+                            .tools
+                            .as_ref()
+                            .and_then(|t| oxbot_codex::binary::built_in(&repo.join(t)))
+                    });
                 let path = std::env::var("PATH").ok();
                 let found = oxbot_codex::binary::find(
                     configured.as_deref(),

@@ -17,6 +17,7 @@ futures-util.workspace = true
 if-addrs.workspace = true
 mdns-sd.workspace = true
 oxbot-browser.workspace = true
+oxbot-codex.workspace = true
 oxbot-core.workspace = true
 oxbot-gate.workspace = true
 oxbot-llm.workspace = true

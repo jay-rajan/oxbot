@@ -766,6 +766,7 @@ pub fn config_with(
         codex: codex.map(|program| CodexParts {
             upstream: fake.upstream(),
             program: Some(program.to_owned()),
+            built_in: None,
         }),
         data_dir: home.join("data"),
         ..HubConfig::new(bots_dir)
