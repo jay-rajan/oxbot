@@ -1,0 +1,87 @@
+<title>oxbot Bot Purpose Build</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · built · Nov 8, 2026 · branch settings (local, commit 8df4315)</div>
+<h1>Bot settings: what it's for</h1>
+<p class="mut">The bot's instructions now show under its name as "What it's for". Its maker (or the owner) edits them; everyone else who can open the bot reads them; a locked bot sends none. The Always allowed list is out of the window for now (the rules stay saved and still apply). Also in this round: Fine-grained control per website, and the cleanup.</p>
+</header>
+
+<section>
+<h2>1 · Files and functions</h2>
+<div class="scroll"><table>
+<tr><th>File</th><th>Functions</th><th>Role</th></tr>
+<tr><td class="mono">oxbot-protocol/src/lib.rs</td><td><code>ClientMsg::SetBotInstructions</code>, <code>BotInfo.instructions</code></td><td>The new message, and the purpose in each bot's listing.</td></tr>
+<tr><td class="mono">oxbot-core/src/hub/access.rs</td><td><code>Hub::set_instructions</code>, <code>MAX_INSTRUCTIONS</code> (8,000), <code>bots_for</code></td><td>Checks manage rights (not the Assistant, not too long), waits until it's idle (<code>claim</code>), saves, stops the session, announces the new list.</td></tr>
+<tr><td class="mono">oxbot-core/src/bot.rs</td><td><code>Bot::save_instructions</code>, <code>Viewer::redact</code></td><td>Writes <code>instructions.md</code> whole (temp file, then rename). A locked bot's listing has its instructions cleared.</td></tr>
+<tr><td class="mono">oxbot/src/server.rs</td><td><code>handle_bot_settings</code></td><td>Sharing, rename, purpose and delete now go through one function (the main handler was too long).</td></tr>
+<tr><td class="mono">oxbot/ui/index.html</td><td><code>botMore.onclick</code>, the save handler</td><td>Textarea <code>#bdPurpose</code>: editable for managers, read-only for others, hidden for the Assistant. "Always allowed" section and its code removed.</td></tr>
+<tr><td class="mono">e2e/tests/bot-purpose*.toml</td><td>—</td><td>Edit and save as the maker; read-only as someone else.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · Call flow: saving a new purpose</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant P as Bot settings
+  participant S as Server
+  participant H as Hub
+  participant F as bots/recipes/
+  participant E as AI session
+  P->>S: set_bot_instructions {bot, instructions}
+  S->>H: set_instructions(bot, text, viewer)
+  H->>H: may manage? not the Assistant? ≤ 8,000 chars? changed?
+  H->>H: claim (refuse if working)
+  H->>F: instructions.md.tmp → rename to instructions.md
+  H->>E: stop_session
+  H-->>P: bots list (instructions for those who may open it)
+  Note over E: next message: system prompt differs → new session
+</pre>
+</section>
+
+<section>
+<h2>3 · C4: where it sits</h2>
+<pre class="mermaid">
+C4Component
+title Bot purpose on the home computer
+Container_Boundary(home, "oxbot") {
+  Component(ui, "Bot settings", "index.html", "What it's for, read-only for others")
+  Component(srv, "Server", "server.rs", "handle_bot_settings")
+  Component(hub, "Hub", "access.rs", "set_instructions, bots_for")
+  Component(bot, "Bot", "bot.rs", "save_instructions, redact")
+  ComponentDb(files, "Bot folder", "files", "instructions.md, bot.toml")
+}
+Rel(ui, srv, "set_bot_instructions")
+Rel(srv, hub, "calls")
+Rel(hub, bot, "saves")
+Rel(bot, files, "writes")
+Rel(hub, ui, "bots list")
+</pre>
+</section>
+
+<section>
+<h2>4 · Checks</h2>
+<ul>
+<li><code>cargo fmt</code>, <code>clippy -D warnings</code> and all workspace tests pass. New unit test: <code>its_maker_changes_what_a_bot_is_for_and_others_only_read_it</code>.</li>
+<li>End-to-end: <code>bot-purpose</code> and <code>bot-purpose-member</code> pass; the full suite runs after the commit.</li>
+</ul>
+</section>
+</div>

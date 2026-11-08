@@ -453,3 +453,11 @@ Did you do the React version?
 
 ## 140. Commit, clean up, and a Bot settings plan (2026-11-08)
 Start committing and remove the unwanted stuff. Bot settings should show the bot's purpose, with optional permission controls.
+
+## 141. Build Bot settings, without permissions (2026-11-08)
+Alright. Then: remove the permissions too; we'll bring them in later.
+→ Built "What it's for" (the bot's instructions) in Bot settings: the maker edits it, others read it. The Always allowed list is out of the window for now.
+
+## 142. React, phones, app stores, owner-only private bots (2026-11-08)
+What about React? → Yes, go ahead; test it, then let me know. → I want the Android and iPhone apps to be React too. → Help with the app stores: I want iPhone and Play Store apps, plus Mac and Windows apps. → Another change: only the owner can have private bots; everyone else is a collaborator.
+Answers: other people's existing private bots are handed to the owner; non-owners share with everyone only; only the owner keeps a private browser.

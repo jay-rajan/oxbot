@@ -1,0 +1,102 @@
+<title>oxbot React Page Build</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--x:#d92f2f;--ok:#1f7a45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--x:#ff4a4a;--ok:#4cc47e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:660px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+.stats{display:flex;flex-wrap:wrap;gap:24px}
+.stat b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · built · Nov 8, 2026 · branch react (local, not pushed)</div>
+<h1>The app's screens, rebuilt in React</h1>
+<p class="mut">The hand-written page (one 3,300-line file) is rebuilt as React components in TypeScript. The Mac app, the phone apps and the browser all show it: the home computer serves it at <code>/</code>, and the phone apps get it as one file. It looks and behaves like the old page; the old one stays at <code>/old/</code> until you approve the switch. Also on this branch: only the owner can have private bots.</p>
+</header>
+
+<section>
+<h2>Results</h2>
+<div class="stats">
+<div class="stat"><b>72 / 72</b><span class="mut">end-to-end tests pass on the React page</span></div>
+<div class="stat"><b>237</b><span class="mut">screens pixel-identical to the old page</span></div>
+<div class="stat"><b>~1%</b><span class="mut">median difference on the rest (timing text, a toast caught at another moment)</span></div>
+<div class="stat"><b>71</b><span class="mut">unit tests for the page's state and logic</span></div>
+</div>
+<p class="note">Found and fixed while testing: reports opened blank (the frame was filled before its window opened); the "Kind of job" choice wasn't read at Save; the Assistant's red X would have been blocked by the page's security policy; "Connect a device" didn't open the form.</p>
+</section>
+
+<section>
+<h2>1 · Files</h2>
+<div class="scroll"><table>
+<tr><th>Where</th><th>What</th></tr>
+<tr><td class="mono">ui-src/src/main.tsx, App.tsx</td><td>Connects (same key and phone bridge as before), feeds the store, draws the sidebar, chat, dialogs and toast. Offers the names the tests use (<code>send</code>, <code>bots</code>, <code>toast</code>…).</td></tr>
+<tr><td class="mono">src/state/</td><td>One store, one reducer per area: <code>connection</code>, <code>bots</code>, <code>home</code> (setup, people, sites, sections, devices, alerts), <code>ui</code> (open bot, open dialog, toast), <code>chat</code> (history paging, streaming, files, reports), <code>cards</code> (approvals, sign-ins, schedules, compare), <code>sidebar</code> (seen dots, groups), <code>activity</code> (Settings tabs, network log). Platform-neutral: no browser code, so a React Native app could share it.</td></tr>
+<tr><td class="mono">src/screens/Sidebar/</td><td>Bot list with sections, search, group by, right-click menu, drag to sections, New bot.</td></tr>
+<tr><td class="mono">src/screens/Chat/</td><td>Header, messages (Markdown turned into React elements, never raw HTML), tool lines, files and uploads, dictation, reports, banners, message box.</td></tr>
+<tr><td class="mono">src/screens/Cards/, BotSettings/, Compare/</td><td>Approval and sign-in cards, schedule cards; Bot settings with "What it's for"; the owner's compare tools.</td></tr>
+<tr><td class="mono">src/screens/Settings/, Welcome/</td><td>Settings (General, Websites, People, Activity), the welcome screen and the name dialog.</td></tr>
+<tr><td class="mono">src/components/</td><td>Dialog, Toast, Board (the tic-tac-toe animation), brand marks.</td></tr>
+<tr><td class="mono">src/net/protocol/</td><td>Message types generated from the Rust protocol: a renamed field stops the build.</td></tr>
+<tr><td class="mono">crates/oxbot/src/server.rs</td><td>Serves the built page at <code>/</code> with a strict policy (no inline scripts; inline styles only for the reports' own stylesheet, by hash), the old page at <code>/old/</code>, and one inlined file to the phone apps.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · Call flow: a message arrives</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant S as oxbot server
+  participant W as socket (net/)
+  participant St as store (state/)
+  participant C as components (screens/)
+  S->>W: {"type":"event", …} (typed ServerMsg)
+  W->>St: dispatch(server msg)
+  St->>St: every area's reducer: chat appends, sidebar marks busy, …
+  St-->>C: areas that changed redraw their screens
+  C->>W: send(ClientMsg) on a click
+  W->>S: WebSocket
+</pre>
+</section>
+
+<section>
+<h2>3 · C4: one page for every app</h2>
+<pre class="mermaid">
+C4Container
+title oxbot screens after the move to React
+Person(user, "Someone in the home")
+System_Boundary(home, "Home computer") {
+  Container(server, "oxbot server", "Rust (axum)", "serves the page; WebSocket")
+  Container(page, "oxbot page", "React + TypeScript", "built into app.js, app.css")
+}
+Container_Ext(mac, "Mac app", "Tauri", "shows / from the home computer")
+Container_Ext(phone, "iPhone / Android app", "Tauri", "gets the page as one file through its own connection")
+Rel(user, mac, "uses")
+Rel(user, phone, "uses")
+Rel(mac, server, "HTTP + WebSocket")
+Rel(phone, server, "encrypted device connection")
+Rel(server, page, "embeds")
+</pre>
+</section>
+
+<section>
+<h2>4 · Before it replaces the old page</h2>
+<ul>
+<li>You look at it (the rebuilt app, or the review screens) and approve.</li>
+<li>Then: delete the old page and <code>/old/</code>, approve the React screens as the new reference set, and build the app.</li>
+<li>Phones: tested through the same page code; a run on a real phone after the next phone build.</li>
+</ul>
+</section>
+</div>
