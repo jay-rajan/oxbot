@@ -67,6 +67,9 @@ pub struct LoopPrefs {
     /// The model every person's Assistant tries first (`None`: the router
     /// picks).
     pub assistant_model: Option<String>,
+    /// The list a bot with none of its own (and the Assistant) tries first,
+    /// strongest first, so Auto never means the smallest model that's up.
+    pub default_models: Vec<String>,
     /// Longest answer to ask for, in tokens.
     pub max_tokens: u32,
     /// Most model requests in one turn.
@@ -80,6 +83,7 @@ impl Default for LoopPrefs {
             paid_fallback: false,
             paid_models: Vec::new(),
             assistant_model: None,
+            default_models: Vec::new(),
             max_tokens: 4096,
             max_steps: 50,
         }

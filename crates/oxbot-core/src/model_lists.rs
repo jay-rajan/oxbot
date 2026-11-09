@@ -71,6 +71,17 @@ pub const JOB_KINDS: [JobKind; 4] = [
     },
 ];
 
+/// The list a bot with no list of its own (and the Assistant) tries first:
+/// "Coaching and plans", the strongest free models, then cheap paid ones.
+#[must_use]
+pub fn default_models() -> Vec<String> {
+    JOB_KINDS
+        .iter()
+        .find(|k| k.kind == "coaching")
+        .map(|k| k.models.iter().map(|m| (*m).to_owned()).collect())
+        .unwrap_or_default()
+}
+
 /// The suggested lists as the page gets them: each with only the models
 /// `catalog` has that can run bots, in order. A kind left with no model is
 /// left out.
