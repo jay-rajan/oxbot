@@ -13,6 +13,7 @@ pub mod browser;
 pub mod control;
 pub(crate) mod drive;
 pub mod files;
+pub mod gdocs;
 pub mod mcp;
 pub mod page;
 pub mod pages;
@@ -77,7 +78,8 @@ pub enum ToolKind {
     /// The page tools (over stored snapshots).
     Page,
     /// The tools that drive the browser themselves, several steps a call
-    /// (`read_pages`, `page_steps`), each step through the gate.
+    /// (`read_pages`, `page_steps`, `read_document`), each step through
+    /// the gate.
     Drive,
     /// `run_program`: a small script oxbot runs in the bot's folder, in
     /// macOS's sandbox, after the person's yes.
@@ -255,6 +257,11 @@ impl ToolRegistry {
                 spec: steps::spec(),
                 kind: ToolKind::Drive,
                 side_effect: true,
+            });
+            entries.push(ToolEntry {
+                spec: gdocs::spec(),
+                kind: ToolKind::Drive,
+                side_effect: false,
             });
         }
         Self { entries }
@@ -630,10 +637,24 @@ fn finish(mut raw: Raw, tool: &str, untrusted: bool, env: &ToolEnv<'_>) -> ToolO
             meta,
         };
     }
-    let (shown, handle) = match raw.snapshot.take() {
+    let (mut shown, handle) = match raw.snapshot.take() {
         Some(snapshot) => page_view(&raw, tool, &snapshot, trust_why.clone(), env, &mut meta),
         None => big_text(&raw, tool, trust_why, env, &mut meta),
     };
+    // A Google editor shows only part of its file: say how to read it all
+    // (when the bot opens or looks at one).
+    if tool.strip_prefix(BROWSER_PREFIX).is_some_and(|t| {
+        matches!(
+            t,
+            "navigate_page" | "new_page" | "select_page" | "take_snapshot"
+        )
+    }) && let Some(kind) = meta
+        .page_url
+        .as_deref()
+        .and_then(|u| gdocs::editor_kind(u, &gdocs::docs_base()))
+    {
+        shown.0.insert_str(0, &gdocs::editor_hint(kind));
+    }
     let for_model = match &raw.wrap {
         Some((tag, attrs)) => {
             let attrs = match &handle {

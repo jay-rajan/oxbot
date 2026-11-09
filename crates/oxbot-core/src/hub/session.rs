@@ -635,6 +635,7 @@ fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
         "extract_rows" => ("page tables", "Reading the page's tables…"),
         "query_rows" => ("table query", "Sorting and counting rows…"),
         "read_pages" => ("pages read with a script", "Reading pages with a script…"),
+        "read_document" => ("whole Google file", "Reading the whole Google file…"),
         "page_steps" => ("several steps at once", "Doing several steps on the page…"),
         "run_program" => ("small script", "Running a small script…"),
         "read_result" => ("saved result", "Reading a saved result…"),

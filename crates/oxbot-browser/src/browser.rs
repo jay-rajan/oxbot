@@ -21,6 +21,7 @@ use serde_json::Value;
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, watch};
 
+use crate::docfetch;
 use crate::guard::Guard;
 use crate::netguard::{BlockedRequest, NetGuard, NetMode};
 use crate::sealed::{self, Copied, Ran, SealedTab};
@@ -467,6 +468,35 @@ impl Browser {
             .ok_or_else(|| BrowserError::Chrome("the page couldn't be copied".into()))?;
         sealed::read_copy(&value)
             .ok_or_else(|| BrowserError::Chrome("the page couldn't be copied".into()))
+    }
+
+    /// Reads `url` from the tab at `page_url`, which must be on `origin`:
+    /// one GET with that site's own sign-in, run by oxbot in its isolated
+    /// world (see [`crate::docfetch`]). The caller decides which addresses
+    /// may be read.
+    ///
+    /// # Errors
+    /// Why nothing was read, in plain words.
+    pub async fn fetch_in_page(
+        &self,
+        page_url: &str,
+        origin: &str,
+        url: &str,
+    ) -> Result<docfetch::Fetched, String> {
+        let expression = docfetch::fetch_expression(
+            origin,
+            url,
+            docfetch::MAX_TEXT_CHARS,
+            docfetch::FETCH_LIMIT.as_millis(),
+        );
+        let value = {
+            let guard = self.guard.lock().await;
+            let guard = guard.as_ref().ok_or("the browser isn't running")?;
+            guard
+                .evaluate_awaited(Some(page_url), &expression, docfetch::FETCH_LIMIT)
+                .await?
+        };
+        docfetch::read_fetched(&value)
     }
 
     /// Runs the bot's `script` on a copy (`html`, from `url`) in the sealed

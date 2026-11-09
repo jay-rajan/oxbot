@@ -1,6 +1,7 @@
 //! Scripts and batches: what the hub does for `read_pages` (copying a page
 //! of the bot's browser and running the bot's script on the copy in the
-//! sealed tab), which websites refuse `page_steps` (set to fine-grained
+//! sealed tab) and `read_document` (reading a Google file's export from a
+//! tab on Google's site), which websites refuse `page_steps` (set to fine-grained
 //! control by the owner in Settings → Websites; every other website allows
 //! it), and the approval request before a bot runs a
 //! small script in its folder (Yes · Always for this bot · No).
@@ -8,6 +9,7 @@
 use std::sync::Arc;
 
 use oxbot_browser::{is_home_network, site_of, web_host};
+use oxbot_loop::tools::gdocs;
 use oxbot_protocol::{EventKind, ServerMsg};
 
 use super::{Hub, HubError};
@@ -197,6 +199,9 @@ impl Hub {
                 self.read_sealed(&bot, &url, &script, follow.as_deref())
                     .await
             }
+            SealedWork::Fetch { page, origin, url } => {
+                self.fetch_google_file(&bot, &page, &origin, &url).await
+            }
             SealedWork::Done => {
                 if let Some(shared) = self.runtime_browser(&bot).await {
                     shared.browser.close_sealed().await;
@@ -217,6 +222,47 @@ impl Hub {
             .await
             .get(bot)
             .and_then(|r| r.browser.clone())
+    }
+
+    /// `read_document`'s read: `url` from `bot`'s tab at `page`, which must
+    /// be on Google's Docs site (`origin`). Only a Google file's own export
+    /// addresses, exactly as oxbot builds them; one GET, by oxbot's own
+    /// fixed script, so the person's Google sign-in applies.
+    async fn fetch_google_file(
+        &self,
+        bot: &BotId,
+        page: &str,
+        origin: &str,
+        url: &str,
+    ) -> SealedReply {
+        let base = gdocs::docs_base();
+        if origin != base || !gdocs::may_fetch(url, &base) {
+            tracing::warn!(bot = %bot, url, "refused a read that isn't a Google file's export");
+            return SealedReply::failed(
+                "oxbot reads only a Google Doc, Slides or Sheet's own export addresses",
+            );
+        }
+        let Some(shared) = self.runtime_browser(bot).await else {
+            return SealedReply::failed("This bot has no browser right now.");
+        };
+        match self.take_browser(bot).await {
+            Ok(true) => {}
+            _ => return SealedReply::failed("The turn ended while it waited for the browser."),
+        }
+        match shared.browser.fetch_in_page(page, origin, url).await {
+            Ok(got) => SealedReply {
+                ok: true,
+                value: serde_json::json!({
+                    "status": got.status,
+                    "type": got.content_type,
+                    "url": got.url,
+                    "text": got.text,
+                    "cut": got.cut,
+                }),
+                ..SealedReply::default()
+            },
+            Err(err) => SealedReply::failed(format!("Google couldn't be read ({err})")),
+        }
     }
 
     /// Copies the page at `url` in `bot`'s browser and runs `script` on

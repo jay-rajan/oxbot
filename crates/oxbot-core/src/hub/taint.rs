@@ -69,6 +69,7 @@ pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Opt
                     | "extract_rows"
                     | "query_rows"
                     | "read_pages"
+                    | "read_document"
                     | "page_steps"
             )
         });

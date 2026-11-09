@@ -10,6 +10,7 @@
 
 mod browser;
 mod cookies;
+pub mod docfetch;
 mod element;
 mod guard;
 mod http;

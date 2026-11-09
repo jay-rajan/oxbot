@@ -30,6 +30,7 @@
 //! | The Assistant's `create_bot` | card with the name and instructions |
 //! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
 //! | `read_pages` | run: each page it opens is checked as a visit, and its script only reads a sealed copy |
+//! | `read_document` | run: opening the file (if the tab isn't on Google's Docs site) is checked as a visit; oxbot then reads only that file's export addresses, read-only |
 //! | `page_steps` | run on any website without fine-grained control (the hub checks), each step checked as itself; it stops at the first that would ask |
 //! | `run_program`: a small script oxbot runs in the bot's folder, sandboxed | card (Yes · Always for this bot · No); an Always rule doesn't apply after untrusted text |
 //!
@@ -332,7 +333,7 @@ pub const ASK_USER_TOOL: &str = "ask_user";
 /// to-do list and progress notes, stored results read back, and the page
 /// tools over stored snapshots. They change nothing outside oxbot, so they
 /// run; the gate still sees every call.
-pub const LOOP_CONTEXT_TOOLS: [&str; 10] = [
+pub const LOOP_CONTEXT_TOOLS: [&str; 11] = [
     "update_todo",
     "note_progress",
     "read_result",
@@ -343,11 +344,16 @@ pub const LOOP_CONTEXT_TOOLS: [&str; 10] = [
     "query_rows",
     READ_PAGES_TOOL,
     PAGE_STEPS_TOOL,
+    READ_DOCUMENT_TOOL,
 ];
 
 /// `read_pages`: several pages read with the bot's script, on sealed
 /// copies. Each page it opens asks the gate as a visit.
 pub const READ_PAGES_TOOL: &str = "read_pages";
+/// `read_document`: a whole Google Doc, Slides or Sheet, read by oxbot
+/// from Google's export addresses in the bot's browser. Opening the file,
+/// if needed, asks the gate as a visit; reading never asks.
+pub const READ_DOCUMENT_TOOL: &str = "read_document";
 /// `page_steps`: several steps on the page at once, each asked of the gate
 /// as itself. Not on websites with fine-grained control (the hub checks).
 pub const PAGE_STEPS_TOOL: &str = "page_steps";

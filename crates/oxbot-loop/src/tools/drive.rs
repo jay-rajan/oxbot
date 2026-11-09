@@ -11,7 +11,13 @@
 //!
 //! `read_pages` then asks the hub to copy each page and run the bot's
 //! script on the copy in the sealed tab ([`EngineEvent::Sealed`]).
+//!
+//! `read_document` ([`super::gdocs`]) makes sure the bot's tab is on
+//! Google's Docs site (opening the file there, a visit like any other),
+//! then asks the hub to read the file's export addresses from that tab
+//! ([`SealedWork::Fetch`]).
 
+use std::fmt::Write as _;
 use std::sync::PoisonError;
 
 use oxbot_engine::{EngineEvent, Reply, SealedCall, SealedReply, SealedWork, ToolUse};
@@ -19,6 +25,8 @@ use oxbot_llm::ToolCall;
 use serde_json::{Value, json};
 
 use super::browser::BROWSER_PREFIX;
+use super::gdocs::{self, GoogleFile, Got, Kind, Target};
+use super::pages::TabPage;
 use super::read_pages::{self, PageRead, Pages};
 use super::steps::{self, Stop};
 use super::{Raw, ToolEnv, ToolOutcome, finish};
@@ -282,6 +290,294 @@ pub(crate) async fn read_pages(
     finish(raw, &call.name, true, env)
 }
 
+/// Has the hub read `url` from the tab at `page` (on `origin`).
+async fn fetch(env: &ToolEnv<'_>, page: &str, origin: &str, url: &str) -> Result<Got, String> {
+    let reply = sealed(
+        env,
+        SealedWork::Fetch {
+            page: page.to_owned(),
+            origin: origin.to_owned(),
+            url: url.to_owned(),
+        },
+    )
+    .await;
+    if reply.ok {
+        Ok(Got::from_value(&reply.value))
+    } else {
+        Err(reply.error)
+    }
+}
+
+/// Reads `url` and checks Google's answer (`html`: a page is what's
+/// wanted).
+async fn fetch_ok(
+    env: &ToolEnv<'_>,
+    page: &str,
+    base: &str,
+    url: &str,
+    html: bool,
+) -> Result<Got, String> {
+    let got = fetch(env, page, base, url).await?;
+    match got.problem(html) {
+        Some(why) => Err(why),
+        None => Ok(got),
+    }
+}
+
+/// The whole file, as text: the line saying what was read, and the
+/// content, or why it couldn't be read.
+async fn read_file(
+    env: &ToolEnv<'_>,
+    page: &str,
+    base: &str,
+    file: &GoogleFile,
+) -> Result<(String, String, bool), String> {
+    let noun = file.kind.noun();
+    let editor = file.editor_url(base);
+    match file.kind {
+        Kind::Slides => {
+            let html = fetch_ok(env, page, base, &file.slides_html_url(base), true).await;
+            if let Ok(got) = &html {
+                let slides = gdocs::slides_from_html(&got.text);
+                if !slides.is_empty() {
+                    let n = slides.len();
+                    return Ok((
+                        format!(
+                            "{noun}{} ({editor}): {n} slide{}, all read, each with its speaker \
+                             notes.",
+                            gdocs::titled(&got.text),
+                            if n == 1 { "" } else { "s" }
+                        ),
+                        gdocs::slides_text(&slides),
+                        got.cut,
+                    ));
+                }
+            }
+            let got = fetch_ok(env, page, base, &file.slides_txt_url(base), false)
+                .await
+                .map_err(|why| match html {
+                    Err(first) if first != why => format!("{first}; then {why}"),
+                    _ => why,
+                })?;
+            Ok((
+                format!(
+                    "{noun} ({editor}): all of its text, without slide numbers (Google's text \
+                     export doesn't mark where slides start)."
+                ),
+                gdocs::slides_from_txt(&got.text),
+                got.cut,
+            ))
+        }
+        Kind::Doc => match fetch_ok(env, page, base, &file.doc_txt_url(base), false).await {
+            Ok(got) => Ok((
+                format!("{noun} ({editor}): all of its text."),
+                gdocs::doc_from_txt(&got.text),
+                got.cut,
+            )),
+            Err(first) => {
+                let got = fetch_ok(env, page, base, &file.doc_html_url(base), true)
+                    .await
+                    .map_err(|why| {
+                        if why == first {
+                            why
+                        } else {
+                            format!("{first}; then {why}")
+                        }
+                    })?;
+                Ok((
+                    format!(
+                        "{noun}{} ({editor}): all of its text.",
+                        gdocs::titled(&got.text)
+                    ),
+                    gdocs::doc_from_html(&got.text),
+                    got.cut,
+                ))
+            }
+        },
+        Kind::Sheet => read_sheets(env, page, base, file).await,
+    }
+}
+
+/// Every sheet of a spreadsheet, each as a table.
+async fn read_sheets(
+    env: &ToolEnv<'_>,
+    page: &str,
+    base: &str,
+    file: &GoogleFile,
+) -> Result<(String, String, bool), String> {
+    let editor = file.editor_url(base);
+    let listed = fetch_ok(env, page, base, &file.sheet_list_url(base), true).await;
+    let (mut tabs, title, list_note) = match &listed {
+        Ok(got) => (
+            gdocs::sheets_from_html(&got.text),
+            gdocs::titled(&got.text),
+            String::new(),
+        ),
+        Err(why) => (
+            Vec::new(),
+            String::new(),
+            format!(" (the list of sheets: {why})"),
+        ),
+    };
+    let known = !tabs.is_empty();
+    if !known {
+        tabs.push(gdocs::SheetTab {
+            name: "first sheet".to_owned(),
+            gid: "0".to_owned(),
+        });
+    }
+    let all = tabs.len();
+    tabs.truncate(gdocs::MAX_SHEETS);
+    let mut body = String::new();
+    let mut read = 0;
+    let mut cut = false;
+    let mut failed: Vec<String> = Vec::new();
+    for tab in &tabs {
+        let got = match fetch_ok(env, page, base, &file.sheet_csv_url(base, &tab.gid), false).await
+        {
+            Ok(got) => Ok(got),
+            Err(_) => fetch_ok(env, page, base, &file.sheet_gviz_url(base, &tab.gid), false).await,
+        };
+        if env.cancel.is_cancelled() {
+            return Err("the task was stopped".to_owned());
+        }
+        match got {
+            Ok(got) => {
+                body.push_str(&gdocs::sheet_table(
+                    &tab.name,
+                    &got.text,
+                    gdocs::MAX_SHEET_ROWS,
+                ));
+                body.push('\n');
+                read += 1;
+                cut |= got.cut;
+            }
+            Err(why) => failed.push(format!("- \"{}\": {why}", tab.name)),
+        }
+    }
+    if read == 0 {
+        return Err(failed
+            .first()
+            .map_or_else(|| "no sheet could be read".to_owned(), Clone::clone)
+            + &list_note);
+    }
+    let mut head = format!(
+        "{}{title} ({editor}): {read} of {all} sheet{} read, each as a table (at most {} rows \
+         each).",
+        Kind::Sheet.noun(),
+        if all == 1 { "" } else { "s" },
+        gdocs::MAX_SHEET_ROWS
+    );
+    if !known {
+        let _ = write!(
+            head,
+            " Only the first sheet was read: the list of sheets couldn't be read{list_note}."
+        );
+    }
+    if all > tabs.len() {
+        let _ = write!(
+            head,
+            " Only the first {} sheets were read.",
+            gdocs::MAX_SHEETS
+        );
+    }
+    if !failed.is_empty() {
+        body.push_str("Sheets that couldn't be read:\n");
+        body.push_str(&failed.join("\n"));
+        body.push('\n');
+    }
+    Ok((head, body.trim_end().to_owned(), cut))
+}
+
+/// `read_document`: the whole text of a Google Doc, Slides presentation or
+/// Sheet, read by oxbot from Google in the bot's browser.
+pub(crate) async fn read_document(
+    call: &ToolCall,
+    gate: &GateCheck,
+    env: &ToolEnv<'_>,
+) -> ToolOutcome {
+    let base = gdocs::docs_base();
+    let given = call
+        .arguments
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let target = match gdocs::parse(given, &base) {
+        Ok(target) => target,
+        Err(why) => return ToolOutcome::note(format!("[tool error] {why}"), true),
+    };
+    if env.browser.is_none() {
+        return ToolOutcome::note("[tool error] This bot has no browser right now.", true);
+    }
+    let fail = |why: String| ToolOutcome::note(format!("[tool error] {why}"), true);
+    // A tab on Google's site, so its sign-in applies: the file is opened
+    // there if the tab is elsewhere (a Drive link always, to learn its kind).
+    let open = match &target {
+        Target::File(file) => current_url(env)
+            .as_ref()
+            .is_none_or(|u| !gdocs::on_docs_site(u, &base))
+            .then(|| file.editor_url(&base)),
+        Target::Drive(id) => Some(gdocs::open_url(&base, id)),
+    };
+    if let Some(url) = &open {
+        match visit(gate, env, &call.id, 1, url).await {
+            Visit::Open => {}
+            Visit::Failed(read) => {
+                return fail(read.outcome.err().unwrap_or_default());
+            }
+            Visit::Stop(why) => return fail(format!("The file wasn't opened: {why}")),
+        }
+    }
+    let Some(page) = current_url(env) else {
+        return fail("the browser isn't on a page".to_owned());
+    };
+    if !gdocs::on_docs_site(&page, &base) {
+        return fail(format!(
+            "the browser went to {page} instead of the file: Google may want the person to sign \
+             in (call request_sign_in), or the file isn't shared with this Google account"
+        ));
+    }
+    let file = match target {
+        Target::File(file) => file,
+        Target::Drive(id) => match gdocs::parse(&page, &base) {
+            Ok(Target::File(file)) if file.id == id => file,
+            _ => {
+                return fail(format!(
+                    "{given} isn't a Google Doc, Slides presentation or Sheet (it opened as \
+                     {page}): read it in the browser instead"
+                ));
+            }
+        },
+    };
+    let editor = file.editor_url(&base);
+    let (text, error) = match read_file(env, &page, &base, &file).await {
+        Ok((head, body, cut)) => (gdocs::result_text(&head, &body, cut), false),
+        Err(why) => (
+            format!(
+                "[tool error] Couldn't read the {} ({editor}): {why}",
+                file.kind.noun()
+            ),
+            true,
+        ),
+    };
+    if error {
+        return ToolOutcome::note(text, true);
+    }
+    let raw = Raw {
+        text,
+        wrap: Some(("web_page", format!(" url=\"{}\"", super::attr(&editor)))),
+        error: false,
+        why: Some(format!("a {} ({editor})", file.kind.noun())),
+        page: Some(TabPage {
+            url: editor,
+            title: String::new(),
+        }),
+        taints: true,
+        snapshot: None,
+    };
+    finish(raw, &call.name, true, env)
+}
+
 /// `page_steps`: runs the steps in a row, each through the gate, and stops
 /// at the first that needs the person's OK or leaves the site.
 pub(crate) async fn page_steps(
@@ -373,6 +669,60 @@ mod tests {
         })
     }
 
+    /// A stand-in Google: a 9-slide deck, a Doc whose text export fails
+    /// (its simple page works), and a spreadsheet of two sheets whose first
+    /// CSV export fails (its chart data source works).
+    fn fetched(url: &str) -> SealedReply {
+        let answer = |status: u16, kind: &str, text: String| SealedReply {
+            ok: true,
+            value: json!({"status": status, "type": kind, "url": url, "text": text, "cut": false}),
+            ..SealedReply::default()
+        };
+        if url.ends_with("/htmlpresent") {
+            let mut slides = String::new();
+            for n in 1..=9 {
+                let _ = write!(
+                    slides,
+                    "<div role=\"group\" class=\"slide\" title=\"Slide {n}\"><section class=\"slide-content\"><div class=\"shape\"><p>Entry {n}: week {n}</p></div></section><aside class=\"slide-notes\"><p>note {n}</p></aside></div>"
+                );
+            }
+            return answer(
+                200,
+                "text/html",
+                format!(
+                    "<html><head><title>Divit Learning - Google Slides</title></head><body>{slides}</body></html>"
+                ),
+            );
+        }
+        if url.ends_with("/export?format=txt") {
+            return SealedReply::failed("Failed to fetch");
+        }
+        if url.ends_with("/mobilebasic") {
+            return answer(
+                200,
+                "text/html",
+                "<div class=\"doc-content\"><p>Doc line</p></div>".to_owned(),
+            );
+        }
+        if url.ends_with("/htmlview") {
+            return answer(
+                200,
+                "text/html",
+                r#"items.push({name: "Scores", pageUrl: "x", gid: "0"}); items.push({name: "Names", pageUrl: "x", gid: "77"});"#.to_owned(),
+            );
+        }
+        if url.contains("export?format=csv&gid=0") {
+            return answer(403, "text/html", String::new());
+        }
+        if url.contains("gid=0") {
+            return answer(200, "text/csv", "Name,Score\nAda,9\n".to_owned());
+        }
+        if url.contains("gid=77") {
+            return answer(200, "text/csv", "Who\nBo\n".to_owned());
+        }
+        answer(404, "text/html", String::new())
+    }
+
     /// What the stand-in hub saw: (tool, quiet) for each permission, and
     /// the sealed work asked for.
     #[derive(Default)]
@@ -431,6 +781,7 @@ mod tests {
                                     ..SealedReply::default()
                                 }
                             }
+                            SealedWork::Fetch { url, .. } => fetched(url),
                             SealedWork::Done => SealedReply {
                                 ok: true,
                                 ..SealedReply::default()
@@ -502,6 +853,8 @@ mod tests {
             };
             let out = if call.name == read_pages::READ_PAGES {
                 read_pages(call, &gate, &env).await
+            } else if call.name == gdocs::READ_DOCUMENT {
+                read_document(call, &gate, &env).await
             } else {
                 page_steps(call, &gate, &env).await
             };
@@ -684,5 +1037,114 @@ mod tests {
             "{t}"
         );
         assert_eq!(r.scripted.calls().len(), 1, "the fill never ran");
+    }
+
+    const DECK: &str = "1EAYk18WDjIG-zp_0vLm3CsfQh_i8eXc67Jo2O9C6Vuc";
+
+    #[tokio::test]
+    async fn a_whole_deck_is_read_from_google_not_the_editor() {
+        let r = Run::new();
+        let call = ToolCall::new(
+            "c1",
+            gdocs::READ_DOCUMENT,
+            json!({"url": format!("https://docs.google.com/presentation/d/{DECK}/edit#slide=id.p1")}),
+        );
+        let (out, seen) = r.call(&call).await;
+        let t = text(&out);
+        assert!(
+            t.contains("Google Slides presentation \"Divit Learning\""),
+            "{t}"
+        );
+        assert!(t.contains("9 slides, all read"), "{t}");
+        assert!(
+            t.contains("Slide 7 of 9:\nEntry 7: week 7\nSpeaker notes: note 7"),
+            "{t}"
+        );
+        assert!(out.untrusted);
+        assert_eq!(
+            out.meta.page_url.as_deref(),
+            Some(format!("https://docs.google.com/presentation/d/{DECK}/edit").as_str())
+        );
+        // The tab was elsewhere: the file was opened (a checked visit), then read.
+        let nav: Vec<_> = r
+            .scripted
+            .calls()
+            .into_iter()
+            .filter(|(n, _)| n == "navigate_page")
+            .collect();
+        assert_eq!(nav.len(), 1);
+        assert_eq!(
+            nav[0].1["url"],
+            format!("https://docs.google.com/presentation/d/{DECK}/edit")
+        );
+        assert_eq!(
+            seen.sealed,
+            vec![SealedWork::Fetch {
+                page: format!("https://docs.google.com/presentation/d/{DECK}/edit"),
+                origin: "https://docs.google.com".into(),
+                url: format!("https://docs.google.com/presentation/d/{DECK}/htmlpresent"),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn docs_and_sheets_fall_back_when_an_export_fails() {
+        let r = Run::new();
+        r.pages
+            .lock()
+            .unwrap()
+            .learn("## Pages\n1: Docs (https://docs.google.com/document/u/0/) [selected]");
+        let call = ToolCall::new(
+            "c1",
+            gdocs::READ_DOCUMENT,
+            json!({"url": format!("https://docs.google.com/document/d/{DECK}/edit")}),
+        );
+        let (out, seen) = r.call(&call).await;
+        assert!(text(&out).contains("Doc line"), "{}", text(&out));
+        // Already on Google's site: nothing opened.
+        assert_eq!(r.scripted.calls().len(), 0);
+        assert_eq!(seen.sealed.len(), 2);
+        let call = ToolCall::new(
+            "c2",
+            gdocs::READ_DOCUMENT,
+            json!({"url": format!("https://docs.google.com/spreadsheets/d/{DECK}/edit#gid=77")}),
+        );
+        let (out, _) = r.call(&call).await;
+        let t = text(&out);
+        assert!(t.contains("2 of 2 sheets read"), "{t}");
+        assert!(
+            t.contains("## Sheet \"Scores\": 1 row below the header, 2 columns\n| Name | Score |"),
+            "{t}"
+        );
+        assert!(t.contains("| Ada | 9 |"), "{t}");
+        assert!(t.contains("## Sheet \"Names\""), "{t}");
+    }
+
+    #[tokio::test]
+    async fn other_sites_are_refused_and_nothing_runs() {
+        let r = Run::new();
+        let call = ToolCall::new(
+            "c1",
+            gdocs::READ_DOCUMENT,
+            json!({"url": format!("https://evil.example.com/presentation/d/{DECK}/edit")}),
+        );
+        let (out, seen) = r.call(&call).await;
+        assert!(out.error);
+        assert!(text(&out).contains("isn't a Google Docs, Slides or Sheets address"));
+        assert!(seen.sealed.is_empty() && seen.asked.is_empty());
+        assert_eq!(r.scripted.calls().len(), 0);
+        // A Drive file that isn't a Google file says so.
+        let call = ToolCall::new(
+            "c2",
+            gdocs::READ_DOCUMENT,
+            json!({"url": format!("https://drive.google.com/file/d/{DECK}/view")}),
+        );
+        let (out, seen) = r.call(&call).await;
+        assert!(
+            text(&out).contains("isn't a Google Doc, Slides presentation or Sheet"),
+            "{}",
+            text(&out)
+        );
+        assert_eq!(seen.sealed.len(), 0);
     }
 }

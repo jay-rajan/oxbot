@@ -177,6 +177,47 @@ impl Guard {
         .flatten()
     }
 
+    /// Runs `expression` (whose value may be a promise, awaited) in oxbot's
+    /// isolated world of the page at `page_url` (or the page used last),
+    /// for up to `limit`, and returns its value.
+    pub(crate) async fn evaluate_awaited(
+        &self,
+        page_url: Option<&str>,
+        expression: &str,
+        limit: Duration,
+    ) -> Result<Value, String> {
+        let session = self
+            .pick_page(page_url)
+            .await
+            .ok_or("no tab to read from")?;
+        let ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+        let params = |context: u64| {
+            json!({
+                "expression": expression,
+                "contextId": context,
+                "returnByValue": true,
+                "awaitPromise": true,
+                "userGesture": false,
+                "timeout": ms,
+            })
+        };
+        let (reply, _) = self
+            .in_world(&session, |context| {
+                self.send_call_within(
+                    "Runtime.evaluate",
+                    params(context),
+                    Target::Session(session.clone()),
+                    limit + Duration::from_secs(5),
+                )
+            })
+            .await
+            .ok_or("Chrome couldn't run oxbot's read in the tab")?;
+        reply
+            .pointer("/result/value")
+            .cloned()
+            .ok_or_else(|| "Chrome gave nothing back".to_owned())
+    }
+
     /// What the elements with accessibility `role` and `name` on the page
     /// at `page_url` (or the page used last) are: one entry per match, at
     /// most [`MAX_HITS`]. Empty if there are none or Chrome can't tell
@@ -398,6 +439,18 @@ impl Guard {
         params: Value,
         target: Target,
     ) -> Result<Value, String> {
+        self.send_call_within(method, params, target, Duration::from_secs(10))
+            .await
+    }
+
+    /// [`Self::send_call`], waiting up to `wait` for Chrome's answer.
+    async fn send_call_within(
+        &self,
+        method: &str,
+        params: Value,
+        target: Target,
+        wait: Duration,
+    ) -> Result<Value, String> {
         let (reply, rx) = oneshot::channel();
         self.commands
             .send(Command::Call {
@@ -408,7 +461,7 @@ impl Guard {
             })
             .await
             .map_err(|_| "the browser guard stopped".to_owned())?;
-        tokio::time::timeout(Duration::from_secs(10), rx)
+        tokio::time::timeout(wait, rx)
             .await
             .map_err(|_| format!("Chrome didn't answer {method}"))?
             .map_err(|_| "the browser guard stopped".to_owned())?

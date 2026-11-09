@@ -1,6 +1,7 @@
 # The stand-ins' replies for small scripts and batches: read_pages on the
-# test site's product pages, page_steps on a shop, and a small script in
-# the bot's folder. The first `when` found in the message (any case) wins.
+# test site's product pages, read_document on its stand-in Google deck,
+# page_steps on a shop, and a small script in the bot's folder. The first
+# `when` found in the message (any case) wins.
 
 # read_pages: three product pages of the test site (really loaded in the
 # test Chrome) in one call. The script also tries to reach the network and
@@ -19,6 +20,16 @@ return { name, price: t('.price'), rating: t('.rating'), net };
 """ }
 then = [{ tool = "read_pages", args = { follow = "no such link", max_pages = 1, script = "return { now: doc.querySelector('h1').textContent, loaded: doc.body.dataset.loaded || 'no' };" } }]
 after = "Checked the page again: {result}"
+
+# read_document: the bot opens a Google Slides deck (the test site stands
+# in for docs.google.com): the editor shows only slides 1 and 2, and says
+# to use read_document, which reads all nine slides from the export.
+[[reply]]
+when = "read the divit learning deck"
+tool = "mcp__chrome-devtools__navigate_page"
+args = { pageId = 1, type = "url", url = "http://docs.example.test/presentation/d/e2e-deck-000001/edit" }
+then = [{ tool = "read_document", args = { url = "http://docs.example.test/presentation/d/e2e-deck-000001/edit" } }]
+after = "Read the whole deck. {result}"
 
 # page_steps on a site set to fine-grained control: refused.
 [[reply]]

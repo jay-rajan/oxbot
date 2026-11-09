@@ -2,7 +2,8 @@
 //! engine opens each page through the browser tool (and the gate), then
 //! asks the hub with [`SealedCall`] to copy the page and run the bot's
 //! script on the copy in a sealed tab (no network, no cookies, no page
-//! scripts). The bot never gets a script into a live page.
+//! scripts). The bot never gets a script into a live page. The hub also
+//! does `read_document`'s fixed read of a Google file ([`SealedWork::Fetch`]).
 
 use serde_json::Value;
 
@@ -22,6 +23,20 @@ pub enum SealedWork {
         script: String,
         /// A selector or link text for the next page, if following.
         follow: Option<String>,
+    },
+    /// `read_document`: not in the sealed tab. oxbot itself reads `url`
+    /// (one GET, its own fixed script) from the bot's tab at `page`, which
+    /// must be on `origin`, so the person's sign-in to that site applies.
+    /// The hub reads only a Google file's export addresses
+    /// (`oxbot_loop::tools::gdocs`); the reply's `value` is the response
+    /// (`status`, `type`, `url`, `text`, `cut`).
+    Fetch {
+        /// The tab to read from, as the browser tool last named it.
+        page: String,
+        /// The site the tab must be on (`https://docs.google.com`).
+        origin: String,
+        /// What to read.
+        url: String,
     },
     /// The run is over: close the sealed tab.
     Done,
