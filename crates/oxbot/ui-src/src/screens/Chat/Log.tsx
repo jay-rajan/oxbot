@@ -30,7 +30,19 @@ function MdNodes({ nodes }: { nodes: MdNode[] }): ReactNode {
       case "pre": return <pre key={i}>{kids}</pre>;
       case "code": return <code key={i}>{kids}</code>;
       case "strong": return <strong key={i}>{kids}</strong>;
+      case "em": return <em key={i}>{kids}</em>;
       case "a": return <a key={i} href={n.href} target="_blank" rel="noopener noreferrer">{kids}</a>;
+      case "h3": return <h3 key={i}>{kids}</h3>;
+      case "h4": return <h4 key={i}>{kids}</h4>;
+      case "ul": return <ul key={i}>{kids}</ul>;
+      case "ol": return <ol key={i}>{kids}</ol>;
+      case "li": return <li key={i}>{kids}</li>;
+      case "table": return <div key={i} className="md-table"><table>{kids}</table></div>;
+      case "thead": return <thead key={i}>{kids}</thead>;
+      case "tbody": return <tbody key={i}>{kids}</tbody>;
+      case "tr": return <tr key={i}>{kids}</tr>;
+      case "th": return <th key={i}>{kids}</th>;
+      case "td": return <td key={i}>{kids}</td>;
     }
   });
 }

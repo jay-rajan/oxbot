@@ -46,7 +46,7 @@ use oxbot_loop::tools::control::{ASKED, UPDATE_TODO};
 use oxbot_loop::tools::page::ASK_PAGE;
 use oxbot_loop::{
     CHECK_AFTER_CALLS, CallCtx, Dispatched, Failures, LoopEngine, MAX_NAMED, OwnTools, RepeatGuard,
-    Stop, ToolService, TurnHooks, check_note, wrap_up_note,
+    Stop, ToolService, TurnHooks, answer_after_check, check_note, wrap_up_note,
 };
 use oxbot_relay::{ClientInfo, Relay, TurnStart};
 use serde_json::{Value, json};
@@ -435,6 +435,8 @@ struct Turn {
     stopping_since: Option<Instant>,
     bounced: bool,
     ungrounded_before: Option<Vec<String>>,
+    /// The answer given before the check, kept if the checked one is only a report.
+    first_answer: Option<String>,
     bounced_at: Option<Instant>,
     writing: bool,
 }
@@ -501,6 +503,7 @@ impl Turn {
             stopping_since: None,
             bounced: false,
             ungrounded_before: None,
+            first_answer: None,
             bounced_at: None,
             writing: false,
         };
@@ -768,6 +771,7 @@ impl Turn {
                 self.bounced_at = Some(Instant::now());
                 let note = check_note(&input.text, &missing, core.tools.has_browser());
                 self.ungrounded_before = Some(missing);
+                self.first_answer = Some(text);
                 let _ = core
                     .events
                     .send(EngineEvent::Activity(Activity::Other(CHECKING.to_owned())))
@@ -783,6 +787,10 @@ impl Turn {
             let before = self.ungrounded_before.take().unwrap_or_default();
             self.record_check(core, true, before, missing);
         }
+        let text = match self.first_answer.take() {
+            Some(first) => answer_after_check(&first, &text),
+            None => text,
+        };
         let _ = core
             .events
             .send(EngineEvent::Assistant {

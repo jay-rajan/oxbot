@@ -44,9 +44,30 @@ pub fn note(goal: &str, ungrounded: &[String], browser: bool) -> String {
     }
     note.push_str(
         " Check each part the task asked for (every filter, the number of items, each field). \
-         Then give your final answer.",
+         Then reply to the person with your complete answer, written for them: they never see \
+         this note, so don't describe your checks.",
     );
     note
+}
+
+/// Shortest first answer worth keeping over a much shorter checked one.
+const KEEP_FIRST_MIN_CHARS: usize = 300;
+
+/// The answer to show after a check: the checked one, unless it shrank to
+/// less than half of a substantial first answer. Small models sometimes
+/// answer the check with a report about their checks ("The plan meets all
+/// the requirements…") instead of the answer; then the first one is kept.
+#[must_use]
+pub fn answer_after_check(first: &str, checked: &str) -> String {
+    let (first, checked) = (first.trim(), checked.trim());
+    let first_len = first.chars().count();
+    if first_len >= KEEP_FIRST_MIN_CHARS && checked.chars().count() * 2 < first_len {
+        return first.to_owned();
+    }
+    if checked.is_empty() {
+        return first.to_owned();
+    }
+    checked.to_owned()
 }
 
 /// Share of the step budget after which the model is told to wrap up.
@@ -81,20 +102,40 @@ mod tests {
             "[oxbot] Before you answer, check it. The task was: «[Jay] the 5 tallest finished \
              towers». These values aren't in anything you read in this task: 351.8, 13. Check \
              them (find_in_page, read_section or query_rows) or remove them. Check each part the \
-             task asked for (every filter, the number of items, each field). Then give your \
-             final answer."
+             task asked for (every filter, the number of items, each field). Then reply to the \
+             person with your complete answer, written for them: they never see this note, so \
+             don't describe your checks."
         );
         assert_eq!(
             note(" [Sam] sum the file ", &[], false),
             "[oxbot] Before you answer, check it. The task was: «[Sam] sum the file». Check each \
-             part the task asked for (every filter, the number of items, each field). Then give \
-             your final answer."
+             part the task asked for (every filter, the number of items, each field). Then reply \
+             to the person with your complete answer, written for them: they never see this \
+             note, so don't describe your checks."
         );
         assert!(
             note("[Sam] go", &["12".into()], false).contains("(read_result or the file tools)")
         );
+        assert!(note("[Sam] go", &[], false).contains("they never see this note"));
         let long = "x".repeat(700);
         let n = note(&long, &[], true);
         assert!(n.contains(&format!("«{}…»", "x".repeat(600))), "{n}");
+    }
+
+    #[test]
+    fn a_report_about_the_checks_never_replaces_the_answer() {
+        let plan = "Monday: stir-fry. 1 lb chicken, 2 peppers. Steps: 1. Cook rice. ".repeat(10);
+        let report = "The plan meets all the task requirements; recipes are in meal-plan.md.";
+        assert_eq!(answer_after_check(&plan, report), plan.trim());
+        // A checked answer of about the same size wins (it may fix values).
+        let fixed = plan.replace("2 peppers", "3 peppers");
+        assert_eq!(answer_after_check(&plan, &fixed), fixed.trim());
+        // A short first answer: the checked one wins, even if shorter.
+        assert_eq!(
+            answer_after_check("It's 42 km.", "About 40 km."),
+            "About 40 km."
+        );
+        // An empty checked answer keeps the first.
+        assert_eq!(answer_after_check("Here it is.", "  "), "Here it is.");
     }
 }
