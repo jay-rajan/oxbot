@@ -210,6 +210,7 @@ fn spec(dir: &Path, session: Resume) -> SessionSpec {
         context_dir: bot.join("context"),
         knowledge_dir: None,
         system_prompt: "You are \"Scout\", a bot running inside oxbot.".into(),
+        keeps_files: false,
         resume: session,
         model: ModelChoice::Auto,
         browser: Some(BrowserSpec {

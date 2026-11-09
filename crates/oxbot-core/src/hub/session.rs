@@ -120,6 +120,7 @@ impl Hub {
                 .unwrap_or_else(|| bot.dir.join("context")),
             knowledge_dir: overrides.knowledge_dir,
             system_prompt: prompt.clone(),
+            keeps_files: oxbot_loop::tools::files::asks_for_file(&bot.instructions),
             resume: resume.clone(),
             model: overrides.model.unwrap_or_else(|| model_of(bot)),
             browser: browser_spec,

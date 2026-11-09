@@ -23,6 +23,9 @@ pub struct SessionSpec {
     pub knowledge_dir: Option<PathBuf>,
     /// The bot's system prompt.
     pub system_prompt: String,
+    /// Its instructions ask it to keep files (otherwise it writes one only
+    /// when the person's message asks).
+    pub keeps_files: bool,
     /// A new session, or the saved one to go on with.
     pub resume: Resume,
     /// Which model.

@@ -884,6 +884,8 @@ impl Turn {
                     budget: self.budget,
                     person: input.person.clone(),
                     stopped: self.stopped_for.is_some(),
+                    files_asked: core.spec.keeps_files
+                        || oxbot_loop::tools::files::asks_for_file(&input.text),
                     cancel: self.cancel.child_token(),
                 };
                 let done = done.clone();
@@ -984,6 +986,8 @@ struct CallJob {
     budget: TokenBudget,
     person: Option<String>,
     stopped: bool,
+    /// The person asked for a file (or the bot keeps files): Write and Edit may run.
+    files_asked: bool,
     /// Fires when the person stops the turn.
     cancel: CancellationToken,
 }
@@ -1003,6 +1007,11 @@ impl CallJob {
             (ToolOutcome::note("Stopped.", true), CallDone::Stopped)
         } else if calls.refused_step == Some(self.step) {
             (ToolOutcome::note(SKIPPED, false), CallDone::Ran)
+        } else if !self.files_asked && oxbot_loop::tools::files::changes_files(&self.call.name) {
+            (
+                ToolOutcome::note(oxbot_loop::tools::files::NO_FILE_ASKED, false),
+                CallDone::Ran,
+            )
         } else {
             self.dispatch(&mut calls, &cancel).await
         };

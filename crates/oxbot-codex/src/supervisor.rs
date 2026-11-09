@@ -262,6 +262,7 @@ mod tests {
             context_dir: PathBuf::from(ctx),
             knowledge_dir: None,
             system_prompt: String::new(),
+            keeps_files: false,
             resume: oxbot_engine::Resume::New("s".into()),
             model: oxbot_engine::ModelChoice::Auto,
             browser: None,
