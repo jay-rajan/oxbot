@@ -1413,13 +1413,7 @@ async fn handle(
             Ok(_) => reply(state.hub.cancel(&bot).await),
             Err(e) => error(&e),
         },
-        ClientMsg::CreateBot {
-            name,
-            instructions,
-            private,
-            engine,
-            models,
-        } => create_bot(state, client, &name, &instructions, private, engine, models).await,
+        msg @ ClientMsg::CreateBot { .. } => create_bot(state, client, out, msg).await,
         ClientMsg::SetPrivate { .. }
         | ClientMsg::SetSharing { .. }
         | ClientMsg::RenameBot { .. }
@@ -1936,17 +1930,26 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
     }
 }
 
-/// Makes a bot for the client on `engine` (Codex if `None`), once that
-/// engine can run. Checked before anything is made.
+/// The New bot form: makes a bot for the client on `engine` (Codex if
+/// `None`), once that engine can run (checked before anything is made), and
+/// starts it if it was given a description.
 async fn create_bot(
     state: &AppState,
     client: &mut Client,
-    name: &str,
-    instructions: &str,
-    private: bool,
-    engine: Option<oxbot_protocol::EngineKind>,
-    models: Vec<String>,
+    out_tx: &mpsc::Sender<ServerMsg>,
+    msg: ClientMsg,
 ) -> Vec<ServerMsg> {
+    let ClientMsg::CreateBot {
+        name,
+        instructions,
+        private,
+        engine,
+        models,
+    } = msg
+    else {
+        return Vec::new();
+    };
+    let (name, instructions) = (name.as_str(), instructions.as_str());
     let viewer = client.viewer.clone();
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
@@ -2002,6 +2005,19 @@ async fn create_bot(
         Ok(list) => list.into_iter().find(|b| b.id == info.id).unwrap_or(info),
         Err(_) => info,
     };
+    // A bot made with a description starts right away, as its maker.
+    if !instructions.trim().is_empty() {
+        tokio::spawn(send_as(
+            Arc::clone(&state.hub),
+            Outgoing {
+                bot: info.id.clone(),
+                text: FIRST_TASK.to_owned(),
+                files: Vec::new(),
+            },
+            viewer.clone(),
+            out_tx.clone(),
+        ));
+    }
     out.splice(
         0..0,
         viewer
@@ -2011,6 +2027,11 @@ async fn create_bot(
     );
     out
 }
+
+/// The first message a new bot gets from its maker, so it starts working
+/// instead of waiting to be asked.
+const FIRST_TASK: &str = "Get started: do your job once now if you can. If you need something \
+from me first, ask. If it should repeat (like every morning), offer a schedule.";
 
 /// A message on its way: to `bot`, `text` with the uploaded `files`.
 struct Outgoing {
