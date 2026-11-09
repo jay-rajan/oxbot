@@ -1,10 +1,10 @@
-//! Comparing engines and models per bot (#21), for the Farm owner: thumbs
+//! Comparing engines and models per bot (#21), for the home computer owner: thumbs
 //! on replies, test cases made from finished turns, batches of practice
 //! runs on Codex and on oxbot's own loop, the owner's verdicts and the
 //! scoreboard.
 //!
-//! Every call here is the owner's only: the Farm connection, or the Farm's
-//! person on their own Gate. Cases come only from bots the owner may task
+//! Every call here is the owner's only: the home computer connection, or the home computer's
+//! person on their own device. Cases come only from bots the owner may task
 //! (shared bots and their own private ones).
 
 use oxbot_protocol::{
@@ -165,11 +165,11 @@ impl Hub {
     }
 
     /// Bot `id`, if the owner may compare it: one they may task, not
-    /// another person's private bot, not a Herder.
+    /// another person's private bot, not an Assistant.
     fn compared_bot(&self, id: &str, viewer: &Viewer) -> Result<Bot, HubError> {
         self.owner_only(viewer)?;
         let bot = self.bot_for(id, viewer)?;
-        if bot.private && bot.owner != self.farm_id() {
+        if bot.private && bot.owner != self.owner_person_id() {
             return Err(HubError::NotAllowed(format!(
                 "{} is someone else's private bot: its tasks stay theirs.",
                 bot.name
@@ -1010,7 +1010,7 @@ impl Hub {
     }
 
     /// Keeps one of oxbot's own tool calls of a live turn for test-case
-    /// fixtures: Herder's team tools only (never web content).
+    /// fixtures: the Assistant's team tools only (never web content).
     pub(super) fn keep_turn_tool(
         &self,
         bot: &BotId,

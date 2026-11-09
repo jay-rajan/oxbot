@@ -414,7 +414,7 @@ impl Server {
     }
 
     /// The page's address, e.g. `http://127.0.0.1:5123/?as=Ann`. The
-    /// Farm's own page (no `as=`) carries the Farm secret, as the app's
+    /// home computer's own page (no `as=`) carries the home computer secret, as the app's
     /// window does.
     #[must_use]
     pub fn url(&self, path: &str) -> String {
@@ -422,7 +422,7 @@ impl Server {
         if path.contains("as=") {
             return base;
         }
-        let key = std::fs::read_to_string(self.home.join("farm-key")).unwrap_or_default();
+        let key = std::fs::read_to_string(self.home.join("home-computer-key")).unwrap_or_default();
         format!("{base}#k={}", key.trim())
     }
 
@@ -486,9 +486,9 @@ fn spawn_oxbot(
         .env("OXBOT_HOME", home)
         .env("OXBOT_E2E", "1")
         .env("OXBOT_DEV_TOOLS", "1")
-        // Any free port for the Gate door, so tests never clash with a
+        // Any free port for the device door, so tests never clash with a
         // real oxbot (or each other) on 7879.
-        .env("OXBOT_GATE_PORT", "0")
+        .env("OXBOT_DEVICE_PORT", "0")
         .env("OXBOT_PERSON", &config.person)
         // The stand-in browser tool reads the same script as the stand-in
         // OpenRouter.

@@ -42,7 +42,7 @@ export function MdView({ text }: { text: string }) {
 /** What one event needs from around it. */
 interface Ctx {
   people: Record<string, string>;
-  farm: boolean;
+  homeComputer: boolean;
   /** The owner's thumbs (null: not shown). */
   rated: Ratings | null;
 }
@@ -101,13 +101,13 @@ function ReportCard({ e }: { e: Extract<BotEvent, { kind: "report" }> }) {
 }
 
 /** The files sent with a message. On the home computer a click opens one there. */
-function SentFiles({ e, farm }: { e: Extract<BotEvent, { kind: "user_message" }>; farm: boolean }) {
+function SentFiles({ e, homeComputer }: { e: Extract<BotEvent, { kind: "user_message" }>; homeComputer: boolean }) {
   const { send } = useApp();
   return (
     <div className="msg-files">
       {e.files.map((f) => {
         const sub = f.kind === "video" ? `Bots can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size);
-        return farm ? (
+        return homeComputer ? (
           <Chip key={f.id} sub={sub} title="Open it on the home computer" onClick={() => send({ type: "open_file", bot: e.bot, seq: e.seq, id: f.id })}>{f.name}</Chip>
         ) : (
           <Chip key={f.id} sub={sub} title="Files open on the home computer">{f.name}</Chip>
@@ -127,7 +127,7 @@ const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx })
         <div className="mine" title={title} style={color ? vars({ person: color }) : undefined}>
           {e.from ? <div className="who"><i className="person-dot" />{e.from}</div> : null}
           {e.text || !e.files?.length ? <div className="msg me">{e.text}</div> : null}
-          {e.files?.length ? <SentFiles e={e} farm={ctx.farm} /> : null}
+          {e.files?.length ? <SentFiles e={e} homeComputer={ctx.homeComputer} /> : null}
         </div>
       );
     }
@@ -200,11 +200,11 @@ export function Log() {
   const owner = !!(settings?.owner && settings.dev_tools);
   const comparable = !!info && !info.central && !locked;
   const ctxRated = owner && comparable ? (ratings ?? { ratings: {}, cases: [] }) : null;
-  const farm = !!settings?.farm;
+  const homeComputer = !!settings?.home_computer;
   // Kept the same object while nothing in it changed, so events don't redraw.
   const ctxRef = useRef<Ctx | null>(null);
   const prev = ctxRef.current;
-  const ctx: Ctx = prev && prev.people === people && prev.farm === farm && prev.rated === ctxRated ? prev : { people, farm, rated: ctxRated };
+  const ctx: Ctx = prev && prev.people === people && prev.homeComputer === homeComputer && prev.rated === ctxRated ? prev : { people, homeComputer, rated: ctxRated };
   ctxRef.current = ctx;
 
   const scrollDown = useCallback((force = false) => {

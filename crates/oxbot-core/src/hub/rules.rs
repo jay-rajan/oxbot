@@ -14,8 +14,8 @@ use crate::store::RuleKey;
 impl Hub {
     /// Whether `viewer` may answer `card` with "Always allow": a change
     /// card the policy marked as one to remember (never pay, book, delete,
-    /// Enter, uploads, Herder's cards), shown to them, on a bot they may
-    /// manage (its owner or the Farm), that isn't Herder.
+    /// Enter, uploads, the Assistant's cards), shown to them, on a bot they may
+    /// manage (its owner or the home computer), that isn't the Assistant.
     #[must_use]
     pub fn can_always(&self, card: &Approval, viewer: &Viewer) -> bool {
         if !matches!(card.kind, ApprovalKind::Change | ApprovalKind::Script) || card.rule.is_none()
@@ -227,7 +227,7 @@ mod tests {
         assert!(tab_shows("www.example.com", Some("about:blank"), true));
     }
 
-    /// A hub with Sam's shared bot `shop`, Herder, and Jay as the Farm's person.
+    /// A hub with Sam's shared bot `shop`, the Assistant, and Jay as the home computer's person.
     fn hub(dir: &std::path::Path) -> (Arc<Hub>, PersonId, PersonId) {
         let bots = dir.join("bots");
         std::fs::create_dir_all(&bots).unwrap();
@@ -238,14 +238,14 @@ mod tests {
         shop.owner = Some(sam.clone());
         shop.created_by = Some("Sam".into());
         shop.save().unwrap();
-        let herder = Bot::create(
+        let assistant = Bot::create(
             &bots,
             BotId::new(crate::bot::DEFAULT_BOT).unwrap(),
-            "Herder",
+            "Assistant",
             "",
         )
         .unwrap();
-        let hub = Hub::new(vec![shop, herder], store, HubConfig::new(&bots));
+        let hub = Hub::new(vec![shop, assistant], store, HubConfig::new(&bots));
         (hub, jay, sam)
     }
 
@@ -280,7 +280,7 @@ mod tests {
     async fn a_rule_matches_only_its_bot_host_and_label_and_goes_when_removed() {
         let tmp = tempfile::tempdir().unwrap();
         let (hub, _, sam) = hub(tmp.path());
-        let sam_viewer = Viewer::gate("Sam");
+        let sam_viewer = Viewer::device("Sam");
         hub.add_rule_from(&save_card(&sam), &sam_viewer).unwrap();
         let shop = hub.bot("shop").unwrap();
         let save = save_ask("www.example.com", "button \"Save\"");
@@ -296,8 +296,8 @@ mod tests {
                 "{other:?}"
             );
         }
-        let herder = hub.bot(crate::bot::DEFAULT_BOT).unwrap();
-        assert!(hub.matching_rule(&herder, &save).unwrap().is_none());
+        let assistant = hub.bot(crate::bot::DEFAULT_BOT).unwrap();
+        assert!(hub.matching_rule(&assistant, &save).unwrap().is_none());
         // A card that names no rule (Enter, pay, uploads) never matches.
         let plain = policy::Ask::new(
             ApprovalKind::Change,
@@ -335,14 +335,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_bots_owner_or_the_farm_may_always_allow() {
+    async fn only_the_bots_owner_or_the_home_computer_may_always_allow() {
         let tmp = tempfile::tempdir().unwrap();
         let (hub, jay, sam) = hub(tmp.path());
         let card = save_card(&sam);
-        assert!(hub.can_always(&card, &Viewer::gate("Sam")));
-        assert!(hub.can_always(&card, &Viewer::farm("Jay")));
+        assert!(hub.can_always(&card, &Viewer::device("Sam")));
+        assert!(hub.can_always(&card, &Viewer::home_computer("Jay")));
         // Jay on a phone isn't shown a card Sam's turn raised.
-        assert!(!hub.can_always(&card, &Viewer::gate("Jay")));
+        assert!(!hub.can_always(&card, &Viewer::device("Jay")));
         // A card Jay's turn raised on Sam's bot: Jay answers it, but only
         // once (he doesn't own the bot).
         let jays = Approval {
@@ -350,9 +350,9 @@ mod tests {
             asker_id: Some(jay.to_string()),
             ..save_card(&sam)
         };
-        assert!(!hub.can_always(&jays, &Viewer::gate("Jay")));
+        assert!(!hub.can_always(&jays, &Viewer::device("Jay")));
         assert!(matches!(
-            hub.add_rule_from(&jays, &Viewer::gate("Jay")),
+            hub.add_rule_from(&jays, &Viewer::device("Jay")),
             Err(HubError::NotAllowed(_))
         ));
         // Cards the policy didn't mark, and other kinds, never.
@@ -379,22 +379,26 @@ mod tests {
             },
         ] {
             assert!(
-                !hub.can_always(&refused, &Viewer::farm("Jay")),
+                !hub.can_always(&refused, &Viewer::home_computer("Jay")),
                 "{refused:?}"
             );
-            assert!(hub.add_rule_from(&refused, &Viewer::farm("Jay")).is_err());
+            assert!(
+                hub.add_rule_from(&refused, &Viewer::home_computer("Jay"))
+                    .is_err()
+            );
         }
         assert_eq!(
-            hub.allow_rules_for("shop", &Viewer::farm("Jay")).unwrap(),
+            hub.allow_rules_for("shop", &Viewer::home_computer("Jay"))
+                .unwrap(),
             []
         );
         // Listing and removing are for those who manage the bot.
-        assert!(hub.allow_rules_for("shop", &Viewer::gate("Jay")).is_err());
+        assert!(hub.allow_rules_for("shop", &Viewer::device("Jay")).is_err());
         assert!(
-            hub.remove_allow_rule("shop", 1, &Viewer::gate("Jay"))
+            hub.remove_allow_rule("shop", 1, &Viewer::device("Jay"))
                 .is_err()
         );
-        assert!(!hub.may_manage("shop", &Viewer::gate("Jay")));
-        assert!(hub.may_manage("shop", &Viewer::gate("Sam")));
+        assert!(!hub.may_manage("shop", &Viewer::device("Jay")));
+        assert!(hub.may_manage("shop", &Viewer::device("Sam")));
     }
 }

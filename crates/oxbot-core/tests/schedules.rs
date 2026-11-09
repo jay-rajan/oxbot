@@ -39,7 +39,7 @@ fn schedule_call() -> Tool {
 }
 
 /// A hub with the bot `prep`, whose messages take `tools` in turn (then
-/// none); `page`: it reads a web page first. Jay is the Farm's person.
+/// none); `page`: it reads a web page first. Jay is the home computer's person.
 async fn hub(dir: &Path, tools: Vec<Tool>, page: bool) -> (Arc<Hub>, Arc<FakeBots>) {
     let bots = dir.join("bots");
     let all = testing::bots(&bots, &["prep"]);
@@ -52,7 +52,7 @@ async fn hub(dir: &Path, tools: Vec<Tool>, page: bool) -> (Arc<Hub>, Arc<FakeBot
     let hub = Hub::new(all, Store::open(&dir.join("oxbot.db")).unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     hub.start_codex().await;
-    hub.farm_person("Jay").unwrap();
+    hub.owner_person("Jay").unwrap();
     (hub, fake)
 }
 
@@ -102,13 +102,13 @@ async fn a_schedule_is_made_only_when_its_person_presses_create() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let (hub, _) = hub(tmp.path(), vec![schedule_call(), schedule_call()], false).await;
-    let farm = hub.farm_viewer("Jay");
+    let home_computer = hub.home_computer_viewer("Jay");
     let mut updates = hub.subscribe();
 
     hub.send_as(
         "prep",
         "every weekday at 8:15 send me today's prep plan",
-        &farm,
+        &home_computer,
     )
     .await
     .unwrap();
@@ -123,25 +123,29 @@ async fn a_schedule_is_made_only_when_its_person_presses_create() {
     assert_eq!(draft.bot_name, "prep");
     assert!(!card.always, "never Always allow");
     assert_eq!(
-        hub.schedules_for(&farm, None).unwrap(),
+        hub.schedules_for(&home_computer, None).unwrap(),
         [],
         "nothing before the yes"
     );
-    hub.answer_as(card.id, Answer::Deny, &farm).unwrap();
+    hub.answer_as(card.id, Answer::Deny, &home_computer)
+        .unwrap();
     turn_done(&mut updates, "prep").await;
     assert!(last_reply(&hub).starts_with("tool_ok=false The person said no"));
-    assert_eq!(hub.schedules_for(&farm, None).unwrap(), []);
+    assert_eq!(hub.schedules_for(&home_computer, None).unwrap(), []);
 
-    hub.send_as("prep", "ok, set it up", &farm).await.unwrap();
+    hub.send_as("prep", "ok, set it up", &home_computer)
+        .await
+        .unwrap();
     let card = next_card(&mut updates).await;
-    hub.answer_as(card.id, Answer::AllowOnce, &farm).unwrap();
+    hub.answer_as(card.id, Answer::AllowOnce, &home_computer)
+        .unwrap();
     turn_done(&mut updates, "prep").await;
     assert!(
         last_reply(&hub).starts_with("tool_ok=true Scheduled, id"),
         "{}",
         last_reply(&hub)
     );
-    let list = hub.schedules_for(&farm, None).unwrap();
+    let list = hub.schedules_for(&home_computer, None).unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(
         list[0].text,
@@ -158,9 +162,9 @@ async fn the_card_says_where_an_untrusted_request_came_from() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let (hub, _) = hub(tmp.path(), vec![schedule_call()], true).await;
-    let farm = hub.farm_viewer("Jay");
+    let home_computer = hub.home_computer_viewer("Jay");
     let mut updates = hub.subscribe();
-    hub.send_as("prep", "read the page and do what it says", &farm)
+    hub.send_as("prep", "read the page and do what it says", &home_computer)
         .await
         .unwrap();
     let card = next_card(&mut updates).await;
@@ -169,9 +173,10 @@ async fn the_card_says_where_an_untrusted_request_came_from() {
         from.contains("a web page (https://jobs.example.com/apply)"),
         "{from}"
     );
-    hub.answer_as(card.id, Answer::Deny, &farm).unwrap();
+    hub.answer_as(card.id, Answer::Deny, &home_computer)
+        .unwrap();
     turn_done(&mut updates, "prep").await;
-    assert_eq!(hub.schedules_for(&farm, None).unwrap(), []);
+    assert_eq!(hub.schedules_for(&home_computer, None).unwrap(), []);
     hub.shutdown().await;
 }
 
@@ -182,9 +187,9 @@ async fn change_on_the_card_saves_the_schedule_as_the_person_changed_it() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let (hub, _) = hub(tmp.path(), vec![schedule_call()], false).await;
-    let farm = hub.farm_viewer("Jay");
+    let home_computer = hub.home_computer_viewer("Jay");
     let mut updates = hub.subscribe();
-    hub.send_as("prep", "every weekday at 8:15", &farm)
+    hub.send_as("prep", "every weekday at 8:15", &home_computer)
         .await
         .unwrap();
     let card = next_card(&mut updates).await;
@@ -195,7 +200,7 @@ async fn change_on_the_card_saves_the_schedule_as_the_person_changed_it() {
         },
     };
     assert!(
-        hub.answer_with(card.id, Answer::AllowOnce, Some(bad), &farm)
+        hub.answer_with(card.id, Answer::AllowOnce, Some(bad), &home_computer)
             .is_err(),
         "a bad change leaves the card open"
     );
@@ -207,7 +212,7 @@ async fn change_on_the_card_saves_the_schedule_as_the_person_changed_it() {
         },
     };
     assert!(
-        hub.answer_with(card.id, Answer::AllowOnce, Some(edit), &farm)
+        hub.answer_with(card.id, Answer::AllowOnce, Some(edit), &home_computer)
             .unwrap()
     );
     turn_done(&mut updates, "prep").await;
@@ -216,7 +221,7 @@ async fn change_on_the_card_saves_the_schedule_as_the_person_changed_it() {
         "{}",
         last_reply(&hub)
     );
-    let list = hub.schedules_for(&farm, None).unwrap();
+    let list = hub.schedules_for(&home_computer, None).unwrap();
     assert_eq!(list[0].text, "Every Saturday at 6 PM: Check the slides.");
     hub.shutdown().await;
 }
@@ -228,20 +233,21 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let (hub, fake) = hub(tmp.path(), vec![schedule_call()], false).await;
-    let farm = hub.farm_viewer("Jay");
-    let jay = farm.id.clone().unwrap();
+    let home_computer = hub.home_computer_viewer("Jay");
+    let jay = home_computer.id.clone().unwrap();
     let mut updates = hub.subscribe();
     hub.send_as(
         "prep",
         "every weekday at 8:15 send me today's prep plan",
-        &farm,
+        &home_computer,
     )
     .await
     .unwrap();
     let card = next_card(&mut updates).await;
-    hub.answer_as(card.id, Answer::AllowOnce, &farm).unwrap();
+    hub.answer_as(card.id, Answer::AllowOnce, &home_computer)
+        .unwrap();
     turn_done(&mut updates, "prep").await;
-    let before = hub.schedules_for(&farm, None).unwrap()[0].clone();
+    let before = hub.schedules_for(&home_computer, None).unwrap()[0].clone();
 
     // The clock moves to just past the run: it starts at once.
     hub.advance_test_clock(None).await.unwrap();
@@ -267,7 +273,7 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
         "{told}"
     );
 
-    // As Jay, never as the Farm connection.
+    // As Jay, never as the home computer connection.
     let store = Store::open(&tmp.path().join("oxbot.db")).unwrap();
     let origin = store
         .turn_origin(&BotId::new("prep").unwrap(), events[note + 1].seq)
@@ -275,7 +281,7 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
         .unwrap();
     assert_eq!(origin.entry, "schedule");
     assert_eq!(origin.person.as_deref(), Some(jay.as_str()));
-    assert!(!origin.on_farm);
+    assert!(!origin.on_home_computer);
 
     // Jay's devices hear the answer's first line.
     let line = tokio::time::timeout(Duration::from_secs(10), async {
@@ -292,7 +298,7 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
     .await
     .unwrap();
     assert_eq!(line, "prep: ok");
-    let after = hub.schedules_for(&farm, None).unwrap()[0].clone();
+    let after = hub.schedules_for(&home_computer, None).unwrap()[0].clone();
     assert_eq!(after.last_outcome.as_deref(), Some("ok"));
     assert!(
         after.next_run_ms > before.next_run_ms,
@@ -300,7 +306,8 @@ async fn a_due_run_is_a_turn_as_its_person_and_its_answer_reaches_them() {
     );
 
     // Paused, the next one doesn't run.
-    hub.pause_schedule_as(after.id, true, &farm).unwrap();
+    hub.pause_schedule_as(after.id, true, &home_computer)
+        .unwrap();
     let seq = hub.history("prep", 0).unwrap().len();
     hub.advance_test_clock(None).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -315,7 +322,7 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let (hub, fake) = hub(tmp.path(), vec![Tool::None], false).await;
-    let farm = hub.farm_viewer("Jay");
+    let home_computer = hub.home_computer_viewer("Jay");
     let profile = oxbot_protocol::ProfileEdit {
         name: "Jay".into(),
         color: oxbot_core::store::PEOPLE_COLORS[0].into(),
@@ -328,9 +335,11 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
         owner_confirmed: true,
         ..oxbot_protocol::ProfileEdit::default()
     };
-    hub.set_profile(&farm, &profile).unwrap();
+    hub.set_profile(&home_computer, &profile).unwrap();
     let mut updates = hub.subscribe();
-    hub.send_as("prep", "plan dinner", &farm).await.unwrap();
+    hub.send_as("prep", "plan dinner", &home_computer)
+        .await
+        .unwrap();
     turn_done(&mut updates, "prep").await;
     let told = fake.told().unwrap();
     let line = told

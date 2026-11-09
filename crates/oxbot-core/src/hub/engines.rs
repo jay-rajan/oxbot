@@ -4,7 +4,7 @@
 //! Every bot runs on Codex: oxbot's own loop retired, and Claude left
 //! before it. Codex runs on the household's `OpenRouter` account, so
 //! anyone in the household may give a bot they can open tasks. A task chain's
-//! [`ChainOrigin`] (who started it, carried unchanged when a Herder passes
+//! [`ChainOrigin`] (who started it, carried unchanged when an Assistant passes
 //! the task on) still decides the rest: whose cards a turn raises, and
 //! [`may_task`] stops a chain passed on too many times.
 
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use oxbot_protocol::EventKind;
 
 use super::{Hub, HubError, lock};
-use crate::bot::{Bot, Viewer, is_personal_herder};
+use crate::bot::{Bot, Viewer, is_personal_assistant};
 use crate::engine::{Engine, EngineKind};
 use crate::id::{BotId, PersonId};
 use crate::store::{Store, TurnOriginRecord};
@@ -24,14 +24,17 @@ use crate::store::{Store, TurnOriginRecord};
 pub(super) const MAX_VIA: usize = 4;
 
 /// How a task chain's first message came in. Provenance only: never
-/// trusted for access (that's `person` and `on_farm`).
+/// trusted for access (that's `person` and `on_home_computer`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Entry {
-    /// The Farm connection (the Mac's own window, `oxbot chat`).
-    Farm,
-    /// A paired Gate.
-    Gate,
+    /// The home computer connection (the Mac's own window, `oxbot chat`).
+    /// Origins saved before the rename say `farm`.
+    #[serde(alias = "farm")]
+    HomeComputer,
+    /// A paired device. Origins saved before the rename say `gate`.
+    #[serde(alias = "gate")]
+    Device,
     /// An end-to-end test acting as someone.
     Test,
     /// By name (`Hub::send`).
@@ -44,8 +47,8 @@ pub enum Entry {
 impl Entry {
     fn as_str(self) -> &'static str {
         match self {
-            Self::Farm => "farm",
-            Self::Gate => "gate",
+            Self::HomeComputer => "home_computer",
+            Self::Device => "device",
             Self::Test => "test",
             Self::Name => "name",
             Self::Schedule => "schedule",
@@ -59,8 +62,10 @@ impl Entry {
 pub struct ChainOrigin {
     /// The person the chain acts for (who sent the first message).
     pub person: Option<PersonId>,
-    /// The first message came over the Farm connection.
-    pub on_farm: bool,
+    /// The first message came over the home computer connection. Origins
+    /// saved before the rename call it `on_farm`.
+    #[serde(alias = "on_farm")]
+    pub on_home_computer: bool,
     /// How the first message came in.
     pub entry: Entry,
     /// The first message: its bot and event number, once recorded.
@@ -80,7 +85,7 @@ impl ChainOrigin {
     pub fn from_viewer(viewer: &Viewer, entry: Entry) -> Self {
         Self {
             person: viewer.id.clone(),
-            on_farm: viewer.farm,
+            on_home_computer: viewer.home_computer,
             entry,
             ..Self::default()
         }
@@ -103,13 +108,13 @@ impl ChainOrigin {
         self.person.as_ref()
     }
 
-    /// A run of schedule `id`, as `person`: never the Farm connection,
+    /// A run of schedule `id`, as `person`: never the home computer connection,
     /// whoever made it.
     #[must_use]
     pub fn scheduled(person: PersonId, id: i64) -> Self {
         Self {
             person: Some(person),
-            on_farm: false,
+            on_home_computer: false,
             entry: Entry::Schedule,
             schedule: Some(id),
             ..Self::default()
@@ -130,7 +135,7 @@ impl ChainOrigin {
             .map_or((String::new(), 0), |(bot, seq)| (bot.to_string(), *seq));
         TurnOriginRecord {
             person: self.person.as_ref().map(ToString::to_string),
-            on_farm: self.on_farm,
+            on_home_computer: self.on_home_computer,
             entry: self.entry.as_str().to_owned(),
             root_bot,
             root_seq,
@@ -189,11 +194,12 @@ impl Hub {
         Ok(engine)
     }
 
-    /// Whether a chain started by `origin` is the Farm owner's: it came
-    /// over the Farm connection, or from the Farm's person (by id, on any
-    /// device). With no Farm person chosen, only the Farm connection.
+    /// Whether a chain started by `origin` is the home computer owner's: it came
+    /// over the home computer connection, or from the home computer's person (by id, on any
+    /// device). With no home computer person chosen, only the home computer connection.
     pub(super) fn is_owner(&self, origin: &ChainOrigin) -> bool {
-        origin.on_farm || (origin.person.is_some() && origin.person == self.farm_id())
+        origin.on_home_computer
+            || (origin.person.is_some() && origin.person == self.owner_person_id())
     }
 
     /// Whether `viewer` may give bot `id` tasks right now: it's theirs to
@@ -215,7 +221,7 @@ impl Hub {
     /// starts one with the new models.
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's a Herder, the list isn't
+    /// Fails if `viewer` may not change it, it's an Assistant, the list isn't
     /// one oxbot can keep, the engine isn't set up, it's working, or its
     /// file can't be written.
     pub async fn set_engine(
@@ -247,7 +253,7 @@ impl Hub {
     /// connected: the list waits in the bot's file.
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's a Herder, the list isn't
+    /// Fails if `viewer` may not change it, it's an Assistant, the list isn't
     /// one oxbot can keep, it's working, or its file can't be written.
     pub async fn set_bot_models(
         &self,
@@ -300,9 +306,9 @@ impl Hub {
         Ok(())
     }
 
-    /// The Farm owner's name, for messages: the Farm's person, once chosen.
+    /// The home computer owner's name, for messages: the home computer's person, once chosen.
     pub(super) fn owner_name(&self) -> String {
-        self.farm_id()
+        self.owner_person_id()
             .and_then(|id| self.person_name(&id))
             .unwrap_or_else(|| "the owner".to_owned())
     }
@@ -325,7 +331,7 @@ pub const MOVED_FROM_LOOP: &str = "This bot now uses free and paid AI models thr
 /// [`MOVED_FROM_LOOP`]; noted with the move in `engine_upgrades`), then
 /// its `bot.toml` is rewritten (atomically) to say Codex. Its chat and
 /// history stay; its old session is never resumed (no engine goes on with
-/// a `claude` or `openrouter` session). A person's own Herder whose file
+/// a `claude` or `openrouter` session). A person's own Assistant whose file
 /// names no engine ran on the loop, not Claude. Call before anything else
 /// saves the bots, with nobody listening yet.
 pub(super) fn upgrade_from_claude(bots: &mut [Bot], store: &Store) {
@@ -333,7 +339,7 @@ pub(super) fn upgrade_from_claude(bots: &mut [Bot], store: &Store) {
         let Some(mut from) = bot.moved_from else {
             continue;
         };
-        if from == crate::bot::CLAUDE && is_personal_herder(bot.id.as_str()) {
+        if from == crate::bot::CLAUDE && is_personal_assistant(bot.id.as_str()) {
             from = crate::bot::LOOP;
         }
         let text = if from == crate::bot::CLAUDE {
@@ -376,12 +382,12 @@ pub(super) fn may_task(origin: &ChainOrigin) -> Result<(), HubError> {
     Ok(())
 }
 
-/// How a viewer's message comes in: the Farm connection, or a Gate.
+/// How a viewer's message comes in: the home computer connection, or a device.
 pub(super) fn entry_of(viewer: &Viewer) -> Entry {
-    if viewer.farm {
-        Entry::Farm
+    if viewer.home_computer {
+        Entry::HomeComputer
     } else {
-        Entry::Gate
+        Entry::Device
     }
 }
 
@@ -389,26 +395,26 @@ pub(super) fn entry_of(viewer: &Viewer) -> Entry {
 mod tests {
     use super::*;
     use crate::HubConfig;
-    use crate::bot::personal_herder_id;
+    use crate::bot::personal_assistant_id;
 
-    /// A hub with `recipes`, `scout` and the Farm's Herder; Jay is the
-    /// Farm's person.
+    /// A hub with `recipes`, `scout` and the home computer's Assistant; Jay is the
+    /// home computer's person.
     fn hub(dir: &std::path::Path) -> Arc<Hub> {
         let scout = Bot::create(dir, BotId::new("scout").unwrap(), "Scout", "").unwrap();
         let bots = vec![
-            Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
+            Bot::create(dir, BotId::new("assistant").unwrap(), "Assistant", "").unwrap(),
             Bot::create(dir, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
             scout,
         ];
         let hub = Hub::new(bots, Store::open_in_memory().unwrap(), HubConfig::new(dir));
-        hub.farm_person("Jay").unwrap();
+        hub.owner_person("Jay").unwrap();
         hub
     }
 
-    fn origin(person: Option<PersonId>, on_farm: bool) -> ChainOrigin {
+    fn origin(person: Option<PersonId>, on_home_computer: bool) -> ChainOrigin {
         ChainOrigin {
             person,
-            on_farm,
+            on_home_computer,
             ..ChainOrigin::default()
         }
     }
@@ -417,17 +423,17 @@ mod tests {
     async fn anyone_may_task_a_bot_until_a_chain_is_passed_on_too_often() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        let jay = hub.farm_id();
+        let jay = hub.owner_person_id();
         let ann = hub.person_named("Ann").unwrap().id;
-        let herder = BotId::new("assistant").unwrap();
+        let assistant = BotId::new("assistant").unwrap();
         let cases = [
-            ("the Farm connection", origin(None, true)),
-            ("the Farm's person on a phone", origin(jay, false)),
+            ("the home computer connection", origin(None, true)),
+            ("the home computer's person on a phone", origin(jay, false)),
             ("Ann", origin(Some(ann.clone()), false)),
             ("nobody known", origin(None, false)),
             (
-                "Ann, passed on by Herder",
-                origin(Some(ann.clone()), false).relayed_by(&herder, Some("a web page".into())),
+                "Ann, passed on by the Assistant",
+                origin(Some(ann.clone()), false).relayed_by(&assistant, Some("a web page".into())),
             ),
         ];
         for (who, chain) in cases {
@@ -445,7 +451,7 @@ mod tests {
         // A chain passed on too many times stops.
         let mut long = origin(None, true);
         for _ in 0..=MAX_VIA {
-            long = long.relayed_by(&herder, None);
+            long = long.relayed_by(&assistant, None);
         }
         assert!(matches!(may_task(&long), Err(HubError::NotAllowed(_))));
     }
@@ -454,19 +460,19 @@ mod tests {
     async fn every_bot_runs_on_codex() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        let ann = hub.herder_for("Ann").unwrap();
+        let ann = hub.assistant_for("Ann").unwrap();
         for id in ["assistant", ann.as_str(), "recipes", "scout"] {
             assert_eq!(hub.engine_of_bot(id), Some(EngineKind::Codex), "{id}");
         }
-        assert_eq!(ann, personal_herder_id("Ann"));
-        // A Herder's AI model is the owner's to set.
+        assert_eq!(ann, personal_assistant_id("Ann"));
+        // An Assistant's AI model is the owner's to set.
         assert!(matches!(
             hub.set_engine(
                 "assistant",
                 EngineKind::Codex,
                 Some("m:free".into()),
                 None,
-                &hub.farm_viewer("Jay")
+                &hub.home_computer_viewer("Jay")
             )
             .await,
             Err(HubError::NotAllowed(_))
@@ -480,16 +486,16 @@ mod tests {
             root: Some((BotId::new("assistant").unwrap(), 3)),
             ..origin(Some(sam.clone()), false)
         };
-        let herder = BotId::new("assistant").unwrap();
-        let next = start.relayed_by(&herder, Some("a web page".into()));
+        let assistant = BotId::new("assistant").unwrap();
+        let next = start.relayed_by(&assistant, Some("a web page".into()));
         assert_eq!(next.asker(), Some(&sam));
-        assert!(!next.on_farm);
+        assert!(!next.on_home_computer);
         assert_eq!(next.root, start.root);
-        assert_eq!(next.via, std::slice::from_ref(&herder));
+        assert_eq!(next.via, std::slice::from_ref(&assistant));
         assert_eq!(next.tainted_by.as_deref(), Some("a web page"));
         // Taint once carried stays.
         assert_eq!(
-            next.relayed_by(&herder, None).tainted_by.as_deref(),
+            next.relayed_by(&assistant, None).tainted_by.as_deref(),
             Some("a web page")
         );
         let json = serde_json::to_value(&next).unwrap();
@@ -506,11 +512,11 @@ mod tests {
     }
 
     #[test]
-    fn a_scheduled_run_acts_for_its_person_and_never_as_the_farm() {
+    fn a_scheduled_run_acts_for_its_person_and_never_as_the_home_computer() {
         let sam = PersonId::random();
         let run = ChainOrigin::scheduled(sam.clone(), 7);
         assert_eq!(
-            (run.asker(), run.on_farm, run.schedule),
+            (run.asker(), run.on_home_computer, run.schedule),
             (Some(&sam), false, Some(7))
         );
         assert!(run.is_scheduled_run());
@@ -518,11 +524,12 @@ mod tests {
         // A task the run passes on keeps its person, but isn't the run.
         let passed = run.relayed_by(&BotId::new("assistant").unwrap(), None);
         assert!(!passed.is_scheduled_run() && passed.asker() == Some(&sam));
-        // Old saved origins (no schedule) still read.
+        // Old saved origins (no schedule, the old names) still read.
         let old: ChainOrigin = serde_json::from_str(
             r#"{"person":null,"on_farm":true,"entry":"farm","root":null,"via":[],"tainted_by":null}"#,
         )
         .unwrap();
         assert_eq!(old.schedule, None);
+        assert!(old.on_home_computer && old.entry == Entry::HomeComputer);
     }
 }

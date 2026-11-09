@@ -471,7 +471,54 @@ pub(super) const MIGRATIONS: &[Step] = &[
         CREATE INDEX IF NOT EXISTS net_log_ts ON net_log (ts_ms);
         CREATE INDEX IF NOT EXISTS net_log_kind_ts ON net_log (kind, ts_ms);",
     ),
+    // 28: the code says what people see: Gates are devices, the Farm's
+    // person is the owner, a person's Herder is their Assistant. Tables and
+    // columns are renamed in place (nothing is copied or lost), and the old
+    // names in saved task origins become the new ones.
+    Step::Rust(new_words),
 ];
+
+/// Migration 28. Renames only what still has its old name, as 15 skips
+/// what is already there.
+pub(super) fn new_words(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let has_table = |table: &str| -> Result<bool, StoreError> {
+        Ok(tx.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |r| r.get(0),
+        )?)
+    };
+    let has_column = |table: &str, column: &str| -> Result<bool, StoreError> {
+        Ok(tx.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2",
+            [table, column],
+            |r| r.get(0),
+        )?)
+    };
+    if has_table("gates")? && !has_table("devices")? {
+        tx.execute_batch("ALTER TABLE gates RENAME TO devices")?;
+    }
+    for (table, old, new) in [
+        ("people", "herder", "assistant"),
+        ("people", "farm", "owner"),
+        ("net_log", "gate", "device"),
+        ("turn_origins", "on_farm", "on_home_computer"),
+    ] {
+        if has_column(table, old)? && !has_column(table, new)? {
+            tx.execute_batch(&format!("ALTER TABLE {table} RENAME COLUMN {old} TO {new}"))?;
+        }
+    }
+    // Index names can't be changed in place: made again under the new ones.
+    tx.execute_batch(
+        "DROP INDEX IF EXISTS people_herder;
+        DROP INDEX IF EXISTS people_one_farm;
+        CREATE UNIQUE INDEX IF NOT EXISTS people_assistant ON people (assistant);
+        CREATE UNIQUE INDEX IF NOT EXISTS people_one_owner ON people (owner) WHERE owner = 1;
+        UPDATE turn_origins SET entry = 'home_computer' WHERE entry = 'farm';
+        UPDATE turn_origins SET entry = 'device' WHERE entry = 'gate';",
+    )?;
+    Ok(())
+}
 
 /// Migration 21: Codex threads, the relay's log, and the engine of each
 /// model request (added only where it's missing, so the step can run
@@ -624,7 +671,7 @@ pub(super) fn engines_and_origins(tx: &Transaction<'_>) -> Result<(), StoreError
             seq        INTEGER NOT NULL,              -- the UserMessage event that started the turn
             person     TEXT,                          -- person id the chain started with (NULL: nobody known)
             on_farm    INTEGER NOT NULL,              -- 1: started on the Farm connection
-            entry      TEXT    NOT NULL,              -- 'farm' | 'gate' | 'test' | 'name'
+            entry      TEXT    NOT NULL,              -- 'farm' | 'gate' | 'test' | 'name' (28: 'home_computer', 'device')
             root_bot   TEXT    NOT NULL,              -- first message of the chain
             root_seq   INTEGER NOT NULL,
             via        TEXT    NOT NULL DEFAULT '[]', -- JSON [bot id]: bots that passed it on, in order

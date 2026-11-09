@@ -13,7 +13,7 @@ export type EnginesView = {
  */
 notice: string, 
 /**
- * The Farm owner's name.
+ * The home computer owner's name.
  */
 owner: string, 
 /**
@@ -35,7 +35,7 @@ paid_models: Array<ModelRow>,
  */
 model_lists: Array<ModelList>, 
 /**
- * The Farm only: the `OpenRouter` account, models, limits and use.
+ * The home computer only: the `OpenRouter` account, models, limits and use.
  */
 openrouter: OpenRouterView | null, 
 /**
@@ -43,6 +43,6 @@ openrouter: OpenRouterView | null,
  */
 codex_ready: boolean, 
 /**
- * The Farm only: what was found of Codex.
+ * The home computer only: what was found of Codex.
  */
 codex: CodexView | null, };

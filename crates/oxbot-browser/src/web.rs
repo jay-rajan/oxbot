@@ -44,7 +44,7 @@ const LOCAL_NAME_ENDINGS: [&str; 5] = [".localhost", ".local", ".home.arpa", ".i
 /// Whether `url` points at this Mac or the home network rather than the
 /// web: `localhost`, `*.local`, names without a dot, and loopback, private,
 /// link-local or unspecified addresses (IPv4 and IPv6). Bots never open
-/// these: the oxbot page and Gate door live there, and so do routers and
+/// these: the oxbot page and device door live there, and so do routers and
 /// other people's devices.
 #[must_use]
 pub fn is_home_network(url: &str) -> bool {

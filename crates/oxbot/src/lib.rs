@@ -5,7 +5,7 @@
 //! - [`chat`]: `oxbot chat`, the terminal client
 //! - [`dictation`]: dictation with the Mac's microphone, on-device
 //! - [`client`]: one-shot requests from CLI commands to a running server
-//! - [`door`]: the Gate door phones and laptops pair and connect through
+//! - [`door`]: the device door phones and laptops pair and connect through
 //! - [`keychain`]: where the `OpenRouter` key is kept (the Keychain)
 //! - [`openrouter_auth`]: "Sign in with `OpenRouter`" and the key
 //! - [`logs`]: relays the server's log to the apps

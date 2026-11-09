@@ -1,4 +1,4 @@
-//! oxbot as a Mac app (the Farm).
+//! oxbot as a Mac app (the home computer).
 //!
 //! - The oxbot server runs inside the app (the same code as `oxbot serve`).
 //!   If an `oxbot serve` is already running, the app shows that one instead.
@@ -226,8 +226,8 @@ async fn start_or_attach(
 ) -> anyhow::Result<(Option<RunningServer>, String)> {
     if client::server_running(port).await {
         tracing::info!("using the oxbot server that's already running on port {port}");
-        // Its window needs the Farm secret from the data folder to be the Farm.
-        let key = oxbot::secret::local_farm_key().unwrap_or_default();
+        // Its window needs the home computer secret from the data folder to be the home computer.
+        let key = oxbot::secret::local_home_computer_key().unwrap_or_default();
         return Ok((None, format!("http://127.0.0.1:{port}/#k={key}")));
     }
     let options = ServerOptions {

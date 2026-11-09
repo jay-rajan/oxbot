@@ -2,8 +2,8 @@
 //!
 //! A network is known by its router's hardware address (MAC): another
 //! Wi-Fi can copy a network's name, not this. The list is a setting the
-//! Farm changes in Settings → Gates ("Add this network"), kept in
-//! `gate/door.json` with the name phones see.
+//! home computer changes in Settings → devices ("Add this network"), kept in
+//! `door/door.json` with the name phones see.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -97,7 +97,7 @@ impl Settings {
         Ok(true)
     }
 
-    /// The name phones see, if the Farm picked one.
+    /// The name phones see, if the home computer picked one.
     #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()

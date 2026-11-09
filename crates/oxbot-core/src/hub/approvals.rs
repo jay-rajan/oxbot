@@ -19,7 +19,7 @@ use crate::policy::{self, PageFacts, Verdict};
 use crate::tools::{SIGN_IN_TOOL, TOOL_SERVER_NAME};
 
 impl Hub {
-    /// Whether `viewer` may see (and answer) approval card `id`: the Farm,
+    /// Whether `viewer` may see (and answer) approval card `id`: the home computer,
     /// the person the card's turn acts for, or (on a bot shared with picked
     /// people) its owner and those people.
     #[must_use]
@@ -30,7 +30,7 @@ impl Hub {
         let viewer = self.resolve(viewer);
         card.is_some_and(|(bot, asker, also)| {
             let theirs = asker.is_some() && viewer.id == asker;
-            (viewer.farm || theirs || viewer.is_member(&also))
+            (viewer.home_computer || theirs || viewer.is_member(&also))
                 && self.bot_for(&bot, &viewer).is_ok()
         })
     }
@@ -369,7 +369,7 @@ impl Hub {
         ask
     }
 
-    /// Shows the person `bot`'s turn acts for (and the Farm) a card for
+    /// Shows the person `bot`'s turn acts for (and the home computer) a card for
     /// `ask`, waits for their answer, and records it in `bot`'s chat. No
     /// answer within `approval_timeout` is a no.
     ///
@@ -439,7 +439,7 @@ impl Hub {
             asker_id: asker.as_ref().map(ToString::to_string),
             // Who's offered Always is decided for each client.
             always: false,
-            // Herder's cards are never remembered.
+            // The Assistant's cards are never remembered.
             rule: ask.rule.clone().filter(|_| {
                 matches!(ask.kind, ApprovalKind::Change | ApprovalKind::Script) && !bot.is_central()
             }),
@@ -520,14 +520,14 @@ fn click_label<'a>(
     labels.get(uid).map(String::as_str)
 }
 
-/// Whether `viewer` should be shown `card`: the Farm, the person the
+/// Whether `viewer` should be shown `card`: the home computer, the person the
 /// card's turn acts for, or one of the others who may answer it (a bot
 /// shared with picked people), by person id (see [`Viewer::is_person`];
 /// answering is checked again in [`Hub::approval_visible`]). A card nobody
-/// asked for (no person) is the Farm's.
+/// asked for (no person) is the home computer's.
 #[must_use]
 pub fn answers(card: &Approval, viewer: &Viewer) -> bool {
-    viewer.farm
+    viewer.home_computer
         || viewer.is_person(card.asker_id.as_deref(), card.asker.as_deref())
         || viewer.is_member(&card.also)
 }

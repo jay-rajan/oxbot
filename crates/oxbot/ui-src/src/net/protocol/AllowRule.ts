@@ -22,7 +22,7 @@ action: string,
  */
 label: string, 
 /**
- * Who set it, by name as it is now (`None`: the Farm).
+ * Who set it, by name as it is now (`None`: the home computer).
  */
 by: string | null, 
 /**

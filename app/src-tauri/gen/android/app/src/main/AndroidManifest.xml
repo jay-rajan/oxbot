@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- oxbot talks only to the Farm on home Wi-Fi. -->
+    <!-- oxbot talks only to the home computer on home Wi-Fi. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
-    <!-- Only to scan the Farm's pairing QR code; frames never leave the phone. -->
+    <!-- Only to scan the home computer's pairing QR code; frames never leave the phone. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

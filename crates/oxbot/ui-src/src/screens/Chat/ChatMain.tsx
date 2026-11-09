@@ -138,7 +138,7 @@ function Offline() {
   // Shown once a connection was lost (or never came), not while first connecting.
   const hidden = status === "open" || (!ever && !failed);
   const text = phone
-    ? `Not connected to ${phone.farm || "the home computer"}. Waiting for home Wi-Fi…`
+    ? `Not connected to ${phone.homeComputer || "the home computer"}. Waiting for home Wi-Fi…`
     : !hasKey
       ? "This window isn't oxbot's own. Open oxbot from its app, or with the link `oxbot serve` printed."
       : "Lost the connection to oxbot. Reconnecting…";
@@ -159,10 +159,10 @@ function EngineNote({ info }: { info: BotInfo | undefined }) {
   // Every bot needs the home's AI account first.
   if (info && !isLocked(info) && settings && !settings.openrouter_ready) {
     if (settings.keychain_waiting) text = KEYCHAIN_WAITING;
-    else if (settings.farm) { text = "The home's AI account isn't connected yet."; action = "Connect it"; }
+    else if (settings.home_computer) { text = "The home's AI account isn't connected yet."; action = "Connect it"; }
     else text = `The home's AI account isn't connected yet; ask ${owner}.`;
   } else if (info && !isLocked(info) && settings && !settings.codex_ready) {
-    if (settings.farm) { text = "The AI helper isn't ready on the home computer."; action = "Set up"; }
+    if (settings.home_computer) { text = "The AI helper isn't ready on the home computer."; action = "Set up"; }
     else text = `The AI helper isn't ready on the home computer; ask ${owner}.`;
   }
   return (

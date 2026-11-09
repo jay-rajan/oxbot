@@ -32,20 +32,20 @@ pub use oxbot_protocol::Sharing;
 pub const DEFAULT_BOT: &str = "assistant";
 /// The central bot's name.
 pub const CENTRAL_NAME: &str = "Assistant";
-/// How a person's own Herder's id starts: `assistant--sam-1a2b3c`. Ids made
+/// How a person's own Assistant's id starts: `assistant--sam-1a2b3c`. Ids made
 /// from names never have two dashes in a row, so no other bot gets one.
-pub const PERSONAL_HERDER_PREFIX: &str = "assistant--";
+pub const PERSONAL_ASSISTANT_PREFIX: &str = "assistant--";
 
-/// Whether `id` is a person's own Herder (not the Farm's, `assistant`).
+/// Whether `id` is a person's own Assistant (not the home computer's, `assistant`).
 #[must_use]
-pub fn is_personal_herder(id: &str) -> bool {
-    id.starts_with(PERSONAL_HERDER_PREFIX)
+pub fn is_personal_assistant(id: &str) -> bool {
+    id.starts_with(PERSONAL_ASSISTANT_PREFIX)
 }
 
-/// The id of `person`'s own Herder: their name made safe, plus a short hash
+/// The id of `person`'s own Assistant: their name made safe, plus a short hash
 /// of it (ignoring case), so different names never share one.
 #[must_use]
-pub fn personal_herder_id(person: &str) -> BotId {
+pub fn personal_assistant_id(person: &str) -> BotId {
     let key = person.trim().to_lowercase();
     let slug: String = key
         .chars()
@@ -57,18 +57,18 @@ pub fn personal_herder_id(person: &str) -> BotId {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
     let id = if slug.is_empty() {
-        format!("{PERSONAL_HERDER_PREFIX}{:06x}", hash & 0xff_ffff)
+        format!("{PERSONAL_ASSISTANT_PREFIX}{:06x}", hash & 0xff_ffff)
     } else {
-        format!("{PERSONAL_HERDER_PREFIX}{slug}-{:06x}", hash & 0xff_ffff)
+        format!("{PERSONAL_ASSISTANT_PREFIX}{slug}-{:06x}", hash & 0xff_ffff)
     };
     BotId::new(id).unwrap_or_else(|_| unreachable!("only a-z, 0-9 and dashes, at most 38 long"))
 }
 
-/// A Herder id for `person` made from their id, for when the one made from
+/// An Assistant id for `person` made from their id, for when the one made from
 /// their name is someone else's (`Sam` and `sam` share it). It ends in 8
-/// hex digits where [`personal_herder_id`] has 6, so the two never meet.
+/// hex digits where [`personal_assistant_id`] has 6, so the two never meet.
 #[must_use]
-pub fn personal_herder_id_for(person: &str, id: &PersonId) -> BotId {
+pub fn personal_assistant_id_for(person: &str, id: &PersonId) -> BotId {
     let slug: String = person
         .trim()
         .to_lowercase()
@@ -79,9 +79,9 @@ pub fn personal_herder_id_for(person: &str, id: &PersonId) -> BotId {
     let hex = id.as_str().trim_start_matches("p_");
     let hex = hex.get(..8).unwrap_or(hex);
     let id = if slug.is_empty() {
-        format!("{PERSONAL_HERDER_PREFIX}{hex}")
+        format!("{PERSONAL_ASSISTANT_PREFIX}{hex}")
     } else {
-        format!("{PERSONAL_HERDER_PREFIX}{slug}-{hex}")
+        format!("{PERSONAL_ASSISTANT_PREFIX}{slug}-{hex}")
     };
     BotId::new(id).unwrap_or_else(|_| unreachable!("only a-z, 0-9 and dashes, at most 40 long"))
 }
@@ -99,11 +99,11 @@ You are the Assistant, oxbot's lead bot on the user's home computer. The
 user comes to you first: answer what you can, and hand the rest to their
 other bots. Keep replies short: the user may be reading on a phone.";
 
-/// Who is asking: a person, and whether they're on the Farm itself.
+/// Who is asking: a person, and whether they're on the home computer itself.
 ///
-/// The Farm (the Mac that runs the bots) can see and change every bot.
+/// The home computer (the Mac that runs the bots) can see and change every bot.
 /// Anyone else sees shared bots and their own private ones. These are the
-/// only rules for that: the page and Herder get their answers from here.
+/// only rules for that: the page and the Assistant get their answers from here.
 ///
 /// A viewer tied to a person (every viewer the server and hub make) is
 /// matched with bots by person id; names are only for showing. One with
@@ -115,39 +115,39 @@ pub struct Viewer {
     pub id: Option<PersonId>,
     /// Their name, e.g. `Jayadev`.
     pub name: String,
-    /// On the Farm itself. Only the Farm secret makes a connection this,
+    /// On the home computer itself. Only the home computer secret makes a connection this,
     /// never a name.
-    pub farm: bool,
+    pub home_computer: bool,
 }
 
 impl Viewer {
-    /// Someone on the Farm.
+    /// Someone on the home computer.
     #[must_use]
-    pub fn farm(name: impl Into<String>) -> Self {
+    pub fn home_computer(name: impl Into<String>) -> Self {
         Self {
             id: None,
             name: name.into(),
-            farm: true,
+            home_computer: true,
         }
     }
 
-    /// Someone on a Gate (a laptop or phone), or a bot acting for them.
+    /// Someone on a device (a laptop or phone), or a bot acting for them.
     #[must_use]
-    pub fn gate(name: impl Into<String>) -> Self {
+    pub fn device(name: impl Into<String>) -> Self {
         Self {
             id: None,
             name: name.into(),
-            farm: false,
+            home_computer: false,
         }
     }
 
-    /// The person `id` called `name`, on the Farm (`farm`) or not.
+    /// The person `id` called `name`, on the home computer (`home_computer`) or not.
     #[must_use]
-    pub fn person(id: PersonId, name: impl Into<String>, farm: bool) -> Self {
+    pub fn person(id: PersonId, name: impl Into<String>, home_computer: bool) -> Self {
         Self {
             id: Some(id),
             name: name.into(),
-            farm,
+            home_computer,
         }
     }
 
@@ -163,7 +163,7 @@ impl Viewer {
     /// (person ids; picked people). A member is matched by id only.
     #[must_use]
     pub fn can_see_shared(&self, made_by: Option<&str>, private: bool, members: &[String]) -> bool {
-        self.farm || !private || self.made(made_by) || self.is_member(members)
+        self.home_computer || !private || self.made(made_by) || self.is_member(members)
     }
 
     /// Whether they're one of `members` (person ids), by id.
@@ -178,7 +178,7 @@ impl Viewer {
     /// `made_by` (as for [`Viewer::can_see`]).
     #[must_use]
     pub fn can_manage(&self, made_by: Option<&str>) -> bool {
-        self.farm || self.made(made_by)
+        self.home_computer || self.made(made_by)
     }
 
     /// Who made a bot, as this viewer is matched against it: its owner's
@@ -257,12 +257,12 @@ pub struct Bot {
     pub name: String,
     /// Extra instructions for the bot.
     pub instructions: String,
-    /// Who it belongs to: the person who made it (or the Farm's own person,
+    /// Who it belongs to: the person who made it (or the home computer's own person,
     /// for bots from before oxbot kept track). Access is decided by this.
     pub owner: Option<PersonId>,
     /// Its maker's name when it was made, for showing.
     pub created_by: Option<String>,
-    /// Not shared with everyone: only its owner (and the Farm), and the
+    /// Not shared with everyone: only its owner (and the home computer), and the
     /// people it's shared with if [`Bot::sharing`] says so, can see and use
     /// it, and it uses only its owner's own browser.
     pub private: bool,
@@ -272,7 +272,7 @@ pub struct Bot {
     /// The people picked ([`Sharing::People`]), kept in the database
     /// (`bot_members`); the hub fills them in.
     pub members: Vec<PersonId>,
-    /// The engine that runs it, as its file says (Herders' engines are
+    /// The engine that runs it, as its file says (Assistants' engines are
     /// fixed by the hub).
     pub engine: EngineKind,
     /// The engine its file still names, when that's one oxbot no longer
@@ -418,16 +418,16 @@ fn io_err(path: &Path) -> impl FnOnce(io::Error) -> BotError + '_ {
 }
 
 impl Bot {
-    /// Whether this is Herder: the Farm's (`assistant`) or a person's own.
+    /// Whether this is the Assistant: the home computer's (`assistant`) or a person's own.
     #[must_use]
     pub fn is_central(&self) -> bool {
-        self.is_main_herder() || is_personal_herder(self.id.as_str())
+        self.is_main_assistant() || is_personal_assistant(self.id.as_str())
     }
 
-    /// Whether this is the Farm's Herder, whose instructions every person's
-    /// Herder shares.
+    /// Whether this is the home computer's Assistant, whose instructions every person's
+    /// Assistant shares.
     #[must_use]
-    pub fn is_main_herder(&self) -> bool {
+    pub fn is_main_assistant(&self) -> bool {
         self.id.as_str() == DEFAULT_BOT
     }
 
@@ -561,11 +561,11 @@ impl Bot {
     }
 
     /// Who it's shared with: its file's choice, except that a bot marked
-    /// private is never everyone's, and a personal Herder is always just
+    /// private is never everyone's, and a personal Assistant is always just
     /// its owner's.
     #[must_use]
     pub fn effective_sharing(&self) -> Sharing {
-        if is_personal_herder(self.id.as_str()) {
+        if is_personal_assistant(self.id.as_str()) {
             return Sharing::Me;
         }
         match (self.private, self.sharing) {
@@ -599,14 +599,14 @@ impl Bot {
     }
 
     /// Whether `viewer` may see and use it: everyone for a shared bot; its
-    /// owner, the Farm and its picked people for one shared with them; its
-    /// owner and the Farm otherwise. A personal Herder is only its owner's
-    /// (and the Farm's), even if an old file says it's shared. The Farm's
-    /// Herder needs the hub to know who the Farm's person is: see
+    /// owner, the home computer and its picked people for one shared with them; its
+    /// owner and the home computer otherwise. A personal Assistant is only its owner's
+    /// (and the home computer's), even if an old file says it's shared. The home computer's
+    /// Assistant needs the hub to know who the home computer's person is: see
     /// `Hub::bot_for`.
     #[must_use]
     pub fn visible_to(&self, viewer: &Viewer) -> bool {
-        let private = self.private || is_personal_herder(self.id.as_str());
+        let private = self.private || is_personal_assistant(self.id.as_str());
         viewer.can_see_shared(self.maker_for(viewer), private, &self.member_ids())
     }
 
@@ -755,7 +755,7 @@ pub fn load_all(bots_dir: &Path) -> Result<Vec<Bot>, BotError> {
 /// Fails if the folders or files can't be written.
 pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
     fs::create_dir_all(bots_dir).map_err(io_err(bots_dir))?;
-    if !load_all(bots_dir)?.iter().any(Bot::is_main_herder) {
+    if !load_all(bots_dir)?.iter().any(Bot::is_main_assistant) {
         let id = BotId::new(DEFAULT_BOT).map_err(|source| BotError::BadId {
             path: bots_dir.join(DEFAULT_BOT),
             source,
@@ -780,7 +780,7 @@ fn rename_old_central(bots_dir: &Path) -> Result<(), BotError> {
             bot.save()?;
             tracing::info!(bot = %bot.id, "Herder is now called {CENTRAL_NAME}");
         }
-        if bot.is_main_herder() && OLD_INSTRUCTIONS.contains(&bot.instructions.trim()) {
+        if bot.is_main_assistant() && OLD_INSTRUCTIONS.contains(&bot.instructions.trim()) {
             let path = bot.dir.join("instructions.md");
             fs::write(&path, DEFAULT_INSTRUCTIONS).map_err(io_err(&path))?;
         }
@@ -794,17 +794,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_persons_herder_id_is_theirs_alone() {
-        let ann = personal_herder_id("Ann");
-        assert!(is_personal_herder(ann.as_str()));
-        assert_eq!(ann, personal_herder_id(" ann "));
-        assert_ne!(ann, personal_herder_id("Anne"));
-        assert_ne!(personal_herder_id("José"), personal_herder_id("Jos"));
-        assert!(is_personal_herder(personal_herder_id("王芳").as_str()));
-        assert!(personal_herder_id(&"x".repeat(80)).as_str().len() <= crate::MAX_BOT_ID_LEN);
-        // A bot named by a person never gets a Herder's id.
+    fn a_persons_assistant_id_is_theirs_alone() {
+        let ann = personal_assistant_id("Ann");
+        assert!(is_personal_assistant(ann.as_str()));
+        assert_eq!(ann, personal_assistant_id(" ann "));
+        assert_ne!(ann, personal_assistant_id("Anne"));
+        assert_ne!(personal_assistant_id("José"), personal_assistant_id("Jos"));
+        assert!(is_personal_assistant(
+            personal_assistant_id("王芳").as_str()
+        ));
+        assert!(personal_assistant_id(&"x".repeat(80)).as_str().len() <= crate::MAX_BOT_ID_LEN);
+        // A bot named by a person never gets an Assistant's id.
         let id = BotId::from_name("Assistant -- Ann", |_| false);
-        assert!(!is_personal_herder(id.as_str()));
+        assert!(!is_personal_assistant(id.as_str()));
     }
 
     #[test]
@@ -821,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn herder_becomes_the_assistant_and_keeps_its_own_instructions() {
+    fn assistant_becomes_the_assistant_and_keeps_its_own_instructions() {
         let tmp = tempfile::tempdir().unwrap();
         let id = BotId::new(DEFAULT_BOT).unwrap();
         let old = Bot::create(tmp.path(), id, "Herder", OLD_INSTRUCTIONS[0]).unwrap();
@@ -830,7 +832,7 @@ mod tests {
             "name = \"Herder\"\nmodel = \"haiku\"\n",
         )
         .unwrap();
-        let theirs = Bot::create(tmp.path(), personal_herder_id("Ann"), "Herder", "").unwrap();
+        let theirs = Bot::create(tmp.path(), personal_assistant_id("Ann"), "Herder", "").unwrap();
         ensure_default(tmp.path()).unwrap();
         let bot = Bot::load(&old.dir).unwrap();
         assert_eq!(bot.name, "Assistant");
@@ -852,7 +854,7 @@ mod tests {
             ("Assistant", "Mine.")
         );
 
-        // An install from before Herder, still on an old default, gets the new one.
+        // An install from before the Assistant, still on an old default, gets the new one.
         let tmp = tempfile::tempdir().unwrap();
         let id = BotId::new(DEFAULT_BOT).unwrap();
         let older = Bot::create(tmp.path(), id, "Assistant", OLD_INSTRUCTIONS[2]).unwrap();
@@ -878,20 +880,20 @@ mod tests {
     }
 
     #[test]
-    fn the_farm_sees_everything_and_others_see_shared_bots_and_their_own() {
-        let farm = Viewer::farm("Jay");
-        let sam = Viewer::gate("Sam");
-        let ann = Viewer::gate("Ann");
-        assert!(farm.can_see(Some("Sam"), true));
+    fn the_home_computer_sees_everything_and_others_see_shared_bots_and_their_own() {
+        let home_computer = Viewer::home_computer("Jay");
+        let sam = Viewer::device("Sam");
+        let ann = Viewer::device("Ann");
+        assert!(home_computer.can_see(Some("Sam"), true));
         assert!(sam.can_see(Some("Sam"), true));
         assert!(!ann.can_see(Some("Sam"), true));
         assert!(ann.can_see(Some("Sam"), false));
         assert!(!ann.can_see(None, true));
         assert!(
-            !Viewer::gate("").can_see(None, true),
+            !Viewer::device("").can_see(None, true),
             "no name owns nothing"
         );
-        assert!(farm.can_manage(None));
+        assert!(home_computer.can_manage(None));
         assert!(sam.can_manage(Some("Sam")));
         assert!(!ann.can_manage(Some("Sam")));
     }
@@ -1114,8 +1116,8 @@ mod tests {
         );
         b.set_sharing(Sharing::Everyone, vec![sam]);
         assert!(!b.private && b.member_ids().is_empty());
-        // A personal Herder is its owner's alone, whatever its file says.
-        let h = Bot::create(tmp.path(), personal_herder_id("Ann"), "Assistant", "").unwrap();
+        // A personal Assistant is its owner's alone, whatever its file says.
+        let h = Bot::create(tmp.path(), personal_assistant_id("Ann"), "Assistant", "").unwrap();
         assert_eq!(h.effective_sharing(), Sharing::Me);
     }
 

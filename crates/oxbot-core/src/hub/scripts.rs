@@ -100,11 +100,11 @@ impl Hub {
     }
 
     /// Sets fine-grained control on `site` (`on`: one step at a time), or
-    /// clears it (several steps at once, the default). The Farm only;
+    /// clears it (several steps at once, the default). The home computer only;
     /// everyone gets the new list.
     ///
     /// # Errors
-    /// [`HubError::NotAllowed`] for anyone but the Farm,
+    /// [`HubError::NotAllowed`] for anyone but the home computer,
     /// [`HubError::BadSite`] for something that isn't a website, or the
     /// database failed.
     pub fn set_fine_grained_site(
@@ -113,7 +113,7 @@ impl Hub {
         on: bool,
         viewer: &Viewer,
     ) -> Result<(), HubError> {
-        if !self.resolve(viewer).farm {
+        if !self.resolve(viewer).home_computer {
             return Err(HubError::NotAllowed(
                 "Only the home computer can change fine-grained control on websites.".to_owned(),
             ));
@@ -320,11 +320,11 @@ mod tests {
         );
         let mut updates = hub.subscribe();
         assert!(matches!(
-            hub.set_fine_grained_site("shop.example.com", true, &Viewer::gate("Sam")),
+            hub.set_fine_grained_site("shop.example.com", true, &Viewer::device("Sam")),
             Err(HubError::NotAllowed(_))
         ));
         assert!(matches!(
-            hub.set_fine_grained_site("192.168.1.1", true, &Viewer::farm("Jay")),
+            hub.set_fine_grained_site("192.168.1.1", true, &Viewer::home_computer("Jay")),
             Err(HubError::BadSite(_))
         ));
         assert_eq!(hub.fine_grained_sites(), Vec::<String>::new());
@@ -336,7 +336,7 @@ mod tests {
         hub.set_fine_grained_site(
             "https://www.shop.example.com/cart",
             true,
-            &Viewer::farm("Jay"),
+            &Viewer::home_computer("Jay"),
         )
         .unwrap();
         assert_eq!(hub.fine_grained_sites(), ["example.com"]);
@@ -360,7 +360,7 @@ mod tests {
             hub.steps_not_allowed(Some("http://192.168.1.1/")).is_some(),
             "never on the home network"
         );
-        hub.set_fine_grained_site("example.com", false, &Viewer::farm("Jay"))
+        hub.set_fine_grained_site("example.com", false, &Viewer::home_computer("Jay"))
             .unwrap();
         assert_eq!(hub.fine_grained_sites(), Vec::<String>::new());
         assert_eq!(

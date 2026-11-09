@@ -69,7 +69,7 @@ pub struct ProfileRecord {
     /// What they filled in.
     pub profile: Profile,
     /// They chose their name themselves (the Mac account's name no longer
-    /// renames the Farm's person).
+    /// renames the home computer's person).
     pub name_set: bool,
     /// The welcome screen shows until they save it.
     pub welcome_due: bool,

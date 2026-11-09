@@ -26,7 +26,7 @@ export function Sidebar() {
   const status = useSel((s) => s.connection.status);
   const everConnected = useSel((s) => s.connection.everConnected);
   const serverName = useSel((s) => s.connection.serverName);
-  const farm = useSel((s) => !!s.connection.settings?.farm);
+  const homeComputer = useSel((s) => !!s.connection.settings?.home_computer);
   const signedIn = useSel((s) => s.home.homeSites.length + (s.connection.settings?.owner ? s.home.mySites.length : 0));
   const warnings = useSel((s) => s.sidebar.warnings);
   const query = useSel((s) => s.sidebar.query);
@@ -199,10 +199,10 @@ export function Sidebar() {
           <Button
             kind="quiet"
             className="foot-btn"
-            id="gateBtn"
+            id="deviceBtn"
             aria-label="Connect a device"
             title="Connect a device: pair a phone, tablet or laptop"
-            hidden={!farm}
+            hidden={!homeComputer}
             onClick={() => toSettings("addDevice")}
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

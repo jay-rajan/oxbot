@@ -108,7 +108,7 @@ name: string,
  */
 instructions: string, 
 /**
- * Only its creator (and the Farm) can see and use it.
+ * Only its creator (and the home computer) can see and use it.
  */
 private: boolean, 
 /**
@@ -325,11 +325,11 @@ site: string,
  */
 on: boolean, } | { "type": "start_pairing", 
 /**
- * Who the Gate is for, e.g. `Sam`.
+ * Who the device is for, e.g. `Sam`.
  */
-person: string, } | { "type": "cancel_pairing" } | { "type": "remove_gate", 
+person: string, } | { "type": "cancel_pairing" } | { "type": "remove_device", 
 /**
- * [`GateInfo::id`].
+ * [`DeviceInfo::id`].
  */
 id: string, } | { "type": "add_door_network" } | { "type": "remove_door_network", 
 /**

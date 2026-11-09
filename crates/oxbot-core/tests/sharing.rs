@@ -45,7 +45,7 @@ async fn hub(dir: &Path) -> (Arc<Hub>, Viewer, Viewer, Viewer) {
     let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     hub.start_codex().await;
-    let jay = hub.farm_person("Jay").unwrap();
+    let jay = hub.owner_person("Jay").unwrap();
     let jay = Viewer::person(jay.id, "Jay", false);
     let sam = hub.person_named("Sam").unwrap();
     let sam = Viewer::person(sam.id, "Sam", false);
@@ -126,7 +126,7 @@ async fn its_people_task_it_and_answer_its_cards_and_nobody_else_does() {
 
     // Sam's own Assistant passes it a task (it read nothing untrusted:
     // no card first).
-    let sams = hub.herder_of(&sam).unwrap();
+    let sams = hub.assistant_of(&sam).unwrap();
     hub.send_as(sams.as_str(), "ask helper", &sam)
         .await
         .unwrap();
@@ -141,7 +141,7 @@ async fn its_people_task_it_and_answer_its_cards_and_nobody_else_does() {
     );
 
     // Ann's Assistant can't.
-    let anns = hub.herder_of(&ann).unwrap();
+    let anns = hub.assistant_of(&ann).unwrap();
     hub.send_as(anns.as_str(), "ask helper", &ann)
         .await
         .unwrap();

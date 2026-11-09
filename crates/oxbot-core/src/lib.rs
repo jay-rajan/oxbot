@@ -9,7 +9,7 @@
 //! - [`engine`]: what runs a bot (the types every engine shares)
 //! - [`policy`]: what a bot may do with a tool, decided by oxbot
 //! - [`tools`]: oxbot's own tools for bots (`request_sign_in`, `save_report`,
-//!   Herder's team tools), hosted in-process
+//!   the Assistant's team tools), hosted in-process
 //! - [`prompt`]: the system prompt every bot gets
 //! - [`report`]: research reports: their checks and their safe HTML page
 //! - [`home`]: where all of that lives on disk

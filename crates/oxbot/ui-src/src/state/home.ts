@@ -3,7 +3,7 @@
 import type {
   DoorState,
   EnginesView,
-  GateInfo,
+  DeviceInfo,
   LogLine,
   PairingCode,
   Person,
@@ -35,7 +35,7 @@ export interface HomeState {
   engines: EnginesView | null;
   /** The OpenRouter sign-in page, if no window opened. */
   orAuthUrl: string | null;
-  gates: GateInfo[];
+  devices: DeviceInfo[];
   door: DoorState | null;
   pairing: PairingCode | null;
   /** Live usage alerts, by limit name. */
@@ -58,7 +58,7 @@ export const initialHome: HomeState = {
   placed: {},
   engines: null,
   orAuthUrl: null,
-  gates: [],
+  devices: [],
   door: null,
   pairing: null,
   usageAlerts: {},
@@ -102,8 +102,8 @@ export function homeReducer(state: HomeState, action: Action): HomeState {
       return { ...state, engines: untagged(msg) };
     case "open_router_auth":
       return { ...state, orAuthUrl: msg.url };
-    case "gates":
-      return { ...state, gates: msg.gates };
+    case "devices":
+      return { ...state, devices: msg.devices };
     case "door":
       return { ...state, door: untagged(msg) };
     case "pairing":

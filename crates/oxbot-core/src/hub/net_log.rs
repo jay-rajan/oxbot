@@ -85,14 +85,14 @@ impl Hub {
     /// it couldn't be written.
     pub fn device_connected(
         &self,
-        gate: &oxbot_protocol::GateInfo,
+        device: &oxbot_protocol::DeviceInfo,
         person: Option<&PersonId>,
         network: &str,
     ) -> Option<DeviceVisit> {
         let started_ms = now_ms();
         let rec = NetRecord {
-            who: gate.name.clone(),
-            gate: Some(gate.id.clone()),
+            who: device.name.clone(),
+            device: Some(device.id.clone()),
             person: person.map(ToString::to_string),
             host: network.to_owned(),
             label: if network.is_empty() {
@@ -169,18 +169,20 @@ impl Hub {
         if self.role_of(&me) == Role::Kid {
             return NetScope::Nothing;
         }
-        let herder = self
+        let assistant = self
             .store
             .person_by_id(&me)
             .ok()
             .flatten()
-            .map(|p| p.herder.to_string());
+            .map(|p| p.assistant.to_string());
         let bots = self
             .bots
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
-            .filter(|b| b.owner.as_ref() == Some(&me) || herder.as_deref() == Some(b.id.as_str()))
+            .filter(|b| {
+                b.owner.as_ref() == Some(&me) || assistant.as_deref() == Some(b.id.as_str())
+            })
             .map(|b| b.id.to_string())
             .collect();
         NetScope::Person {
@@ -395,7 +397,7 @@ mod tests {
         kits.save().unwrap();
         let home = Bot::create(&bots, BotId::new("home").unwrap(), "Home", "").unwrap();
         let hub = Hub::new(vec![shop, kits, home], store, HubConfig::new(&bots));
-        let jay = hub.farm_person("Jay").unwrap();
+        let jay = hub.owner_person("Jay").unwrap();
         let add = |kind, bot: Option<&str>, person: Option<&PersonId>| {
             let mut rec = NetRecord::new(kind, now_ms());
             rec.bot = bot.map(str::to_owned);
@@ -412,11 +414,11 @@ mod tests {
         add(NetKind::Ai, Some("kits"), Some(&kid));
         add(NetKind::Oxbot, None, None);
         add(NetKind::Device, None, Some(&jay.id));
-        let farm = rows(
-            hub.net_log_for(&Viewer::farm("Jay"), None, None, None)
+        let home_computer = rows(
+            hub.net_log_for(&Viewer::home_computer("Jay"), None, None, None)
                 .unwrap(),
         );
-        assert_eq!(farm.len(), 7);
+        assert_eq!(home_computer.len(), 7);
         let as_jay = Viewer::person(jay.id.clone(), "Jay", false);
         assert_eq!(
             rows(hub.net_log_for(&as_jay, None, None, None).unwrap()).len(),
@@ -448,7 +450,12 @@ mod tests {
         assert!(rows.is_empty() && !more && totals.today_rows == 0);
         // Only websites, one at a time.
         let ServerMsg::NetLog { rows, more, totals } = hub
-            .net_log_for(&Viewer::farm("Jay"), Some(NetKind::Website), None, Some(1))
+            .net_log_for(
+                &Viewer::home_computer("Jay"),
+                Some(NetKind::Website),
+                None,
+                Some(1),
+            )
             .unwrap()
         else {
             panic!()

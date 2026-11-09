@@ -10,20 +10,20 @@ use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use oxbot_core::Viewer;
-use oxbot_protocol::{GateInfo, PairRequest};
+use oxbot_protocol::{DeviceInfo, PairRequest};
 
 use super::{Door, PairError};
 
 /// Who a request on the door comes from (set by the key check).
 #[derive(Debug, Clone)]
-pub struct GateAuth {
-    /// The paired Gate.
-    pub gate: GateInfo,
-    /// Its person, by id: never the Farm.
+pub struct DeviceAuth {
+    /// The paired device.
+    pub device: DeviceInfo,
+    /// Its person, by id: never the home computer.
     pub viewer: Viewer,
 }
 
-/// `POST /pair`: a Gate pairs with a code.
+/// `POST /pair`: a device pairs with a code.
 pub async fn pair(State(door): State<Arc<Door>>, Json(req): Json<PairRequest>) -> Response {
     match door.pair(&req) {
         Ok(reply) => Json(reply).into_response(),
@@ -31,7 +31,7 @@ pub async fn pair(State(door): State<Arc<Door>>, Json(req): Json<PairRequest>) -
             // Slow down guessing.
             tokio::time::sleep(Duration::from_millis(400)).await;
             let status = match err {
-                PairError::Farm(_) => StatusCode::SERVICE_UNAVAILABLE,
+                PairError::HomeComputer(_) => StatusCode::SERVICE_UNAVAILABLE,
                 PairError::NoCode | PairError::WrongCode => StatusCode::FORBIDDEN,
             };
             (status, err.to_string()).into_response()
@@ -39,9 +39,9 @@ pub async fn pair(State(door): State<Arc<Door>>, Json(req): Json<PairRequest>) -
     }
 }
 
-/// Every door route but `/pair` needs a paired Gate's key. A key the Farm
-/// doesn't know gets 401 (the Gate forgets its pairing); a database hiccup
-/// gets 503 (the Gate keeps it and tries again).
+/// Every door route but `/pair` needs a paired device's key. A key the home computer
+/// doesn't know gets 401 (the device forgets its pairing); a database hiccup
+/// gets 503 (the device keeps it and tries again).
 pub async fn require_key(
     State(door): State<Arc<Door>>,
     mut request: Request,
@@ -53,10 +53,10 @@ pub async fn require_key(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::trim);
-    let gate = match key.map(|k| door.check_key(k)) {
+    let device = match key.map(|k| door.check_key(k)) {
         Some(Ok(Some(found))) => found,
         Some(Err(err)) => {
-            tracing::warn!(%err, "couldn't check a Gate's key");
+            tracing::warn!(%err, "couldn't check a device's key");
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "The home computer couldn't check this phone just now. Trying again…",
@@ -72,7 +72,9 @@ pub async fn require_key(
                 .into_response();
         }
     };
-    let (gate, viewer) = gate;
-    request.extensions_mut().insert(GateAuth { gate, viewer });
+    let (device, viewer) = device;
+    request
+        .extensions_mut()
+        .insert(DeviceAuth { device, viewer });
     next.run(request).await
 }

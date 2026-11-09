@@ -122,7 +122,7 @@ pub struct McpCommand {
 /// Which of oxbot's own tools a bot gets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HostTools {
-    /// It's a Herder: the team tools.
+    /// It's an Assistant: the team tools.
     pub central: bool,
     /// It has a browser: `save_report`.
     pub browser: bool,

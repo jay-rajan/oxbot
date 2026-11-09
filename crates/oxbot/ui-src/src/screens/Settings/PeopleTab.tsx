@@ -6,7 +6,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Banner, Button, cx, ErrorText, Input, List, ListRow, PlusIcon, Section, vars } from "../../components/ui";
-import type { GateInfo, Person } from "../../net/protocol";
+import type { DeviceInfo, Person } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ProfileFields, useProfileDraft } from "../Welcome/ProfileFields";
 import { profileEdit } from "../Welcome/profile";
@@ -49,7 +49,7 @@ function Pairing() {
   const why = useSel((s) => s.activity.pairWhy);
   const live = useLivePairing();
   const pairing = live?.pairing ?? null;
-  const farm = !!settings?.farm;
+  const homeComputer = !!settings?.home_computer;
   const you = settings?.you ?? "";
   const personRef = useRef<HTMLInputElement>(null);
 
@@ -92,7 +92,7 @@ function Pairing() {
   const mins = live ? Math.max(0, Math.ceil((live.pairing.expires_ms - live.now) / 60000)) : 0;
   return (
     <>
-      <div className="btn-row" id="addDeviceRow" hidden={!farm || formOpen || !!pairing}>
+      <div className="btn-row" id="addDeviceRow" hidden={!homeComputer || formOpen || !!pairing}>
         <Button id="addDevice" icon={<PlusIcon />} onClick={() => dispatch(local("activity/pairForm", { open: true }))}>
           Add a device
         </Button>
@@ -159,27 +159,27 @@ function PeopleRows() {
   const { send, dispatch } = useApp();
   const settings = useSel((s) => s.connection.settings);
   const people = useSel((s) => s.home.people);
-  const gates = useSel((s) => s.home.gates);
+  const devices = useSel((s) => s.home.devices);
   const personOpen = useSel((s) => s.activity.personOpen);
   const arm = useArm();
-  const farm = !!settings?.farm;
+  const homeComputer = !!settings?.home_computer;
   const you = settings?.you;
 
   // Everyone, and anyone with a device who isn't listed yet.
   const list: Person[] = [...people];
-  for (const g of gates)
+  for (const g of devices)
     if (!list.some((p) => p.name === g.person))
       list.push({ name: g.person, color: people.find((p) => p.name === g.person)?.color || "var(--muted)", role: "adult", photo: null });
 
   return (
     <List className="people-rows" id="peopleRows">
       {list.map((p) => {
-        const devs = gates.filter((g) => g.person === p.name);
+        const devs = devices.filter((g) => g.person === p.name);
         const role = p.role === "owner" ? "owner" : p.role === "kid" ? "kid account" : "";
         const devText =
           [p.role === "owner" ? "this Mac" : "", ...devs.map((g) => `${g.name}, ${seenText(g)}`)].filter(Boolean).join(" · ") || "No devices yet";
         const mine = p.name === you;
-        const canOpen = mine || (farm && devs.length > 0);
+        const canOpen = mine || (homeComputer && devs.length > 0);
         const isOpen = personOpen === p.name;
         return (
           <ListRow
@@ -212,10 +212,10 @@ function PeopleRows() {
           >
             {isOpen ? (
               <div className="person-edit">
-                {farm && devs.length ? (
+                {homeComputer && devs.length ? (
                   <List className="device-list">
                     {devs.map((g) => (
-                      <DeviceRow key={g.id} g={g} armed={arm.armed === g.id} onRemove={() => arm.fire(g.id) && send({ type: "remove_gate", id: g.id })} />
+                      <DeviceRow key={g.id} g={g} armed={arm.armed === g.id} onRemove={() => arm.fire(g.id) && send({ type: "remove_device", id: g.id })} />
                     ))}
                   </List>
                 ) : null}
@@ -229,7 +229,7 @@ function PeopleRows() {
   );
 }
 
-function DeviceRow({ g, armed, onRemove }: { g: GateInfo; armed: boolean; onRemove: () => void }) {
+function DeviceRow({ g, armed, onRemove }: { g: DeviceInfo; armed: boolean; onRemove: () => void }) {
   return (
     <ListRow
       className="device-row"

@@ -5,7 +5,7 @@ import type { ModelRow } from "./ModelRow";
 import type { RouterUsage } from "./RouterUsage";
 
 /**
- * Settings → Engines → `OpenRouter`, for the Farm.
+ * Settings → Engines → `OpenRouter`, for the home computer.
  */
 export type OpenRouterView = { 
 /**

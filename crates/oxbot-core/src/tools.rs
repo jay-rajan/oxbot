@@ -5,7 +5,7 @@
 //!   `pause_schedule`, `delete_schedule`).
 //! - Bots with the browser: `save_report`, to hand back research as a
 //!   report with sources instead of a long reply.
-//! - The central bot (Herder) only: `list_bots`, `create_bot`,
+//! - The central bot (the Assistant) only: `list_bots`, `create_bot`,
 //!   `give_task` and `read_reply`, so it can run the team. Other bots aren't
 //!   shown them and can't call them, so bots can't set each other off.
 //!
@@ -57,7 +57,7 @@ pub const CENTRAL_TOOLS: &[&str] = &[
 /// Which of oxbot's tools a bot gets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ToolSet {
-    /// It's Herder, the central bot: the team tools.
+    /// It's the Assistant, the central bot: the team tools.
     pub central: bool,
     /// It has the browser: `save_report` (with no browser there's no web
     /// research, and nothing it could cite).
@@ -168,7 +168,7 @@ fn tools(set: ToolSet) -> Vec<Value> {
             json!({
                 "name": GIVE_TASK_TOOL,
                 "description": "Send another bot a task. It shows in that bot's chat as a message from \
-                    Herder, so the user can follow along. That bot still asks the user before any send, \
+                    the Assistant, so the user can follow along. That bot still asks the user before any send, \
                     post, delete or buy, and asks them to sign in when needed. By default waits (up to about \
                     10 minutes) and returns the bot's reply; with wait=false it returns at once and you can \
                     read_reply later.",

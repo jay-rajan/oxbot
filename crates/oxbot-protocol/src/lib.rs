@@ -145,7 +145,7 @@ pub enum ClientMsg {
         /// [`Attachment::id`].
         id: String,
     },
-    /// Farm only: open a file sent in a chat on this Mac (in Preview,
+    /// Home computer only: open a file sent in a chat on this Mac (in Preview,
     /// Numbers and so on).
     OpenFile {
         /// Bot id.
@@ -156,7 +156,7 @@ pub enum ClientMsg {
         /// [`Attachment::id`].
         id: String,
     },
-    /// Farm only: start or stop dictating with this Mac's microphone and
+    /// Home computer only: start or stop dictating with this Mac's microphone and
     /// its on-device speech recognition. The text comes back to this
     /// connection only, as [`ServerMsg::Dictation`].
     Dictate {
@@ -176,7 +176,7 @@ pub enum ClientMsg {
         name: String,
         /// What the bot should do, in the user's words.
         instructions: String,
-        /// Only its creator (and the Farm) can see and use it.
+        /// Only its creator (and the home computer) can see and use it.
         #[serde(default)]
         private: bool,
         /// The engine it runs on; `None` for the server's default (Codex).
@@ -187,7 +187,7 @@ pub enum ClientMsg {
         models: Vec<String>,
     },
     /// Set a bot's AI model (Free models / Paid models). Its maker or the
-    /// Farm. Herders' are set by the owner. `engine` is always Codex now.
+    /// home computer. Assistants' are set by the owner. `engine` is always Codex now.
     SetEngine {
         /// Bot id.
         bot: String,
@@ -207,27 +207,27 @@ pub enum ClientMsg {
     ListEngines,
     /// Start "Sign in with `OpenRouter`": the Mac's browser opens
     /// `OpenRouter`'s page, which comes back to oxbot with a new key. The
-    /// Farm only.
+    /// home computer only.
     OpenRouterSignIn,
-    /// Forget the `OpenRouter` key and stop `OpenRouter` bots. The Farm only.
+    /// Forget the `OpenRouter` key and stop `OpenRouter` bots. The home computer only.
     OpenRouterSignOut,
-    /// Read `OpenRouter`'s model list (and the key's limits) again. The Farm
+    /// Read `OpenRouter`'s model list (and the key's limits) again. The home computer
     /// only.
     RefreshModels,
     /// Look for Codex again, at `path` if given (else `OXBOT_CODEX`, then
-    /// `PATH` and Homebrew's folders), and keep that choice. The Farm only.
+    /// `PATH` and Homebrew's folders), and keep that choice. The home computer only.
     FindCodex {
         /// Where the `codex` program is; empty to look for it.
         #[serde(default)]
         path: String,
     },
-    /// Change the household's engine settings. The Farm only.
+    /// Change the household's engine settings. The home computer only.
     SetEnginePrefs {
         /// All of them.
         prefs: EnginePrefs,
     },
     /// Set an `OpenRouter` bot's own cap on model requests a day. Its maker
-    /// or the Farm.
+    /// or the home computer.
     SetBotDailyLimit {
         /// Bot id.
         bot: String,
@@ -235,8 +235,8 @@ pub enum ClientMsg {
         #[serde(default)]
         daily_requests: Option<u32>,
     },
-    /// Make a bot private (only its creator and the Farm see it, and it
-    /// uses its creator's own browser) or shared. Its creator or the Farm
+    /// Make a bot private (only its creator and the home computer see it, and it
+    /// uses its creator's own browser) or shared. Its creator or the home computer
     /// only.
     SetPrivate {
         /// Bot id.
@@ -246,7 +246,7 @@ pub enum ClientMsg {
     },
     /// Choose who a bot is shared with: everyone in the home, just its
     /// maker, or the people picked (by name, as [`ServerMsg::People`] lists
-    /// them). Its maker or the Farm only.
+    /// them). Its maker or the home computer only.
     SetSharing {
         /// Bot id.
         bot: String,
@@ -263,7 +263,7 @@ pub enum ClientMsg {
     },
     /// Ask for one's own profile again ([`ServerMsg::Profile`]).
     GetProfile,
-    /// Give a bot a new name. Its creator or the Farm only.
+    /// Give a bot a new name. Its creator or the home computer only.
     RenameBot {
         /// Bot id.
         bot: String,
@@ -279,7 +279,7 @@ pub enum ClientMsg {
         instructions: String,
     },
     /// Delete a bot and its history (its folder goes to oxbot's trash).
-    /// Its creator or the Farm only; Herder can't be deleted.
+    /// Its creator or the home computer only; the Assistant can't be deleted.
     DeleteBot {
         /// Bot id.
         bot: String,
@@ -375,7 +375,7 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
-    /// Farm only: turn the alerts at 50% and 80% of the household's
+    /// Home computer only: turn the alerts at 50% and 80% of the household's
     /// `OpenRouter` limits on or off. The asker gets the new
     /// [`ServerMsg::Settings`].
     SetUsageAlerts {
@@ -442,7 +442,7 @@ pub enum ClientMsg {
         #[serde(default)]
         mine: bool,
     },
-    /// Farm only: fine-grained control on a website (`on`): bots there
+    /// Home computer only: fine-grained control on a website (`on`): bots there
     /// do one step at a time instead of several at once. The answer is
     /// [`ServerMsg::FineGrainedSites`].
     SetFineGrainedSite {
@@ -451,30 +451,30 @@ pub enum ClientMsg {
         /// One step at a time from now on.
         on: bool,
     },
-    /// Farm only: show a pairing code (and QR code) for a new Gate that
+    /// Home computer only: show a pairing code (and QR code) for a new device that
     /// will belong to `person`. Replaces any code still showing. The answer
-    /// is [`ServerMsg::Pairing`], then [`ServerMsg::Gates`] once it pairs.
+    /// is [`ServerMsg::Pairing`], then [`ServerMsg::Devices`] once it pairs.
     StartPairing {
-        /// Who the Gate is for, e.g. `Sam`.
+        /// Who the device is for, e.g. `Sam`.
         person: String,
     },
-    /// Farm only: stop showing the pairing code; it stops working.
+    /// Home computer only: stop showing the pairing code; it stops working.
     CancelPairing,
-    /// Farm only: unpair a Gate. Its key stops working and it's
+    /// Home computer only: unpair a device. Its key stops working and it's
     /// disconnected.
-    RemoveGate {
-        /// [`GateInfo::id`].
+    RemoveDevice {
+        /// [`DeviceInfo::id`].
         id: String,
     },
-    /// Farm only: let phones use the network this Mac is on now. The
+    /// Home computer only: let phones use the network this Mac is on now. The
     /// answer is [`ServerMsg::Door`].
     AddDoorNetwork,
-    /// Farm only: stop letting phones use a network.
+    /// Home computer only: stop letting phones use a network.
     RemoveDoorNetwork {
         /// [`DoorNetwork::id`].
         id: String,
     },
-    /// Farm only: the name phones see for this Farm on the network.
+    /// Home computer only: the name phones see for this home computer on the network.
     SetDoorName {
         /// e.g. `Jay's Mac mini`; empty goes back to the Mac's name.
         name: String,
@@ -503,7 +503,7 @@ pub enum ClientMsg {
         id: String,
     },
     /// File a bot in one of your sections, or take it out of them. Any bot
-    /// you're shown but Herder; it changes only your own view, never the bot.
+    /// you're shown but the Assistant; it changes only your own view, never the bot.
     MoveBot {
         /// Bot id.
         bot: String,
@@ -511,7 +511,7 @@ pub enum ClientMsg {
         #[serde(default)]
         section: Option<String>,
     },
-    // Comparing engines and models (#21): the Farm owner's only.
+    // Comparing engines and models (#21): the home computer owner's only.
     /// Thumbs up or down (or neither) on a reply that ended at `seq` (its
     /// `turn_done` event).
     RateTurn {
@@ -674,7 +674,7 @@ pub enum EngineKind {
 pub struct EnginesView {
     /// The notice everyone sees: where bots' model calls go.
     pub notice: String,
-    /// The Farm owner's name.
+    /// The home computer owner's name.
     pub owner: String,
     /// Whether `OpenRouter` bots can run on this Mac now.
     #[serde(default)]
@@ -690,18 +690,18 @@ pub struct EnginesView {
     /// the live list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub model_lists: Vec<ModelList>,
-    /// The Farm only: the `OpenRouter` account, models, limits and use.
+    /// The home computer only: the `OpenRouter` account, models, limits and use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openrouter: Option<OpenRouterView>,
     /// Whether Codex bots can run on this Mac now.
     #[serde(default)]
     pub codex_ready: bool,
-    /// The Farm only: what was found of Codex.
+    /// The home computer only: what was found of Codex.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex: Option<CodexView>,
 }
 
-/// Settings → Engines → Codex, for the Farm.
+/// Settings → Engines → Codex, for the home computer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CodexView {
@@ -719,7 +719,7 @@ pub struct CodexView {
     pub configured: String,
 }
 
-/// Settings → Engines → `OpenRouter`, for the Farm.
+/// Settings → Engines → `OpenRouter`, for the home computer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OpenRouterView {
@@ -858,8 +858,10 @@ pub struct EnginePrefs {
     pub bot_daily_requests: u32,
     /// Each person's model requests a day (`None`: no cap).
     pub person_daily_requests: Option<u32>,
-    /// The model people's own Herders use (`None`: Auto).
-    pub herder_model: Option<String>,
+    /// The model people's own Assistants use (`None`: Auto). Settings saved
+    /// before the rename call it `herder_model`.
+    #[serde(alias = "herder_model")]
+    pub assistant_model: Option<String>,
 }
 
 impl Default for EnginePrefs {
@@ -870,7 +872,7 @@ impl Default for EnginePrefs {
             paid_monthly_cents: 1000,
             bot_daily_requests: 200,
             person_daily_requests: None,
-            herder_model: None,
+            assistant_model: None,
         }
     }
 }
@@ -987,24 +989,24 @@ pub enum ServerMsg {
     /// The websites with fine-grained control, where bots do one step at
     /// a time (main domains, sorted). Everywhere else they may do several
     /// steps at once. Sent after [`ServerMsg::Hello`] and whenever it
-    /// changes; only the Farm changes it.
+    /// changes; only the home computer changes it.
     FineGrainedSites {
         /// The sites.
         sites: Vec<String>,
     },
-    /// Farm only: a pairing code is ready to scan or type. Good once,
+    /// Home computer only: a pairing code is ready to scan or type. Good once,
     /// until `expires_ms`.
     Pairing(PairingCode),
-    /// Farm only: the pairing code was used, cancelled or ran out.
+    /// Home computer only: the pairing code was used, cancelled or ran out.
     PairingClosed,
-    /// Farm only: the paired Gates. Sent after [`ServerMsg::Hello`] and
+    /// Home computer only: the paired devices. Sent after [`ServerMsg::Hello`] and
     /// whenever one pairs, connects, leaves or is removed.
-    Gates {
+    Devices {
         /// Oldest first.
-        gates: Vec<GateInfo>,
+        devices: Vec<DeviceInfo>,
     },
-    /// Farm only: whether the Gate door is open, which networks phones may
-    /// use, and the name it shows. Sent with [`ServerMsg::Gates`] and when
+    /// Home computer only: whether the device door is open, which networks phones may
+    /// use, and the name it shows. Sent with [`ServerMsg::Devices`] and when
     /// any of it changes.
     Door(DoorState),
     /// The people who have sent messages, each with their own color. Sent
@@ -1032,7 +1034,7 @@ pub enum ServerMsg {
         /// The message, for the user.
         message: String,
         /// Whose it is, if it's about one person's own browser: only they
-        /// (and the Farm) get it. `None` for everyone.
+        /// (and the home computer) get it. `None` for everyone.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         owner: Option<String>,
         /// Server only, never sent: the owner's person id, which decides
@@ -1078,11 +1080,11 @@ pub enum ServerMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    /// Settings → Engines. The Farm gets all of it; everyone else the
+    /// Settings → Engines. The home computer gets all of it; everyone else the
     /// notice and whether `OpenRouter` is ready. The answer to
     /// [`ClientMsg::ListEngines`], and sent again when it changes.
     Engines(EnginesView),
-    /// The `OpenRouter` sign-in page, for the Farm connection that asked: in
+    /// The `OpenRouter` sign-in page, for the home computer connection that asked: in
     /// case no browser window opened.
     OpenRouterAuth {
         /// The page's address.
@@ -1253,20 +1255,20 @@ pub struct AppSettings {
     /// Who this client's messages are sent as, e.g. `Jayadev`.
     #[serde(default)]
     pub you: String,
-    /// Whether this client is on the Farm itself, which can see, change and
+    /// Whether this client is on the home computer itself, which can see, change and
     /// delete every bot, private ones included.
     #[serde(default)]
-    pub farm: bool,
+    pub home_computer: bool,
     /// Whether oxbot tells the user when use passes 50% and 80% of the
     /// household's `OpenRouter` limits.
     #[serde(default = "yes")]
     pub usage_alerts: bool,
-    /// Whether this client may dictate with the Mac's microphone: the Farm
+    /// Whether this client may dictate with the Mac's microphone: the home computer
     /// only, and only where the Mac can recognize speech on-device.
     #[serde(default)]
     pub dictation: bool,
-    /// Whether this client is the Farm's owner (the Farm, or the Farm's
-    /// person on a Gate): the only one who compares engines.
+    /// Whether this client is the home computer's owner (the home computer, or the home computer's
+    /// person on a device): the only one who compares engines.
     #[serde(default)]
     pub owner: bool,
     /// Whether developer tools (comparing AI models) are on: only when the
@@ -1274,7 +1276,7 @@ pub struct AppSettings {
     /// thumbs and test cases, and the server refuses their messages.
     #[serde(default)]
     pub dev_tools: bool,
-    /// The Farm owner's name, e.g. `Jay`.
+    /// The home computer owner's name, e.g. `Jay`.
     #[serde(default)]
     pub owner_name: String,
     /// Whether `OpenRouter` bots can run on this Mac now.
@@ -1310,7 +1312,7 @@ pub struct SignInRequest {
     pub why: String,
     /// Whether the sign-in window is open now.
     pub window_open: bool,
-    /// Server only, never sent: the one person (besides the Farm) who may
+    /// Server only, never sent: the one person (besides the home computer) who may
     /// see and answer it, when the browser is theirs and others may use
     /// the bot (a bot shared with picked people signs in as its maker).
     #[serde(skip)]
@@ -1391,15 +1393,15 @@ pub struct SetupCheck {
     pub optional: bool,
 }
 
-/// A code that pairs one Gate with the Farm.
+/// A code that pairs one device with the home computer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PairingCode {
-    /// Who the Gate will belong to.
+    /// Who the device will belong to.
     pub person: String,
-    /// What to type on the Gate, e.g. `K7QM-3XRP`.
+    /// What to type on the device, e.g. `K7QM-3XRP`.
     pub code: String,
-    /// Everything the Gate needs (addresses, the Farm's certificate
+    /// Everything the device needs (addresses, the home computer's certificate
     /// fingerprint, the code), as an `oxbot://pair?...` link. The QR code
     /// holds this.
     pub link: String,
@@ -1410,10 +1412,10 @@ pub struct PairingCode {
     pub expires_ms: i64,
 }
 
-/// A phone or laptop paired with the Farm.
+/// A phone or laptop paired with the home computer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct GateInfo {
+pub struct DeviceInfo {
     /// Its id.
     pub id: String,
     /// Who it belongs to; they act as this person.
@@ -1430,7 +1432,7 @@ pub struct GateInfo {
     pub online: bool,
 }
 
-/// A network phones may use to reach the Farm.
+/// A network phones may use to reach the home computer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DoorNetwork {
@@ -1445,7 +1447,7 @@ pub struct DoorNetwork {
     pub here: bool,
 }
 
-/// The Gate door, as Settings → Gates shows it.
+/// The device door, as Settings → devices shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DoorState {
@@ -1463,27 +1465,29 @@ pub struct DoorState {
     pub name: String,
 }
 
-/// What a Gate sends to pair: `POST /pair` on the Gate door.
+/// What a device sends to pair: `POST /pair` on the device door.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PairRequest {
-    /// The code from the Farm's screen.
+    /// The code from the home computer's screen.
     pub code: String,
     /// The device's name, e.g. `Pixel 10 Pro XL`.
     pub device: String,
 }
 
-/// The Farm's answer to a good [`PairRequest`].
+/// The home computer's answer to a good [`PairRequest`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PairReply {
-    /// The new Gate's id.
+    /// The new device's id.
     pub id: String,
     /// Who it belongs to.
     pub person: String,
-    /// The Farm's name, e.g. `Jay's Mac mini`.
-    pub farm: String,
-    /// The Gate's key: sent once, kept by the Gate, shown on every
+    /// The home computer's name, e.g. `Jay's Mac mini`.
+    /// (`farm` from a home computer that isn't updated yet.)
+    #[serde(alias = "farm")]
+    pub home_computer: String,
+    /// The device's key: sent once, kept by the device, shown on every
     /// connection as `Authorization: Bearer <key>`.
     pub key: String,
 }
@@ -1627,9 +1631,9 @@ pub enum ApprovalKind {
     Upload,
     /// A change on a site, e.g. clicking Send or Post (shown in red).
     Change,
-    /// Herder (the central bot) wants to create a new bot.
+    /// The Assistant (the central bot) wants to create a new bot.
     CreateBot,
-    /// Herder wants to pass a task to someone's private bot, after reading
+    /// The Assistant wants to pass a task to someone's private bot, after reading
     /// web pages or other bots' replies (which may have asked it to).
     GiveTask,
     /// A bot proposes a schedule ([`Approval::schedule`]): Create, Change
@@ -1670,7 +1674,7 @@ pub struct Approval {
     /// A picture of the page right now, as a `data:image/...` URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenshot: Option<String>,
-    /// The person whose request led to this card. Only they and the Farm
+    /// The person whose request led to this card. Only they and the home computer
     /// see and answer it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asker: Option<String>,
@@ -1690,7 +1694,7 @@ pub struct Approval {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule: Option<ScheduleDraft>,
     /// Server only, never sent: other people who may see and answer it
-    /// (person ids), besides its asker and the Farm.
+    /// (person ids), besides its asker and the home computer.
     #[serde(skip)]
     pub also: Vec<String>,
 }
@@ -1717,7 +1721,7 @@ pub struct AllowRule {
     pub action: String,
     /// The element, e.g. `button "Apply filters"`.
     pub label: String,
-    /// Who set it, by name as it is now (`None`: the Farm).
+    /// Who set it, by name as it is now (`None`: the home computer).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
     /// When, in milliseconds since the Unix epoch.
@@ -1891,14 +1895,14 @@ pub struct BotInfo {
     pub last_reply_seq: u64,
     /// What its browser is doing.
     pub browser_state: BrowserState,
-    /// Whether this is the central bot (Herder), which can create
+    /// Whether this is the central bot (the Assistant), which can create
     /// bots and give them tasks.
     #[serde(default)]
     pub central: bool,
     /// Who it belongs to (a person's name, as it is now).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
-    /// Only its creator (and the Farm) can see and use it.
+    /// Only its creator (and the home computer) can see and use it.
     #[serde(default)]
     pub private: bool,
     /// Whether the client's person may rename it, delete it or change who
@@ -2301,6 +2305,13 @@ mod tests {
         assert!(old.paid_fallback);
         assert_eq!(old.paid_monthly_cents, 1000);
         assert!(!serde_json::to_string(&old).unwrap().contains("daily_cents"));
+        // Settings saved before the Assistant was renamed still load its model.
+        let renamed: EnginePrefs =
+            serde_json::from_str(r#"{"herder_model":"openai/gpt-oss-120b"}"#).unwrap();
+        assert_eq!(
+            renamed.assistant_model.as_deref(),
+            Some("openai/gpt-oss-120b")
+        );
         let limit: ClientMsg =
             serde_json::from_str(r#"{"type":"set_bot_daily_limit","bot":"a"}"#).unwrap();
         assert_eq!(
@@ -2657,7 +2668,7 @@ mod tests {
             data_dir: "/d".into(),
             launch_at_login: None,
             you: "Jay".into(),
-            farm: true,
+            home_computer: true,
             usage_alerts: true,
             dictation: false,
             owner: true,
@@ -2678,7 +2689,7 @@ mod tests {
     #[test]
     fn settings_from_an_older_server_have_usage_alerts_on() {
         let settings: AppSettings = serde_json::from_str(
-            r#"{"version":"0.1.0","data_dir":"/d","launch_at_login":null,"you":"Jay","farm":true}"#,
+            r#"{"version":"0.1.0","data_dir":"/d","launch_at_login":null,"you":"Jay","home_computer":true}"#,
         )
         .unwrap();
         assert!(settings.usage_alerts);
@@ -2863,8 +2874,8 @@ mod tests {
                 person: "Sam".into()
             }
         );
-        let msg: ClientMsg = serde_json::from_str(r#"{"type":"remove_gate","id":"g1"}"#).unwrap();
-        assert_eq!(msg, ClientMsg::RemoveGate { id: "g1".into() });
+        let msg: ClientMsg = serde_json::from_str(r#"{"type":"remove_device","id":"g1"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::RemoveDevice { id: "g1".into() });
         let json = serde_json::to_string(&ServerMsg::PairingClosed).unwrap();
         assert_eq!(json, r#"{"type":"pairing_closed"}"#);
     }

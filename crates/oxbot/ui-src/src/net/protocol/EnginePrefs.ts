@@ -29,6 +29,7 @@ bot_daily_requests: number,
  */
 person_daily_requests: number | null, 
 /**
- * The model people's own Herders use (`None`: Auto).
+ * The model people's own Assistants use (`None`: Auto). Settings saved
+ * before the rename call it `herder_model`.
  */
-herder_model: string | null, };
+assistant_model: string | null, };

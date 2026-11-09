@@ -180,7 +180,7 @@ impl Waiting {
                 person_id,
                 waiting: false,
                 ..
-            } => (hidden(app) && hub.is_farm_person(person_id)).then(|| text.clone()),
+            } => (hidden(app) && hub.is_owner_person(person_id)).then(|| text.clone()),
             ServerMsg::ApprovalResolved { id } => {
                 self.approvals.remove(id);
                 None
@@ -273,9 +273,9 @@ mod tests {
             Store::open_in_memory().unwrap(),
             HubConfig::new(tmp.path()),
         );
-        hub.farm_person_from("Jay", true).unwrap();
+        hub.owner_person_from("Jay", true).unwrap();
         // Only the owner has private bots; Sam's own Assistant is his alone.
-        let sams = hub.herder_for("Sam").unwrap();
+        let sams = hub.assistant_for("Sam").unwrap();
         let window = Window(Mutex::new(true));
         let app: Option<&dyn AppControls> = Some(&window);
         let mut waiting = Waiting::default();
@@ -323,7 +323,7 @@ mod tests {
             Store::open_in_memory().unwrap(),
             HubConfig::new(tmp.path()),
         );
-        let jay = hub.farm_person_from("Jay", true).unwrap().id;
+        let jay = hub.owner_person_from("Jay", true).unwrap().id;
         let sam = hub.person_named("Sam").unwrap().id;
         let window = Window(Mutex::new(false));
         let app: Option<&dyn AppControls> = Some(&window);

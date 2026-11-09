@@ -6,13 +6,15 @@
 #   scripts/android-apply.sh --check  only say whether they're all there
 #
 # The settings: no backups or device-to-device copies of the app's data
-# (the Gate key and the chat copy), the local-network permission Android 17
+# (the device key and the chat copy), the local-network permission Android 17
 # needs, the camera for scanning the pairing code, and MainActivity asking
 # for the local-network permission. `cargo test` checks them too.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 gen="$root/app/src-tauri/gen/android/app/src/main"
 manifest="$gen/AndroidManifest.xml"
+# The app id stays dev.oxbot.gate, from before the rename: a new id would be
+# a different app, and phones would lose their pairing and chat copy.
 activity="$gen/java/dev/oxbot/gate/MainActivity.kt"
 ours="$root/app/src-tauri/android/MainActivity.kt"
 mode=${1:-apply}
@@ -28,8 +30,8 @@ path, mode = sys.argv[1], sys.argv[2]
 text = open(path, encoding="utf-8").read()
 wanted = text
 perms = [
-    ("android.permission.ACCESS_LOCAL_NETWORK", "oxbot talks only to the Farm on home Wi-Fi."),
-    ("android.permission.CAMERA", "Only to scan the Farm's pairing QR code; frames never leave the phone."),
+    ("android.permission.ACCESS_LOCAL_NETWORK", "oxbot talks only to the home computer on home Wi-Fi."),
+    ("android.permission.CAMERA", "Only to scan the home computer's pairing QR code; frames never leave the phone."),
 ]
 for name, why in perms:
     if f'android:name="{name}"' not in wanted:

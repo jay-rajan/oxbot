@@ -70,11 +70,11 @@ async fn start_with_store(
         local_person: "Jay".to_owned(),
         ..AppState::new(hub, "test-mac")
     };
-    // The Farm's own window carries the Farm secret.
+    // The home computer's own window carries the home computer secret.
     let url = format!(
         "ws://{}/ws?k={}",
         listener.local_addr().unwrap(),
-        state.farm_key
+        state.home_computer_key
     );
     tokio::spawn(server::serve(listener, state, std::future::pending()));
     url
@@ -445,7 +445,7 @@ async fn the_react_page_is_served_at_next_with_a_strict_policy() {
 }
 
 #[tokio::test]
-async fn being_on_this_mac_is_not_enough_to_be_the_farm() {
+async fn being_on_this_mac_is_not_enough_to_be_the_home_computer() {
     let tmp = tempfile::tempdir().unwrap();
     let url = start(tmp.path()).await;
     let bare = url.split('?').next().unwrap().to_owned();
@@ -468,9 +468,9 @@ async fn being_on_this_mac_is_not_enough_to_be_the_farm() {
             .await
             .is_err()
     );
-    // With it: the Farm.
+    // With it: the home computer.
     let (_, _, settings) = connect(&url).await;
-    assert!(settings.farm);
+    assert!(settings.home_computer);
 }
 
 /// The reply to a create and the list for everyone, which can arrive in
@@ -638,9 +638,9 @@ impl CountingNotifier {
     }
 }
 
-/// A server whose Herder answers without tools (one model request a turn)
+/// A server whose Assistant answers without tools (one model request a turn)
 /// and may make 5 requests a day, with notifications counted. Returns the
-/// Farm's address and a Gate person's (`?as=Sam`, test mode).
+/// home computer's address and a device person's (`?as=Sam`, test mode).
 async fn start_alerting(
     dir: &std::path::Path,
     notifier: Arc<CountingNotifier>,
@@ -671,11 +671,11 @@ async fn start_alerting(
         ..AppState::new(hub, "test-mac")
     };
     let addr = listener.local_addr().unwrap();
-    let farm = format!("ws://{addr}/ws?k={}", state.farm_key);
-    let gate = format!("ws://{addr}/ws?as=Sam");
+    let home_computer = format!("ws://{addr}/ws?k={}", state.home_computer_key);
+    let device = format!("ws://{addr}/ws?as=Sam");
     oxbot::notify::start(&state);
     tokio::spawn(server::serve(listener, state, std::future::pending()));
-    (farm, gate)
+    (home_computer, device)
 }
 
 /// Sends `text` to the assistant and reads until its turn is done,
@@ -734,10 +734,10 @@ async fn usage_alerts_reach_everyone_with_one_notification_each() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let notifier = Arc::new(CountingNotifier::default());
-    let (farm, gate) = start_alerting(tmp.path(), Arc::clone(&notifier)).await;
-    let (mut ws, alerts) = opening_alerts(&farm).await;
+    let (home_computer, device) = start_alerting(tmp.path(), Arc::clone(&notifier)).await;
+    let (mut ws, alerts) = opening_alerts(&home_computer).await;
     assert_eq!(alerts, []);
-    let (mut sam, _) = opening_alerts(&gate).await;
+    let (mut sam, _) = opening_alerts(&device).await;
     subscribe(&mut ws).await;
 
     // 1 and 2 of 5 requests: no level yet; 3 (60%) passes 50%.
@@ -757,11 +757,11 @@ async fn usage_alerts_reach_everyone_with_one_notification_each() {
     assert_eq!(second.len(), 1);
     assert_eq!(second[0].level, 80);
 
-    // A Gate person gets them too.
-    let mut on_gate = Vec::new();
-    while on_gate.len() < 2 {
+    // A device person gets them too.
+    let mut on_device = Vec::new();
+    while on_device.len() < 2 {
         if let ServerMsg::UsageAlert(a) = next(&mut sam).await {
-            on_gate.push(a);
+            on_device.push(a);
         }
     }
     // One Mac notification per alert, saying the same.
@@ -777,20 +777,20 @@ async fn usage_alerts_reach_everyone_with_one_notification_each() {
 
     // Connecting later: the latest live alert of the window, for the
     // banner.
-    let (_, live) = opening_alerts(&farm).await;
+    let (_, live) = opening_alerts(&home_computer).await;
     let live: Vec<_> = live.iter().map(|a| (a.limit.as_str(), a.level)).collect();
     assert_eq!(live, [("openrouter_bot_daily:assistant", 80)]);
 }
 
 #[tokio::test]
-async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
+async fn only_the_home_computer_turns_usage_alerts_off_and_then_none_come() {
     if codex().await.is_none() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
     let notifier = Arc::new(CountingNotifier::default());
-    let (farm, gate) = start_alerting(tmp.path(), Arc::clone(&notifier)).await;
-    let (mut sam, _) = opening_alerts(&gate).await;
+    let (home_computer, device) = start_alerting(tmp.path(), Arc::clone(&notifier)).await;
+    let (mut sam, _) = opening_alerts(&device).await;
     send(&mut sam, &ClientMsg::SetUsageAlerts { on: false }).await;
     loop {
         if let ServerMsg::Error { message } = next(&mut sam).await {
@@ -802,7 +802,7 @@ async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
         }
     }
 
-    let (mut ws, _) = opening_alerts(&farm).await;
+    let (mut ws, _) = opening_alerts(&home_computer).await;
     send(&mut ws, &ClientMsg::SetUsageAlerts { on: false }).await;
     let settings = loop {
         if let ServerMsg::Settings(s) = next(&mut ws).await {
@@ -816,6 +816,6 @@ async fn only_the_farm_turns_usage_alerts_off_and_then_none_come() {
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(notifier.bodies(), Vec::<String>::new());
-    let (_, live) = opening_alerts(&farm).await;
+    let (_, live) = opening_alerts(&home_computer).await;
     assert_eq!(live, [], "no banner while off");
 }

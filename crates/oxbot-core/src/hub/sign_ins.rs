@@ -97,7 +97,7 @@ impl Hub {
         if let Some(id) = viewer
             .id
             .as_ref()
-            .filter(|id| self.is_farm_person(id.as_str()))
+            .filter(|id| self.is_owner_person(id.as_str()))
         {
             lists.push(ServerMsg::Sites {
                 sites: self.sites(BrowserOwner::Person(id.clone())),
@@ -564,11 +564,11 @@ impl Hub {
 }
 
 /// Whether `viewer` may see and answer sign-in request `r` (besides being
-/// able to open its bot): the Farm, or anyone for the home's browser, but a
+/// able to open its bot): the home computer, or anyone for the home's browser, but a
 /// person's own browser only by that person (by id).
 #[must_use]
 pub fn signs_in(r: &SignInRequest, viewer: &Viewer) -> bool {
-    viewer.farm
+    viewer.home_computer
         || r.only
             .as_deref()
             .is_none_or(|id| viewer.is_person(Some(id), None))
@@ -677,7 +677,7 @@ mod tests {
                 ..crate::HubConfig::new(&bots)
             },
         );
-        let jay = hub.farm_person("Jay").unwrap();
+        let jay = hub.owner_person("Jay").unwrap();
         let kim = hub.person_named("Kim").unwrap();
         hub.store.set_role(&kim.id, Role::Kid).unwrap();
         let jay_phone = Viewer::person(jay.id.clone(), "Jay", false);
@@ -752,7 +752,7 @@ mod tests {
                 ..crate::HubConfig::new(&bots)
             },
         );
-        let jay = hub.farm_person("Jay").unwrap();
+        let jay = hub.owner_person("Jay").unwrap();
         let phone = Viewer::person(jay.id.clone(), "Jay", false);
         let diary = hub
             .create_bot_as("Diary", "", Some(&phone), true)

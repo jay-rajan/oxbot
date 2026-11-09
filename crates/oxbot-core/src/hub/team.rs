@@ -1,4 +1,4 @@
-//! oxbot's own tools: Herder's team tools (`team`, `give_task`,
+//! oxbot's own tools: the Assistant's team tools (`team`, `give_task`,
 //! `read_reply`), the sign-in tool and the schedule tools, run for a bot's
 //! engine.
 
@@ -51,7 +51,7 @@ impl Hub {
             }
             Err(message) => (false, message),
         };
-        // Herder's team tools are kept with the turn, for test cases.
+        // The Assistant's team tools are kept with the turn, for test cases.
         self.keep_turn_tool(&bot, &name, &args, ok, &text);
         reply.send(ToolReply { ok, text });
     }
@@ -78,8 +78,8 @@ impl Hub {
         args: &Value,
     ) -> (bool, String) {
         let text = |key: &str| tools::text_arg(args, key).trim().to_owned();
-        // Herder acts for whoever sent the message it's answering, and sees
-        // only what they may see (never the Farm's view).
+        // The Assistant acts for whoever sent the message it's answering, and sees
+        // only what they may see (never the home computer's view).
         let origin = self
             .runtimes
             .lock()
@@ -100,7 +100,7 @@ impl Hub {
             }
             tools::CREATE_BOT_TOOL => {
                 // The user already said yes on the card (see `policy`).
-                // The bot belongs to whoever asked Herder for it.
+                // The bot belongs to whoever asked the Assistant for it.
                 let private = args.get("private").and_then(Value::as_bool) == Some(true);
                 let maker = asker.id.is_some().then_some(&asker);
                 if private && maker.is_none() {
@@ -159,9 +159,9 @@ impl Hub {
         }
     }
 
-    /// The bots `asker` may use, for Herder: id, name, maker, what it's
+    /// The bots `asker` may use, for the Assistant: id, name, maker, what it's
     /// for (as data), and status. Also whether it lists a name or
-    /// instructions someone other than `asker` wrote, which Herder can't
+    /// instructions someone other than `asker` wrote, which Assistant can't
     /// trust.
     pub(super) async fn team(&self, me: &BotId, asker: &Viewer) -> (String, bool) {
         let busy: HashSet<BotId> = self
@@ -181,11 +181,11 @@ impl Hub {
             .collect();
         bots.sort_by(|a, b| a.name.cmp(&b.name));
         let names = self.person_names();
-        let own = self.is_own_herder(me, asker);
+        let own = self.is_own_assistant(me, asker);
         let mut out = String::new();
         let mut others = false;
         for b in bots {
-            // Other people's Herders (and the Farm's, for them) aren't team members.
+            // Other people's Assistants (and the home computer's, for them) aren't team members.
             if b.is_central() && &b.id != me {
                 continue;
             }
@@ -248,7 +248,7 @@ impl Hub {
         (out, others)
     }
 
-    /// Sends a task from Herder (`from`), in the task chain `origin` that
+    /// Sends a task from the Assistant (`from`), in the task chain `origin` that
     /// acts for `asker`, and, if it says to wait, waits for the reply.
     pub(super) async fn give_task(
         self: &Arc<Self>,
@@ -275,7 +275,7 @@ impl Hub {
             return (false, "That's you. Do the task yourself.".to_owned());
         }
         if to.is_central() {
-            return (false, herder_message(&to));
+            return (false, assistant_message(&to));
         }
         // The chain stays whoever started it: passing it on never makes it
         // the owner's.
@@ -335,7 +335,7 @@ impl Hub {
         self.task_answer(from, &to, start, finished.ok()).await
     }
 
-    /// What Herder hears once a task it gave `to` (from event `start` on)
+    /// What the Assistant hears once a task it gave `to` (from event `start` on)
     /// ended (`Some(ok)`) or is still going (`None`): its reply and any
     /// reports it saved, as data.
     async fn task_answer(
@@ -378,11 +378,11 @@ impl Hub {
         }
     }
 
-    /// Whether Herder (`from`) may pass `message` on to private bot `to`
-    /// for `asker`: only from the asker's own Herder, and after the
+    /// Whether the Assistant (`from`) may pass `message` on to private bot `to`
+    /// for `asker`: only from the asker's own Assistant, and after the
     /// asker's OK on a card if its session has read text oxbot doesn't
     /// trust (which may be what asked for it; see `taint`). `None` if it
-    /// may; else what to tell Herder.
+    /// may; else what to tell the Assistant.
     async fn check_private_task(
         &self,
         from: &BotId,
@@ -390,11 +390,11 @@ impl Hub {
         to: &Bot,
         message: &str,
     ) -> Option<String> {
-        if !self.is_own_herder(from, asker) {
+        if !self.is_own_assistant(from, asker) {
             return private_message(to);
         }
         let why = self.untrusted(from).await?;
-        let herder = match self.bot(from.as_str()) {
+        let assistant = match self.bot(from.as_str()) {
             Ok(b) => b,
             Err(err) => return Some(format!("Couldn't ask the user: {err}")),
         };
@@ -409,9 +409,9 @@ impl Hub {
                 "oxbot",
             )
         };
-        // The card says what Herder read, where it shows the page.
+        // The card says what the Assistant read, where it shows the page.
         match self
-            .confirm(&herder, &ask, Some((why, String::new())))
+            .confirm(&assistant, &ask, Some((why, String::new())))
             .await
         {
             Ok(Outcome::Allowed | Outcome::AllowedAlways) => None,
@@ -429,7 +429,7 @@ impl Hub {
         }
     }
 
-    /// A bot's latest reply and whether it's still working, for Herder
+    /// A bot's latest reply and whether it's still working, for the Assistant
     /// (`from`).
     async fn read_reply(&self, from: &BotId, asker: &Viewer, target: &str) -> (bool, String) {
         if let Some(locked) = self.locked_message(target, asker) {
@@ -442,10 +442,10 @@ impl Hub {
             );
         };
         if bot.is_central() {
-            return (false, herder_message(&bot));
+            return (false, assistant_message(&bot));
         }
         if bot.private
-            && !self.is_own_herder(from, asker)
+            && !self.is_own_assistant(from, asker)
             && let Some(private) = private_message(&bot)
         {
             return (false, private);
@@ -478,7 +478,7 @@ impl Hub {
         }
     }
 
-    /// What Herder hears about a bot that's private to someone else.
+    /// What the Assistant hears about a bot that's private to someone else.
     pub(super) fn locked_message(&self, target: &str, asker: &Viewer) -> Option<String> {
         let bot = self.bot(target).ok()?;
         (!self.opens(&bot, asker)).then(|| {
@@ -504,7 +504,7 @@ impl Hub {
     }
 }
 
-/// A task Herder gives: to bot `target`, `message`, and whether to wait
+/// A task the Assistant gives: to bot `target`, `message`, and whether to wait
 /// for the reply.
 #[derive(Clone, Copy)]
 pub(super) struct Task<'a> {
@@ -513,7 +513,7 @@ pub(super) struct Task<'a> {
     pub(super) wait: bool,
 }
 
-/// What Herder hears about the reports `bot` saved during a task: their
+/// What the Assistant hears about the reports `bot` saved during a task: their
 /// titles (written by that bot, so as data), and where the user finds
 /// them. Empty if it saved none.
 fn reports_line(bot: &Bot, titles: &[String]) -> String {
@@ -537,15 +537,15 @@ fn reports_line(bot: &Bot, titles: &[String]) -> String {
     )
 }
 
-/// Another bot's reply as Herder gets it: inside `<bot_reply>`, which
-/// Herder's prompt says is data, never instructions (see [`data_block`]).
+/// Another bot's reply as the Assistant gets it: inside `<bot_reply>`, which
+/// Assistant's prompt says is data, never instructions (see [`data_block`]).
 fn bot_reply(bot: &BotId, text: &str) -> String {
     data_block("bot_reply", &format!(" bot=\"{bot}\""), text)
 }
 
-/// What Herder hears about another Herder: never a team member, since its
+/// What the Assistant hears about another Assistant: never a team member, since its
 /// chat holds what its own person asked and what was passed on for them.
-fn herder_message(bot: &Bot) -> String {
+fn assistant_message(bot: &Bot) -> String {
     format!(
         "{} is someone's Assistant, not a team member. You can't give it tasks or read its \
          replies.",
@@ -553,8 +553,8 @@ fn herder_message(bot: &Bot) -> String {
     )
 }
 
-/// Herder doesn't relay other people's private bots, or anyone's from a
-/// Herder that isn't theirs: what they do would land in a chat others may
+/// The Assistant doesn't relay other people's private bots, or anyone's from an
+/// Assistant that isn't theirs: what they do would land in a chat others may
 /// read. `None` for a shared bot.
 fn private_message(bot: &Bot) -> Option<String> {
     bot.private.then(|| {
@@ -568,7 +568,7 @@ fn private_message(bot: &Bot) -> Option<String> {
     })
 }
 
-/// Plain names for Herder's team tools and `save_report`.
+/// Plain names for the Assistant's team tools and `save_report`.
 pub(super) fn team_label(name: &str) -> Option<&'static str> {
     let tool = name.strip_prefix(&format!("mcp__{TOOL_SERVER_NAME}__"))?;
     Some(match tool {

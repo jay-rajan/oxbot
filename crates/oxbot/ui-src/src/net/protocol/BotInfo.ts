@@ -33,7 +33,7 @@ last_reply_seq: number,
  */
 browser_state: BrowserState, 
 /**
- * Whether this is the central bot (Herder), which can create
+ * Whether this is the central bot (the Assistant), which can create
  * bots and give them tasks.
  */
 central: boolean, 
@@ -42,7 +42,7 @@ central: boolean,
  */
 created_by: string | null, 
 /**
- * Only its creator (and the Farm) can see and use it.
+ * Only its creator (and the home computer) can see and use it.
  */
 private: boolean, 
 /**

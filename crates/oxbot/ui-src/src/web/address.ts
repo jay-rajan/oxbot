@@ -3,16 +3,16 @@
 
 /** What the phone app (a paired device) gives the page: it carries the
  *  connection to the home computer itself, encrypted and checked. */
-export interface GateBridge {
+export interface DeviceBridge {
   socket(): WebSocket;
-  farm?: string;
+  homeComputer?: string;
   /** The person this phone is paired as. */
   person?: string;
 }
 
 declare global {
   interface Window {
-    oxbotGate?: GateBridge;
+    oxbotDevice?: DeviceBridge;
   }
 }
 
@@ -22,7 +22,7 @@ export interface KeyStorage {
   setItem(key: string, value: string): void;
 }
 
-const KEY_ITEM = "oxbotFarmKey";
+const KEY_ITEM = "oxbotHomeComputerKey";
 const KEY_IN_HASH = /(?:^#|&)k=([0-9a-f]{32,})/;
 
 /**

@@ -2,7 +2,7 @@
 //!
 //! Sections are a person's view, not bot data: filing a bot changes nothing
 //! about it (its name, privacy or who sees it), so it needs no right to
-//! manage the bot, and nobody else (the Farm included) gets someone's
+//! manage the bot, and nobody else (the home computer included) gets someone's
 //! sections. They never reach a model either.
 
 use oxbot_protocol::{SectionInfo, ServerMsg};
@@ -97,13 +97,13 @@ impl Hub {
     }
 
     /// The bot `id` as a person may file it: one in the list that isn't
-    /// Herder. Hidden ones (another person's Herder) answer as unknown.
+    /// the Assistant. Hidden ones (another person's Assistant) answer as unknown.
     fn bot_to_file(&self, id: &str, viewer: &Viewer) -> Result<BotId, HubError> {
         let bot = self.bot(id)?;
         if !bot.is_central() {
             return Ok(bot.id);
         }
-        // Someone else's Herder isn't in their list at all.
+        // Someone else's Assistant isn't in their list at all.
         if !self.opens(&bot, &self.resolve(viewer)) {
             return Err(HubError::UnknownBot(id.to_owned()));
         }
@@ -164,11 +164,11 @@ impl Hub {
     }
 
     /// Files `bot` in one of `viewer`'s sections, or takes it out with
-    /// `None`. Any listed bot but Herder: it's their own view, so it needs
+    /// `None`. Any listed bot but the Assistant: it's their own view, so it needs
     /// no right to manage the bot.
     ///
     /// # Errors
-    /// Fails for someone oxbot can't place, Herder, an unknown bot, a
+    /// Fails for someone oxbot can't place, the Assistant, an unknown bot, a
     /// section that isn't theirs, or the database.
     pub fn move_bot(
         &self,
@@ -195,16 +195,17 @@ mod tests {
     use crate::hub::HubConfig;
     use crate::store::Store;
 
-    /// Herder, Jay's shared Recipes and private Bank (Jay is the owner:
+    /// The Assistant, Jay's shared Recipes and private Bank (Jay is the owner:
     /// only the owner has private bots), and Sam.
     async fn hub(dir: &std::path::Path) -> Arc<Hub> {
-        let herder = Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap();
+        let assistant =
+            Bot::create(dir, BotId::new("assistant").unwrap(), "Assistant", "").unwrap();
         let hub = Hub::new(
-            vec![herder],
+            vec![assistant],
             Store::open_in_memory().unwrap(),
             HubConfig::new(dir),
         );
-        hub.farm_person("Jay").unwrap();
+        hub.owner_person("Jay").unwrap();
         hub.create_bot_with("Recipes", "", Some("Jay"), false)
             .await
             .unwrap();
@@ -245,7 +246,7 @@ mod tests {
     async fn sections_are_each_persons_own() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path()).await;
-        let (jay, sam) = (Viewer::gate("Jay"), Viewer::gate("Sam"));
+        let (jay, sam) = (Viewer::device("Jay"), Viewer::device("Sam"));
         hub.create_section("Kitchen", Some("recipes"), &jay)
             .unwrap();
         hub.create_section("Money", None, &jay).unwrap();
@@ -289,10 +290,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn any_listed_bot_but_herder_can_be_filed_without_managing_it() {
+    async fn any_listed_bot_but_assistant_can_be_filed_without_managing_it() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path()).await;
-        let (jay, sam) = (Viewer::gate("Jay"), Viewer::gate("Sam"));
+        let (jay, sam) = (Viewer::device("Jay"), Viewer::device("Sam"));
         hub.create_section("Mine", None, &sam).unwrap();
         let mine = section_id(&hub, &sam, "Mine");
         // Jay's shared bot: Sam may not change it, but may file it.
@@ -328,16 +329,16 @@ mod tests {
         hub.move_bot("bank", None, &sam).unwrap();
         assert_eq!(view(&hub, &sam).1, []);
 
-        // Herder stays at the top; unknown bots aren't filed.
-        let herder = hub.move_bot("assistant", Some(&mine), &Viewer::farm("Jay"));
-        assert!(matches!(herder, Err(HubError::NotAllowed(ref m)) if m.contains("Assistant")));
-        let sams_herder = hub.herder_for("Sam").unwrap();
+        // The Assistant stays at the top; unknown bots aren't filed.
+        let assistant = hub.move_bot("assistant", Some(&mine), &Viewer::home_computer("Jay"));
+        assert!(matches!(assistant, Err(HubError::NotAllowed(ref m)) if m.contains("Assistant")));
+        let sams_assistant = hub.assistant_for("Sam").unwrap();
         assert!(
-            hub.move_bot(sams_herder.as_str(), Some(&mine), &sam)
+            hub.move_bot(sams_assistant.as_str(), Some(&mine), &sam)
                 .is_err()
         );
         assert!(matches!(
-            hub.move_bot(sams_herder.as_str(), None, &jay),
+            hub.move_bot(sams_assistant.as_str(), None, &jay),
             Err(HubError::UnknownBot(_))
         ));
         assert!(matches!(
@@ -356,7 +357,7 @@ mod tests {
     async fn names_are_checked_and_sections_are_limited() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path()).await;
-        let jay = Viewer::gate("Jay");
+        let jay = Viewer::device("Jay");
         for bad in ["", "   ", "two\nlines", "tab\there", &"x".repeat(41)] {
             assert!(hub.create_section(bad, None, &jay).is_err(), "{bad:?}");
         }
@@ -388,7 +389,7 @@ mod tests {
     async fn someone_oxbot_cant_place_has_no_sections() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path()).await;
-        let nobody = Viewer::gate("");
+        let nobody = Viewer::device("");
         assert!(hub.sections_for(&nobody).is_none());
         let err = hub.create_section("Kitchen", None, &nobody);
         assert!(
@@ -402,7 +403,7 @@ mod tests {
     async fn each_change_goes_to_its_person_and_a_deleted_bot_leaves_every_section() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path()).await;
-        let (jay, sam) = (Viewer::gate("Jay"), Viewer::gate("Sam"));
+        let (jay, sam) = (Viewer::device("Jay"), Viewer::device("Sam"));
         let jays_id = hub.resolve(&jay).id.clone().unwrap().to_string();
         let sams_id = hub.resolve(&sam).id.clone().unwrap().to_string();
         let mut updates = hub.subscribe();
@@ -421,7 +422,7 @@ mod tests {
 
         // Deleting Recipes takes it out of both people's sections, and each
         // of them is told.
-        hub.delete_bot("recipes", &Viewer::farm("Jay"))
+        hub.delete_bot("recipes", &Viewer::home_computer("Jay"))
             .await
             .unwrap();
         let mut told = Vec::new();

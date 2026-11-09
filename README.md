@@ -120,8 +120,8 @@ which the phone pins), and only while the Mac is on a listed network. A device i
 computer: it sees shared bots and its person's own, answers only the approval requests from its
 person's tasks, and gets its person's own Assistant. Away from home the phone shows its own copy
 of its chats (the latest 300 messages per bot, 30 days) and of the last 50 reports it opened.
-Remove a phone in Settings → Devices and it's cut off at once. `OXBOT_GATE_PORT=off` turns the
-door off.
+Remove a phone in Settings → Devices and it's cut off at once. `OXBOT_DEVICE_PORT=off` turns the
+door off (`OXBOT_GATE_PORT`, its old name, still works).
 
 Who is the home computer: only oxbot's own windows. The app opens its window with the home
 computer's secret (a key in the data folder, readable only by your Mac account); `oxbot chat`
@@ -248,8 +248,9 @@ the owner allows it) go with their tasks; their name never does. Chats, saved st
 on the home computer. Nothing else leaves it.
 
 ## Layout
-In the code the home computer is the **Farm**, a device is a **Gate** and the Assistant is
-**Herder**; the crate and type names keep those words.
+The code uses the same words as the app (see [docs/glossary.md](docs/glossary.md)): the home
+computer, a device and the Assistant are `home_computer`, `device` and `assistant` in names,
+types and files.
 
 | Crate | What it is |
 |---|---|
@@ -262,12 +263,12 @@ In the code the home computer is the **Farm**, a device is a **Gate** and the As
 | `crates/oxbot-llm` | Model client for OpenAI-style chat APIs (OpenRouter now, local models later), the key, sign-in (PKCE) |
 | `crates/oxbot-browser` | A hidden Chrome per owner (home, or a person's own) with a kept profile, and its sign-in window |
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the device door (`src/door/`) |
-| `crates/oxbot-gate` | The device side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
+| `crates/oxbot-device` | The device side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
 | `app/src-tauri` | The desktop app and the Android app for devices (Tauri 2) |
 | `mac/` | `oxbot-mac`, the Swift helper inside the app: video frames and on-device dictation |
 
 ## Android app (a device)
-The phone app is only ever a device (a Gate): no server, bots or Chrome are compiled in. Tools (once):
+The phone app is only ever a device: no server, bots or Chrome are compiled in. Tools (once):
 Homebrew `openjdk@17` and `android-commandlinetools`, then the SDK in `~/Library/Android/sdk`
 (platform-tools, `platforms;android-36`, `build-tools;36.0.0`, an NDK) and
 `rustup target add aarch64-linux-android`.

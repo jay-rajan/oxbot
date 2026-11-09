@@ -49,7 +49,7 @@ ol.steps li>div{min-width:0}
 <header>
   <div class="eyebrow">oxbot · ticket #8 (with #6) · plan</div>
   <h1>oxbot on your Pixel</h1>
-  <p class="sub">The Android app is a Gate: a window onto the Farm Mac. It runs no bots and can never be the Farm.</p>
+  <p class="sub">The Android app is a device: a window onto the home computer Mac. It runs no bots and can never be the home computer.</p>
 </header>
 
 <div class="wait"><b>Waiting for your OK.</b> Nothing is installed or built yet. This also moves Android ahead of iPhone in the roadmap (#8 said iPhone first).</div>
@@ -58,19 +58,19 @@ ol.steps li>div{min-width:0}
   <h2>What you'll have at the end</h2>
   <ul>
     <li>An oxbot app on your Pixel, installed over a USB cable. No Play Store and no Google developer account.</li>
-    <li>You open Settings on the Mac, tap <b>Add a Gate</b>, choose who the phone is for (Jay), and scan the QR code with the phone. That's done once.</li>
+    <li>You open Settings on the Mac, tap <b>Add a device</b>, choose who the phone is for (Jay), and scan the QR code with the phone. That's done once.</li>
     <li>From then on, the phone shows your bots on home Wi-Fi: chat, see their status, approve red cards, and see others' private bots as locked.</li>
-    <li>Signing in to a site from the phone: the Farm's sign-in window shows live on the phone, and your taps and typing go to your own Chrome on the Farm.</li>
+    <li>Signing in to a site from the phone: the home computer's sign-in window shows live on the phone, and your taps and typing go to your own Chrome on the home computer.</li>
   </ul>
 </section>
 
 <section>
   <h2>Rules it keeps</h2>
   <div class="rules">
-    <div><b>Phone is never the Farm</b><span>Android builds have no server, no bots, no Chrome. Only the Gate part is compiled in.</span></div>
-    <div><b>Data goes phone ↔ Farm only</b><span>Directly over home Wi-Fi, encrypted. No relay, no cloud, no Google push service, telemetry off.</span></div>
-    <div><b>The Farm keeps its powers</b><span>Even your own phone can't do Farm-only things (delete others' bots, see others' private chats).</span></div>
-    <div><b>Same page as the Mac</b><span>One UI, made to fit a phone. The phone loads it from the Farm, so the two never fall out of step.</span></div>
+    <div><b>Phone is never the home computer</b><span>Android builds have no server, no bots, no Chrome. Only the device part is compiled in.</span></div>
+    <div><b>Data goes phone ↔ home computer only</b><span>Directly over home Wi-Fi, encrypted. No relay, no cloud, no Google push service, telemetry off.</span></div>
+    <div><b>The home computer keeps its powers</b><span>Even your own phone can't do Home-computer-only things (delete others' bots, see others' private chats).</span></div>
+    <div><b>Same page as the Mac</b><span>One UI, made to fit a phone. The phone loads it from the home computer, so the two never fall out of step.</span></div>
   </div>
 </section>
 
@@ -79,14 +79,14 @@ ol.steps li>div{min-width:0}
   <figure>
 <pre class="mermaid">
 flowchart LR
-  you([Jay on the Pixel]) -->|chats, approves, signs in| gate[oxbot Gate app<br/>Android]
-  sam([Sam on a laptop or phone]) --> gate2[another Gate]
-  gate -->|encrypted, paired,<br/>home Wi-Fi only| farm[oxbot Farm<br/>the Mac]
-  gate2 --> farm
-  farm -->|bots run on| claude[Claude Code]
-  farm -->|browser tools| sites[(websites)]
+  you([Jay on the Pixel]) -->|chats, approves, signs in| device[oxbot device app<br/>Android]
+  sam([Sam on a laptop or phone]) --> device2[another device]
+  device -->|encrypted, paired,<br/>home Wi-Fi only| home_computer[oxbot home computer<br/>the Mac]
+  device2 --> home_computer
+  home_computer -->|bots run on| claude[Claude Code]
+  home_computer -->|browser tools| sites[(websites)]
 </pre>
-    <figcaption>The phone only ever talks to the Farm. Claude and websites are reached by the Farm, never by the phone.</figcaption>
+    <figcaption>The phone only ever talks to the home computer. Claude and websites are reached by the home computer, never by the phone.</figcaption>
   </figure>
 </section>
 
@@ -95,35 +95,35 @@ flowchart LR
   <figure>
 <pre class="mermaid">
 flowchart LR
-  subgraph Pixel [Pixel: oxbot app, Gate only]
-    web[Web view<br/>the oxbot page] -->|app messages,<br/>no network| rs[Rust Gate link<br/>crate oxbot-gate]
-    rs --> kt[Android helper, Kotlin<br/>Keystore, QR camera, find Farm]
+  subgraph Pixel [Pixel: oxbot app, device only]
+    web[Web view<br/>the oxbot page] -->|app messages,<br/>no network| rs[Rust device link<br/>crate oxbot-device]
+    rs --> kt[Android helper, Kotlin<br/>Keystore, QR camera, find home computer]
   end
-  subgraph Mac [Farm Mac]
-    lan[Gate door<br/>TLS on home Wi-Fi, port 7879] --> hub[oxbot hub<br/>bots, people, rules]
+  subgraph Mac [Home computer Mac]
+    lan[Device door<br/>TLS on home Wi-Fi, port 7879] --> hub[oxbot hub<br/>bots, people, rules]
     local[Local door<br/>127.0.0.1:7878, unchanged] --> hub
     hub --> db[(SQLite<br/>+ people and devices)]
     hub --> chrome[Chrome per person]
   end
   rs -->|pinned certificate<br/>+ device key| lan
 </pre>
-    <figcaption>The phone opens no ports. The page asks the app's Rust part to fetch and send; only that part holds the key and talks to the Farm.</figcaption>
+    <figcaption>The phone opens no ports. The page asks the app's Rust part to fetch and send; only that part holds the key and talks to the home computer.</figcaption>
   </figure>
 </section>
 
 <section>
-  <h2>C4: Components of the Gate link</h2>
+  <h2>C4: Components of the device link</h2>
   <figure>
 <pre class="mermaid">
 flowchart TB
   pair[Pairing<br/>QR → one-time code → device key] --> store[Key storage<br/>Android Keystore]
-  find[Find the Farm<br/>last address, then Wi-Fi discovery] --> conn
-  store --> conn[Connection<br/>TLS, pinned to the Farm's certificate, auto-reconnect]
-  conn --> pages[Page loader<br/>serves the Farm's page to the web view]
+  find[Find the home computer<br/>last address, then Wi-Fi discovery] --> conn
+  store --> conn[Connection<br/>TLS, pinned to the home computer's certificate, auto-reconnect]
+  conn --> pages[Page loader<br/>serves the home computer's page to the web view]
   conn --> msgs[Messages<br/>the same protocol as the Mac page]
   conn --> screen[Sign-in view<br/>Chrome screen frames in, taps and keys out]
 </pre>
-    <figcaption>The same crate will later give the Mac app its Gate mode (a laptop as a Gate).</figcaption>
+    <figcaption>The same crate will later give the Mac app its device mode (a laptop as a device).</figcaption>
   </figure>
 </section>
 
@@ -131,14 +131,14 @@ flowchart TB
   <h2>Design choices and why</h2>
   <div class="tw"><table>
     <tr><th>Choice</th><th>Why</th></tr>
-    <tr><td>One oxbot app (Tauri 2), with an Android build that only has the Gate</td><td>One codebase and one page. The Mac-only parts (server, tray, Chrome) are left out of the Android build, so a phone can't be the Farm.</td></tr>
-    <tr><td>The page reaches the Farm through the app's Rust part, not straight from the web view</td><td>A web view can't pin a home-made certificate, and it shouldn't hold the device key. The phone opens no ports, so other apps on it can't reach the Farm.</td></tr>
-    <tr><td>The Farm picks the person when it makes the QR code</td><td>A phone can't claim to be someone else. The code works once and expires after 10 minutes, with only a few tries allowed.</td></tr>
-    <tr><td>Farm certificate made on the Mac, its fingerprint inside the QR</td><td>Encryption without any outside certificate authority. A fake "Farm" on the Wi-Fi is refused.</td></tr>
-    <tr><td>Device key in the Android Keystore; the Farm stores only a hash of it</td><td>A copied database can't be used to pose as your phone. Settings → Gates lists each phone with <b>Remove</b>.</td></tr>
-    <tr><td>Finds the Farm by its last address, then by Wi-Fi discovery (mDNS) if the Mac's address changed</td><td>Routers move addresses around; you shouldn't have to pair again.</td></tr>
+    <tr><td>One oxbot app (Tauri 2), with an Android build that only has the device</td><td>One codebase and one page. The Mac-only parts (server, tray, Chrome) are left out of the Android build, so a phone can't be the home computer.</td></tr>
+    <tr><td>The page reaches the home computer through the app's Rust part, not straight from the web view</td><td>A web view can't pin a home-made certificate, and it shouldn't hold the device key. The phone opens no ports, so other apps on it can't reach the home computer.</td></tr>
+    <tr><td>The home computer picks the person when it makes the QR code</td><td>A phone can't claim to be someone else. The code works once and expires after 10 minutes, with only a few tries allowed.</td></tr>
+    <tr><td>Home computer certificate made on the Mac, its fingerprint inside the QR</td><td>Encryption without any outside certificate authority. A fake home computer on the Wi-Fi is refused.</td></tr>
+    <tr><td>Device key in the Android Keystore; the home computer stores only a hash of it</td><td>A copied database can't be used to pose as your phone. Settings → Devices lists each phone with <b>Remove</b>.</td></tr>
+    <tr><td>Finds the home computer by its last address, then by Wi-Fi discovery (mDNS) if the Mac's address changed</td><td>Routers move addresses around; you shouldn't have to pair again.</td></tr>
     <tr><td>Phone layout: bot list → chat with a back button; long-press for the bot menu; Settings full screen</td><td>The Mac's sidebar doesn't fit a phone. It's the same page, so the Mac layout is unchanged.</td></tr>
-    <tr><td>People get real ids (taken from #1)</td><td>A Gate is tied to a person, not a display name. Needed for private bots to stay private.</td></tr>
+    <tr><td>People get real ids (taken from #1)</td><td>A device is tied to a person, not a display name. Needed for private bots to stay private.</td></tr>
   </table></div>
 </section>
 
@@ -148,20 +148,20 @@ flowchart TB
     <li><div><h3>Set up Android tools on your Mac</h3>
       <p>Install Java 17, the Android SDK, the NDK and <code>adb</code> through Homebrew (about 5 GB, no Android Studio needed), plus Rust's Android target. You turn on USB debugging on the Pixel.</p>
       <p class="test">Check: an empty oxbot screen opens on the Pixel from <code>cargo tauri android dev</code>.</p></div></li>
-    <li><div><h3>People and devices on the Farm</h3>
-      <p>Real person ids, a devices table, and Settings → Gates: Add a Gate (choose the person, show the QR code), a list of paired phones, Remove.</p>
-      <p class="test">Tests: the code is single-use and expires; a removed phone is refused; only the Mac's own login is the Farm.</p></div></li>
-    <li><div><h3>The Gate door and the Gate link</h3>
-      <p>The Farm's encrypted door on home Wi-Fi (its own certificate, pairing, device keys, discovery). The <code>oxbot-gate</code> crate on the other side.</p>
-      <p class="test">Tests: pair, chat as a person, wrong certificate refused, private bots locked for others, Farm-only actions refused. /pr_test gets a stand-in Gate.</p></div></li>
+    <li><div><h3>People and devices on the home computer</h3>
+      <p>Real person ids, a devices table, and Settings → Devices: Add a device (choose the person, show the QR code), a list of paired phones, Remove.</p>
+      <p class="test">Tests: the code is single-use and expires; a removed phone is refused; only the Mac's own login is the home computer.</p></div></li>
+    <li><div><h3>The device door and the device link</h3>
+      <p>The home computer's encrypted door on home Wi-Fi (its own certificate, pairing, device keys, discovery). The <code>oxbot-device</code> crate on the other side.</p>
+      <p class="test">Tests: pair, chat as a person, wrong certificate refused, private bots locked for others, Home-computer-only actions refused. /pr_test gets a stand-in device.</p></div></li>
     <li><div><h3>The Android app</h3>
-      <p>The Gate-only Android build, QR scanning, Keystore storage, and loading the page from the Farm.</p>
+      <p>The Device-only Android build, QR scanning, Keystore storage, and loading the page from the home computer.</p>
       <p class="test">Check on your Pixel: scan, pair, chat with a bot, approve a red card. I can take screenshots of the phone over the cable to check each screen.</p></div></li>
     <li><div><h3>Phone layout</h3>
       <p>The page fits a phone: list and chat screens, long-press menu, large tap targets, the phone's safe areas, the keyboard not hiding the message box.</p>
       <p class="test">Tests: /pr_test runs the main tests again at phone size (Pixel's 412 px width).</p></div></li>
     <li><div><h3>Signing in from the phone</h3>
-      <p>The Farm streams the sign-in window from your Chrome to the phone; your taps and typing go back. The bot is paused the whole time and never sees it.</p>
+      <p>The home computer streams the sign-in window from your Chrome to the phone; your taps and typing go back. The bot is paused the whole time and never sees it.</p>
       <p class="test">Check: sign in to a test site from the Pixel, then a private bot uses that sign-in.</p></div></li>
   </ol>
 </section>
@@ -171,7 +171,7 @@ flowchart TB
   <ul>
     <li><b>OK</b> on this plan and the ~5 GB tool install.</li>
     <li>On the Pixel: Settings → About phone → tap <b>Build number</b> 7 times, then Settings → System → Developer options → <b>USB debugging</b> on. Plug it into the Mac and tap <b>Allow</b>.</li>
-    <li>When macOS asks whether oxbot may accept incoming connections, click <b>Allow</b> (the Gate door).</li>
+    <li>When macOS asks whether oxbot may accept incoming connections, click <b>Allow</b> (the device door).</li>
   </ul>
 </section>
 

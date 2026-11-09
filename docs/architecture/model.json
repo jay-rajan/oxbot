@@ -15,7 +15,7 @@
     {
       "id": "terminal",
       "label": "oxbot chat + page",
-      "sub": "terminal \u00b7 127.0.0.1:7878 \u00b7 Farm key",
+      "sub": "terminal \u00b7 127.0.0.1:7878 \u00b7 home computer key",
       "kind": "app",
       "status": "built",
       "m": 2,
@@ -28,17 +28,17 @@
       "sub": "device \u00b7 Android \u00b7 home Wi-Fi",
       "kind": "app",
       "status": "built",
-      "m": "Farm 2",
+      "m": "Home computer 2",
       "x": 740,
       "y": 18
     },
     {
-      "id": "oxbot-gate",
-      "label": "oxbot-gate",
+      "id": "oxbot-device",
+      "label": "oxbot-device",
       "sub": "pairing \u00b7 pinned TLS \u00b7 chat copy",
       "kind": "crate",
       "status": "built",
-      "m": "Farm 2",
+      "m": "Home computer 2",
       "x": 490,
       "y": 18
     },
@@ -48,7 +48,7 @@
       "sub": "in oxbot \u00b7 TLS :7879 \u00b7 pairing",
       "kind": "module",
       "status": "built",
-      "m": "Farm 2",
+      "m": "Home computer 2",
       "x": 490,
       "y": 135
     },
@@ -212,13 +212,13 @@
     },
     {
       "from": "phone",
-      "to": "oxbot-gate",
+      "to": "oxbot-device",
       "label": "uses",
       "status": "built"
     },
     {
       "from": "oxbot",
-      "to": "oxbot-gate",
+      "to": "oxbot-device",
       "label": "link format",
       "status": "built"
     },
@@ -531,43 +531,43 @@
       ]
     },
     {
-      "m": "Herder",
+      "m": "The Assistant",
       "date": "2026-10-29",
-      "title": "Herder, makers and site icons",
+      "title": "The Assistant, makers and site icons",
       "items": [
-        "The central bot is now Herder (\"leads your bots\"), with its own icon. An old Assistant with default instructions is renamed on start; the id stays assistant",
-        "Bots record created_by (bot.toml, BotInfo): who pressed + or who asked Herder. The sidebar shows \"by Name\" in their color",
+        "The central bot is now the Assistant (\"leads your bots\"), with its own icon. An old Assistant with default instructions is renamed on start; the id stays assistant",
+        "Bots record created_by (bot.toml, BotInfo): who pressed + or who asked the Assistant. The sidebar shows \"by Name\" in their color",
         "Signed-in sites show the site's own icon, read read-only from Chrome's Favicons file (nothing downloaded), else the first letter",
         "Settings gains a Sign-ins tab: type a site to sign in now, plus Open and a two-step Sign out per site. Migration 5 fills the list from past sign-ins"
       ]
     },
     {
-      "m": "Farm 1",
+      "m": "Home computer 1",
       "date": "2026-10-30",
-      "title": "Private bots and a Chrome per owner, on the Farm",
+      "title": "Private bots and a Chrome per owner, on the home computer",
       "items": [
-        "bot.toml private; Viewer {name, farm}: the Farm sees and manages every bot, others see shared bots and their own private ones. Herder acts for whoever sent its latest message, never with the Farm view",
+        "bot.toml private; Viewer {name, home_computer}: the home computer sees and manages every bot, others see shared bots and their own private ones. The Assistant acts for whoever sent its latest message, never with the home computer view",
         "Hub.browsers: the home Chrome for shared bots, each person's own Chrome (browser/people/<name>-<hash>/profile) for their private bots; each with its own lease, sign-in window and watcher",
         "Store migration 6: sites keyed (owner, site). Store::delete_bot clears a deleted bot's history, session and usage; its folder moves to trash/",
-        "Hub: bots_for, bot_for, history_for, set_private, rename_bot, delete_bot (maker or Farm; never Herder)",
-        "Protocol: SetPrivate, RenameBot, DeleteBot, CreateBot {private}; sign-in messages carry mine; ServerMsg::Sites names its owner; AppSettings.farm",
-        "Server: one Client {viewer, visible, subs} per connection; forward() filters every update. Every local connection is the Farm",
+        "Hub: bots_for, bot_for, history_for, set_private, rename_bot, delete_bot (maker or home computer; never the Assistant)",
+        "Protocol: SetPrivate, RenameBot, DeleteBot, CreateBot {private}; sign-in messages carry mine; ServerMsg::Sites names its owner; AppSettings.home_computer",
+        "Server: one Client {viewer, visible, subs} per connection; forward() filters every update. Every local connection is the home computer",
         "UI: lock on private bots, \u00b7\u00b7\u00b7 bot settings, Private box on New bot, Sign-ins tab split into Home and Yours"
       ]
     },
     {
-      "m": "Farm 2",
+      "m": "Home computer 2",
       "date": "2026-10-31",
-      "title": "Gates: phones on home Wi-Fi",
+      "title": "Devices: phones on home Wi-Fi",
       "items": [
-        "Gate door (oxbot::door): TLS on port 7879 with the Farm's own self-signed certificate (rcgen, ring); phones pin its SHA-256 fingerprint from the pairing QR code",
-        "Pairing: one-time codes (8 characters, 10 minutes, 5 tries) shown in Settings \u2192 Gates for a chosen person; POST /pair returns a key; SQLite keeps only its hash (gates table)",
-        "Every other door request needs Authorization: Bearer <key> and acts as Viewer::gate(person), never the Farm",
-        "The door opens only on a network listed in Settings \u2192 Gates (router MAC address, gate/door.json) and while a phone is paired or a code is showing; checked every 30 s. Private-address peers only, 64 connections max, 5 s handshake, 60 s idle. mDNS _oxbot._tcp while open. OXBOT_GATE_PORT=off turns it off",
-        "Farm key (oxbot::secret): a random key in <data>/farm-key (0600). A local connection is the Farm only with it (/ws?k=); the app opens its window with #k=, oxbot chat and bots read the file, oxbot serve prints a link. No key, no connection (test mode ?as= aside)",
-        "oxbot-gate crate: the pairing link oxbot://pair?h=&f=&c=&n=, a pinned-TLS client (rustls ring + hyper http1), pair, fetch page, connect WebSocket; ChatCopy keeps the phone's own SQLite copy (latest 300 messages per bot, 30 days, only bots that person may open) for reading away from home",
-        "Android app (app/src-tauri, Tauri 2): Gate only, the server isn't built for Android. Loads the Farm's page over the pinned link; window.oxbotGate.socket() stands in for the WebSocket over Tauri channels; 15 s heartbeat; QR read on the phone with rqrr (no Google services); pairing saved in farm.json, backups off",
-        "Per person: approval cards go only to their asker and the Farm; each person has a private Herder (assistant--<slug>-<hash>) with the Farm Herder's instructions and model, shown to them as assistant. A message line starting with [ gets a backslash, so nobody can fake a [Name] sender"
+        "Device door (oxbot::door): TLS on port 7879 with the home computer's own self-signed certificate (rcgen, ring); phones pin its SHA-256 fingerprint from the pairing QR code",
+        "Pairing: one-time codes (8 characters, 10 minutes, 5 tries) shown in Settings \u2192 Devices for a chosen person; POST /pair returns a key; SQLite keeps only its hash (devices table)",
+        "Every other door request needs Authorization: Bearer <key> and acts as Viewer::device(person), never the home computer",
+        "The door opens only on a network listed in Settings \u2192 Devices (router MAC address, door/door.json) and while a phone is paired or a code is showing; checked every 30 s. Private-address peers only, 64 connections max, 5 s handshake, 60 s idle. mDNS _oxbot._tcp while open. OXBOT_DEVICE_PORT=off turns it off",
+        "Home computer key (oxbot::secret): a random key in <data>/home-computer-key (0600). A local connection is the home computer only with it (/ws?k=); the app opens its window with #k=, oxbot chat and bots read the file, oxbot serve prints a link. No key, no connection (test mode ?as= aside)",
+        "oxbot-device crate: the pairing link oxbot://pair?h=&f=&c=&n=, a pinned-TLS client (rustls ring + hyper http1), pair, fetch page, connect WebSocket; ChatCopy keeps the phone's own SQLite copy (latest 300 messages per bot, 30 days, only bots that person may open) for reading away from home",
+        "Android app (app/src-tauri, Tauri 2): Device only, the server isn't built for Android. Loads the home computer's page over the pinned link; window.oxbotDevice.socket() stands in for the WebSocket over Tauri channels; 15 s heartbeat; QR read on the phone with rqrr (no Google services); pairing saved in home-computer.json, backups off",
+        "Per person: approval cards go only to their asker and the home computer; each person has a private the Assistant (assistant--<slug>-<hash>) with the main Assistant's instructions and model, shown to them as assistant. A message line starting with [ gets a backslash, so nobody can fake a [Name] sender"
       ]
     },
     {
@@ -575,11 +575,11 @@
       "date": "2026-11-01",
       "title": "Foundations: hub and store split, person ids, review fixes (#1)",
       "items": [
-        "hub.rs split into hub/{mod, access, people, browsers, sign_ins, team, approvals, turns, claude, taint, seqs}.rs; store split into store/{mod, migrations, people, sites, gates, events, sessions, usage}.rs",
-        "People get ids (PersonId, p_ + 16 hex): people table (id, name, color, folder, herder, farm), gates.person_id, bot.toml owner, BrowserOwner {Home, Person}; Viewer carries a person id; resolve only looks up, person_named creates",
-        "Migrations 8 (reply index), 9 (person ids, a Rust step with frozen v9 rules; VACUUM INTO backup before a rebuild), 10 (sessions.tainted_by), 11 (one Farm, unique folder and Herder); a newer database is refused",
+        "hub.rs split into hub/{mod, access, people, browsers, sign_ins, team, approvals, turns, claude, taint, seqs}.rs; store split into store/{mod, migrations, people, sites, devices, events, sessions, usage}.rs",
+        "People get ids (PersonId, p_ + 16 hex): people table (id, name, color, folder, assistant, owner), devices.person_id, bot.toml owner, BrowserOwner {Home, Person}; Viewer carries a person id; resolve only looks up, person_named creates",
+        "Migrations 8 (reply index), 9 (person ids, a Rust step with frozen v9 rules; VACUUM INTO backup before a rebuild), 10 (sessions.tainted_by), 11 (one home computer, unique folder and the Assistant); a newer database is refused",
         "Protocol: OpenBot, Older and History pages (200 default, 500 max); Subscribe catch-up bounded to the latest page; BotInfo can_manage and locked computed on the server; server-only person-id fields on Sites, Notice and Approval; ApprovalKind::GiveTask",
-        "Herder may task its asker's own private bots; a session that has read web content, other bots' replies or other people's bot descriptions stays tainted and asks first with a GiveTask card (asker or Farm answers). Replies and purposes arrive as escaped data blocks; Herders can't task or read each other",
+        "The Assistant may task its asker's own private bots; a session that has read web content, other bots' replies or other people's bot descriptions stays tainted and asks first with a GiveTask card (asker or home computer answers). Replies and purposes arrive as escaped data blocks; Assistants can't task or read each other",
         "Sign-ins are kept only if the window left a new cookie"
       ]
     },
@@ -611,8 +611,8 @@
       "title": "Always allow on change cards (#13)",
       "items": [
         "Change cards on a named element offer Always allow: a rule for this bot, exact host, action and the button's label, written from the server's own copy of the card",
-        "Store: migration 12 (allow_rules); hub/rules.rs; only the bot's owner or the Farm can set one",
-        "Never offered for uploads, create_bot, give_task, Herder, Enter, or final buttons (pay, book, delete)",
+        "Store: migration 12 (allow_rules); hub/rules.rs; only the bot's owner or the home computer can set one",
+        "Never offered for uploads, create_bot, give_task, the Assistant, Enter, or final buttons (pay, book, delete)",
         "A rule applies only when Chrome itself reports a real http(s) tab on the rule's host",
         "Rules are listed in the bot's \u00b7\u00b7\u00b7 settings with Remove; a quiet chat line shows when one is used",
         "Gate: 280 tests, e2e 17/17 incl. always-allow"
@@ -623,10 +623,10 @@
       "date": "2026-11-02",
       "title": "Sidebar: sections, search, group by, right-click, bottom row (#2)",
       "items": [
-        "Each person's own sidebar sections, kept by the server (migration 13: sections, bot_sections, every row keyed by person), so the Mac and the phone match; nobody else, the Farm included, gets them, and they never reach Claude",
-        "store/sections.rs and hub/sections.rs: names one line, at most 40 characters, unique ignoring case; 50 per person; any listed bot but Herder can be filed (it changes only your view); deleting a bot clears everyone's placements",
+        "Each person's own sidebar sections, kept by the server (migration 13: sections, bot_sections, every row keyed by person), so the Mac and the phone match; nobody else, the home computer included, gets them, and they never reach Claude",
+        "store/sections.rs and hub/sections.rs: names one line, at most 40 characters, unique ignoring case; 50 per person; any listed bot but the Assistant can be filed (it changes only your view); deleting a bot clears everyone's placements",
         "Protocol: CreateSection, RenameSection, DeleteSection, MoveBot; ServerMsg::Sections routed by a server-only owner id. The phone's offline copy keeps the latest Sections",
-        "Page: search (case and accent blind), group by Sections or People (per device), collapsible section headers, drag onto a section, a right-click (long-press) menu with the same rules as the \u00b7\u00b7\u00b7 dialog, and a bottom row of Settings, Add a Gate (Farm only) and a Signed in link; the sidebar's Signed in list is gone",
+        "Page: search (case and accent blind), group by Sections or People (per device), collapsible section headers, drag onto a section, a right-click (long-press) menu with the same rules as the \u00b7\u00b7\u00b7 dialog, and a bottom row of Settings, Add a device (home computer only) and a Signed in link; the sidebar's Signed in list is gone",
         "e2e: a right_click step kind"
       ]
     },
@@ -642,7 +642,7 @@
         "Protocol: EventKind::Report, open/list/delete report, ServerMsg::Report and ::Reports; access by the bot's rules at open time",
         "Page: report cards, a sandboxed srcdoc viewer, Reports in \u00b7\u00b7\u00b7 for anyone who may open the bot. Apps: web links open in the system browser (Mac: open; Android: a view intent)",
         "Phone copy: report cards count as messages; the last 50 opened reports kept for 30 days",
-        "Herder hears the titles of reports a bot saved during a task"
+        "The Assistant hears the titles of reports a bot saved during a task"
       ]
     },
     {
@@ -652,7 +652,7 @@
       "items": [
         "hub/alerts.rs: Claude usage passing 50% and then 80% of the 5-hour or weekly window alerts once per level per window (a jump past both alerts once, at 80); a later reset time starts a new window, jitter of 30 minutes is the same window; model-specific windows don't alert",
         "Store: migration 15 (limit_alerts, prefs, usage.model); check-and-record in one transaction; set_limits now updates each reported window instead of wiping the other",
-        "Alerts off still record levels silently, so turning them back on brings no late alert; only the Farm switches them",
+        "Alerts off still record levels silently, so turning them back on brings no late alert; only the home computer switches them",
         "Protocol: ServerMsg::UsageAlert (to everyone; re-sent on connect while live), AppSettings.usage_alerts and notify_when_hidden, ClientMsg SetUsageAlerts and SetNotifyWhenHidden",
         "Server notify.rs: one task per server posts alerts as Mac notifications: the app via tauri-plugin-notification's Rust API (no page permission), oxbot serve via osascript with the text as arguments, tests to the log. In the app, a bot waiting for an OK or a sign-in while the window is hidden posts its name only (\"A bot\" for someone else's private bot)",
         "Page: an alert banner under the header, Settings \u2192 General \u2192 Notifications, usage bars amber at 50% and red at 80%"
@@ -663,11 +663,11 @@
       "date": "2026-11-02",
       "title": "Messages with files and voice (#3)",
       "items": [
-        "Attach by button, drag and drop or paste; chips with progress, plain refusals, Send with files only. POST /upload streams to work/inbox/ with the /ws auth and the bot's visibility; not on the Gate door",
+        "Attach by button, drag and drop or paste; chips with progress, plain refusals, Send with files only. POST /upload streams to work/inbox/ with the /ws auth and the bot's visibility; not on the device door",
         "attach/: type from content (a renamed program is refused), 25 MB per file, 200 MB per video, 10 per message; Word, Excel and PowerPoint to text in Rust (zip, quick-xml, calamine), old Word, RTF and ODT with textutil, HEIC and big pictures with sips, zip-bomb guard and time limits",
         "Claude gets the files by path in oxbot's own note after the person's escaped words; no system prompt change, so sessions keep their memory. Reading a file taints the session as before",
         "Video: the Swift Mac helper takes evenly spaced still frames (at most 8), and the chat says Claude can't watch video",
-        "Voice: the same helper dictates with requiresOnDeviceRecognition, the Farm only and only where on-device recognition exists; text comes back over the WebSocket to the asking connection, in the browser and the app alike. Info.plist usage strings in the app and the helper",
+        "Voice: the same helper dictates with requiresOnDeviceRecognition, the home computer only and only where on-device recognition exists; text comes back over the WebSocket to the asking connection, in the browser and the app alike. Info.plist usage strings in the app and the helper",
         "Protocol: Attachment on UserMessage and Send (serde defaults, no migration), DropUpload, OpenFile, Dictate, ServerMsg::Dictation, AppSettings.dictation"
       ]
     },
@@ -678,9 +678,9 @@
       "items": [
         "New crate oxbot-engine: Engine and Session traits, one EngineEvent stream, replies that fail closed (a dropped permission reply is a no); text::data_block moved here",
         "Today's Claude path became ClaudeEngine (engine/claude.rs), an actor around the unchanged ClaudeProcess: same arguments, environment, resume and cards",
-        "Each bot names its engine in bot.toml (missing = claude): the main Herder stays on Claude, every other person's Herder runs on OpenRouter, new bots on OpenRouter",
-        "Owner-only rule in the hub (hub/engines.rs): may_task at every entry, and again once a waiting message gets its turn. Claude bots take tasks only from chains the Farm owner started: other people, their Gates, their Herders' give_task and chains someone else started are refused; others still read what the owner shares",
-        "ChainOrigin (who started a chain, through which Herders, taint carried) kept per turn; migration 16 (turn_origins, sessions.engine)",
+        "Each bot names its engine in bot.toml (missing = claude): the main Assistant stays on Claude, every other person's Assistant runs on OpenRouter, new bots on OpenRouter",
+        "Owner-only rule in the hub (hub/engines.rs): may_task at every entry, and again once a waiting message gets its turn. Claude bots take tasks only from chains the home computer owner started: other people, their devices, their Assistants' give_task and chains someone else started are refused; others still read what the owner shares",
+        "ChainOrigin (who started a chain, through which Assistants, taint carried) kept per turn; migration 16 (turn_origins, sessions.engine)",
         "Page: engine badge, the box says \"Only Jay can give this bot tasks\" to others, switching a shared bot to Claude says it becomes owner-only first, Settings \u2192 Engines with the notice; a one-time list of shared Claude bots others used"
       ]
     },
@@ -740,7 +740,7 @@
         "id": "context",
         "title": "Level 1 \u00b7 System context",
         "intro": "oxbot from the outside: who uses it and what it talks to.",
-        "caption": "System context. People chat with oxbot on the home computer (the Farm) or from their phone (a device, a Gate in the code); the Assistant (Herder) runs the team. Each bot is shared or private to whoever made it, and anyone in the home may give tasks to a bot they may open. Every bot answers with OpenRouter's models on the home's key, free first, paid only if the owner allows, with daily limits per bot and person. Codex CLI runs every bot's agent loop (codex app-server, one per bot) and reaches OpenRouter only through oxbot's relay on 127.0.0.1. Model calls go only to OpenRouter or, later, a local model on this computer; Codex's analytics, plugins and update checks are off, and no other AI company gets anything. The OpenRouter key is kept only in the macOS Keychain. oxbot drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The home computer sees everything; a phone pairs once on home Wi-Fi and sees only what its person may. npm only when running from source.",
+        "caption": "System context. People chat with oxbot on the home computer or from their phone (a device); the Assistant runs the team. Each bot is shared or private to whoever made it, and anyone in the home may give tasks to a bot they may open. Every bot answers with OpenRouter's models on the home's key, free first, paid only if the owner allows, with daily limits per bot and person. Codex CLI runs every bot's agent loop (codex app-server, one per bot) and reaches OpenRouter only through oxbot's relay on 127.0.0.1. Model calls go only to OpenRouter or, later, a local model on this computer; Codex's analytics, plugins and update checks are off, and no other AI company gets anything. The OpenRouter key is kept only in the macOS Keychain. oxbot drives Google Chrome: a home Chrome for shared bots and one per person for their private bots, each signed in by hand, once. The home computer sees everything; a phone pairs once on home Wi-Fi and sees only what its person may. npm only when running from source.",
         "aria": "C4 level 1 system context: Jay, the owner, and others in the home use oxbot on the home computer or from a paired phone on home Wi-Fi, where the Assistant runs the team of bots. oxbot sends every bot's prompts to OpenRouter over HTTPS with the home's key, through its own relay; Jay signs in with OpenRouter once and oxbot keeps the key only in the macOS Keychain. oxbot drives Google Chrome over CDP: a home Chrome for shared bots and one per person for private bots; Chrome loads websites. People sign in to sites themselves in a visible Chrome window, once per Chrome. oxbot uses macOS on the same computer for notifications, video frames, on-device speech recognition and the Keychain. npm is used only when running from source. A local model is planned.",
         "size": [
           960,
@@ -777,7 +777,7 @@
             "h": 112,
             "name": "Jay",
             "tech": "Person",
-            "desc": "The owner: runs oxbot on the home computer (the Farm), connects OpenRouter, sees every bot."
+            "desc": "The owner: runs oxbot on the home computer, connects OpenRouter, sees every bot."
           },
           {
             "id": "oxbot",
@@ -789,7 +789,7 @@
             "w": 270,
             "name": "oxbot",
             "tech": "Software system",
-            "desc": "Always-on bots on the home computer, led by the Assistant (Herder). Codex runs each bot's loop; model calls go only to OpenRouter, through oxbot's relay."
+            "desc": "Always-on bots on the home computer, led by the Assistant. Codex runs each bot's loop; model calls go only to OpenRouter, through oxbot's relay."
           },
           {
             "id": "npm",
@@ -999,8 +999,8 @@
         "id": "containers",
         "title": "Level 2 \u00b7 Containers",
         "intro": "The processes and data on the home computer, plus the phone app. Every arrow inside the box stays on 127.0.0.1, except the device door, which phones reach over home Wi-Fi.",
-        "caption": "Containers. Every bot runs on Codex, on OpenRouter's models with the home's key: the server starts one codex app-server per bot with its own CODEX_HOME in the bot's folder and a config it writes at every start (analytics, plugins, web search, update checks and the shell off). Codex's only model provider is the relay on 127.0.0.1, which checks the process's token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, sends to OpenRouter's Responses API, meters each request and keeps what was sent for 14 days; any other address goes to a refusing proxy. oxbot's tools reach Codex as dynamic tools through oxbot-loop's tool service and gate (oxbot's own loop retired as an engine). The server starts chrome-devtools-mcp for each browsing bot, attached to the bot's Chrome, and keeps its own CDP connection to each Chrome (the guard). Sign in with OpenRouter comes back to the server on 127.0.0.1; the key is kept only in the macOS Keychain and in memory. Files come in over POST /upload; the Mac helper makes still frames and dictates on-device. A local connection is the Farm only with the Farm key; a phone comes in through the device door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Model calls go only to OpenRouter or (planned) a local model.",
-        "aria": "C4 level 2 containers. On the home computer: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the Farm only with the Farm key. The Android app on a phone talks to the server's device door on port 7879 over home Wi-Fi. The server stores history, sessions, people, sites, rules, sections, reports, alerts, stored results, model calls, Codex threads and what the relay sent in SQLite, and manages bot folders. For Codex bots it spawns one codex app-server per bot over JSON-RPC on stdio; Codex sends model requests to the model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. Page questions go to OpenRouter's chat API over HTTPS from the server, on the same routing, limits and meter. The server starts chrome-devtools-mcp for each browsing bot; the OpenRouter key lives only in the macOS Keychain. It starts, shows and guards one Chrome per owner over CDP, and runs the Mac helper for video frames and dictation. npm is used only when running from source. Planned: local models.",
+        "caption": "Containers. Every bot runs on Codex, on OpenRouter's models with the home's key: the server starts one codex app-server per bot with its own CODEX_HOME in the bot's folder and a config it writes at every start (analytics, plugins, web search, update checks and the shell off). Codex's only model provider is the relay on 127.0.0.1, which checks the process's token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, sends to OpenRouter's Responses API, meters each request and keeps what was sent for 14 days; any other address goes to a refusing proxy. oxbot's tools reach Codex as dynamic tools through oxbot-loop's tool service and gate (oxbot's own loop retired as an engine). The server starts chrome-devtools-mcp for each browsing bot, attached to the bot's Chrome, and keeps its own CDP connection to each Chrome (the guard). Sign in with OpenRouter comes back to the server on 127.0.0.1; the key is kept only in the macOS Keychain and in memory. Files come in over POST /upload; the Mac helper makes still frames and dictates on-device. A local connection is the home computer only with the home computer key; a phone comes in through the device door (TLS on port 7879, pinned certificate, paired key) and sees only what its person may. Model calls go only to OpenRouter or (planned) a local model.",
+        "aria": "C4 level 2 containers. On the home computer: chat page, desktop app and terminal client talk to the oxbot server over a WebSocket with JSON on 127.0.0.1, and count as the home computer only with the home computer key. The Android app on a phone talks to the server's device door on port 7879 over home Wi-Fi. The server stores history, sessions, people, sites, rules, sections, reports, alerts, stored results, model calls, Codex threads and what the relay sent in SQLite, and manages bot folders. For Codex bots it spawns one codex app-server per bot over JSON-RPC on stdio; Codex sends model requests to the model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. Page questions go to OpenRouter's chat API over HTTPS from the server, on the same routing, limits and meter. The server starts chrome-devtools-mcp for each browsing bot; the OpenRouter key lives only in the macOS Keychain. It starts, shows and guards one Chrome per owner over CDP, and runs the Mac helper for video frames and dictation. npm is used only when running from source. Planned: local models.",
         "size": [
           1010,
           1236
@@ -1024,7 +1024,7 @@
             "y": 160,
             "w": 974,
             "h": 900,
-            "label": "The home computer (Farm)"
+            "label": "The home computer"
           }
         ],
         "nodes": [
@@ -1047,7 +1047,7 @@
             "h": 140,
             "name": "Android app",
             "tech": "Rust, Tauri 2, on an Android phone",
-            "desc": "A device (a Gate): runs no bots. Pairs by QR, pins the home computer's cert, shows its page as its person. Keeps a chat copy offline."
+            "desc": "A device (a device): runs no bots. Pairs by QR, pins the home computer's cert, shows its page as its person. Keeps a chat copy offline."
           },
           {
             "id": "page",
@@ -1067,7 +1067,7 @@
             "h": 150,
             "name": "Desktop app",
             "tech": "Rust, Tauri 2",
-            "desc": "Window, menu bar, Launch at login. Runs the server inside with the Farm key; posts Mac notifications (plugin). Ships Node, chrome-devtools-mcp and the Mac helper."
+            "desc": "Window, menu bar, Launch at login. Runs the server inside with the home computer key; posts Mac notifications (plugin). Ships Node, chrome-devtools-mcp and the Mac helper."
           },
           {
             "id": "term",
@@ -1077,7 +1077,7 @@
             "h": 150,
             "name": "Terminal client",
             "tech": "Rust",
-            "desc": "oxbot chat: chat from the terminal over the same WebSocket. Reads the Farm key file."
+            "desc": "oxbot chat: chat from the terminal over the same WebSocket. Reads the home computer key file."
           },
           {
             "id": "sqlite",
@@ -1087,7 +1087,7 @@
             "h": 150,
             "name": "SQLite",
             "tech": "oxbot.db",
-            "desc": "events, sessions, people, sites, gates, rules, sections, reports, alerts, loop steps, model calls, Codex threads, relay log, comparisons. Migrations 1\u201322."
+            "desc": "events, sessions, people, sites, devices, rules, sections, reports, alerts, loop steps, model calls, Codex threads, relay log, comparisons. Migrations 1\u201322."
           },
           {
             "id": "server",
@@ -1098,7 +1098,7 @@
             "h": 180,
             "name": "oxbot server",
             "tech": "Rust, tokio, axum \u00b7 oxbot serve",
-            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the Farm only with the Farm key; POST /upload for files and /openrouter/callback for Sign in with OpenRouter (this computer only). Device door on :7879. Holds the Hub: people by id, an Assistant (Herder) per person, a Chrome per owner, safety rules and Always allow on every tool, approval requests for their asker, reports, usage alerts. Every bot on Codex, through one codex app-server per bot and oxbot-loop's tool service and gate. Free models first, 20 a minute, daily limits. The OpenRouter key only in the Keychain and memory."
+            "desc": "WebSocket /ws and the chat page at 127.0.0.1:7878 (JSON), the home computer only with the home computer key; POST /upload for files and /openrouter/callback for Sign in with OpenRouter (this computer only). Device door on :7879. Holds the Hub: people by id, an Assistant per person, a Chrome per owner, safety rules and Always allow on every tool, approval requests for their asker, reports, usage alerts. Every bot on Codex, through one codex app-server per bot and oxbot-loop's tool service and gate. Free models first, 20 a minute, daily limits. The OpenRouter key only in the Keychain and memory."
           },
           {
             "id": "folders",
@@ -1600,8 +1600,8 @@
         "id": "components",
         "title": "Level 3 \u00b7 Components of the oxbot server",
         "intro": "Inside the server process: the crates and modules, and who calls whom. The Hub and Store are folders of files split by job; the Hub sits in the middle with its advisers on either side.",
-        "caption": "Components. The Hub is the center: the web server and the device door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book and the allow rules decide what a bot is told and which tools run, ask or are refused. Below it, Engines is the interface Codex plugs into. The Codex engine runs one codex app-server per bot (own CODEX_HOME, a config written at every start with analytics, plugins, web search, update checks and the shell off) and hands it oxbot's tools as dynamic tools, answered through the Loop's tool service: the gate, approval requests, Always allow, refusals and untrusted-text marks. Codex's only model provider is the Model relay on 127.0.0.1: it checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, forwards to OpenRouter's Responses API with the household key, meters each request and keeps what was sent for 14 days. The Loop (oxbot's own agent loop, retired as an engine) keeps what Codex uses: the tool service, page tools, rows, stored results, the answer check, and the gateway that picks free models with fallbacks on 429, paces to 20 requests a minute and meters. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a device (a Gate), never the Farm. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on the models picked, on Codex, in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step an approval request would ask about, and feeds the scoreboard, each model measured against the best.",
-        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the Farm key, keeps one Client per connection and hands client messages to the Hub; the device door hands phone requests to it as a Gate viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks and the allow rules for Always allow. It starts sessions through Engines: the Codex engine spawns one codex app-server per bot over JSON-RPC on stdio and answers its tool calls through the Loop's tool service; codex app-server sends model requests to the Model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. The Loop's tool service asks the Hub's gate before every tool, sends page questions to OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
+        "caption": "Components. The Hub is the center: the web server and the device door feed it on behalf of each connection's viewer. On its left, Prompt, Policy, the element book and the allow rules decide what a bot is told and which tools run, ask or are refused. Below it, Engines is the interface Codex plugs into. The Codex engine runs one codex app-server per bot (own CODEX_HOME, a config written at every start with analytics, plugins, web search, update checks and the shell off) and hands it oxbot's tools as dynamic tools, answered through the Loop's tool service: the gate, approval requests, Always allow, refusals and untrusted-text marks. Codex's only model provider is the Model relay on 127.0.0.1: it checks a per-process token, strips Codex's ids, headers and metadata, applies the bot's model, privacy and limits, forwards to OpenRouter's Responses API with the household key, meters each request and keeps what was sent for 14 days. The Loop (oxbot's own agent loop, retired as an engine) keeps what Codex uses: the tool service, page tools, rows, stored results, the answer check, and the gateway that picks free models with fallbacks on 429, paces to 20 requests a minute and meters. The Model client speaks the OpenAI-style chat API (SSE) to OpenRouter with rustls; the key comes from the Keychain into one in-memory KeyCell and is never written to files, logs or the database. On the right, Attachments, Tools, the report renderer and the notifier. A phone is a device (a device), never the home computer. Gray boxes are other containers; dashed ones are planned. Comparisons (the owner's only): the comparison runner replays test cases on the models picked, on Codex, in a trial sandbox (a copy of the sign-ins, a network guard that lets pages only read), records every step an approval request would ask about, and feeds the scoreboard, each model measured against the best.",
+        "aria": "C4 level 3 components inside the oxbot server. The axum web server checks the home computer key, keeps one Client per connection and hands client messages to the Hub; the device door hands phone requests to it as a device viewer. The web server starts OpenRouter sign-in, which builds a PKCE link and takes the callback, and saves the key through the Keychain component into the macOS Keychain. The Hub asks Prompt for the system prompt, Policy about every tool, the element book to name clicks and the allow rules for Always allow. It starts sessions through Engines: the Codex engine spawns one codex app-server per bot over JSON-RPC on stdio and answers its tool calls through the Loop's tool service; codex app-server sends model requests to the Model relay on 127.0.0.1, which forwards them to OpenRouter's Responses API over HTTPS. The Loop's tool service asks the Hub's gate before every tool, sends page questions to OpenRouter through the Model client, which holds the key only in memory, and drives Chrome through chrome-devtools-mcp. The Hub records through Store into SQLite, loads bot folders, keeps a Chrome per owner through Browser over CDP, and hands files, tool calls, reports and alerts to Attachments, Tools, the report renderer and the notifier. The Hub hands the owner's test cases to the comparison runner, which runs them in a trial sandbox Chrome whose network guard blocks every write, and feeds the scoreboard.",
         "size": [
           1430,
           1750
@@ -1629,14 +1629,14 @@
         ],
         "nodes": [
           {
-            "id": "farmkey",
+            "id": "home_computer_key",
             "type": "external",
             "col": 0,
             "row": 0,
             "h": 100,
-            "name": "Farm key",
-            "tech": "<data>/farm-key, 0600",
-            "desc": "Random key. Local = the Farm (home computer) only with it."
+            "name": "Home computer key",
+            "tech": "<data>/home-computer-key, 0600",
+            "desc": "Random key. Local = the home computer only with it."
           },
           {
             "id": "clients",
@@ -1686,7 +1686,7 @@
             "h": 160,
             "name": "Web server",
             "tech": "oxbot::server",
-            "desc": "axum, 127.0.0.1:7878; the Farm only with the Farm key. One Client per viewer; forward() drops others' bots. POST /upload streams to a bot's inbox (this Mac only)."
+            "desc": "axum, 127.0.0.1:7878; the home computer only with the home computer key. One Client per viewer; forward() drops others' bots. POST /upload streams to a bot's inbox (this Mac only)."
           },
           {
             "id": "phonelink",
@@ -1696,7 +1696,7 @@
             "h": 160,
             "name": "Device door",
             "tech": "oxbot::door",
-            "desc": "TLS :7879, own cert. Code \u2192 key, only its hash kept. Open only on listed networks, private peers, mDNS. Acts as Viewer::gate."
+            "desc": "TLS :7879, own cert. Code \u2192 key, only its hash kept. Open only on listed networks, private peers, mDNS. Acts as Viewer::device."
           },
           {
             "id": "dictation",
@@ -1726,7 +1726,7 @@
             "h": 640,
             "name": "Hub",
             "tech": "oxbot-core::hub",
-            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, session, taint, seqs; elements, rules, sections, reports, alerts, uploads; engines, codex, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Assistant (Herder) per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted Herder session needs an approval request to task a private bot. A sign-in stays only with a new cookie. Approval requests: change and final clicks ask; an Always allow rule skips the request only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened. Alerts: OpenRouter's limits only (free requests, spending, credit, a bot's requests a day), once per level. Uploads: files wait per person and bot until sent, swept after an hour; their paths go in oxbot's note after the escaped words. Engines: every bot on Codex; bots from Claude or oxbot's own loop move to Codex once, with a line in the chat (migrations 22, 23). gate() answers every tool with the same policy; limits per bot and person a day. Comparisons (owner only): test cases from finished turns, practice runs on the models picked through the same gate with every approval request recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
+            "desc": "hub/: access, people, browsers, sign_ins, team, approvals, turns, session, taint, seqs; elements, rules, sections, reports, alerts, uploads; engines, codex, looped, engine_prefs, trials, compare. Runs bots, 3 turns at once; a private Assistant per person. Each Chrome lent to one bot at a time. Decides can_manage and locked per viewer. A tainted the Assistant session needs an approval request to task a private bot. A sign-in stays only with a new cookie. Approval requests: change and final clicks ask; an Always allow rule skips the request only on a real http(s) tab on its host. Sections: each person's own, never in prompts. Reports: save_report checks sources against the pages the session really opened. Alerts: OpenRouter's limits only (free requests, spending, credit, a bot's requests a day), once per level. Uploads: files wait per person and bot until sent, swept after an hour; their paths go in oxbot's note after the escaped words. Engines: every bot on Codex; bots from Claude or oxbot's own loop move to Codex once, with a line in the chat (migrations 22, 23). gate() answers every tool with the same policy; limits per bot and person a day. Comparisons (owner only): test cases from finished turns, practice runs on the models picked through the same gate with every approval request recorded instead (policy::trial_overlay), shadows of the owner's own messages.",
             "x": 286,
             "w": 610
           },
@@ -1793,7 +1793,7 @@
             "h": 140,
             "name": "Tools",
             "tech": "oxbot-core::tools",
-            "desc": "Every bot: request_sign_in. With the browser: save_report. Herder: team tools (list_bots, give_task\u2026).",
+            "desc": "Every bot: request_sign_in. With the browser: save_report. The Assistant: team tools (list_bots, give_task\u2026).",
             "y": 575
           },
           {
@@ -1836,7 +1836,7 @@
             "h": 160,
             "name": "Bots and people",
             "tech": "oxbot-core::bot, id",
-            "desc": "bot.toml: engine (codex | openrouter), owner, created_by, private, daily limit. PersonId (p_ + 16 hex). Viewer {id, name, farm}: the Farm sees all."
+            "desc": "bot.toml: engine (codex | openrouter), owner, created_by, private, daily limit. PersonId (p_ + 16 hex). Viewer {id, name, home_computer}: the home computer sees all."
           },
           {
             "id": "browser",
@@ -2069,7 +2069,7 @@
           },
           {
             "from": "web",
-            "to": "farmkey",
+            "to": "home_computer_key",
             "label": "checks",
             "from_pt": [
               256,
@@ -2134,7 +2134,7 @@
           {
             "from": "web",
             "to": "dictation",
-            "label": "dictate (Farm)",
+            "label": "dictate (home computer)",
             "from_pt": [
               420,
               190

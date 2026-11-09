@@ -840,7 +840,7 @@ impl Hub {
     /// Whether `viewer` (resolved) may see `s`: the owner sees every one;
     /// anyone else their own and those in bots they may open.
     fn sees_schedule(&self, s: &ScheduleRecord, viewer: &Viewer) -> bool {
-        self.is_farm_side(viewer)
+        self.is_home_computer_side(viewer)
             || viewer.id.as_ref() == Some(&s.person)
             || self
                 .bot(s.bot.as_str())
@@ -848,9 +848,9 @@ impl Hub {
     }
 
     /// Whether `viewer` (resolved) may pause or delete `s`: its person,
-    /// the Farm, or whoever may manage its bot.
+    /// the home computer, or whoever may manage its bot.
     fn changes_schedule(&self, s: &ScheduleRecord, viewer: &Viewer) -> bool {
-        viewer.farm
+        viewer.home_computer
             || viewer.id.as_ref() == Some(&s.person)
             || self
                 .bot(s.bot.as_str())
@@ -990,7 +990,7 @@ mod tests {
     use oxbot_protocol::ScheduleRule;
 
     /// A hub in UTC with `recipes` (Jay's, shared) and `bank` (Sam's,
-    /// private); Jay is the Farm's person. No engine: a run that starts
+    /// private); Jay is the home computer's person. No engine: a run that starts
     /// waits for one.
     async fn hub(dir: &std::path::Path) -> (Arc<Hub>, PersonId, PersonId) {
         let hub = Hub::new(
@@ -1001,7 +1001,7 @@ mod tests {
                 ..HubConfig::new(dir)
             },
         );
-        let jay = hub.farm_person("Jay").unwrap().id;
+        let jay = hub.owner_person("Jay").unwrap().id;
         hub.create_bot_with("Recipes", "", Some("Jay"), false)
             .await
             .unwrap();
@@ -1183,11 +1183,11 @@ mod tests {
                 .map(|s| s.id)
                 .collect()
         };
-        let farm = hub.farm_viewer("Jay");
+        let home_computer = hub.home_computer_viewer("Jay");
         let ann_v = Viewer::person(ann.clone(), "Ann", false);
         let sam_v = Viewer::person(sam.clone(), "Sam", false);
         // The owner sees all; Ann and Sam the shared bot's only.
-        assert_eq!(ids(&farm), [jays.id, privs.id, anns.id]);
+        assert_eq!(ids(&home_computer), [jays.id, privs.id, anns.id]);
         assert_eq!(ids(&ann_v), [jays.id, anns.id]);
         assert_eq!(ids(&sam_v), [jays.id, anns.id]);
         assert!(
@@ -1213,11 +1213,11 @@ mod tests {
         let back = hub.store.schedule(anns.id).unwrap().unwrap();
         assert!(!back.paused && back.next_run_ms.unwrap() > hub.schedule_now());
         hub.delete_schedule_as(anns.id, &ann_v).unwrap();
-        hub.delete_schedule_as(privs.id, &farm).unwrap();
-        assert_eq!(ids(&farm), [jays.id]);
+        hub.delete_schedule_as(privs.id, &home_computer).unwrap();
+        assert_eq!(ids(&home_computer), [jays.id]);
         // Deleting the bot deletes its schedules.
-        hub.delete_bot("recipes", &farm).await.unwrap();
-        assert_eq!(ids(&farm), Vec::<i64>::new());
+        hub.delete_bot("recipes", &home_computer).await.unwrap();
+        assert_eq!(ids(&home_computer), Vec::<i64>::new());
     }
 
     #[tokio::test]

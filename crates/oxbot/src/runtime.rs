@@ -37,9 +37,10 @@ pub struct ServerOptions {
     /// How to post Mac notifications; `None` picks the default (see
     /// [`crate::notify::pick`]).
     pub notifier: Option<Arc<dyn crate::notify::Notifier>>,
-    /// The Gate door's port (0 picks a free one; default `OXBOT_GATE_PORT`
-    /// or 7879). `None` leaves the door out: `OXBOT_GATE_PORT=off`.
-    pub gate_port: Option<u16>,
+    /// The device door's port (0 picks a free one; default `OXBOT_DEVICE_PORT`,
+    /// or its old name `OXBOT_GATE_PORT`, or 7879). `None` leaves the door
+    /// out: `OXBOT_DEVICE_PORT=off`.
+    pub device_port: Option<u16>,
 }
 
 impl ServerOptions {
@@ -55,21 +56,29 @@ impl ServerOptions {
             ui_dir: std::env::var_os("OXBOT_UI_DIR").map(PathBuf::from),
             app: None,
             notifier: None,
-            gate_port: gate_port(std::env::var("OXBOT_GATE_PORT").ok().as_deref()),
+            device_port: device_port(device_port_setting().as_deref()),
         }
     }
 }
 
-/// The Gate door's port from `OXBOT_GATE_PORT`: a number, `off` for no
+/// `OXBOT_DEVICE_PORT`, or `OXBOT_GATE_PORT` (its name before the rename,
+/// still read so existing setups keep working).
+fn device_port_setting() -> Option<String> {
+    std::env::var("OXBOT_DEVICE_PORT")
+        .or_else(|_| std::env::var("OXBOT_GATE_PORT"))
+        .ok()
+}
+
+/// The device door's port from `OXBOT_DEVICE_PORT`: a number, `off` for no
 /// door at all, or unset for 7879.
-fn gate_port(setting: Option<&str>) -> Option<u16> {
+fn device_port(setting: Option<&str>) -> Option<u16> {
     match setting.map(str::trim) {
         Some("off" | "no" | "none" | "false") => None,
         Some(port) => Some(port.parse().unwrap_or_else(|_| {
-            tracing::warn!(port, "OXBOT_GATE_PORT isn't a port or `off`; using 7879");
-            crate::door::DEFAULT_GATE_PORT
+            tracing::warn!(port, "OXBOT_DEVICE_PORT isn't a port or `off`; using 7879");
+            crate::door::DEFAULT_DEVICE_PORT
         })),
-        None => Some(crate::door::DEFAULT_GATE_PORT),
+        None => Some(crate::door::DEFAULT_DEVICE_PORT),
     }
 }
 
@@ -84,20 +93,20 @@ pub struct RunningServer {
     pub hub: Arc<Hub>,
     /// Its data folder.
     pub home: Home,
-    /// The Gate door, if this server has one.
+    /// The device door, if this server has one.
     pub door: Option<Arc<crate::door::Door>>,
-    farm_key: String,
+    home_computer_key: String,
     stop: oneshot::Sender<()>,
     task: JoinHandle<std::io::Result<()>>,
 }
 
 impl RunningServer {
-    /// The chat page's address with the Farm secret, e.g.
-    /// `http://127.0.0.1:7878/#k=…`. Whoever opens it is the Farm: show it
+    /// The chat page's address with the home computer secret, e.g.
+    /// `http://127.0.0.1:7878/#k=…`. Whoever opens it is the home computer: show it
     /// only in oxbot's own window or to the person at this Mac.
     #[must_use]
     pub fn page_url(&self) -> String {
-        format!("http://{}/#k={}", self.addr, self.farm_key)
+        format!("http://{}/#k={}", self.addr, self.home_computer_key)
     }
 
     /// Stops serving, then stops the bots and the browser.
@@ -161,7 +170,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         .await
         .with_context(|| format!("couldn't listen on {wanted}; is oxbot already running?"))?;
     let addr = listener.local_addr()?;
-    let device = server_name();
+    let computer_name = server_name();
     // The household's OpenRouter account: its key from the Keychain (test
     // mode: the stand-in's, never the Keychain), shared with the model
     // clients through `openrouter.key_cell()`. It is read in the background
@@ -170,7 +179,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         crate::openrouter_auth::OpenRouter::new(
             crate::openrouter_auth::endpoint(e2e).context("OXBOT_OPENROUTER_URL isn't usable")?,
             crate::keychain::secret_store(home.root(), e2e),
-            format!("oxbot on {device}"),
+            format!("oxbot on {computer_name}"),
             !e2e,
         )
         .context("couldn't set up the OpenRouter client")?,
@@ -214,9 +223,11 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // Settings → Activity: oxbot's own calls to OpenRouter.
     openrouter.note_calls_to(&hub);
 
-    let farm_key =
-        crate::secret::farm_key(home.root()).context("couldn't make or read the Farm secret")?;
-    let door = options.gate_port.map(|port| {
+    let home_computer_key = crate::secret::home_computer_key(home.root())
+        .context("couldn't make or read the home computer secret")?;
+    let door_dir =
+        crate::door::folder(home.root()).context("couldn't use the device door's folder")?;
+    let door = options.device_port.map(|port| {
         // Tests have no real network: they get a fixed one to allow.
         let probe = if e2e {
             crate::door::network::fixed_probe("e2e-network", "Test network")
@@ -224,26 +235,26 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             crate::door::network::mac_probe()
         };
         crate::door::Door::new(
-            home.root().join("gate"),
+            door_dir,
             port,
-            device.clone(),
+            computer_name.clone(),
             Arc::clone(&hub),
             probe,
         )
     });
-    // Tests name the Farm's person outright, as an account would.
+    // Tests name the home computer's person outright, as an account would.
     let (local_person, from_account) = std::env::var("OXBOT_PERSON")
         .ok()
         .filter(|p| e2e && !p.trim().is_empty())
-        .map_or_else(|| setup::local_person_from(&device), |p| (p, true));
+        .map_or_else(|| setup::local_person_from(&computer_name), |p| (p, true));
     // Chosen once (the first run), then found by id; renamed only to the
     // account's own name.
-    if let Err(err) = hub.farm_person_from(&local_person, from_account) {
-        tracing::warn!(%err, "couldn't choose the Farm's person yet");
+    if let Err(err) = hub.owner_person_from(&local_person, from_account) {
+        tracing::warn!(%err, "couldn't choose the home computer's person yet");
     }
     let state = AppState {
         hub: Arc::clone(&hub),
-        server_name: device.clone(),
+        server_name: computer_name.clone(),
         started_ms: now_ms(),
         logs: options.logs,
         ui_dir: options.ui_dir,
@@ -255,7 +266,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         setup: Arc::default(),
         tool_built_in: built_in.is_some(),
         door: door.clone(),
-        farm_key: farm_key.clone(),
+        home_computer_key: home_computer_key.clone(),
         notifier: crate::notify::pick(options.notifier, e2e),
         dictation: Arc::new(crate::dictation::Dictation::new(helper)),
         next_conn: Arc::default(),
@@ -267,7 +278,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     load_key(&state);
     refresh_models_now_and_then(&state);
     crate::notify::start(&state);
-    // The door opens when the Mac is on an allowed network and a Gate is
+    // The door opens when the Mac is on an allowed network and a device is
     // paired, and keeps checking.
     if let Some(door) = &door {
         door.start(server::door_router(state.clone(), door)).await;
@@ -282,7 +293,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         hub,
         home,
         door,
-        farm_key,
+        home_computer_key,
         stop,
         task,
     })
@@ -473,7 +484,7 @@ mod tests {
         let options = ServerOptions {
             home: Some(home),
             browser: false,
-            gate_port: None,
+            device_port: None,
             ..ServerOptions::new(0)
         };
         let err = start(options).await.unwrap_err();
@@ -490,7 +501,7 @@ mod tests {
         let options = ServerOptions {
             home: Some(Home::new(tmp.path())),
             browser: false,
-            gate_port: None,
+            device_port: None,
             ..ServerOptions::new(0)
         };
         let server = start(options).await.unwrap();

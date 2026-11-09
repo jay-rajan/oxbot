@@ -111,7 +111,7 @@ impl Hub {
     /// parents). Every person is an adult until kid accounts come.
     pub(super) fn answerer_for(&self, person: &PersonId) -> Option<PersonId> {
         if self.role_of(person) == Role::Kid {
-            self.farm_id()
+            self.owner_person_id()
         } else {
             Some(person.clone())
         }
@@ -173,7 +173,7 @@ impl Hub {
             notes_use: p.notes_use,
             home_area,
             home_area_use,
-            can_edit_area: self.is_farm_side(&viewer),
+            can_edit_area: self.is_home_computer_side(&viewer),
             welcome: rec.as_ref().is_some_and(|r| r.welcome_due),
             owner_confirm: role == Role::Owner
                 && rec.as_ref().is_none_or(|r| r.owner_ok_ms.is_none()),
@@ -243,7 +243,7 @@ impl Hub {
         }
         self.store.set_person_color(&id, color)?;
         // Only the owner sets the household's area.
-        if self.is_farm_side(&viewer) {
+        if self.is_home_computer_side(&viewer) {
             if let Some(area) = area {
                 self.store.set_pref(PREF_HOME_AREA, &area)?;
             }
@@ -257,7 +257,7 @@ impl Hub {
         tracing::info!(person = %id, "saved a profile");
         self.announce_people();
         let _ = self.updates.send(ServerMsg::ProfilesChanged);
-        self.profile_for(&Viewer::person(id, name, viewer.farm))?
+        self.profile_for(&Viewer::person(id, name, viewer.home_computer))?
             .ok_or_else(|| HubError::NotAllowed("oxbot lost track of you.".to_owned()))
     }
 
@@ -326,18 +326,18 @@ mod tests {
     async fn the_first_start_welcomes_the_owner_who_confirms_once() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        let farm = hub.farm_viewer("Jay");
-        let view = hub.profile_for(&farm).unwrap().unwrap();
+        let home_computer = hub.home_computer_viewer("Jay");
+        let view = hub.profile_for(&home_computer).unwrap().unwrap();
         assert!(view.welcome && view.owner_confirm && view.can_edit_area);
         assert_eq!((view.name.as_str(), view.role.as_str()), ("Jay", "owner"));
         // Not without confirming.
-        let err = hub.set_profile(&farm, &edit("Jay")).unwrap_err();
+        let err = hub.set_profile(&home_computer, &edit("Jay")).unwrap_err();
         assert!(err.to_string().contains("18 or older"), "{err}");
         let mut e = edit("Jayadev");
         e.owner_confirmed = true;
         e.home_area = Some("Toronto, ON".into());
         e.home_area_use = Some(true);
-        let view = hub.set_profile(&farm, &e).unwrap();
+        let view = hub.set_profile(&home_computer, &e).unwrap();
         assert!(!view.welcome && !view.owner_confirm);
         assert_eq!(
             (view.name.as_str(), view.home_area.as_str()),
@@ -345,8 +345,8 @@ mod tests {
         );
         assert_eq!(view.color, PEOPLE_COLORS[3]);
         // From then on, saving needs no confirming again.
-        let farm = hub.farm_viewer("Jay");
-        assert!(hub.set_profile(&farm, &edit("Jayadev")).is_ok());
+        let home_computer = hub.home_computer_viewer("Jay");
+        assert!(hub.set_profile(&home_computer, &edit("Jayadev")).is_ok());
     }
 
     #[tokio::test]
@@ -361,14 +361,15 @@ mod tests {
             )
         };
         let hub = start();
-        let jay = hub.farm_person_from("Jay", true).unwrap();
+        let jay = hub.owner_person_from("Jay", true).unwrap();
         let mut e = edit("J. R.");
         e.owner_confirmed = true;
-        hub.set_profile(&hub.farm_viewer("Jay"), &e).unwrap();
+        hub.set_profile(&hub.home_computer_viewer("Jay"), &e)
+            .unwrap();
         hub.shutdown().await;
         drop(hub);
         let hub = start();
-        let again = hub.farm_person_from("Jay", true).unwrap();
+        let again = hub.owner_person_from("Jay", true).unwrap();
         assert_eq!((again.id, again.name.as_str()), (jay.id, "J. R."));
     }
 
@@ -376,16 +377,17 @@ mod tests {
     async fn people_from_before_and_by_name_get_no_welcome_but_a_paired_device_does() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        hub.farm_person("Jay").unwrap();
+        hub.owner_person("Jay").unwrap();
         let sam = hub.person_named("Sam").unwrap();
         let sam_v = Viewer::person(sam.id.clone(), "Sam", false);
         assert!(!hub.profile_for(&sam_v).unwrap().unwrap().welcome);
         // Sam's phone pairs: Sam is welcomed there.
-        hub.add_gate_for("g1", &sam.id, "Phone", "hash-1").unwrap();
+        hub.add_device_for("g1", &sam.id, "Phone", "hash-1")
+            .unwrap();
         let view = hub.profile_for(&sam_v).unwrap().unwrap();
         assert!(view.welcome && !view.owner_confirm && !view.can_edit_area);
         // Someone new, by pairing.
-        hub.add_gate("g2", "Bea", "Phone", "hash-2").unwrap();
+        hub.add_device("g2", "Bea", "Phone", "hash-2").unwrap();
         let bea = hub.store.person_by_name("Bea").unwrap().unwrap();
         assert!(
             hub.profile_for(&Viewer::person(bea.id, "Bea", false))
@@ -400,14 +402,14 @@ mod tests {
         assert!(!view.welcome && view.home_area.is_empty());
         assert!(hub.set_profile(&sam_v, &edit("Jay")).is_err());
         assert!(hub.set_profile(&sam_v, &edit("[Jay]")).is_err());
-        assert!(hub.set_profile(&Viewer::gate(""), &edit("X")).is_err());
+        assert!(hub.set_profile(&Viewer::device(""), &edit("X")).is_err());
     }
 
     #[tokio::test]
     async fn bots_get_what_a_person_allows_and_never_their_name() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        hub.farm_person("Jay").unwrap();
+        hub.owner_person("Jay").unwrap();
         let sam = hub.person_named("Sam").unwrap();
         let sam_v = Viewer::person(sam.id.clone(), "Sam", false);
         assert_eq!(hub.about_line(&sam.id), None, "nothing filled in");
@@ -418,7 +420,8 @@ mod tests {
         let mut owner = edit("Jay");
         owner.owner_confirmed = true;
         owner.home_area = Some("Toronto, ON".into());
-        hub.set_profile(&hub.farm_viewer("Jay"), &owner).unwrap();
+        hub.set_profile(&hub.home_computer_viewer("Jay"), &owner)
+            .unwrap();
         let line = hub.about_line(&sam.id).unwrap();
         assert_eq!(
             line,
@@ -429,7 +432,8 @@ mod tests {
         assert!(!line.contains("[Sam]") && line.lines().count() == 1);
         // The home area can be kept from bots too.
         owner.home_area_use = Some(false);
-        hub.set_profile(&hub.farm_viewer("Jay"), &owner).unwrap();
+        hub.set_profile(&hub.home_computer_viewer("Jay"), &owner)
+            .unwrap();
         assert!(!hub.about_line(&sam.id).unwrap().contains("Toronto"));
     }
 

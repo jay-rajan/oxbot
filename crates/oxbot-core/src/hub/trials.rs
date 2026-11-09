@@ -867,9 +867,9 @@ impl Hub {
             )
             .map_err(|e| e.to_string())?;
         let origin = ChainOrigin {
-            person: self.farm_id(),
-            on_farm: true,
-            entry: Entry::Farm,
+            person: self.owner_person_id(),
+            on_home_computer: true,
+            entry: Entry::HomeComputer,
             root: None,
             via: Vec::new(),
             tainted_by: input.tainted_by.clone(),

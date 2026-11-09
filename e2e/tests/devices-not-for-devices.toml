@@ -4,7 +4,7 @@ covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot/
 as = "Ann"
 
 [[step]]
-expect_js = "document.getElementById('gateBtn').hidden"
+expect_js = "document.getElementById('deviceBtn').hidden"
 note = "No Connect a device button"
 [[step]]
 click = "Settings"

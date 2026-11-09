@@ -1,6 +1,6 @@
 // Words and numbers the Settings window shows, as the hand-written page
 // wrote them. Pure, so they're tested on their own.
-import type { DoorState, GateInfo, SetupCheck, SetupReport, SiteInfo } from "../../net/protocol";
+import type { DoorState, DeviceInfo, SetupCheck, SetupReport, SiteInfo } from "../../net/protocol";
 
 /** Dollars: "<$0.01" for a sliver, else two decimals. */
 export const money = (c: number): string => (c > 0 && c < 0.01 ? "<$0.01" : `$${c.toFixed(2)}`);
@@ -40,7 +40,7 @@ export const NET_KINDS: Record<string, string> = { ai: "AI", website: "Website",
 export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** A device: "connected now", or when it was last seen. */
-export function seenText(g: GateInfo): string {
+export function seenText(g: DeviceInfo): string {
   return g.online
     ? "connected now"
     : `seen ${new Date(g.last_seen_ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;

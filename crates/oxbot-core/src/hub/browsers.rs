@@ -45,7 +45,7 @@ impl Hub {
         // Only the owner has a browser of their own; anyone else's folder
         // stays on disk, unused.
         if let BrowserOwner::Person(id) = owner
-            && !self.is_farm_person(id.as_str())
+            && !self.is_owner_person(id.as_str())
         {
             tracing::debug!(person = %id, "only the owner has a browser of their own");
             return None;
@@ -124,7 +124,7 @@ impl Hub {
     /// bot (their own Assistant) uses the home browser.
     pub(super) fn browser_owner_of(&self, bot: &Bot) -> Option<BrowserOwner> {
         match bot.browser_owner()? {
-            BrowserOwner::Person(id) if !self.is_farm_person(id.as_str()) => {
+            BrowserOwner::Person(id) if !self.is_owner_person(id.as_str()) => {
                 Some(BrowserOwner::Home)
             }
             owner => Some(owner),
@@ -138,7 +138,7 @@ impl Hub {
     /// [`HubError::NotAllowed`] for someone else's own browser.
     pub(super) fn own_browser_allowed(&self, owner: &BrowserOwner) -> Result<(), HubError> {
         match owner {
-            BrowserOwner::Person(id) if !self.is_farm_person(id.as_str()) => {
+            BrowserOwner::Person(id) if !self.is_owner_person(id.as_str()) => {
                 Err(HubError::NotAllowed(NO_OWN_BROWSER.to_owned()))
             }
             _ => Ok(()),

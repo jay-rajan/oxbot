@@ -3147,7 +3147,7 @@ dependencies = [
  "oxbot-browser",
  "oxbot-codex",
  "oxbot-core",
- "oxbot-gate",
+ "oxbot-device",
  "oxbot-llm",
  "oxbot-protocol",
  "qrcode",
@@ -3250,7 +3250,7 @@ dependencies = [
  "futures-util",
  "jni 0.21.1",
  "oxbot",
- "oxbot-gate",
+ "oxbot-device",
  "oxbot-protocol",
  "rqrr",
  "serde",
@@ -3262,6 +3262,30 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "oxbot-device"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "oxbot-protocol",
+ "ring",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite 0.30.0",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -3296,30 +3320,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
-]
-
-[[package]]
-name = "oxbot-gate"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "oxbot-protocol",
- "ring",
- "rusqlite",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tokio-tungstenite 0.30.0",
- "tracing",
- "url",
 ]
 
 [[package]]

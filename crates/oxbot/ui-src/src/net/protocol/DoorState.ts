@@ -2,7 +2,7 @@
 import type { DoorNetwork } from "./DoorNetwork";
 
 /**
- * The Gate door, as Settings → Gates shows it.
+ * The device door, as Settings → devices shows it.
  */
 export type DoorState = { 
 /**

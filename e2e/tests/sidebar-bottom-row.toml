@@ -3,7 +3,7 @@ about = "The bottom of the sidebar shows the gear, Connect a device and a Websit
 covers = ["crates/oxbot/ui-src/**"]
 
 [[step]]
-expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn,gateBtn,signedInBtn'"
+expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn,deviceBtn,signedInBtn'"
 note = "Three items, in order"
 shot = "bottom-row"
 [[step]]

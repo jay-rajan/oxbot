@@ -27,9 +27,9 @@ export function GeneralTab({ hidden }: { hidden: boolean }) {
 function SetupSection() {
   const { send } = useApp();
   const setup = useSel((s) => s.home.setup);
-  const farm = useSel((s) => !!s.connection.settings?.farm);
+  const homeComputer = useSel((s) => !!s.connection.settings?.home_computer);
   const ready = setupReady(setup);
-  const optionalOff = !!(setup && farm && setup.checks.some((c) => !c.ok && c.optional));
+  const optionalOff = !!(setup && homeComputer && setup.checks.some((c) => !c.ok && c.optional));
   return (
     <Section id="setupSection" hidden={ready && !optionalOff}>
       <Banner
@@ -73,14 +73,14 @@ function NotifySection() {
       <Switch
         id="usageAlerts"
         checked={!!settings && settings.usage_alerts !== false}
-        disabled={!!settings && !settings.farm}
+        disabled={!!settings && !settings.home_computer}
         onChange={(e) => send({ type: "set_usage_alerts", on: e.target.checked })}
       >
         Tell me when AI use passes 50% and 80% of a limit
       </Switch>
       {/* A bot waiting for an OK or a sign-in while oxbot is hidden always notifies. */}
       <Hint id="notifyHint">
-        {!settings ? "" : settings.farm ? "Mac notifications need permission in System Settings → Notifications." : "Set on the home computer."}
+        {!settings ? "" : settings.home_computer ? "Mac notifications need permission in System Settings → Notifications." : "Set on the home computer."}
       </Hint>
     </Section>
   );
@@ -96,7 +96,7 @@ function AiSection() {
   const capRef = useRef<HTMLInputElement>(null);
   const capFormRef = useRef<HTMLFormElement>(null);
 
-  const farm = !!settings?.farm;
+  const homeComputer = !!settings?.home_computer;
   const or = engines?.openrouter ?? null;
   const waiting = !!settings?.keychain_waiting;
   const signed = !!or?.signed_in;
@@ -109,7 +109,7 @@ function AiSection() {
         ? "Connected to OpenRouter."
         : "Checking…"
       : !signed
-        ? farm
+        ? homeComputer
           ? "Not connected. Bots need an AI account to think."
           : `Not connected yet; ask ${owner}.`
         : "Connected to OpenRouter · free models first";
@@ -122,7 +122,7 @@ function AiSection() {
   const used = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
   const parts = [key?.is_free_tier ? "No credit bought: free models only" : `${money(spent)} of ${money(cap)} paid AI this month`];
   if (key?.free_limit) parts.push(`${key.free_used ?? 0} of ${key.free_limit} free questions today`);
-  const capShown = signed && farm && !key?.is_free_tier;
+  const capShown = signed && homeComputer && !key?.is_free_tier;
 
   // The limit field follows the server, except while it's being typed in.
   useEffect(() => {
@@ -149,10 +149,10 @@ function AiSection() {
         <i className={cx("dot", signed && ready && "on")} id="orDot" aria-hidden="true" />
         <span id="orStatus">{status}</span>
         <span className="spacer" />
-        <Button kind="primary" id="orSignIn" hidden={!farm || signed || waiting || !or} onClick={() => send({ type: "open_router_sign_in" })}>
+        <Button kind="primary" id="orSignIn" hidden={!homeComputer || signed || waiting || !or} onClick={() => send({ type: "open_router_sign_in" })}>
           Connect OpenRouter
         </Button>
-        <Button size="sm" id="orSignOut" hidden={!farm || !signed} onClick={() => send({ type: "open_router_sign_out" })}>
+        <Button size="sm" id="orSignOut" hidden={!homeComputer || !signed} onClick={() => send({ type: "open_router_sign_out" })}>
           Sign out
         </Button>
       </div>

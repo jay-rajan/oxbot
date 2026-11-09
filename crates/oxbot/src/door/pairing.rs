@@ -1,4 +1,4 @@
-//! One-time pairing codes: shown on the Farm for one person, good once, for
+//! One-time pairing codes: shown on the home computer for one person, good once, for
 //! ten minutes and five tries. Pure logic with the time passed in, so every
 //! rule can be tested without waiting.
 
@@ -12,7 +12,7 @@ pub const CODE_TRIES: u8 = 5;
 /// Letters for codes: no 0/O, 1/I/L, so they're easy to read and type.
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
-/// A code showing on the Farm.
+/// A code showing on the home computer.
 #[derive(Debug, Clone)]
 struct Showing {
     person: String,
@@ -26,7 +26,7 @@ struct Showing {
 /// What a typed code turned out to be.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Check {
-    /// Right: pair the Gate for this person. The code is used up.
+    /// Right: pair the device for this person. The code is used up.
     Paired(String),
     /// No code is showing (none made, used, cancelled or ran out).
     NoCode,
@@ -37,7 +37,7 @@ pub enum Check {
     },
 }
 
-/// The pairing code on the Farm's screen, if any. At most one at a time.
+/// The pairing code on the home computer's screen, if any. At most one at a time.
 #[derive(Debug, Default)]
 pub struct PairingCodes {
     showing: Option<Showing>,
@@ -51,7 +51,7 @@ impl PairingCodes {
     }
 
     /// Like [`PairingCodes::show`], for a person oxbot knows already
-    /// (`person_id`), so the Gate pairs for them whatever their name is by
+    /// (`person_id`), so the device pairs for them whatever their name is by
     /// then.
     pub fn show_for(
         &mut self,
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(
             codes.check_for(&code, NOW + 1),
             (Check::Paired("Ann".into()), None),
-            "someone new is made when the Gate pairs"
+            "someone new is made when the device pairs"
         );
     }
 

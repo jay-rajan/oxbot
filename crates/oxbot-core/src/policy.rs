@@ -20,12 +20,12 @@
 //! | typing into a password or code field | refuse: the user signs in |
 //! | running scripts in a page | refuse |
 //! | opening anything but a web page (`file:`, `chrome:`…) | refuse |
-//! | opening a page on this Mac or the home network (oxbot's own page, the Gate door, routers) | refuse |
+//! | opening a page on this Mac or the home network (oxbot's own page, the device door, routers) | refuse |
 //! | reading or writing files outside the bot's folder | refuse |
 //! | anything else (extensions, audits, page tools…) | refuse |
 //! | oxbot's own `request_sign_in` and `save_report` | run |
-//! | Herder's `list_bots`, `give_task`, `read_reply` | run |
-//! | Herder's `create_bot` | card with the name and instructions |
+//! | The Assistant's `list_bots`, `give_task`, `read_reply` | run |
+//! | The Assistant's `create_bot` | card with the name and instructions |
 //! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
 //! | `read_pages` | run: each page it opens is checked as a visit, and its script only reads a sealed copy |
 //! | `page_steps` | run on any website without fine-grained control (the hub checks), each step checked as itself; it stops at the first that would ask |
@@ -130,7 +130,7 @@ pub struct Ask {
     pub click: Option<Click>,
     /// The element an "Always allow" rule would name (see [`rule_label`]):
     /// set only for a [`Click::Change`] on a named element on a known web
-    /// site. Never for can't-undo clicks, Enter, uploads or Herder's cards.
+    /// site. Never for can't-undo clicks, Enter, uploads or the Assistant's cards.
     pub rule: Option<String>,
     /// On a schedule card: the schedule proposed.
     pub schedule: Option<Box<oxbot_protocol::ScheduleDraft>>,
@@ -453,7 +453,7 @@ fn browser_action(tool: &str) -> Option<&str> {
 }
 
 /// oxbot's own tools: sign-in, saving a report (which stays inside oxbot),
-/// Herder's team tools and the schedule tools run (oxbot itself checks who
+/// the Assistant's team tools and the schedule tools run (oxbot itself checks who
 /// may call them, see `tools`); creating a bot asks.
 fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
     let runs = [
@@ -2011,7 +2011,7 @@ mod tests {
     #[test]
     fn only_web_pages_can_be_opened() {
         for url in [
-            // oxbot's own page and Gate door, and the home network.
+            // oxbot's own page and device door, and the home network.
             "http://127.0.0.1:7878/",
             "http://localhost:7878/",
             "https://192.168.2.10:7879/pair",

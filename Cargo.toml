@@ -17,7 +17,7 @@ oxbot-protocol = { path = "crates/oxbot-protocol" }
 oxbot-core = { path = "crates/oxbot-core" }
 oxbot-engine = { path = "crates/oxbot-engine" }
 oxbot-browser = { path = "crates/oxbot-browser" }
-oxbot-gate = { path = "crates/oxbot-gate" }
+oxbot-device = { path = "crates/oxbot-device" }
 oxbot-llm = { path = "crates/oxbot-llm" }
 oxbot-loop = { path = "crates/oxbot-loop" }
 oxbot-relay = { path = "crates/oxbot-relay" }
@@ -60,7 +60,7 @@ infer = { version = "=0.22.0", default-features = false, features = ["std"] }
 quick-xml = { version = "=0.42.0", default-features = false }
 zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
 
-# The Gate link: TLS with the Farm's own certificate (versions checked 2026-10-30).
+# The device link: TLS with the home computer's own certificate (versions checked 2026-10-30).
 # `ring` rather than aws-lc so it cross-compiles for Android without cmake.
 if-addrs = "0.15.0"
 mdns-sd = "0.21.6"
@@ -69,7 +69,7 @@ rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "
 ring = "0.17.14"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
-# The Gate's HTTP client (already in the build through axum).
+# The device's HTTP client (already in the build through axum).
 bytes = "1.12.1"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", default-features = false, features = ["client", "http1"] }

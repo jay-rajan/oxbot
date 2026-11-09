@@ -268,7 +268,7 @@ async fn turn(
 }
 
 #[tokio::test]
-async fn a_codex_bot_browses_through_the_gate_and_only_the_relay_is_contacted() {
+async fn a_codex_bot_browses_through_the_device_and_only_the_relay_is_contacted() {
     let Some(w) = world("1_4").await else { return };
     let started = w
         .engine

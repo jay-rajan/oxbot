@@ -8,9 +8,9 @@ import type { BotInfo } from "./BotInfo";
 import type { BrowserState } from "./BrowserState";
 import type { CaseDraft } from "./CaseDraft";
 import type { ComparePrefs } from "./ComparePrefs";
+import type { DeviceInfo } from "./DeviceInfo";
 import type { DoorState } from "./DoorState";
 import type { EnginesView } from "./EnginesView";
-import type { GateInfo } from "./GateInfo";
 import type { LogLine } from "./LogLine";
 import type { NetRow } from "./NetRow";
 import type { NetTotals } from "./NetTotals";
@@ -111,11 +111,11 @@ owner: string | null, } | { "type": "fine_grained_sites",
 /**
  * The sites.
  */
-sites: Array<string>, } | { "type": "pairing" } & PairingCode | { "type": "pairing_closed" } | { "type": "gates", 
+sites: Array<string>, } | { "type": "pairing" } & PairingCode | { "type": "pairing_closed" } | { "type": "devices", 
 /**
  * Oldest first.
  */
-gates: Array<GateInfo>, } | { "type": "door" } & DoorState | { "type": "people", 
+devices: Array<DeviceInfo>, } | { "type": "door" } & DoorState | { "type": "people", 
 /**
  * Everyone, in the order oxbot first saw them.
  */
@@ -135,7 +135,7 @@ placed: { [key in string]?: string }, } | { "type": "notice",
 message: string, 
 /**
  * Whose it is, if it's about one person's own browser: only they
- * (and the Farm) get it. `None` for everyone.
+ * (and the home computer) get it. `None` for everyone.
  */
 owner: string | null, } | { "type": "allow_rules", 
 /**

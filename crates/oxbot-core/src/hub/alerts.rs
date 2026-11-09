@@ -242,15 +242,15 @@ impl Hub {
     }
 
     /// The name a notification on the Mac's screen may show for `bot`:
-    /// `None` for a bot that's private to someone other than the Farm's
+    /// `None` for a bot that's private to someone other than the home computer's
     /// own person (the Mac's screen isn't theirs), or a bot oxbot doesn't
     /// know.
     #[must_use]
     pub fn notice_name(&self, bot: &str) -> Option<String> {
         let bot = self.bot(bot).ok()?;
-        let theirs = bot.owner.is_some() && bot.owner != self.farm_id();
-        let own = bot.private || (bot.is_central() && !bot.is_main_herder());
-        (!(theirs && own)).then(|| self.as_herder(&bot).name)
+        let theirs = bot.owner.is_some() && bot.owner != self.owner_person_id();
+        let own = bot.private || (bot.is_central() && !bot.is_main_assistant());
+        (!(theirs && own)).then(|| self.as_assistant(&bot).name)
     }
 }
 

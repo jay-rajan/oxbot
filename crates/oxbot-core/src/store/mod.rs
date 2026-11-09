@@ -4,7 +4,7 @@
 //! `seq` N can ask for everything after N and miss nothing.
 //!
 //! One file per table group: [`migrations`] (the schema and its changes),
-//! people, sites, gates, events, sessions, "Always allow" rules, sidebar
+//! people, sites, devices, events, sessions, "Always allow" rules, sidebar
 //! sections, research reports with the pages each session opened, usage
 //! alerts and preferences, who started each turn, schedules and their
 //! runs, oxbot's own loop
@@ -21,7 +21,7 @@ pub use compare::{
 };
 mod events;
 pub use events::Replay;
-mod gates;
+mod devices;
 mod loop_state;
 mod members;
 pub use loop_state::{CallTotals, DayUsage, KEEP_CALLS_DAYS, KEEP_CLOSED_DAYS};
@@ -111,10 +111,10 @@ pub struct PersonRecord {
     pub color: String,
     /// The folder under `people/` that holds their own Chrome profile.
     pub folder: String,
-    /// Their own Herder's bot id.
-    pub herder: BotId,
-    /// Whether they're the Farm's own person (the Mac's owner).
-    pub farm: bool,
+    /// Their own Assistant's bot id.
+    pub assistant: BotId,
+    /// Whether they're the home computer's own person (the Mac's owner).
+    pub owner: bool,
 }
 
 impl PersonRecord {
@@ -124,7 +124,7 @@ impl PersonRecord {
         Person {
             name: self.name.clone(),
             color: self.color.clone(),
-            role: if self.farm { "owner" } else { "adult" }.to_owned(),
+            role: if self.owner { "owner" } else { "adult" }.to_owned(),
             photo: None,
         }
     }

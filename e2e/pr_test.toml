@@ -5,7 +5,7 @@ server = "target/debug/oxbot"
 # is skipped, saying why.
 needs = ["codex"]
 tools = "target/tools-bundle"
-# The Farm's person in tests.
+# The home computer's person in tests.
 person = "Jay"
 # Changes here also run the tests in Safari (the engine of the app's window).
 safari_when = ["crates/oxbot/ui-src/**"]

@@ -1,6 +1,6 @@
 # oxbot words
 
-Decided 2026-11-04. Use these words in everything a person sees: the app, phone app, Settings, cards, messages, README, terms and help. Code identifiers may keep old names (Farm, Gate, Herder, engine) where renaming would only churn; comments should use the new words.
+Decided 2026-11-04. Use these words in everything a person sees: the app, phone app, Settings, cards, messages, README, terms and help. Code uses the same words (since 2026-11-09): identifiers, types, files, comments, tests and docs say home computer (`home_computer`, `HomeComputer`), device (`device`, `Device`) and Assistant (`assistant`, `Assistant`, or `assistant_bot` where "assistant" could mean a model's reply). The old names stay only where they are stored on people's computers and phones (database values, file names, settings), each marked in the code, and in history (`PROMPTS.md`, `docs/reviews/`). "Gate" in code still also means the approval check before a bot acts (`GateCheck`, `GateMode`): that is not a device. "engine" stays in code.
 
 | Say | Not | Meaning |
 |---|---|---|

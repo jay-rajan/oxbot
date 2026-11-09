@@ -1,14 +1,14 @@
 //! The phone's own copy of the chats it can see, so they can be read away
 //! from home.
 //!
-//! It's filled from what the Farm sends over the link anyway: no extra
+//! It's filled from what the home computer sends over the link anyway: no extra
 //! requests. Limits: the latest [`KEEP_MESSAGES`] messages per bot (with
 //! the steps between them), nothing older than [`KEEP_DAYS`] days, only
 //! bots this phone's person may open, and no file contents (events carry
 //! only short summaries of what bots did). Research reports the person
 //! opened are kept too (at most [`KEEP_REPORTS`], made in the last
-//! [`KEEP_DAYS`] days, gone with their bot or when deleted on the Farm), so
-//! they can be read away from home. Forgetting the Farm deletes it.
+//! [`KEEP_DAYS`] days, gone with their bot or when deleted on the home computer), so
+//! they can be read away from home. Forgetting the home computer deletes it.
 
 use std::path::{Path, PathBuf};
 
@@ -76,7 +76,7 @@ impl ChatCopy {
         })
     }
 
-    /// Keeps what's worth keeping from one message from the Farm (JSON
+    /// Keeps what's worth keeping from one message from the home computer (JSON
     /// text): bot events, reports the person opened, and the latest hello,
     /// settings, people, sections and bot list. Anything else, or anything
     /// unreadable, is skipped.
@@ -100,7 +100,7 @@ impl ChatCopy {
             // Only this phone's person's own sections ever reach it.
             ServerMsg::Sections { .. } => self.keep_latest("sections", text)?,
             ServerMsg::Report(r) => self.keep_report(&r.bot, &r.id, r.created_ms, text, now_ms)?,
-            // The Farm's list: a report deleted there goes here too.
+            // The home computer's list: a report deleted there goes here too.
             ServerMsg::Reports { bot, reports } => {
                 let ids: Vec<&str> = reports.iter().map(|r| r.id.as_str()).collect();
                 self.drop_reports_except(&bot, &ids)?;
@@ -163,7 +163,7 @@ impl ChatCopy {
     }
 
     /// Forgets `bot`'s kept reports that aren't in `ids` (deleted on the
-    /// Farm).
+    /// home computer).
     fn drop_reports_except(&self, bot: &str, ids: &[&str]) -> Result<(), CopyError> {
         let mut stmt = self.conn.prepare("SELECT id FROM reports WHERE bot = ?1")?;
         let kept: Vec<String> = stmt
@@ -188,9 +188,9 @@ impl ChatCopy {
     }
 
     /// Deletes chats of bots that are gone or this person may no longer open.
-    /// The Farm says which: a bot `locked` to this phone's person goes. A
+    /// The home computer says which: a bot `locked` to this phone's person goes. A
     /// private one also needs to be theirs (they may manage it), shared with
-    /// them (picked people), or, from a Farm too old to say, made under
+    /// them (picked people), or, from a home computer too old to say, made under
     /// their name.
     fn drop_hidden(&self, bots: &[BotInfo]) -> Result<(), CopyError> {
         let open: Vec<&str> = bots
@@ -263,7 +263,7 @@ impl ChatCopy {
         Ok(())
     }
 
-    /// What to show while away from the Farm, in the order the page expects:
+    /// What to show while away from the home computer, in the order the page expects:
     /// hello, settings, people, sections, bots, each bot's events, then the
     /// reports kept (the page holds them until one is opened).
     ///
@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn the_farm_says_which_bots_this_person_cant_open() {
+    fn the_home_computer_says_which_bots_this_person_cant_open() {
         let (_dir, mut copy) = copy();
         for bot in ["locked", "renamed", "shared"] {
             copy.record(&event(bot, 1, NOW, true), NOW).unwrap();
@@ -627,7 +627,7 @@ mod tests {
         assert_eq!(replay.len(), 2, "{replay:?}");
         assert!(replay.iter().all(|j| j.contains("\"type\":\"report\"")));
 
-        // Deleted on the Farm: gone here too.
+        // Deleted on the home computer: gone here too.
         let list = serde_json::to_string(&ServerMsg::Reports {
             bot: "recipes".into(),
             reports: vec![],

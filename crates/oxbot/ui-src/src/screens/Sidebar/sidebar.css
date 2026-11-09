@@ -91,7 +91,7 @@
    ring, an X ticks (tic… tac). (The chat's header avatar is in chat.css.) */
 .bot-item .avatar { width: 32px; height: 32px; display: grid; place-items: center; flex: none; }
 .bot-item .avatar svg { width: 100%; height: 100%; display: block; }
-.bot-item svg.herder { color: var(--ink); }
+.bot-item svg.assistant { color: var(--ink); }
 .bot-item .avatar .pc { transform-box: view-box; transform-origin: 50px 54px; }
 .bot-item .avatar.working .pc-o { animation: ttt-rock 1.4s ease-in-out infinite; }
 .bot-item .avatar.working .pc-x { animation: ttt-tick 1.4s ease-in-out infinite; }
@@ -111,4 +111,4 @@
 .side-foot .foot-btn .btn-icon { width: var(--icon); height: var(--icon); }
 .side-foot .foot-btn .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .side-foot .foot-btn.end { margin-left: auto; }
-@media (max-width: 340px) { #gateBtn .label { display: none; } }
+@media (max-width: 340px) { #deviceBtn .label { display: none; } }
