@@ -409,7 +409,7 @@ async fn http_get(addr: &str, path: &str) -> String {
 }
 
 #[tokio::test]
-async fn the_react_page_is_served_at_next_with_a_strict_policy() {
+async fn the_page_is_served_at_the_root_with_a_strict_policy() {
     let tmp = tempfile::tempdir().unwrap();
     let url = start(tmp.path()).await;
     let addr = url
@@ -419,29 +419,27 @@ async fn the_react_page_is_served_at_next_with_a_strict_policy() {
         .unwrap()
         .to_owned();
 
-    let page = http_get(&addr, "/next/").await.to_ascii_lowercase();
+    let page = http_get(&addr, "/").await.to_ascii_lowercase();
     assert!(page.starts_with("http/1.1 200"), "{page}");
     assert!(page.contains("content-type: text/html"));
     assert!(page.contains("content-security-policy: default-src 'self'; script-src 'self';"));
     assert!(page.contains("src=\"./app.js\""));
     assert!(!page.contains("<script>"), "no inline scripts");
 
-    let js = http_get(&addr, "/next/app.js").await.to_ascii_lowercase();
+    let js = http_get(&addr, "/app.js").await.to_ascii_lowercase();
     assert!(js.starts_with("http/1.1 200"));
     assert!(js.contains("content-type: text/javascript"));
-    let css = http_get(&addr, "/next/app.css").await.to_ascii_lowercase();
+    let css = http_get(&addr, "/app.css").await.to_ascii_lowercase();
     assert!(css.starts_with("http/1.1 200"));
     assert!(css.contains("content-type: text/css"));
 
-    // Without the slash, relative files wouldn't resolve: it redirects.
-    let bare = http_get(&addr, "/next").await.to_ascii_lowercase();
-    assert!(bare.starts_with("http/1.1 308"));
-    assert!(bare.contains("location: /next/"));
-    assert!(
-        http_get(&addr, "/next/other.js")
-            .await
-            .starts_with("HTTP/1.1 404")
-    );
+    // The old addresses are gone.
+    for gone in ["/old/", "/next/", "/other.js"] {
+        assert!(
+            http_get(&addr, gone).await.starts_with("HTTP/1.1 404"),
+            "{gone}"
+        );
+    }
 }
 
 #[tokio::test]

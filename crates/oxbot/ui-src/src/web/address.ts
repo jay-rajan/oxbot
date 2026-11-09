@@ -13,7 +13,17 @@ export interface DeviceBridge {
 declare global {
   interface Window {
     oxbotDevice?: DeviceBridge;
+    /** The same bridge from a phone app made before the rename to "device". */
+    oxbotGate?: { socket: () => WebSocket; farm?: string; person?: string };
   }
+}
+
+/** The phone app's bridge, from this app or one made before the rename. */
+export function deviceBridge(w: Window): DeviceBridge | undefined {
+  if (w.oxbotDevice) return w.oxbotDevice;
+  const old = w.oxbotGate;
+  if (!old) return undefined;
+  return { socket: old.socket, ...(old.farm ? { homeComputer: old.farm } : {}), ...(old.person ? { person: old.person } : {}) };
 }
 
 /** Storage the key is kept in for this window only. */

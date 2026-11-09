@@ -107,6 +107,8 @@ function installDevice(homeComputer, person) {
     close() { this.readyState = 3; T.invoke("device_close").catch(() => {}); }
   }
   window.oxbotDevice = { socket: () => new DeviceSocket(), homeComputer, person };
+  // A home computer not yet updated reads the bridge by its old name.
+  window.oxbotGate = { socket: window.oxbotDevice.socket, farm: homeComputer, person };
 }
 
 // Swaps this screen for the home computer's page, in place (no navigation, so the

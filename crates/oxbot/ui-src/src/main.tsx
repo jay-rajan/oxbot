@@ -7,7 +7,7 @@ import { App } from "./App";
 import { type App as AppApi, AppContext } from "./app/context";
 import { connect, socketUrl } from "./net/socket";
 import { createStore, local } from "./state/store";
-import { sessionStore, takeKey } from "./web/address";
+import { deviceBridge, sessionStore, takeKey } from "./web/address";
 import { LOGO } from "./components/brand";
 import { expose, exposeFn } from "./web/testBridge";
 import "./theme/tokens.css";
@@ -18,7 +18,7 @@ const key = takeKey(location, sessionStore(), (url) => history.replaceState(null
 // Test mode only: ?as=Name connects as that person (the server ignores it otherwise).
 const as = new URLSearchParams(location.search).get("as");
 const url = socketUrl({ host: location.host, secure: location.protocol === "https:", key, as });
-const device = window.oxbotDevice;
+const device = deviceBridge(window);
 
 const store = createStore();
 const socket = connect({
