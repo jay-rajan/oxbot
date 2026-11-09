@@ -1,7 +1,16 @@
 //! Turns: delivering a message to a bot's engine, cancelling, stopping
 //! idle bots and shutting down.
+//!
+//! A person's message to a bot that's working goes into its running task
+//! (the engine's [`crate::engine::Session::steer`]), shown in the chat as
+//! any message, and ends whatever the task waits on them for: a sign-in is
+//! cancelled and an approval request answered no, and the bot reads the
+//! message instead. "stop" (or "cancel") alone stops the task, like the
+//! Stop button. A message that can't go in (the task is just ending, or
+//! it's someone else's task) waits, and starts as the next turn as soon as
+//! the bot is free: none is dropped.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -97,6 +106,10 @@ impl Hub {
     /// tasks on for people, `relayed`). Refused, with nothing recorded,
     /// if the chain may not task the bot or its engine can't run. Returns
     /// the message's number in the bot's chat.
+    ///
+    /// A person's own message to a working bot goes into its task, or
+    /// waits to start as the next turn (see the module). A task passed on
+    /// by a bot, or a schedule's run, is refused with [`HubError::Busy`].
     pub(super) async fn send_for(
         self: &Arc<Self>,
         bot: &str,
@@ -110,34 +123,203 @@ impl Hub {
         may_task(origin)?;
         self.engine(self.engine_of(&bot))?;
         let from = from.map(str::trim).filter(|f| !f.is_empty());
+        let sent = Sent {
+            text,
+            files,
+            from,
+            origin,
+            relayed,
+        };
+        let joins = !relayed && origin.via.is_empty() && !origin.is_scheduled_run();
+        if joins && self.is_working(&bot.id).await {
+            return self.join_running(&bot, &sent).await;
+        }
         let permit = Arc::clone(&self.turns)
             .acquire_owned()
             .await
             .map_err(|_| HubError::Busy(bot.id.clone()))?;
 
         // Claim the bot, so a second message can't slip in while it starts.
-        self.claim(&bot.id).await?;
+        match self.claim(&bot.id).await {
+            Ok(()) => {}
+            // It started working while this message waited for a turn.
+            Err(HubError::Busy(_)) if joins => {
+                drop(permit);
+                return self.join_running(&bot, &sent).await;
+            }
+            Err(err) => return Err(err),
+        }
+        let result = self.deliver_claimed(&bot.id, &sent, permit, None).await;
+        lock(&self.starting).remove(&bot.id);
+        if result.is_err() {
+            // Messages that waited for this turn go now.
+            self.run_queued(&bot.id);
+        }
+        result
+    }
+
+    /// Delivers `sent` to `bot`, claimed by the caller (see
+    /// [`Hub::claim`]); `recorded`: the message is already in the chat,
+    /// with this number.
+    async fn deliver_claimed(
+        self: &Arc<Self>,
+        bot: &BotId,
+        sent: &Sent<'_>,
+        permit: OwnedSemaphorePermit,
+        recorded: Option<u64>,
+    ) -> Result<u64, HubError> {
         // It may have been made private, renamed or deleted while this
         // message waited for a turn: use it as it is now.
         // Its engine may have changed meanwhile too: check again.
-        let result = match self.bot(bot.id.as_str()) {
-            Ok(bot) => match may_task(origin) {
-                Ok(()) => {
-                    let sent = Sent {
-                        text,
-                        files,
-                        from,
-                        origin,
-                        relayed,
-                    };
-                    self.deliver(&bot, &sent, permit).await
-                }
-                Err(err) => Err(err),
+        let bot = self.bot(bot.as_str())?;
+        may_task(sent.origin)?;
+        self.deliver(&bot, sent, permit, recorded).await
+    }
+
+    /// Shows `sent` in `bot`'s chat. Returns its number there.
+    fn record_message(&self, bot: &BotId, sent: &Sent<'_>) -> Result<u64, HubError> {
+        let user_message = self.record(
+            bot,
+            EventKind::UserMessage {
+                text: sent.text.to_owned(),
+                from: sent.from.map(str::to_owned),
+                files: sent.files.to_vec(),
             },
-            Err(err) => Err(err),
+        )?;
+        // In the chat now, so kept: no longer waiting to be sent.
+        self.uploads_sent(sent.files);
+        Ok(user_message.seq)
+    }
+
+    /// Whether `bot` is running a turn, or starting one.
+    async fn is_working(&self, bot: &BotId) -> bool {
+        let runtimes = self.runtimes.lock().await;
+        runtimes.get(bot).is_some_and(|r| r.busy) || lock(&self.starting).contains(bot)
+    }
+
+    /// A person's message to `bot` while it works: recorded in the chat at
+    /// once, then "stop" stops the task; else it goes into the task (when
+    /// it's the same person's) and ends what the task waits on them for,
+    /// or it waits to start as the next turn. Returns its number in the chat.
+    async fn join_running(self: &Arc<Self>, bot: &Bot, sent: &Sent<'_>) -> Result<u64, HubError> {
+        let seq = self.record_message(&bot.id, sent)?;
+        if sent.files.is_empty() && is_stop_word(sent.text) {
+            tracing::info!(bot = %bot.id, "stopped by a message");
+            self.cancel(bot.id.as_str()).await?;
+            return Ok(seq);
+        }
+        let mut message = sender_line(sent.from, sent.text);
+        if !sent.files.is_empty() {
+            if !sent.text.is_empty() {
+                message.push_str("\n\n");
+            }
+            message.push_str(&crate::attach::note(sent.from, sent.files, &bot.work_dir()));
+        }
+        // Only into the sender's own task: another person's message never
+        // acts with that person's say (their cards, their sign-ins).
+        let steering = {
+            let mut runtimes = self.runtimes.lock().await;
+            runtimes
+                .get_mut(&bot.id)
+                .filter(|r| r.busy && r.origin.asker() == sent.origin.asker())
+                .map(|r| {
+                    r.last_active = Instant::now();
+                    r.session.steer(message)
+                })
         };
-        lock(&self.starting).remove(&bot.id);
-        result
+        let steered = match steering {
+            Some(steering) => match steering.await {
+                Ok(()) => true,
+                Err(err) => {
+                    tracing::info!(bot = %bot.id, %err, "the message waits for the next turn");
+                    false
+                }
+            },
+            None => false,
+        };
+        if steered {
+            if let Some(why) = &sent.origin.tainted_by {
+                self.mark_untrusted(&bot.id, format!("a task passed on after reading {why}"))
+                    .await;
+            }
+        } else {
+            let mut origin = sent.origin.clone();
+            origin.root.get_or_insert_with(|| (bot.id.clone(), seq));
+            lock(&self.queued)
+                .entry(bot.id.clone())
+                .or_default()
+                .push_back(Queued {
+                    text: sent.text.to_owned(),
+                    files: sent.files.to_vec(),
+                    from: sent.from.map(str::to_owned),
+                    origin,
+                    seq,
+                });
+        }
+        // The person wrote instead of answering: what the task waits on
+        // them for ends (after the message went in, so the bot reads it).
+        let theirs = self
+            .runtimes
+            .lock()
+            .await
+            .get(&bot.id)
+            .is_some_and(|r| r.origin.asker() == sent.origin.asker());
+        if theirs {
+            self.deny_for_message(&bot.id);
+            self.cancel_sign_ins(&bot.id);
+        }
+        // The task may have ended meanwhile: then the message goes now.
+        self.run_queued(&bot.id);
+        Ok(seq)
+    }
+
+    /// Starts `bot`'s first waiting message as a turn, if the bot is free
+    /// (else it goes when the running turn ends).
+    pub(super) fn run_queued(self: &Arc<Self>, bot: &BotId) {
+        if lock(&self.queued).get(bot).is_none_or(VecDeque::is_empty) {
+            return;
+        }
+        let hub = Arc::clone(self);
+        let bot = bot.clone();
+        tokio::spawn(async move {
+            let Ok(permit) = Arc::clone(&hub.turns).acquire_owned().await else {
+                return;
+            };
+            if hub.claim(&bot).await.is_err() {
+                // Busy: it goes when that turn ends.
+                return;
+            }
+            let next = {
+                let mut queued = lock(&hub.queued);
+                let next = queued.get_mut(&bot).and_then(VecDeque::pop_front);
+                if queued.get(&bot).is_some_and(VecDeque::is_empty) {
+                    queued.remove(&bot);
+                }
+                next
+            };
+            let Some(next) = next else {
+                lock(&hub.starting).remove(&bot);
+                return;
+            };
+            let sent = Sent {
+                text: &next.text,
+                files: &next.files,
+                from: next.from.as_deref(),
+                origin: &next.origin,
+                relayed: false,
+            };
+            let result = hub
+                .deliver_claimed(&bot, &sent, permit, Some(next.seq))
+                .await;
+            lock(&hub.starting).remove(&bot);
+            if let Err(err) = result {
+                tracing::warn!(%bot, %err, "a waiting message couldn't start");
+                if !matches!(err, HubError::UnknownBot(_)) {
+                    let _ = hub.turn_failed(&bot, &err.to_string());
+                }
+                hub.run_queued(&bot);
+            }
+        });
     }
 
     /// Marks `bot` as starting, so no message, privacy change or delete can
@@ -157,6 +339,7 @@ impl Hub {
         bot: &Bot,
         sent: &Sent<'_>,
         permit: OwnedSemaphorePermit,
+        recorded: Option<u64>,
     ) -> Result<u64, HubError> {
         let Sent {
             text,
@@ -166,24 +349,18 @@ impl Hub {
             relayed,
         } = *sent;
         let scheduled = self.note_scheduled(bot, origin, relayed)?;
-        let user_message = self.record(
-            &bot.id,
-            EventKind::UserMessage {
-                text: text.to_owned(),
-                from: from.map(str::to_owned),
-                files: files.to_vec(),
-            },
-        )?;
-        // In the chat now, so kept: no longer waiting to be sent.
-        self.uploads_sent(files);
+        let user_seq = match recorded {
+            Some(seq) => seq,
+            None => self.record_message(&bot.id, sent)?,
+        };
         let mut origin = origin.clone();
         if origin.root.is_none() {
-            origin.root = Some((bot.id.clone(), user_message.seq));
+            origin.root = Some((bot.id.clone(), user_seq));
         }
         let engine = self.engine_of(bot);
-        if let Err(err) =
-            self.store
-                .add_turn_origin(&bot.id, user_message.seq, &origin.record(engine))
+        if let Err(err) = self
+            .store
+            .add_turn_origin(&bot.id, user_seq, &origin.record(engine))
         {
             tracing::warn!(bot = %bot.id, %err, "couldn't save who started a turn");
         }
@@ -231,7 +408,7 @@ impl Hub {
         }
         let turn = TurnInput {
             text: message,
-            user_seq: user_message.seq,
+            user_seq,
             person: origin.asker().map(ToString::to_string),
             origin: serde_json::to_value(&origin).unwrap_or_default(),
         };
@@ -262,7 +439,7 @@ impl Hub {
         // The taint stays: the session still remembers what earlier turns read.
         drop(runtimes);
         self.announce_bots().await;
-        Ok(user_message.seq)
+        Ok(user_seq)
     }
 
     /// A schedule's run says so in the chat, just above its task. Returns
@@ -398,6 +575,27 @@ pub(super) async fn stop_idle_bots(hub: std::sync::Weak<Hub>) {
     }
 }
 
+/// A person's message that waits for its bot's running turn to end, to
+/// start the next one. Already in the chat (`seq`).
+#[derive(Debug)]
+pub(super) struct Queued {
+    text: String,
+    files: Vec<Attachment>,
+    from: Option<String>,
+    origin: ChainOrigin,
+    seq: u64,
+}
+
+/// Whether a message is just "stop" or "cancel" (any case, with
+/// punctuation or spaces around): it stops the bot's task.
+pub(super) fn is_stop_word(text: &str) -> bool {
+    let word = text
+        .trim()
+        .trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+        .to_lowercase();
+    matches!(word.as_str(), "stop" | "cancel")
+}
+
 /// A message on its way to a bot.
 #[derive(Clone, Copy)]
 struct Sent<'a> {
@@ -464,5 +662,20 @@ pub(super) fn sender_line(from: Option<&str>, text: &str) -> String {
     match from {
         Some(name) => format!("[{name}] {body}"),
         None => body,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_stop_word;
+
+    #[test]
+    fn stop_or_cancel_alone_stops_a_task() {
+        for word in ["stop", "Stop!", "  STOP. ", "cancel", "Cancel!!", "stop?"] {
+            assert!(is_stop_word(word), "{word}");
+        }
+        for text in ["stop the second search", "don't stop", "", "!", "cancelled"] {
+            assert!(!is_stop_word(text), "{text}");
+        }
     }
 }

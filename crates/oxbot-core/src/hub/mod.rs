@@ -306,6 +306,12 @@ pub struct Hub {
     /// Bots whose session is being started (which can take a while the
     /// first time, while the browser tool installs).
     starting: std::sync::Mutex<HashSet<BotId>>,
+    /// People's messages to a busy bot that couldn't go into its running
+    /// task: each starts as the next turn (see [`turns`]).
+    queued: std::sync::Mutex<HashMap<BotId, std::collections::VecDeque<turns::Queued>>>,
+    /// Approval requests said no to because the person sent a message
+    /// instead: the bot is told to read it rather than stop.
+    answered_by_message: std::sync::Mutex<HashSet<u64>>,
     /// Turns that may run at once.
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
@@ -403,6 +409,8 @@ impl Hub {
             browsers: std::sync::Mutex::new(HashMap::new()),
             me: me.clone(),
             starting: std::sync::Mutex::new(HashSet::new()),
+            queued: std::sync::Mutex::new(HashMap::new()),
+            answered_by_message: std::sync::Mutex::new(HashSet::new()),
             approvals: std::sync::Mutex::new(BTreeMap::new()),
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),

@@ -1,5 +1,6 @@
 // The message box: file chips, attach, the box itself, the microphone, Stop
-// and Send. Enter sends; the box grows with its text.
+// and Send. Enter sends; the box grows with its text. It stays usable while
+// the bot works: a message then goes into its task.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Button, Chip as ChipPiece, IconButton } from "../../components/ui";
@@ -133,7 +134,7 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
           </IconButton>
         </div>
         <Button kind="secondary" id="stop" hidden={!known || !busy || locked} onClick={() => current && app.send({ type: "cancel", bot: current })}>Stop</Button>
-        <Button kind="primary" id="send" type="submit" disabled={known && (busy || locked || !connected || uploadingNow)}>Send</Button>
+        <Button kind="primary" id="send" type="submit" disabled={known && (locked || !connected || uploadingNow)}>Send</Button>
       </form>
     </>
   );

@@ -8,7 +8,8 @@ services, no analytics, and nothing goes to Anthropic.
 
 Status: the desktop app on the home computer plus the Android app for devices (milestone
 Foundations, issue #1). Shared bots share one hidden home Chrome that keeps the websites you're
-signed in to: a bot that needs an account asks, a Chrome window opens, you sign in once, and
+signed in to: a bot that needs an account asks, a plain Chrome window opens (no remote control, so
+sites don't take it for a robot), you sign in once and close it, and
 every bot on that Chrome stays signed in (a sign-in counts only if the window left a new cookie).
 Settings → Sign-ins lists the websites you're signed in to (the sidebar's Signed in link opens
 it); open one, or sign out of it alone. Bots take turns on the browser. oxbot checks every
@@ -72,7 +73,12 @@ available. macOS asks for the microphone and speech recognition the first time.
 The Assistant leads your bots: it can list them, make one (after you press Create on its
 approval request), give a bot a task and bring back its reply. Other bots can't. Messages show
 who sent them, each person in their own color; a working bot's icon moves, and a green dot marks
-unread replies.
+unread replies. A message sent while a bot works goes into its task (the
+bot reads it before its next step and answers both at the end); if the task waits on you for a
+sign-in or an approval request, the message ends that wait instead (the sign-in is cancelled, the
+request answered Don't allow), and "stop" alone stops the task. Someone else's message waits and
+runs right after. Answers taken from web pages link them; one that doesn't is sent back once,
+then oxbot adds a Sources list of the pages the bot really read.
 
 Private bots: every bot records who made it, and its maker can make it private. A private bot is
 listed for everyone (name, maker, a lock), but only its maker and the owner can open it, and it

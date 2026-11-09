@@ -1,6 +1,16 @@
 //! [`Browser`]: the Chrome every bot shares. It keeps its profile, so the
 //! user signs in to a site once and every bot stays signed in. It runs
-//! hidden, and comes up as a normal window only while the user signs in.
+//! hidden, under oxbot's control, and comes up as a normal window only
+//! while the user signs in.
+//!
+//! The sign-in window is plain Chrome on the same profile: no remote
+//! debugging and no automation flags, so sites that look for automated
+//! browsers (X's sign-in, say) load as they would in the person's own
+//! Chrome, and no "controlled by automated software" bar shows. oxbot
+//! doesn't talk to it at all: it waits for it to quit, or (on a Mac, where
+//! Chrome stays open with no windows) for its last window to close, then
+//! quits it and starts hidden Chrome again. Whether the sign-in worked is
+//! read from the cookies after that (see `oxbot_core`'s sign-ins).
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -41,8 +51,59 @@ pub enum BrowserStatus {
 
 enum State {
     Off,
+    /// Hidden Chrome, under oxbot's control.
     Hidden(Child),
+    /// The plain sign-in window (oxbot has no connection to it).
     Window(Child),
+}
+
+/// How Chrome is started (see [`chrome_args`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Launch<'a> {
+    /// Hidden and under oxbot's control on `port`, sending `user_agent`.
+    Hidden {
+        port: u16,
+        user_agent: Option<&'a str>,
+    },
+    /// The plain sign-in window at `url` (`headless`: end-to-end tests).
+    Window { url: &'a str, headless: bool },
+}
+
+/// Chrome's command line (after the program) for `launch` on `profile`,
+/// with `extra` flags (end-to-end tests' host rules).
+fn chrome_args(profile: &Path, launch: &Launch<'_>, extra: &[String]) -> Vec<String> {
+    let mut args = vec![
+        format!("--user-data-dir={}", profile.display()),
+        "--no-first-run".to_owned(),
+        "--no-default-browser-check".to_owned(),
+        "--disable-sync".to_owned(),
+    ];
+    match launch {
+        Launch::Hidden { port, user_agent } => {
+            args.extend([
+                "--remote-debugging-address=127.0.0.1".to_owned(),
+                format!("--remote-debugging-port={port}"),
+                // WebRTC only through a proxy: in a sealed tab (whose proxy
+                // goes nowhere) it can't send anything at all.
+                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned(),
+            ]);
+            args.extend(extra.iter().cloned());
+            // Hidden Chrome calls itself "HeadlessChrome", which many sites
+            // block. It sends the same name as the user's normal Chrome.
+            if let Some(agent) = user_agent {
+                args.push(format!("--user-agent={agent}"));
+            }
+            args.extend(["--headless=new".to_owned(), "about:blank".to_owned()]);
+        }
+        Launch::Window { url, headless } => {
+            args.extend(extra.iter().cloned());
+            if *headless {
+                args.push("--headless=new".to_owned());
+            }
+            args.push((*url).to_owned());
+        }
+    }
+    args
 }
 
 impl State {
@@ -245,7 +306,12 @@ impl Browser {
 
     async fn start_hidden(&self, state: &mut State) -> Result<(), BrowserError> {
         self.kill_leftover().await;
-        let mut child = self.spawn_chrome(None)?;
+        let chrome = self.tools.config().chrome.clone();
+        let user_agent = self.user_agent.get_or_init(|| user_agent_for(&chrome));
+        let mut child = self.spawn_chrome(&Launch::Hidden {
+            port: self.port,
+            user_agent: user_agent.as_deref(),
+        })?;
         if let Err(err) = self.wait_until_ready().await {
             let _ = child.kill().await;
             return Err(err);
@@ -261,29 +327,38 @@ impl Browser {
         Ok(())
     }
 
-    /// Shows the browser as a normal window at `url` so the user can sign in,
-    /// in place of the hidden Chrome and on the same port. If the window is
-    /// already open, `url` opens in a new tab. When the user closes the
-    /// window (or its last tab), hidden Chrome starts again straight away.
+    /// Shows the browser as a plain Chrome window at `url` so the user can
+    /// sign in, in place of the hidden Chrome (one Chrome per profile at a
+    /// time): no remote control, no automation flags. If the window is
+    /// already open, `url` opens in a new tab of it. When the user closes
+    /// the window, hidden Chrome starts again straight away.
     ///
     /// # Errors
     /// Fails if Chrome is missing or doesn't start.
     pub async fn open_window(self: &Arc<Self>, url: &str) -> Result<(), BrowserError> {
+        let headless = self.tools.config().hidden_windows;
+        let window = Launch::Window { url, headless };
         let mut state = self.state.lock().await;
         if let State::Window(child) = &mut *state
             && matches!(child.try_wait(), Ok(None))
         {
             drop(state);
-            let path = format!("/json/new?{}", http::encode_url(url));
-            if !http::put(self.port, &path).await {
-                tracing::warn!(url, "couldn't open a tab in the sign-in window");
+            if headless {
+                tracing::warn!("a hidden sign-in window can't take another tab");
+                return Ok(());
             }
+            // Chrome hands a second start on the same profile to the one
+            // running, which opens `url` in a new tab; this one then exits.
+            let mut forward = self.spawn_chrome(&window)?;
+            tokio::spawn(async move {
+                let _ = tokio::time::timeout(Duration::from_secs(30), forward.wait()).await;
+            });
             return Ok(());
         }
         if let Some(child) = state.take() {
             self.quit(child).await;
         }
-        let child = match self.spawn_chrome(Some(url)) {
+        let child = match self.spawn_chrome(&window) {
             Ok(child) => child,
             Err(err) => {
                 self.status.send_replace(BrowserStatus::Off);
@@ -293,10 +368,7 @@ impl Browser {
         *state = State::Window(child);
         drop(state);
         self.status.send_replace(BrowserStatus::SigningIn);
-        if self.wait_until_ready().await.is_ok() {
-            self.start_guard().await;
-        }
-        tokio::spawn(watch_window(Arc::downgrade(self)));
+        tokio::spawn(watch_window(Arc::downgrade(self), !headless));
         Ok(())
     }
 
@@ -706,13 +778,6 @@ impl Browser {
         }
     }
 
-    /// Open tabs, or `None` if Chrome doesn't answer.
-    async fn page_count(&self) -> Option<usize> {
-        http::get(self.port, "/json/list")
-            .await
-            .map(|body| http::page_ids(&body).len())
-    }
-
     /// Stops a Chrome left on this profile by an oxbot that didn't shut down
     /// cleanly; otherwise the new one would find the profile in use.
     async fn kill_leftover(&self) {
@@ -729,38 +794,18 @@ impl Browser {
         }
     }
 
-    /// Starts Chrome: hidden on a blank page, or as a window at `url`.
-    fn spawn_chrome(&self, window_url: Option<&str>) -> Result<Child, BrowserError> {
+    /// Starts Chrome as `launch` says.
+    fn spawn_chrome(&self, launch: &Launch<'_>) -> Result<Child, BrowserError> {
         let chrome = &self.tools.config().chrome;
         if !chrome.exists() {
             return Err(BrowserError::ChromeMissing(chrome.clone()));
         }
         let mut cmd = Command::new(chrome);
-        cmd.arg(format!("--user-data-dir={}", self.profile_dir.display()))
-            .args([
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-sync",
-                "--remote-debugging-address=127.0.0.1",
-                // WebRTC only through a proxy: in a sealed tab (whose proxy
-                // goes nowhere) it can't send anything at all.
-                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-            ])
-            .arg(format!("--remote-debugging-port={}", self.port))
-            .args(&self.tools.config().chrome_args);
-        if let Some(url) = window_url {
-            if self.tools.config().hidden_windows {
-                cmd.arg("--headless=new");
-            }
-            cmd.arg(url);
-        } else {
-            // Hidden Chrome calls itself "HeadlessChrome", which many sites
-            // block. It sends the same name as the user's normal Chrome.
-            if let Some(agent) = self.user_agent.get_or_init(|| user_agent_for(chrome)) {
-                cmd.arg(format!("--user-agent={agent}"));
-            }
-            cmd.args(["--headless=new", "about:blank"]);
-        }
+        cmd.args(chrome_args(
+            &self.profile_dir,
+            launch,
+            &self.tools.config().chrome_args,
+        ));
         cmd.stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -771,7 +816,7 @@ impl Browser {
         })?;
         tracing::info!(
             browser = self.label,
-            hidden = window_url.is_none() || self.tools.config().hidden_windows,
+            window = matches!(launch, Launch::Window { .. }),
             pid = child.id(),
             "Chrome started"
         );
@@ -789,32 +834,46 @@ impl Browser {
     }
 }
 
-/// Watches the sign-in window. When the user closes it (or its last tab),
-/// oxbot quits it and starts hidden Chrome again on the same port at once,
-/// so a bot in the middle of a task carries on.
-async fn watch_window(browser: std::sync::Weak<Browser>) {
+/// Watches the sign-in window. When the user closes it, oxbot quits it
+/// and starts hidden Chrome again on the same port at once, so a bot in
+/// the middle of a task carries on. Closed means Chrome quit, or (with
+/// `count_windows`: a visible window on a Mac, where Chrome stays open
+/// with no windows) its last window went, once one had shown.
+async fn watch_window(browser: std::sync::Weak<Browser>, count_windows: bool) {
+    let mut seen_window = false;
     let mut empty_checks = 0;
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let Some(this) = browser.upgrade() else {
             return;
         };
-        let exited = {
+        let (exited, pid) = {
             let mut state = this.state.lock().await;
             match &mut *state {
-                State::Window(child) => !matches!(child.try_wait(), Ok(None)),
+                State::Window(child) => (!matches!(child.try_wait(), Ok(None)), child.id()),
                 _ => return,
             }
         };
         if !exited {
-            empty_checks = if this.page_count().await == Some(0) {
-                empty_checks + 1
-            } else {
-                0
+            let windows = match pid {
+                Some(pid) if count_windows => window_count(pid).await,
+                _ => None,
             };
+            match windows {
+                Some(0) if seen_window => empty_checks += 1,
+                Some(0) | None => continue,
+                Some(_) => {
+                    seen_window = true;
+                    empty_checks = 0;
+                }
+            }
             if empty_checks < 2 {
                 continue;
             }
+            tracing::info!(
+                browser = this.label,
+                "the sign-in window's last window closed"
+            );
         }
         let mut state = this.state.lock().await;
         if matches!(*state, State::Window(_)) {
@@ -823,6 +882,45 @@ async fn watch_window(browser: std::sync::Weak<Browser>) {
         return;
     }
 }
+
+/// How many browser windows process `pid` has open (minimized ones too),
+/// from macOS's window list: Chrome's own small helper windows (menu
+/// bar strips, 1×1 ones) don't count. `None` where that can't be read
+/// (not a Mac, or `osascript` failed). Needs no permission: only each
+/// window's owner, layer and size are read, never its title.
+async fn window_count(pid: u32) -> Option<usize> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let script = format!(
+        "ObjC.import('CoreGraphics'); \
+         const all = ObjC.deepUnwrap(ObjC.castRefToObject(\
+           $.CGWindowListCopyWindowInfo($.kCGWindowListOptionAll, 0))) || []; \
+         String(all.filter(w => w.kCGWindowOwnerPID === {pid} && w.kCGWindowLayer === 0 \
+           && w.kCGWindowBounds && w.kCGWindowBounds.Width >= {MIN_WINDOW} \
+           && w.kCGWindowBounds.Height >= {MIN_WINDOW}).length)"
+    );
+    let out = tokio::time::timeout(
+        Duration::from_secs(5),
+        Command::new("/usr/bin/osascript")
+            .args(["-l", "JavaScript", "-e", &script])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// Smallest width and height (points) of a window that counts as a
+/// browser window in [`window_count`].
+const MIN_WINDOW: u32 = 100;
 
 /// Asks Chrome to quit normally (SIGTERM), so it writes cookies and sign-ins
 /// to disk, and only forces it after 10 seconds. A forced kill loses recent
@@ -1062,6 +1160,66 @@ mod tests {
         assert!(profile.exists(), "shutting down keeps sign-ins");
         browser.sign_out().await.unwrap();
         assert!(!profile.exists());
+    }
+
+    /// Flags that let a program control Chrome, or tell sites it's
+    /// automated: never on the sign-in window.
+    const CONTROL_FLAGS: [&str; 5] = [
+        "--remote-debugging-port",
+        "--remote-debugging-address",
+        "--remote-debugging-pipe",
+        "--enable-automation",
+        "--user-agent",
+    ];
+
+    #[test]
+    fn the_sign_in_window_is_plain_chrome() {
+        let profile = Path::new("/p/profile");
+        let window = chrome_args(
+            profile,
+            &Launch::Window {
+                url: "https://x.com/i/flow/login",
+                headless: false,
+            },
+            &[],
+        );
+        assert_eq!(
+            window,
+            [
+                "--user-data-dir=/p/profile",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-sync",
+                "https://x.com/i/flow/login",
+            ]
+        );
+        for flag in CONTROL_FLAGS {
+            assert!(
+                window.iter().all(|a| !a.starts_with(flag)),
+                "{flag} on the sign-in window"
+            );
+        }
+        // Hidden Chrome is the one oxbot controls.
+        let hidden = chrome_args(
+            profile,
+            &Launch::Hidden {
+                port: 9222,
+                user_agent: Some("Mozilla/5.0 Chrome/156.0.0.0"),
+            },
+            &[],
+        );
+        assert!(hidden.contains(&"--remote-debugging-port=9222".to_owned()));
+        assert!(hidden.contains(&"--headless=new".to_owned()));
+        assert_eq!(hidden[0], "--user-data-dir=/p/profile", "the same profile");
+    }
+
+    #[tokio::test]
+    async fn a_mac_counts_no_windows_for_a_process_without_any() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        // This test's own process shows no window.
+        assert_eq!(window_count(std::process::id()).await, Some(0));
     }
 
     #[test]

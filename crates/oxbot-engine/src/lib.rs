@@ -142,6 +142,18 @@ pub trait Session: Send {
     /// reports through the events.
     fn send(&mut self, turn: TurnInput) -> BoxFuture<'_, Result<(), EngineError>>;
 
+    /// Adds `text` (a person's message, marked as [`TurnInput::text`] is)
+    /// to the turn that's running, so the bot reads it before its next
+    /// step and answers at the end of the same turn. Takes the message at
+    /// once; the returned future (which borrows nothing, so the caller
+    /// needn't hold the session meanwhile) says whether the turn took it.
+    ///
+    /// # Errors
+    /// The future fails if no turn is running, the turn is ending or can't
+    /// take more input (its answer is being checked, say), or the engine
+    /// refused: the caller then sends it as the next turn.
+    fn steer(&mut self, text: String) -> BoxFuture<'static, Result<(), EngineError>>;
+
     /// Stops the current turn; the session stays.
     fn interrupt(&mut self) -> BoxFuture<'_, Result<(), EngineError>>;
 

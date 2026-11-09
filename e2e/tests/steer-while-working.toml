@@ -1,0 +1,33 @@
+name = "A message sent while the bot works goes into its task"
+about = "While a bot works on one message, the person sends another: no \"still working\" refusal, the box and Send stay usable (Stop is there too), both messages show in the chat, and the one reply at the end of the same task answers both."
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-codex/src/engine.rs", "crates/oxbot-engine/**"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "take your time"
+note = "The stand-in takes 3 seconds to answer this one"
+[[step]]
+expect_js = "!document.getElementById('stop').hidden && !document.getElementById('send').disabled && !document.getElementById('input').disabled"
+timeout_ms = 3000
+note = "Working: Stop shows, and the box and Send stay usable"
+shot = "working"
+[[step]]
+send = "add a salad too"
+note = "Sent while it works"
+[[step]]
+expect_not = "still working on the last message"
+[[step]]
+wait_for = "Salad added too."
+timeout_ms = 20000
+note = "The same task answers it"
+[[step]]
+expect_js = "(() => { const t = document.getElementById('log').innerText; return t.includes('take your time') && t.includes('add a salad too') && t.includes('Done, slowly.') && t.indexOf('Done, slowly.') < t.indexOf('Salad added too.'); })()"
+note = "Both messages show, and the reply covers both"
+[[step]]
+expect_js = "document.getElementById('stop').hidden"
+timeout_ms = 10000
+note = "One task: done"
+shot = "answered"
+[[step]]
+expect_not = "still working on the last message"

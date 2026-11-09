@@ -43,7 +43,9 @@ use oxbot_llm::{ChatModel, KeyCell};
 
 pub use budget::TokenBudget;
 pub use check::{
-    CHECK_AFTER_CALLS, MAX_NAMED, answer_after_check, note as check_note, wrap_up_note,
+    CHECK_AFTER_CALLS, MAX_NAMED, MAX_SOURCES, SourcePage, add_source, answer_after_check,
+    has_link, link_line, needs_links, note as check_note, pages_in_result, with_sources,
+    wrap_up_note,
 };
 pub use meter::{GuardQuery, LimitHit, NoLimits, UsageGuard};
 pub use pacer::{Account, Lane, Pacer};

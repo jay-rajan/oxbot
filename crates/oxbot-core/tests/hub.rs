@@ -2100,28 +2100,22 @@ async fn busy_poster(dir: &Path, turns: usize) -> (Arc<Hub>, Approval, Receiver<
 }
 
 #[tokio::test]
-async fn a_send_that_fails_keeps_its_files_to_send_again() {
+async fn files_sent_to_a_working_bot_go_into_its_task() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
     }
-    let (hub, card, mut updates) = busy_poster(tmp.path(), 2).await;
+    let (hub, _card, mut updates) = busy_poster(tmp.path(), 2).await;
     let jay = Viewer::device("Jay");
     let csv = upload(&hub, "poster", &jay, "list.csv", b"a,b\n")
         .await
         .unwrap();
-    let busy = hub
-        .send_files_as("poster", "and this", std::slice::from_ref(&csv.id), &jay)
-        .await;
-    assert!(matches!(busy, Err(HubError::Busy(_))), "{busy:?}");
-    let saved = tmp.path().join("bots/poster/work").join(&csv.path);
-    assert!(saved.is_file(), "still there");
-    // Once the bot is free, the same file goes.
-    assert!(hub.answer(card.id, Answer::Deny));
-    wait_for_turn_done(&mut updates).await;
     hub.send_files_as("poster", "and this", std::slice::from_ref(&csv.id), &jay)
         .await
         .unwrap();
+    // The card it waited on is answered no; the task goes on and ends.
+    wait_for_turn_done(&mut updates).await;
+    assert_eq!(hub.pending_approvals(), []);
     let last = hub
         .history("poster", 0)
         .unwrap()
