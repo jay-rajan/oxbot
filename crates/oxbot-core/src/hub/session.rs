@@ -268,6 +268,7 @@ impl Hub {
         if was_busy {
             let _ = self.turn_failed(&bot, "The bot's AI helper stopped unexpectedly.");
         }
+        self.run_queued(&bot);
     }
 
     async fn handle(
@@ -344,6 +345,8 @@ impl Hub {
                 }
                 self.cue_data_policy();
                 self.announce_bots().await;
+                // A message sent while it worked that didn't go in goes now.
+                self.run_queued(bot);
             }
             EngineEvent::Activity(activity) => {
                 let _ = self.updates.send(ServerMsg::Activity {

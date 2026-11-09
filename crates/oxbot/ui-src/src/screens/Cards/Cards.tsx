@@ -91,7 +91,7 @@ export function Cards() {
       <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}`}>
         <div className="where">
           {s.window_open
-            ? "Sign in in the Chrome window that opened. Then press I'm signed in, or just close the window."
+            ? `Sign in to ${s.site} in the window that opened, then close it.`
             : `${s.why ? `${s.why}. ` : ""}You type your password yourself, in a normal Chrome window. Every bot then stays signed in there.`}
         </div>
         <div className="btn-row btns">

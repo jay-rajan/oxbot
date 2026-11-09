@@ -105,6 +105,22 @@ impl Hub {
             .collect()
     }
 
+    /// Says no to every open card for `bot` because its person sent a
+    /// message instead (see [`Hub::send_for`]): the bot is told to read it.
+    pub(super) fn deny_for_message(&self, bot: &BotId) {
+        let ids: Vec<u64> = lock(&self.approvals)
+            .iter()
+            .filter(|(_, (a, _, _))| a.bot == bot.as_str())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            lock(&self.answered_by_message).insert(id);
+            if !self.answer(id, Answer::Deny) {
+                lock(&self.answered_by_message).remove(&id);
+            }
+        }
+    }
+
     /// Denies every open card for `bot` (its turn ended or was cancelled).
     pub(super) fn deny_open_approvals(&self, bot: &BotId) {
         let ids: Vec<u64> = lock(&self.approvals)
@@ -327,7 +343,14 @@ impl Hub {
         page: Option<(String, String)>,
     ) -> Result<Decision, HubError> {
         let ask = self.with_maker(bot, ask).await;
-        let outcome = self.confirm(bot, &ask, page).await?;
+        let (outcome, id) = self.confirm_card(bot, &ask, page).await?;
+        if lock(&self.answered_by_message).remove(&id) {
+            return Ok(Decision::Deny(format!(
+                "The user didn't allow {} {}: they sent a new message instead. Read it and do \
+                 what it says.",
+                ask.action, ask.target
+            )));
+        }
         Ok(match outcome {
             Outcome::Allowed | Outcome::AllowedAlways => Decision::Allow,
             Outcome::TimedOut => Decision::Deny(format!(

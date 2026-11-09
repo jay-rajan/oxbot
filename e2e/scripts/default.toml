@@ -176,6 +176,11 @@ when = "take your time"
 say = "Done, slowly."
 delay_ms = 3000
 
+# Sent while "take your time" works: it goes into that task.
+[[reply]]
+when = "add a salad too"
+say = "Salad added too."
+
 # A message with files: oxbot's note says "attached"; open each and say
 # what's in it.
 [[reply]]

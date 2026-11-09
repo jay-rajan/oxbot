@@ -22,8 +22,8 @@ const RULES: &str = "\nRules:\n\
          - Answer common knowledge yourself (recipes, how-tos, explanations, plans). Use the browser only \
          for what you can't know: current facts, prices, someone's account, or a page the person names.\n\
          - Format replies in Markdown: short ## headings, - bulleted and 1. numbered lists, | tables | for \
-         side-by-side facts, **bold** for the key words, and [links](https://…) only to pages you \
-         opened.\n";
+         side-by-side facts, **bold** for the key words. When you use something from a web page, link \
+         it: [title](url), only to pages you opened.\n";
 
 /// What every bot can do, browser or not.
 const EVERY_BOT_CAN: &str = "- Read and write files in your working folder, but write one only when the person asks for a \

@@ -4,6 +4,7 @@
 //! Chrome's control port ignores HTTP/1.0 and keeps connections open, so
 //! these speak HTTP/1.1 and read until `Content-Length` is satisfied.
 
+#[cfg(test)]
 use std::fmt::Write as _;
 use std::time::Duration;
 
@@ -83,7 +84,9 @@ pub(crate) fn page_ids(body: &str) -> Vec<String> {
 }
 
 /// Percent-encodes the characters that would break a request line, keeping
-/// the rest of the URL (including existing `%xx`) as it is.
+/// the rest of the URL (including existing `%xx`) as it is. (Tests only
+/// since the sign-in window stopped taking tabs over `DevTools`.)
+#[cfg(test)]
 pub(crate) fn encode_url(url: &str) -> String {
     let mut out = String::with_capacity(url.len());
     for b in url.bytes() {
