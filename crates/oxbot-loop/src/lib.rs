@@ -42,7 +42,9 @@ use oxbot_engine::{NotReady, SessionSpec};
 use oxbot_llm::{ChatModel, KeyCell};
 
 pub use budget::TokenBudget;
-pub use check::{CHECK_AFTER_CALLS, MAX_NAMED, note as check_note, wrap_up_note};
+pub use check::{
+    CHECK_AFTER_CALLS, MAX_NAMED, answer_after_check, note as check_note, wrap_up_note,
+};
 pub use meter::{GuardQuery, LimitHit, NoLimits, UsageGuard};
 pub use pacer::{Account, Lane, Pacer};
 pub use router::{CatalogCache, Router};

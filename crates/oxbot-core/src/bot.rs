@@ -769,9 +769,12 @@ pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
 /// becomes the Assistant, and old default instructions become the new
 /// ones, once: a marker file in its folder means it was done already, so a
 /// name the user picked by hand stays. Instructions the user wrote are kept.
+/// The marker is the second one: an older oxbot (Nov 2026) could rename the
+/// Assistant back to Herder after the first, so homes it reached are fixed
+/// once more.
 fn rename_old_central(bots_dir: &Path) -> Result<(), BotError> {
     for mut bot in load_all(bots_dir)?.into_iter().filter(Bot::is_central) {
-        let marker = bot.dir.join(".renamed-to-assistant");
+        let marker = bot.dir.join(".renamed-to-assistant-2");
         if marker.exists() {
             continue;
         }
@@ -845,10 +848,24 @@ mod tests {
         assert_eq!(Bot::load(&old.dir).unwrap().name, "Herder");
 
         // Instructions the user wrote stay (an install never renamed yet).
-        fs::remove_file(old.dir.join(".renamed-to-assistant")).unwrap();
+        fs::remove_file(old.dir.join(".renamed-to-assistant-2")).unwrap();
         fs::write(old.dir.join("instructions.md"), "Mine.").unwrap();
         ensure_default(tmp.path()).unwrap();
         let bot = Bot::load(&old.dir).unwrap();
+        assert_eq!(
+            (bot.name.as_str(), bot.instructions.as_str()),
+            ("Assistant", "Mine.")
+        );
+
+        // A home an older oxbot renamed back to Herder after the first rename
+        // (only the first marker there) is fixed once more.
+        let tmp2 = tempfile::tempdir().unwrap();
+        let id = BotId::new(DEFAULT_BOT).unwrap();
+        let back = Bot::create(tmp2.path(), id, "Herder", "Mine.").unwrap();
+        fs::write(back.dir.join(".renamed-to-assistant"), "").unwrap();
+        fs::write(back.dir.join(".renamed-to-herder"), "").unwrap();
+        ensure_default(tmp2.path()).unwrap();
+        let bot = Bot::load(&back.dir).unwrap();
         assert_eq!(
             (bot.name.as_str(), bot.instructions.as_str()),
             ("Assistant", "Mine.")
