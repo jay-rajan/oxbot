@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Approval, BatchEstimate, Day, RunInfo, ServerMsg } from "../net/protocol";
-import { cardList, cardsReducer, editOf, estimateText, initialCards, ruleOf, type CardsState } from "./cards";
+import { cardList, cardsReducer, editOf, estimateText, initialCards, ruleOf, splitCards, waitingBots, type CardsState } from "./cards";
 import { type Action, local } from "./store";
 
 const srv = (msg: unknown): Action => ({ kind: "server", msg: msg as ServerMsg });
@@ -24,6 +24,26 @@ const approval = (id: number, extra: Partial<Approval> = {}): Approval => ({
 const signIn = (id: number) => ({ type: "sign_in_needed", id, bot: "mail", url: "https://x", site: "x.test", why: "", window_open: false });
 
 describe("cards", () => {
+  it("shows a bot's cards only in its own chat, and lists the other bots waiting", () => {
+    const s = run(
+      initialCards,
+      srv({ type: "approval_needed", ...approval(1, { bot: "meal" }) }),
+      srv(signIn(2)),
+      srv({ type: "approval_needed", ...approval(3) }),
+      srv({ type: "approval_needed", ...approval(4, { bot: "meal" }) }),
+      srv({ type: "approval_needed", ...approval(5, { bot: "gone" }) }),
+    );
+    const listed = (b: string) => b !== "gone";
+    const { here, others } = splitCards(cardList(s), "recipes", listed);
+    expect(here.map((c) => c.key)).toEqual(["a:3", "a:5"]);
+    expect(others).toEqual([
+      { bot: "meal", signIn: false },
+      { bot: "mail", signIn: true },
+    ]);
+    expect(splitCards(cardList(s), null, listed).here).toHaveLength(5);
+    expect([...waitingBots(s)].sort()).toEqual(["gone", "mail", "meal", "recipes"]);
+  });
+
   it("keeps cards oldest first; one sent again keeps its place", () => {
     const s = run(
       initialCards,

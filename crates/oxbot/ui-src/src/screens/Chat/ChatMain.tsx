@@ -9,7 +9,7 @@ import type { BotInfo, UsageAlert } from "../../net/protocol";
 import { uploading } from "../../state/chat";
 import { local } from "../../state/store";
 import { expose, exposeFn } from "../../web/testBridge";
-import { Cards } from "../Cards/Cards";
+import { Cards, Waiting } from "../Cards/Cards";
 import { addFiles, follow, isLocked, openEngines, openReport, stopDictation } from "./actions";
 import { Composer } from "./Composer";
 import { Log } from "./Log";
@@ -296,6 +296,7 @@ export function ChatMain() {
       <UsageAlertBanner />
       <Log />
       <EngineNote info={info} />
+      <Waiting />
       <Cards />
       <Composer info={info} busy={busy} uploadingNow={uploadingNow} />
       <div className="drop-zone" id="dropZone" hidden={!drag || !current}>Drop files to attach</div>

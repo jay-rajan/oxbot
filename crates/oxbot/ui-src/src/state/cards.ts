@@ -1,5 +1,5 @@
 // The cards area: open approval requests and sign-ins (the cards above the
-// message box), schedule cards being changed, the open bot's reports and
+// message box, each in its own bot's chat), schedule cards being changed, the open bot's reports and
 // schedules (its ··· settings), and the owner's developer tools for
 // comparing models (ratings, test cases, runs, scoreboard).
 import type {
@@ -265,6 +265,36 @@ export function cardList(state: CardsState): CardItem[] {
   for (const m of Object.values(state.signIns)) list.push({ key: `s:${m.id}`, kind: "sign_in", m });
   for (const m of Object.values(state.approvals)) list.push({ key: `a:${m.id}`, kind: "approval", m });
   return list.sort((x, y) => x.m.at - y.m.at);
+}
+
+/** What the open chat shows: the open bot's own cards (`here`), and the
+ *  other bots waiting for an answer, oldest request first (`others`). A
+ *  card for a bot the list doesn't show, or with no bot open, shows here. */
+export function splitCards(
+  list: readonly CardItem[],
+  current: string | null,
+  listed: (bot: string) => boolean,
+): { here: CardItem[]; others: { bot: string; signIn: boolean }[] } {
+  const here: CardItem[] = [];
+  const others = new Map<string, { bot: string; signIn: boolean }>();
+  for (const c of list) {
+    const bot = c.m.bot;
+    if (!current || bot === current || !listed(bot)) here.push(c);
+    else {
+      const o = others.get(bot);
+      if (!o) others.set(bot, { bot, signIn: c.kind === "sign_in" });
+      else if (c.kind !== "sign_in") o.signIn = false;
+    }
+  }
+  return { here, others: [...others.values()] };
+}
+
+/** The bots with a request waiting for an answer. */
+export function waitingBots(state: CardsState): Set<string> {
+  const bots = new Set<string>();
+  for (const m of Object.values(state.signIns)) bots.add(m.bot);
+  for (const m of Object.values(state.approvals)) bots.add(m.bot);
+  return bots;
 }
 
 export const SCHED_KINDS: [ScheduleRule["kind"], string][] = [

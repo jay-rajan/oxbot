@@ -1,0 +1,32 @@
+name = "A reply to another bot shows a dot until it's opened"
+about = "A bot answers while another bot is open: its sidebar row shows a clear \"New messages\" dot, which goes away once the bot is opened."
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot/src/server.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "take your time"
+note = "The stand-in takes 3 seconds to answer this one"
+[[step]]
+click = "Journal"
+note = "Open another bot while Recipes works"
+[[step]]
+expect_js = "!document.querySelector('.bot-item[data-bot=recipes] .unread')"
+note = "No dot while it's still working"
+[[step]]
+expect_js = "!!document.querySelector('.bot-item[data-bot=recipes] .unread[aria-label=\"New messages\"]')"
+timeout_ms = 20000
+note = "Recipes answered: its row shows the dot"
+shot = "dot"
+[[step]]
+expect_js = "!document.querySelector('.bot-item[data-bot=journal] .unread')"
+note = "The open bot has no dot"
+[[step]]
+click = "Recipes"
+[[step]]
+wait_for = "Done, slowly."
+[[step]]
+expect_js = "!document.querySelector('.bot-item[data-bot=recipes] .unread')"
+timeout_ms = 3000
+note = "Opened: the dot is gone"
+shot = "opened"

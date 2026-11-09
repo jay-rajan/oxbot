@@ -98,6 +98,17 @@ describe("sidebar reducer", () => {
     expect(s.seen.a).toBe(4);
   });
 
+  it("shows a reply known only from the bot list (a bot this page doesn't follow) while another bot is open", () => {
+    let s = run(server({ type: "bots", bots: [bot("a", { last_reply_seq: 2 }), bot("b")] }), local("ui/select", { bot: "b" }));
+    s = sidebarReducer(s, server({ type: "bots", bots: [bot("a", { busy: true, last_reply_seq: 2 }), bot("b")] }));
+    expect(isUnread(s, "a")).toBe(false);
+    s = sidebarReducer(s, server({ type: "bots", bots: [bot("a", { last_reply_seq: 5 }), bot("b")] }));
+    expect(isUnread(s, "a")).toBe(true);
+    expect(isUnread(s, "b")).toBe(false);
+    s = sidebarReducer(s, local("ui/select", { bot: "a" }));
+    expect(isUnread(s, "a")).toBe(false);
+  });
+
   it("marks the open bot's replies seen only while the page is in view", () => {
     let s = run(server({ type: "bots", bots: [bot("a")] }), local("ui/select", { bot: "a" }), local("sidebar/visible", { visible: false }));
     s = sidebarReducer(s, server(ev("a", 2, "assistant_message")));

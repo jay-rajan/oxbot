@@ -3,8 +3,9 @@
 import { type DragEvent, type KeyboardEvent, type MouseEvent, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { avatarSvg } from "../../components/brand";
-import { Button, ChevronIcon, Note, vars } from "../../components/ui";
+import { Button, ChevronIcon, Note, Pill, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
+import { waitingBots } from "../../state/cards";
 import { type Group, fold, groupBots, isUnread } from "../../state/sidebar";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
@@ -38,6 +39,8 @@ export function BotList({
   const you = useSel((s) => s.connection.settings?.you);
   const side = useSel((s) => s.sidebar);
   const current = useSel((s) => s.ui.current);
+  const cards = useSel((s) => s.cards);
+  const waiting = waitingBots(cards);
   const navRef = useRef<HTMLElement>(null);
   // Mid-drag the list stays as it is, so the drop lands where it's shown.
   const dragging = useRef<string | null>(null);
@@ -138,7 +141,12 @@ export function BotList({
           </span>
           {tag ? <span className="central">{tag}</span> : null}
         </span>
-        {isUnread(side, id) ? <span className="dot on unread" title="New messages" /> : null}
+        {waiting.has(id) || isUnread(side, id) ? (
+          <span className="marks">
+            {waiting.has(id) ? <Pill tone="warn" className="needs-you">needs you</Pill> : null}
+            {isUnread(side, id) ? <span className="unread" role="img" aria-label="New messages" title="New messages" /> : null}
+          </span>
+        ) : null}
       </button>
     );
   };
