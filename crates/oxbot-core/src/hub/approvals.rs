@@ -238,23 +238,17 @@ impl Hub {
         let verdict = policy::decide(&request.tool, &request.input, ctx, |uid| {
             labels.get(uid).cloned()
         });
+        let account = policy::call_account_action(&request.tool, &request.input, ctx, |uid| {
+            labels.get(uid).cloned()
+        });
         if mode == GateMode::DryRun {
             let label = click_label(&request.tool, &request.input, &labels);
             return self.trial_gate(&bot, request, &verdict, page_url, label, element.as_ref());
         }
         match verdict {
-            Verdict::Allow => Ok(Decision::Allow),
-            Verdict::AllowUnnamed(what) => {
-                // A missing label never blocks browsing; the log shows how
-                // often it happens.
-                let site = page_url.and_then(oxbot_browser::web_host);
-                tracing::info!(
-                    bot = %bot_id,
-                    target = %what,
-                    site = site.as_deref().unwrap_or("unknown"),
-                    "click on an element oxbot couldn't name: allowed"
-                );
-                Ok(Decision::Allow)
+            Verdict::Allow | Verdict::AllowUnnamed(_) => {
+                self.run_allowed(&bot, &verdict, account, page_url, request.quiet)
+                    .await
             }
             Verdict::Deny(message) => {
                 self.record(
@@ -270,6 +264,37 @@ impl Hub {
                     .await
             }
         }
+    }
+
+    /// A call the policy lets run. One that acts for the account (adding
+    /// to a cart) runs only once the browser is signed in to the site, or
+    /// it lands in a guest cart only oxbot's Chrome sees (a card checks the
+    /// same in [`Hub::ask_verdict`]). A click oxbot couldn't name is logged.
+    async fn run_allowed(
+        &self,
+        bot: &Bot,
+        verdict: &Verdict,
+        account: Option<policy::AccountAction>,
+        page_url: Option<&str>,
+        quiet: bool,
+    ) -> Result<Decision, HubError> {
+        if let Some(action) = account
+            && let Some(no) = self.sign_in_before(bot, action, page_url, quiet).await
+        {
+            return Ok(no);
+        }
+        if let Verdict::AllowUnnamed(what) = verdict {
+            // A missing label never blocks browsing; the log shows how
+            // often it happens.
+            let site = page_url.and_then(oxbot_browser::web_host);
+            tracing::info!(
+                bot = %bot.id,
+                target = %what,
+                site = site.as_deref().unwrap_or("unknown"),
+                "click on an element oxbot couldn't name: allowed"
+            );
+        }
+        Ok(Decision::Allow)
     }
 
     /// Several steps at once: anywhere but websites with fine-grained
@@ -298,9 +323,11 @@ impl Hub {
         Ok(Some(Decision::Deny(no)))
     }
 
-    /// A call the policy says needs the person's OK: a program's card, an
-    /// Always rule, or (asked quietly, one step of a batch) what would be
-    /// asked; else the card.
+    /// A call the policy says needs the person's OK: a program's card; for
+    /// an account action on a site the browser isn't signed in to, the
+    /// sign-in card first (see [`Hub::sign_in_before`]); an Always rule, or
+    /// (asked quietly, one step of a batch) what would be asked; else the
+    /// card.
     async fn ask_verdict(
         &self,
         bot: &Bot,
@@ -320,6 +347,16 @@ impl Hub {
             }
             let program = oxbot_loop::tools::program::card_text(&request.input);
             return self.script_permission(bot, &program).await;
+        }
+        // Acting for the person's account (a cart, an order, a booking):
+        // signed in to the site first, even before an Always rule, or it
+        // lands in a guest cart only oxbot's Chrome sees.
+        if let Some(action) = ask.account
+            && let Some(no) = self
+                .sign_in_before(bot, action, page_url, request.quiet)
+                .await
+        {
+            return Ok(no);
         }
         if self.allowed_by_rule(bot, &ask, tab, page_url).await? {
             return Ok(Decision::Allow);

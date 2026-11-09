@@ -39,6 +39,15 @@ async fn run(hub: &Arc<Hub>, bot: &str, answer: Answer) -> (Vec<String>, String,
                     cards.push(a.clone());
                     hub.answer(a.id, answer);
                 }
+                // A sign-in request is cancelled (the person isn't there).
+                ServerMsg::SignInNeeded(r) => {
+                    seen.push(format!(
+                        "sign in to {} before {}",
+                        r.site,
+                        r.before.as_deref().unwrap_or("-")
+                    ));
+                    hub.resolve_sign_in(r.id, false);
+                }
                 ServerMsg::Event(e) if e.bot == bot => match e.kind {
                     EventKind::Blocked { message } => seen.push(message),
                     EventKind::AssistantMessage { text } => said = text,
@@ -241,7 +250,9 @@ async fn page_scripts_are_never_offered_and_never_run() {
 }
 
 #[tokio::test]
-async fn adding_to_a_cart_asks_first() {
+async fn adding_to_a_cart_needs_no_ok_but_a_sign_in() {
+    // Adding to a cart costs nothing: no card. Not signed in to the shop,
+    // though, it waits for a sign-in; cancelled, nothing is added.
     let page = "## Pages\n1: Milk frother (https://shop.example.com/frother) [selected]\n## Latest page snapshot\nuid=1_1 RootWebArea \"Milk frother\"\n  uid=1_2 link \"Cart (2 items)\"\n  uid=1_3 button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"";
     let Some(o) = on_codex(
         "poster",
@@ -256,9 +267,12 @@ async fn adding_to_a_cart_asks_first() {
     assert_eq!(
         o.seen,
         [
-            "card Change click button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\" on shop.example.com"
+            "sign in to example.com before adding to your cart",
+            "oxbot refused: Not signed in to example.com, so nothing was added. Tell the person \
+             they need to sign in (Settings → Websites) and stop."
         ]
     );
+    assert!(o.cards.is_empty(), "no approval card");
     assert_eq!(o.said, "behavior=deny");
     assert_eq!(o.ran, ["take_snapshot"], "nothing went into the cart");
 }

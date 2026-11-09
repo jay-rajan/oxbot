@@ -1322,6 +1322,12 @@ pub struct SignInRequest {
     pub site: String,
     /// Why the bot needs it, in its words.
     pub why: String,
+    /// What oxbot stopped the bot doing until the site is signed in to,
+    /// e.g. `adding to your cart` (the card says "… needs you to sign in
+    /// to walmart.ca before adding to your cart"). `None` when the bot
+    /// asked by itself.
+    #[serde(default)]
+    pub before: Option<String>,
     /// Whether the sign-in window is open now.
     pub window_open: bool,
     /// Server only, never sent: the one person (besides the home computer) who may

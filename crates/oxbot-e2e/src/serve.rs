@@ -120,7 +120,9 @@ impl FakeOpenRouter {
 /// The test site: `*.example.test` in oxbot's Chromes (test mode maps the
 /// names here). Its job page tries to write the moment it loads (a fetch
 /// POST and a form post), as some sites do; `/p/1` to `/p/3` are product
-/// pages. It counts every request that isn't a read (and any to `/leak`),
+/// pages. Its home page (`/`) stands in for signing in: it sets a sign-in
+/// cookie, so a sign-in window opened there leaves one, as a real sign-in
+/// would. It counts every request that isn't a read (and any to `/leak`),
 /// and the pages it served.
 #[derive(Debug)]
 pub struct TestSite {
@@ -139,6 +141,13 @@ const SITE_PAGE: &str = r#"<!doctype html><html><head><title>Jobs</title></head>
 fetch("/save", { method: "POST", body: "draft" }).catch(() => {});
 setTimeout(() => document.getElementById("f").submit(), 300);
 </script></body></html>"#;
+
+/// The test site's home page, where a sign-in window opens.
+const HOME_PAGE: &str = "<!doctype html><html><head><title>Test shop</title></head><body>\
+    <h1>Signed in to the test shop</h1></body></html>";
+
+/// The cookie the home page sets: a sign-in.
+const SIGN_IN_COOKIE: &str = "Set-Cookie: sid=signed-in; Max-Age=86400; Path=/\r\n";
 
 /// The test site's product pages (`/p/1` to `/p/3`, for `read_pages`):
 /// name, price and rating, and a script that marks the page as it loads.
@@ -189,7 +198,9 @@ impl TestSite {
                         w.fetch_add(1, Ordering::SeqCst);
                         "leaked".to_owned()
                     } else if matches!(method, "GET" | "HEAD" | "OPTIONS") {
-                        if path == "/post" {
+                        if path == "/" {
+                            HOME_PAGE.to_owned()
+                        } else if path == "/post" {
                             p.fetch_add(1, Ordering::SeqCst);
                             SITE_PAGE.to_owned()
                         } else if let Some(page) = &product {
@@ -202,15 +213,17 @@ impl TestSite {
                         w.fetch_add(1, Ordering::SeqCst);
                         "saved".to_owned()
                     };
-                    let kind = if body == SITE_PAGE || product.is_some() {
+                    let home = body == HOME_PAGE;
+                    let kind = if body == SITE_PAGE || product.is_some() || home {
                         "text/html"
                     } else {
                         "text/plain"
                     };
+                    let cookie = if home { SIGN_IN_COOKIE } else { "" };
                     let _ = tcp
                         .write_all(
                             format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\n{cookie}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                                 body.len()
                             )
                             .as_bytes(),

@@ -2565,6 +2565,7 @@ mod tests {
             site: "x.example".into(),
             why: String::new(),
             window_open: false,
+            before: None,
             only: Some(jay.to_string()),
         });
         assert!(forward(sign_in.clone(), &mut j).is_some());

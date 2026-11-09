@@ -1,0 +1,54 @@
+name = "Adding to a cart needs a sign-in first"
+about = "A bot adds to a cart on a shop the browser isn't signed in to (walmart.ca's guest cart went unseen): oxbot asks the person to sign in first, in plain words. Cancel, and the bot is told it isn't signed in so nothing was added. Sign in (the window closes), and the click runs: a cart costs nothing, so no approval request. Once signed in, it just runs."
+covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/sign_ins.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui-src/**", "crates/oxbot-e2e/src/serve.rs"]
+
+[[step]]
+click = "Recipes"
+[[step]]
+send = "add the lamp to the cart"
+[[step]]
+wait_for = "Recipes needs you to sign in to example.test before adding to your cart"
+timeout_ms = 20000
+note = "Not signed in to the shop: the sign-in request first, by the shop's main domain"
+shot = "sign-in-first"
+[[step]]
+expect_not = "Allow once"
+note = "No approval request before the sign-in"
+[[step]]
+click = "Cancel"
+[[step]]
+wait_for = "Okay, I didn't add the lamp."
+timeout_ms = 20000
+[[step]]
+expect = "Not signed in to example.test, so nothing was added. Tell the person they need to sign in (Settings → Websites) and stop."
+note = "What the bot is told, also in the chat"
+shot = "refused"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+[[step]]
+send = "add the lamp to the cart"
+[[step]]
+expect_js = "[...document.querySelectorAll('#cards .card')].some(c => c.textContent.includes('before adding to your cart'))"
+timeout_ms = 20000
+note = "Asked again"
+[[step]]
+close_sign_in_window = true
+timeout_ms = 20000
+note = "As a person would after signing in (the test shop's home page sets a sign-in cookie)"
+[[step]]
+wait_for = "Added the lamp to the cart."
+timeout_ms = 30000
+note = "Signed in: the click runs (a cart costs nothing, so no approval request)"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+shot = "added-after-sign-in"
+[[step]]
+send = "add the lamp to the cart"
+[[step]]
+expect_js = "(document.getElementById('log').innerText.match(/Added the lamp to the cart\\./g) || []).length >= 2"
+timeout_ms = 20000
+note = "Already signed in: it just runs again"
+[[step]]
+expect_js = "!document.querySelector('#cards .card')"
+note = "No sign-in request and no approval request"
+shot = "signed-in-just-runs"

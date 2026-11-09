@@ -13,8 +13,10 @@
 //! | clicking an element oxbot can't name, even after looking it up | run, logged |
 //! | clicking something that changes things (Send, Post, Save, Apply…) | red card |
 //! | clicking a POST form's unclear button when the form has something filled in | red card |
-//! | clicking pay, buy, book, delete or another can't-undo button | red card, Allow once only |
+//! | filling or tidying a cart or list (Add to cart, Remove from cart, Save for later, quantity) | run: nothing is spent until the order |
+//! | clicking pay, buy, order, checkout, book, start a trial, delete or another can't-undo button | red card, Allow once only |
 //! | a change click the user chose "Always allow" for (same bot, exact host, same button) | run, with a quiet line |
+//! | adding to a cart, checking out, ordering, buying, booking, reserving, subscribing or donating ([`account_action`]) on a site the bot's browser isn't signed in to | the sign-in card first (the hub), then as above (a cart runs, the rest ask); cancelled: refuse |
 //! | pressing Enter in a text box (not a search box) | red card |
 //! | uploading a file from the Mac | card |
 //! | typing into a password or code field | refuse: the user signs in |
@@ -137,6 +139,11 @@ pub struct Ask {
     /// Who answers it instead of the person the turn acts for (a kid's
     /// schedule goes to a parent).
     pub answerer: Option<crate::id::PersonId>,
+    /// For a click or Enter that acts for the person's account on the site
+    /// (adding to a cart, checking out, booking…): what it does. The hub
+    /// makes sure the browser is signed in to the site first (see
+    /// [`account_action`]).
+    pub account: Option<AccountAction>,
 }
 
 impl Ask {
@@ -159,6 +166,7 @@ impl Ask {
             rule: None,
             schedule: None,
             answerer: None,
+            account: None,
         }
     }
 }
@@ -651,14 +659,14 @@ fn decide_input(
                 return Verdict::Deny(NO_SECRETS.to_owned());
             }
             if is_enter(str_of(input, "submitKey")) {
-                enter_rule(facts, change)
+                enter_account(enter_rule(facts, change), facts)
             } else {
                 Verdict::Allow
             }
         }
         "press_key" => {
             if is_enter(str_of(input, "key")) {
-                enter_rule(facts, change)
+                enter_account(enter_rule(facts, change), facts)
             } else {
                 Verdict::Allow
             }
@@ -699,6 +707,7 @@ fn click_verdict(
                 rule: label
                     .filter(|_| click == Click::Change && on_web)
                     .and_then(rule_label),
+                account: label.and_then(account_action),
                 ..ask
             }),
             other => other,
@@ -763,6 +772,9 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
         Words::Final => return Click::Final,
         Words::Hard => return Click::Change,
         Words::Query => return Click::Query,
+        // A cart costs nothing until the order: it runs, whatever its form
+        // holds (a quantity, say).
+        Words::Cart => return Click::Plain,
         Words::Soft | Words::Nothing => {}
     }
     if PLAIN_ROLES.contains(&role) {
@@ -826,6 +838,8 @@ enum Words {
     Hard,
     /// Looking things up.
     Query,
+    /// Filling or tidying a cart, bag or list (see [`CART_PHRASES`]).
+    Cart,
     /// A change unless the words around say it's a query ("Apply filters").
     Soft,
     /// Nothing telling.
@@ -850,6 +864,11 @@ const FINAL_PHRASES: &[&str] = &[
     "delete forever",
     "close account",
     "send money",
+    "start trial",
+    "start my trial",
+    "free trial",
+    "proceed to payment",
+    "continue to payment",
 ];
 
 /// Words on a button that clearly change something.
@@ -890,10 +909,44 @@ const CHANGE_WORDS: &[&str] = &[
 /// Phrases that clearly change something.
 const CHANGE_PHRASES: &[&str] = &["sign out", "log out", "sign up", "mark as", "move to"];
 
-/// Putting something in a cart or list: a change (it asks), though no word
-/// alone says so; "Cart" by itself only opens the cart. Always allow is
-/// fine for these: they don't pay, book or delete ("Add to order" is
-/// already a can't-undo click, by "order").
+/// Filling or tidying a cart, bag, basket, trolley or list: nothing is
+/// spent until the order, so these run without asking (the owner: only
+/// what costs money goes to the person). They're taken out before the
+/// other lists are checked, so a money word next to one still asks ("Add
+/// to cart and buy now"); "Add to order" isn't one ("order" asks). On a
+/// site the browser isn't signed in to, adding still waits for a sign-in
+/// (see [`account_action`]).
+const CART_PHRASES: &[&str] = &[
+    "add to cart",
+    "add to bag",
+    "add to basket",
+    "add to trolley",
+    "add to list",
+    "add to wishlist",
+    "add to wish list",
+    "add to registry",
+    "remove from cart",
+    "remove from bag",
+    "remove from basket",
+    "remove from trolley",
+    "remove from list",
+    "remove from wishlist",
+    "save for later",
+    "move to cart",
+    "move to bag",
+    "move to basket",
+    "move to wishlist",
+    "change quantity",
+    "update quantity",
+    "increase quantity",
+    "decrease quantity",
+    "update cart",
+    "update bag",
+    "update basket",
+];
+
+/// Putting something in a cart, an order or a list: a link that starts
+/// with one is the action, however long the product's name after it.
 const ADD_PHRASES: &[&str] = &[
     "add to cart",
     "add to bag",
@@ -918,6 +971,231 @@ fn starts_with_add(name: &str) -> bool {
     ADD_PHRASES
         .iter()
         .any(|p| text.starts_with(&format!("{p} ")))
+}
+
+/// An action that acts for the person's account on a site: on a site the
+/// browser isn't signed in to, it would land in a guest cart or a guest
+/// order only oxbot's Chrome sees, so the hub asks the person to sign in
+/// first (see `Hub::sign_in_before`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountAction {
+    /// Adding to a cart, bag, basket or trolley (the word the button uses).
+    Add(&'static str),
+    /// Checking out.
+    Checkout,
+    /// Placing an order.
+    Order,
+    /// Buying.
+    Buy,
+    /// Booking.
+    Book,
+    /// Reserving.
+    Reserve,
+    /// Subscribing.
+    Subscribe,
+    /// Donating.
+    Donate,
+}
+
+impl AccountAction {
+    /// What it does, for "… needs you to sign in to walmart.ca before
+    /// adding to your cart".
+    #[must_use]
+    pub fn doing(self) -> String {
+        match self {
+            Self::Add(into) => format!("adding to your {into}"),
+            Self::Checkout => "checking out".to_owned(),
+            Self::Order => "placing the order".to_owned(),
+            Self::Buy => "buying".to_owned(),
+            Self::Book => "booking".to_owned(),
+            Self::Reserve => "reserving".to_owned(),
+            Self::Subscribe => "subscribing".to_owned(),
+            Self::Donate => "donating".to_owned(),
+        }
+    }
+
+    /// What didn't happen when it's refused, for "Not signed in to
+    /// walmart.ca, so nothing was added."
+    #[must_use]
+    pub fn nothing(self) -> &'static str {
+        match self {
+            Self::Add(_) => "nothing was added",
+            Self::Checkout | Self::Order | Self::Buy => "nothing was ordered",
+            Self::Book | Self::Reserve => "nothing was booked",
+            Self::Subscribe | Self::Donate => "nothing was done",
+        }
+    }
+}
+
+/// Where [`AccountAction::Add`] puts things.
+const CART_WORDS: &[&str] = &["cart", "bag", "basket", "trolley"];
+
+/// Words that open an account action when a button's name starts with
+/// them ("Buy now", "Book a table", "Checkout (3 items)").
+const ACCOUNT_VERBS: &[(&str, AccountAction)] = &[
+    ("checkout", AccountAction::Checkout),
+    ("buy", AccountAction::Buy),
+    ("purchase", AccountAction::Buy),
+    ("order", AccountAction::Order),
+    ("book", AccountAction::Book),
+    ("reserve", AccountAction::Reserve),
+    ("subscribe", AccountAction::Subscribe),
+    ("donate", AccountAction::Donate),
+];
+
+/// Words that may follow an [`ACCOUNT_VERBS`] word without changing what
+/// the button does ("Buy it now", "Book a table", "Reserve your seats");
+/// any other word makes it something else ("Book club", "Order history").
+const ACCOUNT_FILLER: &[&str] = &[
+    "now",
+    "it",
+    "this",
+    "these",
+    "a",
+    "an",
+    "the",
+    "your",
+    "my",
+    "for",
+    "with",
+    "securely",
+    "today",
+    "again",
+    "online",
+    "item",
+    "items",
+    "order",
+    "table",
+    "room",
+    "rooms",
+    "seat",
+    "seats",
+    "ticket",
+    "tickets",
+    "appointment",
+    "stay",
+    "spot",
+    "trip",
+];
+
+/// Words that lead to an order without being one alone: "Place order",
+/// "Proceed to checkout", "Complete purchase".
+const ACCOUNT_LEADS: &[&str] = &[
+    "start", "try", "place", "complete", "submit", "confirm", "proceed", "continue", "go",
+];
+
+/// What a lead in [`ACCOUNT_LEADS`] must lead to.
+const ACCOUNT_ENDS: &[(&str, AccountAction)] = &[
+    ("order", AccountAction::Order),
+    ("purchase", AccountAction::Buy),
+    ("checkout", AccountAction::Checkout),
+    ("booking", AccountAction::Book),
+    ("reservation", AccountAction::Reserve),
+    ("donation", AccountAction::Donate),
+    ("subscription", AccountAction::Subscribe),
+    ("trial", AccountAction::Subscribe),
+    ("payment", AccountAction::Checkout),
+];
+
+/// Whether a click on `label` (a snapshot label, `button "Add to cart -
+/// Milk"`, or a plain label) acts for the person's account on the site:
+/// adding to a cart, bag, basket or trolley, checking out, placing an
+/// order, buying, booking, reserving, subscribing or donating. Case
+/// doesn't count. Only the action itself counts: "Order history", "Book
+/// club", "Cart (2 items)", "Accept all" or "Continue" don't.
+#[must_use]
+pub fn account_action(label: &str) -> Option<AccountAction> {
+    let (role, name) = split_label(label);
+    if matches!(role, "textbox" | "searchbox" | "combobox") {
+        return None;
+    }
+    let name = name.to_lowercase();
+    let mut words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    // "Check out" is "checkout".
+    if let Some(at) = words.windows(2).position(|w| w == ["check", "out"]) {
+        words.splice(at..at + 2, ["checkout"]);
+    }
+    // "Add to cart", "Add to Cart, Milk Frother", "Add 2 to basket".
+    if let Some(at) = words.iter().position(|w| *w == "add") {
+        let rest = &words[at + 1..];
+        if let Some(into) = rest
+            .iter()
+            .take(4)
+            .skip_while(|w| **w != "to")
+            .nth(1)
+            .and_then(|w| CART_WORDS.iter().find(|c| *c == w))
+        {
+            return Some(AccountAction::Add(into));
+        }
+    }
+    let first = *words.first()?;
+    if let Some((_, action)) = ACCOUNT_VERBS.iter().find(|(v, _)| *v == first) {
+        let rest_fits = words[1..]
+            .iter()
+            .all(|w| ACCOUNT_FILLER.contains(w) || w.chars().all(|c| c.is_ascii_digit()));
+        return rest_fits.then_some(*action);
+    }
+    if ACCOUNT_LEADS.contains(&first) {
+        return words[1..].iter().take(4).find_map(|w| {
+            ACCOUNT_ENDS
+                .iter()
+                .find(|(end, _)| end == w)
+                .map(|(_, action)| *action)
+        });
+    }
+    None
+}
+
+/// The account action (see [`account_action`]) a browser call does, if
+/// any: a click on one, or Enter on a focused one. The hub checks it for
+/// calls that run without asking (adding to a cart), so they too wait for
+/// a sign-in on a site the browser isn't signed in to; a card's
+/// [`Ask::account`] says the same for calls that ask.
+#[must_use]
+pub fn call_account_action(
+    tool: &str,
+    input: &Value,
+    ctx: Context<'_>,
+    describe: impl Fn(&str) -> Option<String>,
+) -> Option<AccountAction> {
+    let facts = ctx.facts;
+    match browser_action(tool)? {
+        "click" => describe(str_of(input, "uid"))
+            .as_deref()
+            .and_then(account_action),
+        "click_at" => facts
+            .and_then(|f| f.at_point.as_deref())
+            .and_then(account_action),
+        "press_key" | "type_text" => {
+            let key = if tool.ends_with("press_key") {
+                str_of(input, "key")
+            } else {
+                str_of(input, "submitKey")
+            };
+            is_enter(key)
+                .then(|| facts.and_then(|f| f.active.as_ref()))
+                .flatten()
+                .filter(|f| f.kind == FieldKind::Other)
+                .and_then(|f| account_action(&f.label))
+        }
+        _ => None,
+    }
+}
+
+/// Pressing Enter on a focused button that acts for the account (`Place
+/// order`) says so on its card.
+fn enter_account(verdict: Verdict, facts: Option<&PageFacts>) -> Verdict {
+    let account = facts
+        .and_then(|f| f.active.as_ref())
+        .filter(|f| f.kind == FieldKind::Other)
+        .and_then(|f| account_action(&f.label));
+    match verdict {
+        Verdict::Ask(ask) if account.is_some() => Verdict::Ask(Ask { account, ..ask }),
+        other => other,
+    }
 }
 
 /// Words that are a change only when no query word is next to them:
@@ -958,12 +1236,22 @@ fn click_words(name: &str) -> Words {
             query = true;
         }
     }
+    let mut cart = false;
+    for phrase in CART_PHRASES {
+        let phrase = format!(" {phrase} ");
+        if text.contains(&phrase) {
+            text = text.replace(&phrase, " ");
+            cart = true;
+        }
+    }
     let has = |list: &[&str]| text.split_whitespace().any(|w| list.contains(&w));
     let has_phrase = |list: &[&str]| list.iter().any(|p| text.contains(&format!(" {p} ")));
     if has(FINAL_WORDS) || has_phrase(FINAL_PHRASES) {
         Words::Final
     } else if has(CHANGE_WORDS) || has_phrase(CHANGE_PHRASES) || has_phrase(ADD_PHRASES) {
         Words::Hard
+    } else if cart {
+        Words::Cart
     } else if query || has(QUERY_WORDS) {
         Words::Query
     } else if has(SOFT_CHANGE_WORDS) {
@@ -1837,12 +2125,14 @@ mod tests {
     }
 
     #[test]
-    fn adding_to_a_cart_or_list_asks_and_may_be_always_allowed() {
-        // amazon.ca and walmart.ca: "Add to cart" went through with no
-        // approval request (no change word, no filled field in its form).
-        let empty_post = submit("post", false, 0);
+    fn carts_run_and_what_costs_money_asks() {
+        // The owner: only what costs money goes to the person. Filling or
+        // tidying a cart or list runs (on a site the browser is signed in
+        // to; the hub checks that), even in a POST form with a quantity.
+        let filled_post = submit("post", false, 2);
         for label in [
             "button \"Add to cart\"",
+            "button \"Add to cart - Great Value Milk 2L\"",
             "button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"",
             "link \"Add to bag\"",
             "link \"Add to Basket, Ceramic pour-over coffee dripper with filters\"",
@@ -1850,19 +2140,46 @@ mod tests {
             "button \"Add to list\"",
             "button \"Add to Wishlist\"",
             "button \"Add to registry\"",
+            "button \"Remove from cart\"",
+            "button \"Save for later\"",
+            "button \"Move to cart\"",
+            "button \"Change quantity\"",
+            "button \"Update quantity\"",
+            "button \"Increase quantity\"",
         ] {
-            let Verdict::Ask(ask) = click(label, Some(&empty_post)) else {
-                panic!("{label}: asks first")
-            };
-            assert_eq!(ask.click, Some(Click::Change), "{label}");
-            assert!(ask.rule.is_some(), "{label}: Always allow is offered");
-            assert_eq!(classify(Some(label), None), Click::Change, "{label}");
+            assert_eq!(click(label, Some(&filled_post)), Verdict::Allow, "{label}");
+            assert_eq!(classify(Some(label), None), Click::Plain, "{label}");
         }
-        // Into an order: can't undo, never Always allow.
+        // Spending money or committing the person asks, never Always.
+        for label in [
+            "button \"Place order\"",
+            "button \"Buy now\"",
+            "button \"Checkout\"",
+            "button \"Proceed to checkout\"",
+            "button \"Pay now\"",
+            "button \"Proceed to payment\"",
+            "button \"Confirm purchase\"",
+            "button \"Start free trial\"",
+            "button \"Start my trial\"",
+            "button \"Book now\"",
+            "button \"Reserve\"",
+            "button \"Donate\"",
+            "button \"Add a tip\"",
+            "button \"Add to order\"",
+            "button \"Add to cart and buy now\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+        // Subscribing asks, as a change did before.
         assert_eq!(
-            asks(&click("button \"Add to order\"", None)),
-            Some(Click::Final)
+            asks(&click("button \"Subscribe\"", None)),
+            Some(Click::Change)
         );
+        // Other changes ask as before.
+        for label in ["button \"Post\"", "button \"Save\"", "button \"Send\""] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Change), "{label}");
+        }
+        assert_eq!(asks(&click("button \"Remove\"", None)), Some(Click::Final));
         // Opening the cart, or a product that merely mentions one, navigates.
         for label in [
             "link \"Cart (2 items)\"",
@@ -1872,6 +2189,105 @@ mod tests {
             "link \"Why we added a cart to every listing this year\"",
         ] {
             assert_eq!(click(label, None), Verdict::Allow, "{label}");
+        }
+    }
+
+    #[test]
+    fn account_actions_are_told_apart_from_reading_and_paging() {
+        use AccountAction::{Add, Book, Buy, Checkout, Order, Reserve, Subscribe};
+        for (label, want) in [
+            ("button \"Add to cart - Great Value Milk 2L\"", Add("cart")),
+            ("button \"ADD TO CART\"", Add("cart")),
+            (
+                "button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"",
+                Add("cart"),
+            ),
+            ("link \"Add to bag\"", Add("bag")),
+            ("button \"Add to basket\"", Add("basket")),
+            ("button \"Add to trolley\"", Add("trolley")),
+            ("button \"Checkout\"", Checkout),
+            ("button \"Check out (3 items)\"", Checkout),
+            ("button \"Proceed to checkout\"", Checkout),
+            ("button \"Place order\"", Order),
+            ("button \"Place your order\"", Order),
+            ("button \"Buy now\"", Buy),
+            ("button \"Book now\"", Book),
+            ("button \"Book a table\"", Book),
+            ("button \"Reserve\"", Reserve),
+            ("button \"Subscribe\"", Subscribe),
+            ("button \"Start free trial\"", Subscribe),
+            ("button \"Proceed to payment\"", Checkout),
+            ("Place order", Order),
+        ] {
+            assert_eq!(account_action(label), Some(want), "{label}");
+        }
+        for label in [
+            "link \"Order history\"",
+            "link \"Book club\"",
+            "button \"Accept all\"",
+            "button \"Search\"",
+            "button \"Continue\"",
+            "button \"Continue shopping\"",
+            "link \"Cart (2 items)\"",
+            "button \"Add to list\"",
+            "button \"Save\"",
+            "button \"Post\"",
+            "textbox \"Order number\"",
+        ] {
+            assert_eq!(account_action(label), None, "{label}");
+        }
+        // A card says so, for a click and for Enter on a focused button;
+        // adding to a cart runs, and the hub reads it off the call.
+        let Verdict::Ask(ask) = click("button \"Buy now\"", None) else {
+            panic!("asks")
+        };
+        assert_eq!(ask.account, Some(Buy));
+        let add = json!({"uid": "1_9"});
+        let cart_label = |_: &str| Some("button \"Add to cart - Milk\"".to_owned());
+        assert_eq!(
+            decide(&tool("click"), &add, ctx(), cart_label),
+            Verdict::Allow
+        );
+        assert_eq!(
+            call_account_action(&tool("click"), &add, ctx(), cart_label),
+            Some(Add("cart"))
+        );
+        assert_eq!(
+            call_account_action(&tool("click"), &add, ctx(), |_| Some(
+                "link \"Order history\"".to_owned()
+            )),
+            None
+        );
+        let Verdict::Ask(ask) = click("button \"Save\"", None) else {
+            panic!("asks")
+        };
+        assert_eq!(ask.account, None, "a change that isn't for the account");
+        let order = field(FieldKind::Other, "button \"Place order\"");
+        let Verdict::Ask(ask) = decide(
+            &tool("press_key"),
+            &json!({"key": "Enter"}),
+            with_facts(&order),
+            names,
+        ) else {
+            panic!("Enter on Place order asks")
+        };
+        assert_eq!(ask.account, Some(Order));
+        // Reading and paging never get as far as a card.
+        for label in [
+            "link \"Order history\"",
+            "button \"Search\"",
+            "button \"Accept all\"",
+        ] {
+            assert!(
+                !matches!(
+                    click(label, None),
+                    Verdict::Ask(Ask {
+                        account: Some(_),
+                        ..
+                    })
+                ),
+                "{label}"
+            );
         }
     }
 

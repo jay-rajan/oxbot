@@ -91,7 +91,7 @@ export function Cards() {
 
   function signInCard(s: CardSignIn) {
     return (
-      <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}`}>
+      <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}${s.before ? ` before ${s.before}` : ""}`}>
         <div className="where">
           {s.window_open
             ? `Sign in to ${s.site} in the window that opened, then close it.`

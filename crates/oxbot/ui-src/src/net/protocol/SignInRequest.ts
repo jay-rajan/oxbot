@@ -25,6 +25,13 @@ site: string,
  */
 why: string, 
 /**
+ * What oxbot stopped the bot doing until the site is signed in to,
+ * e.g. `adding to your cart` (the card says "… needs you to sign in
+ * to walmart.ca before adding to your cart"). `None` when the bot
+ * asked by itself.
+ */
+before: string | null, 
+/**
  * Whether the sign-in window is open now.
  */
 window_open: boolean, };

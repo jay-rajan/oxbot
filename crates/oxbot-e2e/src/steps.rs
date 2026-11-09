@@ -451,7 +451,9 @@ async fn wait_until(driver: &mut Driver, expression: &str, timeout_ms: u64) -> a
 /// can take a while to start on a busy Mac). The window is the Chrome for
 /// this home started on a web page (hidden Chrome starts on a blank one);
 /// it's plain Chrome, with no `DevTools` port, so it's asked to quit as a
-/// person quitting it would (SIGTERM, which saves its cookies).
+/// person quitting it would, saving its cookies: SIGINT (headless Chrome
+/// quits on SIGTERM without writing the cookies it just got, so a sign-in
+/// would be lost).
 async fn close_sign_in_window(home: &Path, timeout_ms: u64) -> anyhow::Result<()> {
     let start = Instant::now();
     let pid = loop {
@@ -466,7 +468,7 @@ async fn close_sign_in_window(home: &Path, timeout_ms: u64) -> anyhow::Result<()
     // Let it load before it goes, as a person would.
     tokio::time::sleep(Duration::from_secs(1)).await;
     let status = tokio::process::Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
+        .args(["-INT", &pid.to_string()])
         .status()
         .await?;
     if !status.success() {

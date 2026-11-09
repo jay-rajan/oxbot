@@ -1,7 +1,7 @@
 name = "Several page steps at once, except where the owner wants fine-grained control"
-about = "Several steps at once is on everywhere by default. The owner sets the form site (example.net) to Fine-grained control (Settings → Websites shows it ticked in the one list); there page_steps is refused and the bot does steps one at a time. On the shop, which nobody set, a bot's fill and tick run in a row, it stops at Add to Cart without asking, and the bot asks for that click on its own: the usual approval request."
+about = "Several steps at once is on everywhere by default. The owner sets the form site (example.net) to Fine-grained control (Settings → Websites shows it ticked in the one list); there page_steps is refused and the bot does steps one at a time. On the shop (signed in to), which nobody set, a bot's fill, tick and Add to Cart run in a row: adding to a cart costs nothing, so no approval request."
 needs = ["codex"]
-covers = ["crates/oxbot-loop/src/tools/steps.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**"]
+covers = ["crates/oxbot-loop/src/tools/steps.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/sign_ins.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**"]
 script = "scripts.toml"
 
 [[step]]
@@ -19,6 +19,16 @@ timeout_ms = 5000
 note = "The site shows by its main domain with Fine-grained control ticked, in the one list"
 shot = "websites"
 [[step]]
+type = { into = "Add a website", text = "http://shop.example.test/" }
+note = "Signed in to the shop, so Add to Cart just runs (not signed in, it would wait for a sign-in)"
+[[step]]
+click = "Sign in"
+[[step]]
+close_sign_in_window = true
+[[step]]
+expect_js = "[...document.querySelectorAll('#siteRows .site-row')].some((r) => r.innerText.includes('example.test') && !r.innerText.includes('example.net'))"
+timeout_ms = 15000
+[[step]]
 key = "Escape"
 [[step]]
 send = "order two on the form site"
@@ -31,21 +41,15 @@ note = "Fine-grained: refused, and the bot is told to go one step at a time"
 [[step]]
 send = "order two frothers"
 [[step]]
-wait_for = "Allow once"
+wait_for = "Added two frothers to the cart."
 timeout_ms = 60000
-note = "The batch stopped at Add to Cart; the bot asked for it on its own"
+note = "The batch ran to the end: adding to a cart costs nothing, so it needs no OK (signed in to the shop)"
 [[step]]
 expect = "browser fill"
 note = "The fill and the tick ran in a row, each a line in the chat"
 [[step]]
-expect = "Add to Cart"
-shot = "card"
+expect_openrouter_body = "Ran all 3 steps on shop.example.test"
 [[step]]
-expect_openrouter_body = "Ran 2 of 3 steps on shop.example.com"
-[[step]]
-expect_openrouter_body = "Stopped at step 3 (click 8_4): it needs the person's OK"
-[[step]]
-click = "Don't allow"
-[[step]]
-wait_for = "Okay, I didn't add them to the cart."
-timeout_ms = 60000
+expect_js = "!document.querySelector('#cards .card')"
+note = "No approval request"
+shot = "batch-ran"

@@ -54,14 +54,26 @@ after = "Posted."
 denied = "Okay, I didn't post it."
 
 # A shop's "Add to cart" button, named with the product (amazon.ca). No
-# change word, and its form has nothing filled in: the phrase asks.
+# change word, and its form has nothing filled in: the phrase asks. On the
+# test site, so the test can sign in to it first.
 [[reply]]
 when = "add the frother to the cart"
 tool = "mcp__chrome-devtools__click"
 args = { uid = "4_3" }
-snapshot = "## Pages\n1: Milk frother (https://shop.example.com/frother) [selected]\n## Latest page snapshot\nuid=4_1 RootWebArea \"Milk frother\"\n  uid=4_2 link \"Cart (2 items)\"\n  uid=4_3 button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\""
+snapshot = "## Pages\n1: Milk frother (http://shop.example.test/frother) [selected]\n## Latest page snapshot\nuid=4_1 RootWebArea \"Milk frother\"\n  uid=4_2 link \"Cart (2 items)\"\n  uid=4_3 button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\""
 after = "Added the frother to the cart."
 denied = "Okay, I didn't add it to the cart."
+
+# Adding to a cart on a shop the browser isn't signed in to (walmart.ca's
+# guest cart): oxbot asks the person to sign in first. On the test site,
+# whose home page sets a sign-in cookie.
+[[reply]]
+when = "add the lamp to the cart"
+tool = "mcp__chrome-devtools__click"
+args = { uid = "10_3" }
+snapshot = "## Pages\n1: Brass lamp (http://www.lamps.example.test/brass) [selected]\n## Latest page snapshot\nuid=10_1 RootWebArea \"Brass lamp\"\n  uid=10_2 link \"Order history\"\n  uid=10_3 button \"Add to cart - Brass lamp\""
+after = "Added the lamp to the cart."
+denied = "Okay, I didn't add the lamp."
 
 [[reply]]
 when = "search jobs"
@@ -91,7 +103,7 @@ denied = "Okay, I didn't open it."
 when = "book it"
 tool = "mcp__chrome-devtools__click"
 args = { uid = "5_2" }
-snapshot = "## Pages\n1: Rooms (https://rooms.example.com/) [selected]\n## Latest page snapshot\nuid=5_1 RootWebArea \"Rooms\"\n  uid=5_2 button \"Book now\""
+snapshot = "## Pages\n1: Rooms (http://rooms.example.test/rooms) [selected]\n## Latest page snapshot\nuid=5_1 RootWebArea \"Rooms\"\n  uid=5_2 button \"Book now\""
 after = "Booked."
 denied = "Okay, I didn't book it."
 

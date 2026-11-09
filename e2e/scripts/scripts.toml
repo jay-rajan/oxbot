@@ -33,7 +33,7 @@ denied = "Okay, one step at a time there."
 # stops at Add to Cart, which the bot then asks for on its own.
 [[reply]]
 when = "order two frothers"
-snapshot = "## Pages\n1: Milk frother (https://shop.example.com/frother) [selected]\n## Latest page snapshot\nuid=8_1 RootWebArea \"Milk frother\"\n  uid=8_2 textbox \"Quantity\"\n  uid=8_3 checkbox \"Gift wrap\"\n  uid=8_4 button \"Add to Cart\""
+snapshot = "## Pages\n1: Milk frother (http://shop.example.test/frother) [selected]\n## Latest page snapshot\nuid=8_1 RootWebArea \"Milk frother\"\n  uid=8_2 textbox \"Quantity\"\n  uid=8_3 checkbox \"Gift wrap\"\n  uid=8_4 button \"Add to Cart\""
 tool = "page_steps"
 args = { steps = [{ action = "fill", uid = "8_2", value = "2" }, { action = "check", uid = "8_3" }, { action = "click", uid = "8_4" }] }
 then = [{ tool = "mcp__chrome-devtools__click", args = { uid = "8_4" } }]
