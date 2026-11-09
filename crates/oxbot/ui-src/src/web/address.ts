@@ -33,6 +33,8 @@ export interface KeyStorage {
 }
 
 const KEY_ITEM = "oxbotHomeComputerKey";
+/** Where tabs opened before the rename keep the key. */
+const OLD_KEY_ITEM = "oxbotFarmKey";
 const KEY_IN_HASH = /(?:^#|&)k=([0-9a-f]{32,})/;
 
 /**
@@ -53,7 +55,7 @@ export function takeKey(
       replaceUrl(loc.pathname + loc.search);
       return m[1];
     }
-    return storage?.getItem(KEY_ITEM) ?? "";
+    return storage?.getItem(KEY_ITEM) ?? storage?.getItem(OLD_KEY_ITEM) ?? "";
   } catch {
     // Storage blocked: the key works until this page reloads.
     return KEY_IN_HASH.exec(loc.hash)?.[1] ?? "";
