@@ -461,3 +461,14 @@ Alright. Then: remove the permissions too; we'll bring them in later.
 ## 142. React, phones, app stores, owner-only private bots (2026-11-08)
 What about React? → Yes, go ahead; test it, then let me know. → I want the Android and iPhone apps to be React too. → Help with the app stores: I want iPhone and Play Store apps, plus Mac and Windows apps. → Another change: only the owner can have private bots; everyone else is a collaborator.
 Answers: other people's existing private bots are handed to the owner; non-owners share with everyone only; only the owner keeps a private browser.
+
+## 143. Codex inside the app, one app per chip, store sign-up links (2026-11-08)
+Did you rebuild the image? → How big was it, and does it have Codex? → Codex is the harness; will oxbot work without it installed? → Yes (bundle it, one app per chip). → Use the Codex inside rather than the outside one. → Chip type: Apple, Intel and Mac? → Open the app store artifact and link to the stores so I can sign up.
+→ Codex 0.148.0 now ships in Resources/tools/codex and always wins over one installed elsewhere; make-dmg.sh builds oxbot_0.1.0_apple-chip.dmg (169 MB) and _intel.dmg (183 MB). Checked: with no other Codex reachable, oxbot runs its own (branch react, af7abf1). Sign-up links added to the app stores plan.
+
+## 144. One modern theme, fewer words (2026-11-08 → 11-09)
+The UI is still inconsistent: have a modern theme built into the main React app, as a design system. → Too much text (the privacy paragraph isn't needed); remove the empty Reports section, the Free models pill, and the @name under a bot (say what it does instead). → Don't show the model and cost line unless the home uses its own OpenRouter: there will be two setups, manual (your own OpenRouter key) and cloud (my server provisions a key at sign-in, usage capped around $2, models picked by the app, so no models shown). → Yes, let's do it (the design system plan, with the recommended choices: red only for the main action, roomy, delete the old page). → Where is the React code?
+
+## 145. Test in the browser, then merge (2026-11-09)
+I want to test this in a loop without building; maybe use the web browser to test and approve the changes. Did you finish the testing? → Where is the browser? → Switch to the branch and serve oxbot so I can approve (on my real bots). → Also change the favicon. → Push this branch and merge to main. Let's start working on refining the bots.
+→ `oxbot-e2e preview` serves a seeded home with the stand-in AI from ui-dist on disk; the tab icon is now the tic-tac-toe app tile.

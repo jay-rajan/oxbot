@@ -1,0 +1,103 @@
+<title>oxbot Codex Inside</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · built · Nov 8, 2026 · branch react, commit af7abf1 (local, not pushed)</div>
+<h1>Codex ships inside the app, one app per chip</h1>
+<p class="mut">Every bot runs on Codex. Until now oxbot used whatever Codex was installed on the Mac, so a friend without Codex 0.148.x got a dead app. Now the app carries its own Codex and always uses it. Codex is about 260 MB per chip, so there are two downloads instead of one universal one.</p>
+</header>
+
+<section>
+<h2>Downloads</h2>
+<div class="scroll"><table>
+<tr><th>File</th><th>For</th><th>Download</th><th>Installed</th></tr>
+<tr><td class="mono">oxbot_0.1.0_apple-chip.dmg</td><td>Macs with M1 and later (late 2020 on)</td><td class="num">169 MB</td><td class="num">423 MB</td></tr>
+<tr><td class="mono">oxbot_0.1.0_intel.dmg</td><td>Older Intel Macs</td><td class="num">183 MB</td><td class="num">445 MB</td></tr>
+<tr><td class="mono mut">before: oxbot_0.1.0_universal.dmg</td><td class="mut">both, no Codex</td><td class="num mut">117 MB</td><td class="num mut">317 MB</td></tr>
+</table></div>
+<p class="note">Checked: started in a throwaway folder with no other Codex reachable, oxbot logged "using the Codex built into the app" and found version 0.148.0 there. Both apps have the right chip type in every program, and their signatures verify.</p>
+</section>
+
+<section>
+<h2>1 · Files and functions</h2>
+<div class="scroll"><table>
+<tr><th>File</th><th>What changed</th></tr>
+<tr><td class="mono">scripts/fetch-tools.sh</td><td>Takes a chip (<code>arm64</code> or <code>x64</code>). Adds OpenAI's Codex 0.148.0 release from npm, checked against npm's sha512, plus its LICENSE and NOTICE from the same release tag (Apache-2.0). Unpacks it as shipped (program, helper, ripgrep, zsh) into <code>tools/codex</code>, keeping OpenAI's signatures. Node.js is now one chip, not both.</td></tr>
+<tr><td class="mono">scripts/make-dmg.sh</td><td><code>build_one</code> per chip: fetch tools, <code>cargo tauri build --target</code>, copy tools in, thin the Mac helper, sign, <code>make_dmg</code>. <code>make-dmg.sh arm64</code> builds only the Apple chip app.</td></tr>
+<tr><td class="mono">oxbot-codex/src/binary.rs</td><td><code>BUILT_IN</code> (<code>codex/bin/codex</code>) and <code>built_in(tools_dir)</code>.</td></tr>
+<tr><td class="mono">oxbot-core/src/hub/codex.rs</td><td><code>CodexParts.built_in</code>; <code>pick_program</code>: test's <code>OXBOT_CODEX</code>, then the app's own, then the owner's setting, then PATH.</td></tr>
+<tr><td class="mono">oxbot/src/runtime.rs</td><td><code>built_in_tools_dir</code> (shared by the browser tool and Codex), <code>built_in_codex</code>.</td></tr>
+<tr><td class="mono">oxbot-e2e/src/main.rs</td><td>The "needs Codex" check looks in the tools folder too, in oxbot's order.</td></tr>
+<tr><td class="mono">README.md</td><td>Two downloads, and why.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · Which Codex runs</h2>
+<pre class="mermaid">
+flowchart LR
+  A[oxbot starts] --> B{OXBOT_CODEX set?<br/>tests only}
+  B -- yes --> R[run it]
+  B -- no --> C{Codex inside the app?<br/>Resources/tools/codex}
+  C -- yes --> R
+  C -- no --> D{Owner chose a path?}
+  D -- yes --> R
+  D -- no --> E[PATH, /opt/homebrew/bin, /usr/local/bin]
+  E --> R
+  R --> V{version 0.148.x?}
+  V -- yes --> OK[bots run]
+  V -- no --> X[AI helper not ready]
+</pre>
+</section>
+
+<section>
+<h2>3 · C4: what's in the app</h2>
+<pre class="mermaid">
+C4Container
+title oxbot.app (one per chip)
+Person(user, "Someone in the home")
+System_Boundary(app, "oxbot.app") {
+  Container(server, "oxbot", "Rust", "server, hub, relay, page")
+  Container(codex, "Codex 0.148.0", "OpenAI, Apache-2.0", "runs each bot's turns")
+  Container(node, "Node.js + browser tool", "pinned", "drives Chrome")
+  Container(helper, "Mac helper", "Swift", "video frames, dictation")
+}
+System_Ext(or, "OpenRouter", "the home's AI account")
+Rel(user, server, "uses the page")
+Rel(server, codex, "starts; tools and gate")
+Rel(codex, server, "model requests through the relay")
+Rel(server, or, "forwards model requests")
+Rel(server, node, "starts")
+Rel(server, helper, "starts")
+</pre>
+</section>
+
+<section>
+<h2>4 · Checks and what's next</h2>
+<ul>
+<li><code>cargo fmt</code>, <code>clippy -D warnings</code> and all workspace tests pass. New: <code>the_codex_inside_the_tools_folder_is_found_only_when_its_there</code>, <code>the_codex_inside_the_app_wins_over_one_installed_elsewhere</code>.</li>
+<li>Not installed into /Applications yet (needs you to quit oxbot first).</li>
+<li>With an Apple account: Developer ID signing and notarization cover Codex and Node.js too (both already carry their makers' signatures).</li>
+<li>Later: a download page that picks Apple chip or Intel for the visitor.</li>
+</ul>
+</section>
+</div>

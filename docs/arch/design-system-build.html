@@ -1,0 +1,100 @@
+<title>oxbot Theme Build</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45;--x:#e0242a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#e8383d;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#e8383d;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0 0 10px}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:620px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · built · Nov 9, 2026 · branch react, commit 16be0ed (local, not pushed)</div>
+<h1>One theme for the whole page</h1>
+<p class="mut">Every screen is now built from one set of tokens and about 15 shared pieces. The old stylesheet, the old hand-written page and its /old/ address are gone. Red is used only for the main action.</p>
+</header>
+
+<section>
+<h2>Before and after</h2>
+<div class="scroll"><table>
+<tr><th></th><th>Before</th><th>Now</th></tr>
+<tr><td>Styles</td><td class="num">legacy.css, 488 dense lines, one file for everything</td><td>tokens + base + one CSS file per piece and per screen (1,084 readable lines)</td></tr>
+<tr><td>Text sizes</td><td class="num">20</td><td class="num">5</td></tr>
+<tr><td>Corner sizes</td><td class="num">10</td><td class="num">3 + round</td></tr>
+<tr><td>Kinds of button</td><td>4 classes + one-offs</td><td>Button: primary, secondary, quiet, danger</td></tr>
+<tr><td>Inline styles</td><td class="num">15</td><td>0 (data goes through <code>vars()</code>)</td></tr>
+<tr><td>Code</td><td colspan="2">148 files, +3,202 / −5,322 lines (the old page was most of the removal)</td></tr>
+</table></div>
+<p class="note">Checks: all 72 end-to-end tests pass, and every screen shows as changed, as expected. Unit tests 74/74, check-ui passes (the new guard catches a planted bad file), and fmt, clippy and workspace tests pass.</p>
+</section>
+
+<section>
+<h2>1 · Files</h2>
+<div class="scroll"><table>
+<tr><th>Where</th><th>What</th></tr>
+<tr><td class="mono">ui-src/src/theme/tokens.css</td><td>The only place with raw colors and pixel sizes: surfaces, text, lines, accent, status, type, space, corners, sizes, motion; dark values; 44-pt controls on phones.</td></tr>
+<tr><td class="mono">theme/base.css</td><td>Reset, body type, focus ring, small helpers.</td></tr>
+<tr><td class="mono">components/ui/</td><td>Button, IconButton, Field, Input, TextArea, Select, Segmented, Checkbox, Switch, Dialog, DialogForm, DialogFrame, Tabs, Section, List, ListRow, Note, Banner, Card, Chip, Pill, Toast, menu.css, icons, <code>vars()</code>, <code>pct()</code>.</td></tr>
+<tr><td class="mono">screens/*/&lt;screen&gt;.css</td><td>Layout only, for Sidebar, Chat, Cards, BotSettings, Settings, Welcome, Compare and Pieces. Plus shell.css for the sidebar and chat grid.</td></tr>
+<tr><td class="mono">screens/Pieces/PiecesDialog.tsx</td><td>Every piece on one page (Settings → General → Design pieces, or <code>#pieces</code>), owner with developer tools only.</td></tr>
+<tr><td class="mono">scripts/check-ui.sh</td><td>Fails on raw colors or pixel font sizes outside theme/, and on <code>style={{…}}</code>.</td></tr>
+<tr><td class="mono">oxbot/src/server.rs</td><td>Serves only the React page. <code>OXBOT_UI_DIR</code> serves ui-dist from disk (dev). The old <code>index()</code>, <code>/old/</code> and <code>/next/*</code> are removed.</td></tr>
+<tr><td class="mono">deleted</td><td><code>crates/oxbot/ui/</code> (the old page), <code>tests/page.rs</code> and <code>tests/page/*.js</code> (the React unit tests cover the same logic), legacy.css, tokens.css, App.css, and the old Dialog and Toast.</td></tr>
+<tr><td class="mono">oxbot-e2e preview</td><td>New command: a seeded home with the stand-in AI on port 5199, reading the page from disk. Rebuild and refresh to see a change.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>2 · How a screen gets its look</h2>
+<pre class="mermaid">
+flowchart LR
+  T[theme/tokens.css<br/>colors, type, space] --> P[components/ui<br/>Button, Field, Dialog, List…]
+  T --> S[screen CSS<br/>layout only]
+  P --> X[Screens<br/>Sidebar, Chat, Settings…]
+  S --> X
+  D[data: a person's color, a bar's fill] -- "vars()" --> X
+  G[check-ui.sh] -. refuses raw colors, px fonts, inline styles .-> S
+  G -.-> X
+</pre>
+</section>
+
+<section>
+<h2>3 · C4: the page in the home computer</h2>
+<pre class="mermaid">
+C4Container
+title oxbot page
+Person(user, "Someone in the home")
+System_Boundary(ox, "oxbot") {
+  Container(server, "oxbot server", "Rust, axum", "serves /, /app.js, /app.css with a strict policy")
+  Container(page, "React page", "TS + React 18", "screens built from components/ui and the theme")
+  Container(state, "state/ + net/", "TS", "platform-neutral, shared with the phone apps")
+}
+System_Ext(phone, "Phone app", "same page, inlined")
+Rel(user, page, "uses")
+Rel(server, page, "serves (built-in, or ui-dist on disk in dev)")
+Rel(page, state, "reads and dispatches")
+Rel(state, server, "WebSocket")
+Rel(server, phone, "page as one file")
+</pre>
+</section>
+
+<section>
+<h2>4 · What's next</h2>
+<ul>
+<li>You look at the preview and the report, then say <b>approve</b>. I make these screenshots the new reference set.</li>
+<li>Then I rebuild the apps so they include this (the current .dmg files are older).</li>
+<li>Not checked yet: Safari, which is the engine inside the app's window.</li>
+</ul>
+</section>
+</div>

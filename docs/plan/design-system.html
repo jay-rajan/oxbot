@@ -1,0 +1,178 @@
+<title>oxbot Design System</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--card:#fff;--red:#e5262b;--ok:#1f7a45;
+  /* the proposed app theme, shown in the mock-ups */
+  --t-bg:#ffffff;--t-surface:#ffffff;--t-sunken:#f6f6f4;--t-ink:#141414;--t-ink2:#3d3d3d;--t-muted:#6b6b68;--t-line:#e7e6e2;--t-accent:#ff3737;--t-accent-ink:#ffffff;--t-focus:#141414;--t-shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.08)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--card:#18191c;--red:#ff4a4a;--ok:#4cc47e;
+  --t-bg:#14171c;--t-surface:#1b1f26;--t-sunken:#101317;--t-ink:#f2f2f0;--t-ink2:#d0d2d6;--t-muted:#9a9fa7;--t-line:#2b3038;--t-accent:#ff4a4a;--t-accent-ink:#ffffff;--t-focus:#f2f2f0;--t-shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.45);color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--card:#18191c;--red:#ff4a4a;--ok:#4cc47e;
+  --t-bg:#14171c;--t-surface:#1b1f26;--t-sunken:#101317;--t-ink:#f2f2f0;--t-ink2:#d0d2d6;--t-muted:#9a9fa7;--t-line:#2b3038;--t-accent:#ff4a4a;--t-accent-ink:#ffffff;--t-focus:#f2f2f0;--t-shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.45);color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:38px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:20px;margin:0;text-wrap:balance}h3{font-size:15px;margin:0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:24px;align-items:start}
+.cols>*{min-width:0}
+.cap{font-size:12.5px;color:var(--mut);margin-top:8px}
+
+/* mock-ups in the proposed theme */
+.mock{background:var(--t-bg);color:var(--t-ink);border:1px solid var(--t-line);border-radius:14px;padding:18px;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.dlg{background:var(--t-surface);border:1px solid var(--t-line);border-radius:14px;box-shadow:var(--t-shadow);display:flex;flex-direction:column}
+.dlg-h{padding:16px 18px 4px;display:flex;align-items:center;gap:10px}.dlg-h b{font-size:17px;font-weight:600}
+.dlg-b{padding:12px 18px;display:flex;flex-direction:column;gap:16px}
+.dlg-f{padding:12px 18px;border-top:1px solid var(--t-line);display:flex;gap:8px;align-items:center}
+.f{display:flex;flex-direction:column;gap:6px}.lab{font-size:13px;font-weight:600;color:var(--t-ink2)}
+.inp{border:1px solid var(--t-line);border-radius:10px;padding:8px 11px;background:var(--t-bg);color:var(--t-ink)}
+.ta{min-height:58px}
+.hint{font-size:12.5px;color:var(--t-muted)}
+.seg{display:inline-flex;background:var(--t-sunken);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg span{padding:5px 12px;border-radius:8px;font-size:13px;color:var(--t-ink2)}
+.seg .on{background:var(--t-surface);color:var(--t-ink);box-shadow:0 1px 2px rgba(0,0,0,.12);font-weight:600}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 14px;border-radius:10px;font-size:14px;font-weight:600;border:1px solid transparent}
+.btn.pri{background:var(--t-accent);color:var(--t-accent-ink)}
+.btn.sec{background:var(--t-surface);color:var(--t-ink);border-color:var(--t-line)}
+.btn.gh{color:var(--t-ink2)}
+.btn.dan{color:var(--t-accent)}
+.sp{flex:1}
+.lst{border:1px solid var(--t-line);border-radius:10px}
+.lst div{display:flex;justify-content:space-between;gap:8px;padding:9px 12px;border-bottom:1px solid var(--t-line);font-size:13.5px}
+.lst div:last-child{border-bottom:0}.lst small{color:var(--t-muted)}
+.side{display:flex;flex-direction:column;gap:2px}
+.row{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:center;padding:7px 8px;border-radius:10px}
+.row.on{background:var(--t-sunken)}
+.av{width:30px;height:30px;border-radius:8px;background:var(--t-sunken);border:1px solid var(--t-line)}
+.row b{font-weight:600;font-size:14px;display:block}.row small{color:var(--t-muted);font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head{display:flex;gap:10px;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--t-line)}
+.head b{font-size:16px}.head small{color:var(--t-muted);font-size:12.5px;display:block}
+
+/* token swatches */
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.sw div{border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12px}
+.sw i{display:block;height:38px}
+.sw span{display:block;padding:6px 8px}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 8, 2026 · waiting for your OK</div>
+<h1>One modern theme for the whole app</h1>
+<p class="mut">The React page still wears the old page's stylesheet, copied as is (488 lines). Each screen sized and spaced things its own way. This replaces it with one theme: a small set of tokens and about 15 shared pieces (buttons, fields, dialogs, rows). Every screen is built only from those, so it looks the same everywhere, in light and dark, on the Mac and on phones.</p>
+</header>
+
+<section>
+<h2>Why it looks inconsistent today</h2>
+<div class="scroll"><table>
+<tr><th>In the current stylesheet</th><th>Count</th><th>After</th></tr>
+<tr><td>Corner sizes</td><td class="num">10</td><td class="num">3 (6, 10, 14) + round</td></tr>
+<tr><td>Text sizes</td><td class="num">20</td><td class="num">5</td></tr>
+<tr><td>Different paddings</td><td class="num">46</td><td>a 4-pt spacing scale (4, 8, 12, 16, 24, 32)</td></tr>
+<tr><td>Kinds of button</td><td class="num">4 classes, plus one-offs</td><td class="num">1 Button: primary, secondary, quiet, danger</td></tr>
+<tr><td>Inline styles in screens</td><td class="num">15</td><td class="num">0</td></tr>
+<tr><td>Color names from the old page (<code>--rust</code>, <code>--btn-ink</code>)</td><td>mixed</td><td>named by role (<code>--accent</code>, <code>--surface</code>, <code>--muted</code>)</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>The look</h2>
+<p>Modern and quiet, from the brand you already have: ink and white, one Switch red, the system font (no outside requests). Red is kept for the one main action and the brand. Hierarchy comes from weight and spacing, not boxes. Dialogs float on a soft shadow, and choices are segmented controls, not rows of radio buttons. It follows the Mac's light or dark setting.</p>
+<div class="cols">
+<figure style="margin:0">
+<div class="mock">
+<div class="dlg" role="img" aria-label="Mock-up: Bot settings in the new theme">
+  <div class="dlg-h"><b>Bot settings</b><span class="sp"></span><span class="btn gh" style="height:28px;padding:0 8px">✕</span></div>
+  <div class="dlg-b">
+    <div class="f"><span class="lab">Name</span><span class="inp">Recipes</span></div>
+    <div class="f"><span class="lab">What it's for</span><span class="inp ta">Find dinner recipes when asked.</span></div>
+    <div class="f"><span class="lab">Shared with</span><span class="seg"><span class="on">Everyone</span><span>Just me</span><span>Picked people</span></span></div>
+    <div class="f"><span class="lab">Schedules</span><div class="lst"><div><span>Fridays 9:00 AM · plan the week</span><small>Pause</small></div></div></div>
+  </div>
+  <div class="dlg-f"><span class="btn dan">Delete</span><span class="sp"></span><span class="btn sec">Cancel</span><span class="btn pri">Save</span></div>
+</div>
+</div>
+<figcaption class="cap">Bot settings: no paragraphs, no empty sections, buttons pinned at the bottom.</figcaption>
+</figure>
+<figure style="margin:0">
+<div class="mock" role="img" aria-label="Mock-up: sidebar rows and chat header in the new theme">
+  <div class="head"><span class="av"></span><div><b>Recipes</b><small>Find dinner recipes when asked.</small></div></div>
+  <div class="side" style="margin-top:12px">
+    <div class="row on"><span class="av"></span><div style="min-width:0"><b>Recipes</b><small>by Jay</small></div></div>
+    <div class="row"><span class="av"></span><div style="min-width:0"><b>Groceries</b><small>by Jay</small></div></div>
+    <div class="row"><span class="av"></span><div style="min-width:0"><b>Homework helper</b><small>by Divit</small></div></div>
+  </div>
+</div>
+<figcaption class="cap">Chat header: the bot's name and what it's for. No @name, no model pill.</figcaption>
+</figure>
+</div>
+<h3 style="margin-top:8px">Color tokens (light shown; each has a dark value)</h3>
+<div class="sw">
+<div><i style="background:var(--t-bg)"></i><span>bg</span></div>
+<div><i style="background:var(--t-sunken)"></i><span>sunken (rows, chips)</span></div>
+<div><i style="background:var(--t-ink)"></i><span>ink</span></div>
+<div><i style="background:var(--t-muted)"></i><span>muted</span></div>
+<div><i style="background:var(--t-line)"></i><span>line</span></div>
+<div><i style="background:var(--t-accent)"></i><span>accent (one main action)</span></div>
+</div>
+</section>
+
+<section>
+<h2>The pieces</h2>
+<div class="scroll"><table>
+<tr><th>Piece</th><th>Replaces</th></tr>
+<tr><td><b>Button</b>, IconButton</td><td><code>.primary</code>, <code>.ghost</code>, <code>.side-btn</code>, <code>.foot-btn</code>, <code>.icon-btn</code>, <code>.new-bot</code>, <code>.head-more</code></td></tr>
+<tr><td><b>Field</b> (label, one-line hint, error) with TextField, TextArea, Select</td><td>Hand-made labels and hints in each dialog</td></tr>
+<tr><td><b>Segmented</b>, Checkbox, Switch</td><td>Radio rows (Shared with, Group by), loose checkboxes</td></tr>
+<tr><td><b>Dialog</b> (header, scrolling body, pinned footer)</td><td>The current Dialog plus each dialog's own layout</td></tr>
+<tr><td><b>Tabs</b>, <b>Section</b>, <b>List</b> and <b>ListRow</b></td><td>Settings tabs, the rules, reports, schedules, people and site lists</td></tr>
+<tr><td><b>Menu</b>, <b>Toast</b>, <b>Banner</b>, <b>Chip</b></td><td>Right-click menu, toasts, alert banners, small labels</td></tr>
+<tr><td>Chat parts: Message, ToolLine, Composer, Card</td><td>Kept, restyled with the tokens</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>Fewer words: the rules</h2>
+<ul>
+<li>A hint is one line at most. No explanation paragraphs under choices.</li>
+<li>Empty sections are hidden, not explained.</li>
+<li>No internal names on screen (ids like @divit-learning, model names, request counts), except where you've set up your own OpenRouter (below).</li>
+<li>Plain words, American spelling, as now.</li>
+</ul>
+<p class="note"><b>Already done in this round</b> (in the React page, tests updated): the long privacy paragraphs in Bot settings, New bot and Make private are gone. The empty Reports section is hidden. The Free models pill is gone. The @name under each bot is now what it's for.</p>
+</section>
+
+<section>
+<h2>Model names and cost under answers</h2>
+<p>The line under an answer (<code>· nemotron-3.5-lightning:free · 1 question · $0.00</code>) shows only when the home uses <b>its own OpenRouter account</b>. A home set up through <b>oxbot's cloud</b> (you provision the key at sign-in; usage capped, about $2) never shows model names, cost, Kind of job or a model list, because the app picks the models.</p>
+<p class="mut">Today every home is on its own OpenRouter account (the cloud setup isn't built yet), so the line stays until the cloud setup ships. I'll add the two setups to the accounts and backup plan. If you'd rather hide the line for everyone now, say so.</p>
+</section>
+
+<section>
+<h2>How it's built</h2>
+<ol>
+<li><b>Theme</b>: <code>theme/tokens.css</code> (color by role, light and dark, plus spacing, corners, type, shadow, motion) replaces <code>tokens.css</code>. The brand page uses the same values.</li>
+<li><b>Pieces</b>: <code>components/ui/</code>, each with its own small CSS file, built only from tokens.</li>
+<li><b>Screens moved one at a time</b>: Sidebar, Chat, Bot settings, New bot, Settings tabs, Cards, Welcome. Each drops its part of <code>legacy.css</code>. At the end <code>legacy.css</code> is deleted.</li>
+<li><b>Guard</b>: <code>check-ui.sh</code> fails on raw colors, pixel font sizes or inline styles outside the theme, so it stays consistent.</li>
+<li><b>A page of every piece</b> (owner's dev tools only) for review in both themes.</li>
+<li><b>Phones</b>: the same pieces with 44-pt touch targets.</li>
+<li><b>Tests</b>: the end-to-end suite must pass. The new screenshots become the reference set after you approve them.</li>
+</ol>
+</section>
+
+<section>
+<h2>Decisions for you</h2>
+<ol>
+<li><b>Red</b> only for the main action and the brand (recommended), or also for links and selection?</li>
+<li><b>Density:</b> roomy (recommended for phones and a home audience), or compact like today?</li>
+<li><b>Old page:</b> delete it and <code>/old/</code> in this round (recommended), since it won't get the new theme?</li>
+</ol>
+</section>
+</div>

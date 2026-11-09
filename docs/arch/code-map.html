@@ -1,0 +1,304 @@
+<title>oxbot Code Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column, wide blocks (diagrams, tables) scroll inside their own box. Palette shared with oxbot's plan pages. */
+:root{
+  --bg:#F3F4F6; --surface:#FFFFFF; --ink:#1A1E24; --muted:#5A6371; --line:#D9DEE4;
+  --rust:#A8400F; --rust-soft:#F6E3D8; --ok:#23784A; --ok-soft:#DDF1E5; --warn:#8A5A00; --warn-soft:#FBEFD5;
+  --code-bg:#EDEFF2; --code-ink:#232831;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111419; --surface:#181C22; --ink:#E5E8EC; --muted:#9AA3AF; --line:#2A3039;
+  --rust:#F08A4B; --rust-soft:#3A2318; --ok:#62C98F; --ok-soft:#16301F; --warn:#E8B44C; --warn-soft:#362A12;
+  --code-bg:#0D1014; --code-ink:#D9DEE5; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111419; --surface:#181C22; --ink:#E5E8EC; --muted:#9AA3AF; --line:#2A3039;
+  --rust:#F08A4B; --rust-soft:#3A2318; --ok:#62C98F; --ok-soft:#16301F; --warn:#E8B44C; --warn-soft:#362A12;
+  --code-bg:#0D1014; --code-ink:#D9DEE5; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body)}
+.wrap{max-width:960px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{text-wrap:balance;line-height:1.25;margin:0}
+h1{font-size:2.1rem;font-weight:700}
+h2{font-size:1.4rem;font-weight:700;margin-top:52px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+h2 .n{font:600 .8rem var(--mono);color:var(--rust);background:var(--rust-soft);border-radius:6px;padding:2px 8px}
+h3{font-size:1.05rem;font-weight:600;margin-top:26px}
+p,li{max-width:70ch}
+p{margin:10px 0}
+a{color:var(--rust)}
+code{font:.85em var(--mono);background:var(--code-bg);color:var(--code-ink);padding:1px 5px;border-radius:4px}
+.eyebrow{font:600 .75rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.08rem;margin-top:12px}
+.muted{color:var(--muted)}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-top:16px;min-width:0}
+.scroll{overflow-x:auto}
+pre.mermaid{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px;overflow-x:auto;text-align:center}
+table{border-collapse:collapse;width:100%;font-size:.92rem;background:var(--surface)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin-top:16px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{font:600 .72rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+td.crate{font:600 .85rem var(--mono);white-space:nowrap}
+.pill{display:inline-block;font:600 .7rem var(--mono);border-radius:999px;padding:1px 8px;white-space:nowrap}
+.l0{background:var(--code-bg);color:var(--muted)}
+.l1{background:var(--ok-soft);color:var(--ok)}
+.l2{background:var(--warn-soft);color:var(--warn)}
+.l3{background:var(--rust-soft);color:var(--rust)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:16px}
+.grid .box{margin:0}
+.grid h3{margin:0 0 6px;font-size:1rem}
+.grid p{margin:0;font-size:.93rem}
+ol.steps{padding-left:0;list-style:none;counter-reset:s;margin:16px 0 0;display:grid;gap:10px}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:2.2rem 1fr;gap:10px;max-width:none}
+ol.steps li::before{content:counter(s);font:600 .8rem var(--mono);color:var(--rust);background:var(--rust-soft);border-radius:6px;height:1.7rem;display:flex;align-items:center;justify-content:center}
+ol.steps li > div{min-width:0}
+.words{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;font-size:.93rem}
+.words span b{font-family:var(--mono);font-weight:600}
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">oxbot · ~/src/oxbot · main @ f825f52 · 9 Nov 2026</div>
+  <h1>oxbot Code Map</h1>
+  <p class="lede">The lay of the land before going module by module: what runs where, what each crate does, how one message travels, and the order to read things in.</p>
+
+  <div class="box">
+    <b>In one paragraph.</b> One Mac (the home computer) runs everything. The Tauri app starts the same server as <code>oxbot serve</code>: an axum WebSocket server in front of the <b>Hub</b>, which owns every bot. Each bot is driven by its own <b>Codex CLI</b> process (<code>codex app-server</code>, talked to over JSON-RPC). Codex never touches the network or your machine directly: its model calls can only go to oxbot's <b>relay</b> on 127.0.0.1, which strips identity and personal details and forwards to <b>OpenRouter</b>; its tool calls come back into oxbot's <b>tool service</b>, where the <b>gate</b> asks the hub's <b>policy</b> before anything runs (and shows an approval request when a step changes something). Browsing happens in a hidden, signed-in <b>Chrome</b> driven by <code>chrome-devtools-mcp</code>. History lives in SQLite (<code>oxbot.db</code>), and every change is broadcast to the chat page on the Mac and to Android phones through the TLS <b>device door</b>.
+  </div>
+
+  <p class="muted">Code names differ from what the app says. Keep this list handy:</p>
+  <div class="words">
+    <span><b>Farm</b> = home computer</span>
+    <span><b>Gate</b> = device (phone)</span>
+    <span><b>Herder</b> = Assistant</span>
+    <span><b>engine</b> = what runs a bot (Codex today)</span>
+    <span><b>card</b> = approval request</span>
+    <span><b>rule</b> = Always allow</span>
+    <span><b>taint</b> = has read untrusted text</span>
+  </div>
+
+  <h2><span class="n">C4 · 1</span>System context</h2>
+  <p>Who and what oxbot talks to. Only two things ever leave the Mac: model requests to OpenRouter, and the websites the bots browse.</p>
+<pre class="mermaid">
+flowchart LR
+  owner(["Owner at the Mac"])
+  member(["Family member on a phone"])
+  subgraph home["Home computer (Mac)"]
+    oxbot["oxbot<br/>bots, browser, files, history"]
+  end
+  openrouter["OpenRouter<br/>free and paid AI models"]
+  sites["Websites<br/>the bots browse, signed in"]
+  owner -- "desktop app window" --> oxbot
+  member -- "Android app, home Wi-Fi, pinned TLS" --> oxbot
+  oxbot -- "model requests via relay, details removed" --> openrouter
+  oxbot -- "hidden Chrome" --> sites
+</pre>
+
+  <h2><span class="n">C4 · 2</span>Containers: the running pieces</h2>
+  <p>Every box is a separate process, file or store. The dashed lines are the guarded paths: they exist so Codex can't reach anything oxbot hasn't checked.</p>
+<pre class="mermaid">
+flowchart TB
+  subgraph clients["Clients"]
+    page["Chat page<br/>crates/oxbot/ui/index.html"]
+    phone["Android app (Gate)<br/>app/src-tauri + oxbot-gate"]
+  end
+  subgraph farm["oxbot process (Tauri app or oxbot serve)"]
+    server["Server<br/>axum WS, crates/oxbot/src/server.rs"]
+    door["Device door :7879<br/>TLS, pairing, crates/oxbot/src/door"]
+    hub["Hub<br/>oxbot-core::hub"]
+    tools["Tool service + gate<br/>oxbot-loop"]
+    relay["Model relay 127.0.0.1<br/>oxbot-relay"]
+    gateway["Gateway: router, pacer, meter<br/>oxbot-loop"]
+  end
+  codex["codex app-server<br/>one process per bot, oxbot-codex"]
+  chrome["Hidden Chrome<br/>+ chrome-devtools-mcp, oxbot-browser"]
+  db[("oxbot.db<br/>SQLite")]
+  files[("bots/&lt;id&gt;/<br/>bot.toml, work/, codex/")]
+  keychain[("macOS Keychain<br/>OpenRouter key")]
+  machelper["oxbot-mac<br/>Swift: dictation, video frames"]
+  openrouter["OpenRouter"]
+
+  page -- "ClientMsg / ServerMsg JSON over WS" --> server
+  phone -- "HTTPS + WS, pinned cert" --> door --> server
+  server --> hub
+  hub -- "JSON-RPC over stdio" --> codex
+  codex -. "item/tool/call" .-> tools
+  tools -- "Permission? policy, approval request" --> hub
+  tools --> chrome
+  codex -. "POST /v1/responses, per-process token" .-> relay
+  relay --> gateway --> openrouter
+  hub --> db
+  hub --> files
+  gateway --> keychain
+  server --> machelper
+</pre>
+
+  <h2><span class="n">Crates</span>Twelve crates, in layers</h2>
+  <p>Arrows point at what a crate depends on. The lower crates know nothing about the upper ones, which is why <code>oxbot-engine</code> (traits, no I/O) sits at the bottom and the binary sits at the top.</p>
+<pre class="mermaid">
+flowchart BT
+  protocol["oxbot-protocol"]
+  engine["oxbot-engine"]
+  llm["oxbot-llm"]
+  browser["oxbot-browser"] --> engine
+  loop["oxbot-loop"] --> engine
+  loop --> llm
+  relay["oxbot-relay"] --> loop
+  codex["oxbot-codex"] --> loop
+  codex --> relay
+  core["oxbot-core"] --> codex
+  core --> browser
+  core --> protocol
+  bin["oxbot (binary)"] --> core
+  bin --> llm
+  gate["oxbot-gate"] --> protocol
+  app["app/src-tauri"] --> bin
+  app --> gate
+  e2e["oxbot-e2e"] --> core
+</pre>
+
+  <div class="tbl">
+  <table>
+    <thead><tr><th>Crate</th><th>Lines</th><th>Layer</th><th>Its job</th><th>Start reading at</th></tr></thead>
+    <tbody>
+      <tr><td class="crate">oxbot-protocol</td><td class="num">3,538</td><td><span class="pill l0">types</span></td><td>Every message between the server and the apps: <code>ClientMsg</code> (about 60 kinds: Send, Answer, CreateBot…) and <code>ServerMsg</code>, plus events and approval cards.</td><td><code>lib.rs</code></td></tr>
+      <tr><td class="crate">oxbot-engine</td><td class="num">1,021</td><td><span class="pill l0">types</span></td><td>The <code>Engine</code> and <code>Session</code> traits (start, send, interrupt, shutdown) and the <code>EngineEvent</code> stream every engine reports. No I/O.</td><td><code>lib.rs</code>, <code>event.rs</code></td></tr>
+      <tr><td class="crate">oxbot-llm</td><td class="num">4,652</td><td><span class="pill l1">client</span></td><td>OpenAI-style chat client for OpenRouter: streaming (SSE), errors, model list, key info, PKCE sign-in, the key held with zeroize.</td><td><code>client.rs</code>, <code>openrouter.rs</code></td></tr>
+      <tr><td class="crate">oxbot-browser</td><td class="num">5,324</td><td><span class="pill l1">client</span></td><td>One hidden Chrome per owner (home, or a person's own) with a kept profile, the sign-in window, cookie checks, and the network guard for practice runs.</td><td><code>browser.rs</code>, <code>guard.rs</code></td></tr>
+      <tr><td class="crate">oxbot-loop</td><td class="num">16,870</td><td><span class="pill l2">engine parts</span></td><td>What used to be oxbot's own agent loop, now the parts Codex bots share: the <b>tool service</b>, the <b>gate</b> (no tool runs without a <code>Permit</code>), page tools (snapshots, find, rows, diff), files, the answer check, and the <b>gateway</b> (router, pacer, retries, meter).</td><td><code>lib.rs</code>, <code>service.rs</code>, <code>gate.rs</code></td></tr>
+      <tr><td class="crate">oxbot-relay</td><td class="num">3,616</td><td><span class="pill l2">engine parts</span></td><td>HTTP server on 127.0.0.1 with one route, <code>POST /v1/responses</code>. Checks the per-process token, rebuilds the body from an allow list, swaps personal details for stand-ins (and back while streaming), applies model and privacy rules, forwards to OpenRouter, logs what was sent.</td><td><code>lib.rs</code>, <code>shape.rs</code>, <code>personal/</code></td></tr>
+      <tr><td class="crate">oxbot-codex</td><td class="num">2,926</td><td><span class="pill l2">engine</span></td><td>The Codex engine: finds and checks the <code>codex</code> binary, writes its config, supervises one <code>codex app-server</code> per bot, and maps turns and tool calls onto its JSON-RPC.</td><td><code>engine.rs</code>, <code>supervisor.rs</code>, <code>rpc.rs</code></td></tr>
+      <tr><td class="crate">oxbot-core</td><td class="num">34,404</td><td><span class="pill l3">logic</span></td><td>The heart, with no networking: bots on disk, the <b>Hub</b> (split into 26 modules by job), the SQLite <b>store</b> and its migrations, the tool <b>policy</b>, prompts, reports, schedules, attachments.</td><td><code>lib.rs</code>, <code>hub/mod.rs</code>, <code>hub/turns.rs</code></td></tr>
+      <tr><td class="crate">oxbot</td><td class="num">8,679</td><td><span class="pill l3">binary</span></td><td>The <code>oxbot</code> command (<code>serve</code>, <code>chat</code>, <code>bots</code>, <code>pair</code>, <code>devices</code>, <code>doctor</code>), the WebSocket server, the device door, Keychain, dictation, notifications. Also ships the 3,329-line chat page <code>ui/index.html</code>.</td><td><code>main.rs</code>, <code>server.rs</code></td></tr>
+      <tr><td class="crate">oxbot-gate</td><td class="num">1,114</td><td><span class="pill l1">client</span></td><td>The phone side: pairing link, TLS pinned to the home computer's certificate, the phone's own copy of chats. Builds for Android.</td><td><code>lib.rs</code></td></tr>
+      <tr><td class="crate">app/src-tauri</td><td class="num">987</td><td><span class="pill l3">app</span></td><td>Tauri 2 shell. On the Mac: server inside, chat page as the window, menu bar icon. On Android: only a Gate.</td><td><code>desktop.rs</code>, <code>gate.rs</code></td></tr>
+      <tr><td class="crate">oxbot-e2e</td><td class="num">7,449</td><td><span class="pill l0">tests</span></td><td>End-to-end runner behind <code>/pr_test</code>: seeds a throwaway oxbot, drives the page in Chrome, with stand-in OpenRouter, DevTools and Mac helper. 68 tests in <code>e2e/tests/</code>.</td><td><code>main.rs</code>, <code>steps.rs</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">About 93,000 lines of Rust in total. Two-thirds of it is in <code>oxbot-core</code> and <code>oxbot-loop</code>.</p>
+
+  <h2><span class="n">Flow</span>One message, end to end</h2>
+  <p>What happens when you type "find me a cheaper phone plan" to a bot. This is the path to keep in your head; almost every module sits somewhere on it.</p>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant P as Chat page
+  participant S as server.rs
+  participant H as Hub
+  participant C as codex app-server
+  participant R as Relay
+  participant O as OpenRouter
+  participant T as Tool service + gate
+  participant B as Chrome
+  P->>S: ClientMsg::Send over WS
+  S->>H: hub.send_as(bot, text, person)
+  H->>H: store event, broadcast ServerMsg
+  H->>C: start process if needed, turn/start
+  C->>R: POST /v1/responses with token
+  R->>R: check token, strip ids, swap personal details
+  R->>O: forward with the home's key, meter it
+  O-->>C: streamed answer, details swapped back
+  C->>T: item/tool/call, e.g. click
+  T->>H: EngineEvent::Permission
+  H->>H: policy::decide, Always allow rules
+  H-->>P: approval request if it changes something
+  P->>H: ClientMsg::Answer
+  H-->>T: Permit or refusal
+  T->>B: run the step via chrome-devtools-mcp
+  B-->>T: page snapshot
+  T-->>C: result, outside text marked as untrusted
+  C-->>H: text deltas, turn complete
+  H-->>P: events stream into the chat
+</pre>
+
+  <h2><span class="n">C4 · 3</span>Inside the Hub</h2>
+  <p>The Hub is one struct split across 26 files in <code>oxbot-core/src/hub/</code>, grouped here by job. The store underneath has one file per table group, plus <code>migrations.rs</code>.</p>
+<pre class="mermaid">
+flowchart LR
+  subgraph run["Running bots"]
+    turns["turns.rs<br/>send, cancel, idle stop"]
+    session["session.rs"]
+    engines["engines.rs, codex.rs, looped.rs<br/>engine choice, upgrade from Claude"]
+    seqs["seqs.rs<br/>event numbering"]
+  end
+  subgraph guard["Guarding steps"]
+    approvals["approvals.rs<br/>cards and answers"]
+    rules["rules.rs<br/>Always allow"]
+    taint["taint.rs<br/>read untrusted text?"]
+    elements["elements.rs<br/>what a click aims at"]
+    access["access.rs<br/>who may open what"]
+  end
+  subgraph browse["Browser"]
+    browsers["browsers.rs<br/>one Chrome per owner, turn-taking"]
+    signins["sign_ins.rs"]
+  end
+  subgraph features["Features"]
+    team["team.rs<br/>Assistant tools"]
+    reports["reports.rs"]
+    schedules["schedules.rs"]
+    uploads["uploads.rs"]
+    compare["compare.rs, trials.rs<br/>test cases, practice runs"]
+    people["people.rs, profiles.rs, sections.rs"]
+    alerts["alerts.rs, net_log.rs"]
+  end
+  policy["policy.rs<br/>the decide table"]
+  store[("store/<br/>SQLite, migrations")]
+  turns --> engines --> session
+  approvals --> policy
+  approvals --> rules
+  approvals --> taint
+  approvals --> elements
+  run --> store
+  guard --> store
+  features --> store
+</pre>
+
+  <h2><span class="n">Safety</span>The lines oxbot never lets Codex cross</h2>
+  <p>These are the design's load-bearing rules. When you read a module, ask which of these it enforces.</p>
+  <div class="grid">
+    <div class="box"><h3>No tool without a Permit</h3><p>Only <code>GateCheck::check</code> in <code>oxbot-loop/src/gate.rs</code> makes a <code>Permit</code>, and tools need one to run. A lost answer counts as no.</p></div>
+    <div class="box"><h3>oxbot decides, not the bot</h3><p><code>oxbot-core/src/policy.rs</code> (2,462 lines) maps every browser step to run, run-and-log, approval request or refuse.</p></div>
+    <div class="box"><h3>One way out for models</h3><p>Codex's only model provider is the relay. Which bot a request is for comes from its token and oxbot's own record, never from what Codex sends.</p></div>
+    <div class="box"><h3>Untrusted text is marked</h3><p>Web pages, files and other bots' replies set a taint (<code>hub/taint.rs</code>). A tainted Assistant asks before tasking a private bot.</p></div>
+    <div class="box"><h3>Phones are pinned and scoped</h3><p>The door is TLS-only on 7879 with a pinned certificate, open only on listed networks. A device always acts as its person.</p></div>
+    <div class="box"><h3>Strict compile rules</h3><p><code>unsafe_code = "forbid"</code>, clippy pedantic, no <code>unwrap</code>/<code>expect</code> outside tests, <code>thiserror</code> in libraries.</p></div>
+  </div>
+
+  <h2><span class="n">On disk</span>Where things live at runtime</h2>
+  <div class="tbl">
+  <table>
+    <thead><tr><th>Path</th><th>What</th></tr></thead>
+    <tbody>
+      <tr><td><code>~/Library/Application Support/oxbot/</code></td><td>The data folder (<code>OXBOT_HOME</code> overrides it; tests and dev mode use that).</td></tr>
+      <tr><td><code>oxbot.db</code></td><td>SQLite: events (numbered per bot with no gaps), sessions, people, rules, schedules, reports, meter, what was sent.</td></tr>
+      <tr><td><code>bots/&lt;id&gt;/bot.toml</code></td><td>A bot's settings: sharing, models, limits. <code>instructions.md</code> sits beside it.</td></tr>
+      <tr><td><code>bots/&lt;id&gt;/work/</code></td><td>The bot's own folder. File tools can't reach outside it. Uploads land in <code>work/inbox/&lt;date&gt;/</code>.</td></tr>
+      <tr><td><code>bots/&lt;id&gt;/codex/</code></td><td>That bot's <code>CODEX_HOME</code>, with a config oxbot rewrites at each start.</td></tr>
+      <tr><td><code>trash/</code></td><td>Deleted bots, with a copy of their reports.</td></tr>
+      <tr><td>Keychain</td><td>The OpenRouter key, one item per data folder. Never in a file, log or the page.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2><span class="n">Plan</span>Suggested order for your module questions</h2>
+  <p>Bottom-up, following the message path, so each module only uses things you've already seen.</p>
+  <ol class="steps">
+    <li><div><b>Vocabulary: <code>oxbot-protocol</code> and <code>oxbot-engine</code>.</b> Small, pure types. Learn <code>ClientMsg</code>, <code>ServerMsg</code>, <code>EngineEvent</code> and the <code>Engine</code>/<code>Session</code> traits first.</div></li>
+    <li><div><b>The store: <code>oxbot-core/src/store/</code>.</b> The schema and <code>migrations.rs</code> tell you what oxbot remembers.</div></li>
+    <li><div><b>The Hub: <code>hub/mod.rs</code> then <code>hub/turns.rs</code>.</b> How a message reaches an engine, and how events get stored and broadcast.</div></li>
+    <li><div><b>The Codex engine: <code>oxbot-codex</code>.</b> The supervisor, the JSON-RPC, and how a turn runs.</div></li>
+    <li><div><b>Tools and the gate: <code>oxbot-loop</code> (<code>service.rs</code>, <code>gate.rs</code>, <code>tools/</code>, <code>page/</code>).</b> The biggest idea in the code.</div></li>
+    <li><div><b>Policy and approvals: <code>policy.rs</code>, <code>hub/approvals.rs</code>, <code>rules.rs</code>, <code>taint.rs</code>.</b></div></li>
+    <li><div><b>Models: <code>oxbot-relay</code>, then the gateway in <code>oxbot-loop</code>, then <code>oxbot-llm</code>.</b> Privacy, routing, limits.</div></li>
+    <li><div><b>The browser: <code>oxbot-browser</code> and <code>hub/browsers.rs</code>.</b> Shared Chrome and turn-taking.</div></li>
+    <li><div><b>The edges: <code>oxbot</code> (server, door), <code>oxbot-gate</code>, <code>app/src-tauri</code>, the chat page.</b></div></li>
+    <li><div><b>Features on top:</b> schedules, reports, the Assistant's team tools, compare and practice runs, attachments.</div></li>
+    <li><div><b>Testing: <code>oxbot-e2e</code></b> and how its stand-ins mirror the real pieces.</div></li>
+  </ol>
+
+  <p class="muted" style="margin-top:40px">Built from the code on 9 Nov 2026. Line counts are from <code>src/</code> only and exclude the <code>tests/</code> folders. The existing architecture page lives in <code>docs/architecture/</code>.</p>
+</div>
