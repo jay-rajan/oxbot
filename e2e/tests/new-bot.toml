@@ -1,6 +1,6 @@
 name = "Making a shared bot"
 about = "The + makes a bot; it shows \"by Jay\" with no colored dot (only unread dots are colored)."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "New bot"
@@ -11,7 +11,8 @@ type = { into = "What should it do?", text = "Give me five headlines when I ask.
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@daily-news"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'daily-news'"
+timeout_ms = 5000
 note = "The new bot opens"
 [[step]]
 expect = "by Jay"

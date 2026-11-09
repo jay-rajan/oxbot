@@ -1,6 +1,6 @@
 name = "OpenRouter's privacy settings rule out the free models"
 about = "When the OpenRouter account's own privacy settings leave the free models no provider, the bot says what to change on OpenRouter's site, in plain words and with OpenRouter's own message. oxbot changes nothing there itself. (Settings no longer has a models page to repeat it on.)"
-covers = ["crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/src/error.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/src/error.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "New bot"
@@ -9,7 +9,8 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 send = "privacy blocks"
 [[step]]

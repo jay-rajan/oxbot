@@ -1,6 +1,6 @@
 name = "A post needs your OK, on a phone"
 about = "On a phone-size screen an approval request sits right above the message box, and both stay on screen."
-covers = ["crates/oxbot/ui/**"]
+covers = ["crates/oxbot/ui-src/**"]
 viewport = { width = 390, height = 844 }
 
 [[step]]

@@ -1,6 +1,6 @@
 name = "Tables as rows, and a final answer checked once"
 about = "A bot reads a page with two tables (finished and unfinished towers): extract_rows turns them into rows and query_rows sorts them, with no model call. Its first answer names a year no page had, so oxbot sends it back once with the task and that value; the checked answer is the only one the chat shows, and the check is recorded."
-covers = ["crates/oxbot-loop/src/rows.rs", "crates/oxbot-loop/src/page/rows.rs", "crates/oxbot-loop/src/numbers.rs", "crates/oxbot-loop/src/check.rs", "crates/oxbot-codex/src/engine.rs", "crates/oxbot-loop/src/tools/page.rs", "crates/oxbot-core/src/store/**", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-e2e/src/fake_openrouter.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-loop/src/rows.rs", "crates/oxbot-loop/src/page/rows.rs", "crates/oxbot-loop/src/numbers.rs", "crates/oxbot-loop/src/check.rs", "crates/oxbot-codex/src/engine.rs", "crates/oxbot-loop/src/tools/page.rs", "crates/oxbot-core/src/store/**", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-e2e/src/fake_openrouter.rs", "crates/oxbot/ui-src/**"]
 script = "context.toml"
 
 [[step]]
@@ -10,7 +10,8 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 send = "which is the tallest finished tower?"
 [[step]]

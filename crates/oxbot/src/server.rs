@@ -321,15 +321,130 @@ impl AppState {
     }
 }
 
-/// The chat page, baked into the binary.
-const INDEX_HTML: &str = include_str!("../ui/index.html");
+/// The page (`crates/oxbot/ui-src`, built into `ui-dist/`), baked into the
+/// binary.
+mod page {
+    pub const INDEX_HTML: &str = include_str!("../ui-dist/index.html");
+    pub const APP_JS: &str = include_str!("../ui-dist/app.js");
+    pub const APP_CSS: &str = include_str!("../ui-dist/app.css");
+}
 
-/// The HTTP routes: the chat page at `/`, the WebSocket at `/ws`, and
-/// `POST /upload` for files sent with messages (this Mac only: not on the
+/// The page's Content-Security-Policy: its own script and stylesheet
+/// only, no inline scripts, and connections back to this server only. The
+/// report frame (`srcdoc`, which inherits this policy) may use exactly the
+/// reports' own stylesheet, allowed by its hash; nothing else inline.
+fn page_csp() -> &'static str {
+    static CSP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CSP.get_or_init(|| {
+        let style =
+            ring::digest::digest(&ring::digest::SHA256, oxbot_core::report::STYLE.as_bytes());
+        format!(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'sha256-{}'; \
+             img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'none'; \
+             object-src 'none'; base-uri 'none'",
+            base64(style.as_ref())
+        )
+    })
+}
+
+/// Standard base64 with padding, for CSP hashes.
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ABC[(n >> (18 - 6 * i) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// The page's script and stylesheet, added to both routers so they're
+/// reached (and checked) the same way on this Mac and through the device door.
+fn with_page_files(router: Router<AppState>) -> Router<AppState> {
+    router
+        .route(
+            "/app.js",
+            get(|State(state): State<AppState>| async move {
+                page_file(
+                    &state,
+                    "app.js",
+                    "text/javascript; charset=utf-8",
+                    page::APP_JS,
+                )
+                .await
+            }),
+        )
+        .route(
+            "/app.css",
+            get(|State(state): State<AppState>| async move {
+                page_file(&state, "app.css", "text/css; charset=utf-8", page::APP_CSS).await
+            }),
+        )
+}
+
+/// One of the page's files, with its type and the strict policy. In dev
+/// mode (`ui_dir`) it's read from that folder on every request, so a
+/// rebuilt page shows on refresh.
+async fn page_file(
+    state: &AppState,
+    name: &str,
+    content_type: &'static str,
+    built_in: &'static str,
+) -> Response {
+    if let Some(dir) = &state.ui_dir {
+        match tokio::fs::read_to_string(dir.join(name)).await {
+            Ok(body) => return with_page_headers(content_type, body),
+            Err(err) => {
+                tracing::warn!(%err, name, "dev page file not readable; serving the built-in one");
+            }
+        }
+    }
+    with_page_headers(content_type, built_in)
+}
+
+/// A page file's response: its type and the strict policy.
+fn with_page_headers(
+    content_type: &'static str,
+    body: impl axum::response::IntoResponse,
+) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CONTENT_SECURITY_POLICY, page_csp()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// The HTTP routes: the page at `/`, the WebSocket at `/ws`, and `POST /upload` for files sent with messages (this Mac only: not on the
 /// Gate door).
 pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(index))
+    with_page_files(Router::new())
+        .route(
+            "/",
+            get(|State(state): State<AppState>| async move {
+                page_file(
+                    &state,
+                    "index.html",
+                    "text/html; charset=utf-8",
+                    page::INDEX_HTML,
+                )
+                .await
+            }),
+        )
         .route("/ws", get(ws_upgrade))
         // "Sign in with OpenRouter" comes back here: this Mac only.
         .route(
@@ -351,8 +466,10 @@ const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 /// The Gate door's routes: `POST /pair` for anyone with the code, and the
 /// page and WebSocket for paired Gates only (see [`crate::door`]).
 pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
-    Router::new()
-        .route("/", get(index))
+    with_page_files(Router::new())
+        // The phone app fetches `/` once and puts it in its own window, so
+        // it gets the page with its script and styles inside.
+        .route("/", get(|| async { Html(inline_page()) }))
         .route("/ws", get(ws_upgrade))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(door),
@@ -380,14 +497,35 @@ pub async fn serve(
         .await
 }
 
-async fn index(State(state): State<AppState>) -> Html<String> {
-    if let Some(dir) = &state.ui_dir {
-        match tokio::fs::read_to_string(dir.join("index.html")).await {
-            Ok(page) => return Html(page),
-            Err(err) => tracing::warn!(%err, "dev page not readable; serving the built-in one"),
+/// The page as one file, its script and stylesheet inside, for the
+/// phone app (which loads the page through its own connection, not by
+/// address). Built once.
+fn inline_page() -> &'static str {
+    static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| inline_into(page::INDEX_HTML, page::APP_JS, page::APP_CSS))
+}
+
+/// `html` with its `app.js` script and `app.css` link replaced by their
+/// contents. A `</script` inside the script is escaped so it can't end it.
+fn inline_into(html: &str, js: &str, css: &str) -> String {
+    let script = js.replace("</script", "<\\/script");
+    let style = css.replace("</style", "<\\/style");
+    let mut page = String::with_capacity(html.len() + js.len() + css.len());
+    for line in html.split_inclusive('\n') {
+        let t = line.trim();
+        if t.starts_with("<script") && t.contains("app.js") {
+            page.push_str("<script type=\"module\">");
+            page.push_str(&script);
+            page.push_str("</script>\n");
+        } else if t.starts_with("<link") && t.contains("app.css") {
+            page.push_str("<style>");
+            page.push_str(&style);
+            page.push_str("</style>\n");
+        } else {
+            page.push_str(line);
         }
     }
-    Html(INDEX_HTML.to_owned())
+    page
 }
 
 async fn ws_upgrade(
@@ -775,6 +913,10 @@ impl Client {
             ClientMsg::RenameBot { bot, name } => ClientMsg::RenameBot {
                 bot: self.inner(bot),
                 name,
+            },
+            ClientMsg::SetBotInstructions { bot, instructions } => ClientMsg::SetBotInstructions {
+                bot: self.inner(bot),
+                instructions,
             },
             ClientMsg::DeleteBot { bot } => ClientMsg::DeleteBot {
                 bot: self.inner(bot),
@@ -1171,6 +1313,26 @@ async fn next_removal(rx: Option<&mut broadcast::Receiver<String>>) -> String {
     }
 }
 
+/// Bot settings: who it's shared with, its name, what it's for, and
+/// deleting it. The hub checks that `viewer` may manage it.
+async fn handle_bot_settings(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
+    let hub = &state.hub;
+    reply(match msg {
+        ClientMsg::SetPrivate { bot, private } => hub.set_private(&bot, private, viewer).await,
+        ClientMsg::SetSharing {
+            bot,
+            sharing,
+            people,
+        } => hub.set_sharing(&bot, sharing, &people, viewer).await,
+        ClientMsg::RenameBot { bot, name } => hub.rename_bot(&bot, &name, viewer).await,
+        ClientMsg::SetBotInstructions { bot, instructions } => {
+            hub.set_instructions(&bot, &instructions, viewer).await
+        }
+        ClientMsg::DeleteBot { bot } => hub.delete_bot(&bot, viewer).await,
+        _ => Ok(()),
+    })
+}
+
 /// The viewer's own sidebar sections.
 fn handle_sections(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
     match msg {
@@ -1246,18 +1408,11 @@ async fn handle(
             engine,
             models,
         } => create_bot(state, client, &name, &instructions, private, engine, models).await,
-        ClientMsg::SetPrivate { bot, private } => {
-            reply(state.hub.set_private(&bot, private, &viewer).await)
-        }
-        ClientMsg::SetSharing {
-            bot,
-            sharing,
-            people,
-        } => reply(state.hub.set_sharing(&bot, sharing, &people, &viewer).await),
-        ClientMsg::RenameBot { bot, name } => {
-            reply(state.hub.rename_bot(&bot, &name, &viewer).await)
-        }
-        ClientMsg::DeleteBot { bot } => reply(state.hub.delete_bot(&bot, &viewer).await),
+        ClientMsg::SetPrivate { .. }
+        | ClientMsg::SetSharing { .. }
+        | ClientMsg::RenameBot { .. }
+        | ClientMsg::SetBotInstructions { .. }
+        | ClientMsg::DeleteBot { .. } => handle_bot_settings(msg, state, &viewer).await,
         ClientMsg::Answer {
             id,
             answer,
@@ -1849,16 +2004,16 @@ async fn send_as(hub: Arc<Hub>, msg: Outgoing, from: Viewer, out: mpsc::Sender<S
 
 /// Handles sign-in cards and the sign-in lists. A card for a bot the
 /// viewer can't see is ignored; "mine" means the viewer's own browser
-/// (never home's, even for someone oxbot can't place), else the home one.
+/// (the owner only: the hub refuses anyone else; never home's, even for
+/// someone oxbot can't place), else the home one.
 async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
     let viewer = &*state.hub.resolve(viewer);
+    // Only the owner has a browser of their own: the hub refuses anyone else.
     let owner = |mine: bool| -> Result<BrowserOwner, oxbot_core::HubError> {
-        match (mine, &viewer.id) {
-            (false, _) => Ok(BrowserOwner::Home),
-            (true, Some(id)) => Ok(BrowserOwner::Person(id.clone())),
-            (true, None) => Err(oxbot_core::HubError::NotAllowed(
-                "oxbot doesn't know whose browser that is.".to_owned(),
-            )),
+        if mine {
+            state.hub.own_browser_of(viewer)
+        } else {
+            Ok(BrowserOwner::Home)
         }
     };
     // The home browser holds everyone's shared sign-ins: only the Farm
@@ -2078,6 +2233,35 @@ where
 mod tests {
     use super::*;
     use oxbot_protocol::{BotEvent, EventKind};
+
+    #[test]
+    fn base64_matches_the_standard_examples() {
+        assert_eq!(super::base64(b""), "");
+        assert_eq!(super::base64(b"f"), "Zg==");
+        assert_eq!(super::base64(b"fo"), "Zm8=");
+        assert_eq!(super::base64(b"foo"), "Zm9v");
+        assert_eq!(super::base64(b"foobar"), "Zm9vYmFy");
+        // The page's policy allows the reports' stylesheet by its hash.
+        assert!(super::page_csp().contains("style-src 'self' 'sha256-"));
+    }
+
+    #[test]
+    fn the_phone_gets_the_page_with_its_script_and_styles_inside() {
+        let html = "<head>\n<script type=\"module\" crossorigin src=\"./app.js\"></script>\n<link rel=\"stylesheet\" crossorigin href=\"./app.css\">\n</head><div id=\"root\"></div>\n";
+        let page = super::inline_into(html, "let s = '</script>';", "a{color:red}");
+        assert!(
+            page.contains("<script type=\"module\">let s = '<\\/script>';</script>"),
+            "{page}"
+        );
+        assert!(page.contains("<style>a{color:red}</style>"), "{page}");
+        assert!(
+            !page.contains("app.js") && !page.contains("app.css"),
+            "{page}"
+        );
+        assert!(page.contains("<div id=\"root\">"));
+        // The built page is one file too.
+        assert!(!super::inline_page().contains("src=\"./app.js\""));
+    }
 
     fn event(bot: &str, seq: u64) -> ServerMsg {
         ServerMsg::Event(BotEvent {

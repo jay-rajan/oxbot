@@ -587,8 +587,9 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
 }
 
 /// The page's look: system fonts and oxbot's colors, light and dark,
-/// readable on a phone and a Mac.
-const STYLE: &str = ":root{--bg:#FFFFFF;--ink:#111111;--muted:#555555;--line:#E4E4E0;\
+/// readable on a phone and a Mac. Public so the app's page can allow exactly
+/// this stylesheet (by its hash) in the report frame.
+pub const STYLE: &str = ":root{--bg:#FFFFFF;--ink:#111111;--muted:#555555;--line:#E4E4E0;\
 --soft:#F4F4F2;--accent:#D61F1F;color-scheme:light dark}\
 @media (prefers-color-scheme:dark){:root{--bg:#181C22;--ink:#F2F2F0;--muted:#A2A7AF;\
 --line:#2F353E;--soft:#20252D;--accent:#FF6060}}\

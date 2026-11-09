@@ -116,6 +116,17 @@ pub fn native(path: &Path) -> PathBuf {
     .unwrap_or(real)
 }
 
+/// Where Codex sits inside oxbot's built-in tools folder (the app's
+/// `Resources/tools`): `fetch-tools.sh` puts its release there as is.
+pub const BUILT_IN: &str = "codex/bin/codex";
+
+/// The Codex that ships inside the app, if `tools_dir` has it.
+#[must_use]
+pub fn built_in(tools_dir: &Path) -> Option<PathBuf> {
+    let program = tools_dir.join(BUILT_IN);
+    program.is_file().then_some(program)
+}
+
 /// Where `codex` is: `configured` (settings or `OXBOT_CODEX`), else `PATH`
 /// and the usual Homebrew places.
 #[must_use]
@@ -198,6 +209,16 @@ pub async fn find(configured: Option<&Path>, path_var: Option<&str>, scratch: &P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_codex_inside_the_tools_folder_is_found_only_when_its_there() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(built_in(dir.path()), None);
+        let program = dir.path().join(BUILT_IN);
+        std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+        std::fs::write(&program, b"").unwrap();
+        assert_eq!(built_in(dir.path()), Some(program));
+    }
 
     #[test]
     fn versions() {

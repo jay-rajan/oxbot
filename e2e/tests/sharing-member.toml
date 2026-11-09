@@ -1,13 +1,14 @@
 name = "A bot shared with you: open it, task it, can't change it"
 about = "Sam is one of the people Jay shared Journal with: Sam opens it, sees its chat, and gives it a task; its settings are Jay's to change, so Sam gets none."
 needs = ["codex"]
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 as = "Sam"
 
 [[step]]
 click = "Journal"
 [[step]]
-wait_for = "shared with Sam · @journal"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'journal' && document.getElementById('botStatus').textContent.startsWith('shared with Sam')"
+timeout_ms = 10000
 note = "Not locked for Sam"
 [[step]]
 expect_js = "!document.getElementById('input').disabled"

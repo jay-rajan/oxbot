@@ -8,13 +8,16 @@ INSERT INTO events (bot, seq, ts_ms, body) VALUES
   ('recipes', 2, NOW_MS - 7190000, '{"kind":"assistant_message","text":"Red lentil dal: 25 minutes, one pot. Want the steps?"}'),
   ('recipes', 3, NOW_MS - 7189000, '{"kind":"turn_done","ok":true,"duration_ms":4200}');
 
--- Sam's private bot. Its words must never reach anyone else's screen.
+-- Sam's private bot, from before only the owner could have private bots:
+-- oxbot hands it to the owner (Jay) when it starts, chat and all. Its words
+-- must never reach anyone else's screen.
 INSERT INTO events (bot, seq, ts_ms, body) VALUES
   ('bank', 1, NOW_MS - 3600000, '{"kind":"user_message","text":"What is my balance?","from":"Sam"}'),
   ('bank', 2, NOW_MS - 3590000, '{"kind":"assistant_message","text":"Your balance is $4,210 SECRET-BALANCE."}'),
   ('bank', 3, NOW_MS - 3589000, '{"kind":"turn_done","ok":true,"duration_ms":3100}');
 
--- Signed-in sites: one at home (shared bots), one in Sam's own browser.
+-- Signed-in sites: one at home (shared bots), one in Sam's own browser. Only
+-- the owner has a browser of their own now: Sam's stays on disk, never shown.
 INSERT INTO sites (owner, site, signed_in_ms) VALUES ('', 'wikipedia.org', NOW_MS - 86400000), ('Sam', 'bank.example', NOW_MS - 86400000);
 
 -- Claude usage from before Claude left oxbot: kept, never shown.

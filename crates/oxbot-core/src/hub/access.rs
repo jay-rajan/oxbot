@@ -13,6 +13,13 @@ use crate::store::Store;
 /// The most people one bot may be shared with, besides its maker.
 pub const MAX_MEMBERS: usize = 20;
 
+/// What anyone but the owner hears when they ask for a private bot.
+pub const PRIVATE_IS_OWNERS: &str = "Only the owner of the home computer can have private bots. \
+     Bots you make are shared with everyone in the home.";
+
+/// The longest a bot's instructions may be, in characters.
+pub const MAX_INSTRUCTIONS: usize = 8_000;
+
 /// `bots` with the people each is shared with, from the database.
 pub(super) fn with_members(mut bots: Vec<Bot>, store: &Store) -> Vec<Bot> {
     match store.bot_members() {
@@ -91,8 +98,8 @@ impl Hub {
                     last_seq: seq.last,
                     last_reply_seq: seq.last_reply,
                     central: b.is_central(),
-                    browser_state: b
-                        .browser_owner()
+                    browser_state: self
+                        .browser_owner_of(&b)
                         .map_or(BrowserState::Off, |owner| self.owner_state(&owner)),
                     created_by: maker_name(&b, &names),
                     private: b.private,
@@ -107,6 +114,7 @@ impl Hub {
                     owner: b.owner.as_ref().map(ToString::to_string),
                     id: b.id.to_string(),
                     name: b.name,
+                    instructions: b.instructions,
                     ..info
                 })
             })
@@ -221,7 +229,9 @@ impl Hub {
     }
 
     /// Chooses who a bot is shared with: everyone in the home, just its
-    /// owner, or its owner and `people` (by name, exactly; at most
+    /// owner, or its owner and `people`. Only the owner of the home
+    /// computer may choose anything but everyone, and only for their own
+    /// bots (by name, exactly; at most
     /// [`MAX_MEMBERS`]). Shared with anyone but everyone, it uses its
     /// owner's own browser and their sign-ins. A bot nobody owns becomes
     /// `viewer`'s when it stops being everyone's.
@@ -250,6 +260,23 @@ impl Hub {
             ));
         }
         let owner = bot.owner.clone().or_else(|| viewer.id.clone());
+        // Only the owner may have private bots, and only their own.
+        if sharing != Sharing::Everyone && !self.may_keep_private(owner.as_ref()) {
+            return Err(HubError::NotAllowed(if self.is_owner_viewer(viewer) {
+                match maker_name(&bot, &self.person_names()) {
+                    Some(who) => format!(
+                        "Only your own bots can be private. {} is {who}'s, so it stays shared with everyone in the home.",
+                        bot.name
+                    ),
+                    None => format!(
+                        "Only your own bots can be private. {} stays shared with everyone in the home.",
+                        bot.name
+                    ),
+                }
+            } else {
+                PRIVATE_IS_OWNERS.to_owned()
+            }));
+        }
         let members = if sharing == Sharing::People {
             self.picked_people(people, owner.as_ref())?
         } else {
@@ -353,6 +380,61 @@ impl Hub {
             )));
         }
         self.update_bot(&bot.id, |b| name.clone_into(&mut b.name))?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
+    /// Changes what a bot is for: writes its instructions and stops its
+    /// session, so the next message starts the AI fresh with them (the
+    /// chat stays).
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's the Assistant, the text is
+    /// longer than [`MAX_INSTRUCTIONS`], it's working, or the file can't be
+    /// written.
+    pub async fn set_instructions(
+        &self,
+        id: &str,
+        instructions: &str,
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed(
+                "The Assistant's instructions are built in.".to_owned(),
+            ));
+        }
+        let instructions = instructions.trim();
+        if instructions.chars().count() > MAX_INSTRUCTIONS {
+            return Err(HubError::NotAllowed(format!(
+                "A bot's instructions are at most {MAX_INSTRUCTIONS} characters."
+            )));
+        }
+        if bot.instructions.trim() == instructions {
+            return Ok(());
+        }
+        // Held until its session is stopped, so a waiting message can't
+        // start it with the old instructions.
+        self.claim(&bot.id).await?;
+        let changed = {
+            let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
+            match bots.get(&bot.id).cloned() {
+                None => Err(HubError::UnknownBot(bot.id.to_string())),
+                Some(mut b) => {
+                    instructions.clone_into(&mut b.instructions);
+                    b.save_instructions().map_err(HubError::from).map(|()| {
+                        bots.insert(bot.id.clone(), b);
+                    })
+                }
+            }
+        };
+        if changed.is_ok() {
+            tracing::info!(bot = %bot.id, "changed what it's for");
+            self.stop_session(&bot.id).await;
+        }
+        lock(&self.starting).remove(&bot.id);
+        changed?;
         self.announce_bots().await;
         Ok(())
     }
@@ -556,8 +638,8 @@ impl Hub {
             .await
     }
 
-    /// Like [`Hub::create_bot`]; a `private` bot (which needs a creator) is
-    /// seen only by its creator and the Farm.
+    /// Like [`Hub::create_bot`]; a `private` bot is seen only by its
+    /// creator, who must be the owner (anyone else's is shared).
     ///
     /// # Errors
     /// Fails if its files can't be written.
@@ -586,7 +668,8 @@ impl Hub {
     }
 
     /// Creates a bot owned by `maker` (a viewer with a person id; `None`
-    /// for nobody). A `private` bot needs a maker.
+    /// for nobody). Only the owner's bot can be `private`: anyone else's
+    /// is shared with everyone (the returned bot says which).
     ///
     /// # Errors
     /// Fails if its files can't be written.
@@ -630,7 +713,9 @@ impl Hub {
             owner,
             created_by,
         )?;
-        if private && owner.is_some() {
+        // Only the owner may have private bots: anyone else's is shared
+        // with everyone in the home.
+        if private && self.may_keep_private(owner) {
             bot.set_sharing(Sharing::Me, Vec::new());
             bot.save()?;
         }

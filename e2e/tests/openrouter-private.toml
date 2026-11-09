@@ -9,7 +9,8 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 send = "hello"
 [[step]]
@@ -26,7 +27,8 @@ click = "Private: only you"
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "private · @diary"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'diary' && document.getElementById('botStatus').textContent.startsWith('private')"
+timeout_ms = 10000
 [[step]]
 send = "hello"
 [[step]]

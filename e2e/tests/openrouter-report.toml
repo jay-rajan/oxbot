@@ -1,6 +1,6 @@
 name = "A bot on OpenRouter saves a report with its sources"
 about = "Research opens two pages and saves a report citing them: the chat gets a short answer and the report card, which opens with both numbered sources."
-covers = ["crates/oxbot-loop/**", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-loop/**", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "New bot"
@@ -9,7 +9,8 @@ type = { into = "Name", text = "Scout" }
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 send = "research coffee near home"
 [[step]]

@@ -1,7 +1,7 @@
 name = "Usage alerts switched off stay quiet"
 about = "With the Settings switch off, passing 50% of a bot's daily AI questions shows no banner and posts no Mac notification, though the level is still noted."
 script = "usage-alerts.toml"
-covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "Settings"

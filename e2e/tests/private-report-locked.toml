@@ -1,12 +1,12 @@
 name = "Someone else's private report won't open"
-about = "Ann can't open, list or see a report in Sam's private bot, even by asking for it by id."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-protocol/**"]
+about = "Ann can't open, list or see a report in Jay's private bot (the seed's Bank, handed to Jay because only the owner has private bots), even by asking for it by id."
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-protocol/**"]
 as = "Ann"
 
 [[step]]
 click = "Bank"
 [[step]]
-expect = "Sam's private bot"
+expect = "Jay's private bot"
 [[step]]
 expect_js = "document.getElementById('botMore').hidden"
 note = "No ··· (and no Reports) on someone else's private bot"

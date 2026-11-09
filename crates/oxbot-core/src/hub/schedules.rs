@@ -1005,10 +1005,11 @@ mod tests {
         hub.create_bot_with("Recipes", "", Some("Jay"), false)
             .await
             .unwrap();
-        hub.create_bot_with("Bank", "", Some("Sam"), true)
+        // Only the owner has private bots: Bank is Jay's.
+        hub.create_bot_with("Bank", "", Some("Jay"), true)
             .await
             .unwrap();
-        let sam = hub.store.person_by_name("Sam").unwrap().unwrap().id;
+        let sam = hub.person_named("Sam").unwrap().id;
         // Wednesday, November 4, 2026 at noon (UTC), give or take the
         // test's own milliseconds.
         let noon = chrono::DateTime::parse_from_rfc3339("2026-11-04T12:00:00Z")
@@ -1155,13 +1156,13 @@ mod tests {
     async fn a_run_for_someone_who_lost_the_bot_pauses_it() {
         let tmp = tempfile::tempdir().unwrap();
         let (hub, jay, sam) = hub(tmp.path()).await;
-        // Jay's schedule in Sam's private bot (it was shared once).
-        let s = add(&hub, "bank", &jay, hub.schedule_now() - 60_000);
+        // Sam's schedule in Jay's private bot (it was shared once).
+        let s = add(&hub, "bank", &sam, hub.schedule_now() - 60_000);
         hub.check_schedules().await;
         assert_eq!(outcomes(&hub, s.id), ["no_access"]);
         assert!(hub.store.schedule(s.id).unwrap().unwrap().paused);
-        // Sam's own runs on.
-        let own = add(&hub, "bank", &sam, hub.schedule_now() + 60_000);
+        // Jay's own runs on.
+        let own = add(&hub, "bank", &jay, hub.schedule_now() + 60_000);
         assert!(!hub.store.schedule(own.id).unwrap().unwrap().paused);
     }
 
@@ -1172,7 +1173,8 @@ mod tests {
         let ann = hub.person_named("Ann").unwrap().id;
         let later = hub.schedule_now() + 3_600_000;
         let jays = add(&hub, "recipes", &jay, later);
-        let sams = add(&hub, "bank", &sam, later);
+        // Only the owner has private bots: this one's in Jay's Bank.
+        let privs = add(&hub, "bank", &jay, later);
         let anns = add(&hub, "recipes", &ann, later);
         let ids = |v: &Viewer| -> Vec<i64> {
             hub.schedules_for(v, None)
@@ -1184,14 +1186,13 @@ mod tests {
         let farm = hub.farm_viewer("Jay");
         let ann_v = Viewer::person(ann.clone(), "Ann", false);
         let sam_v = Viewer::person(sam.clone(), "Sam", false);
-        // The owner sees all; Ann her own and the shared bot's; Sam his
-        // own and the shared bot's.
-        assert_eq!(ids(&farm), [jays.id, sams.id, anns.id]);
+        // The owner sees all; Ann and Sam the shared bot's only.
+        assert_eq!(ids(&farm), [jays.id, privs.id, anns.id]);
         assert_eq!(ids(&ann_v), [jays.id, anns.id]);
-        assert_eq!(ids(&sam_v), [jays.id, sams.id, anns.id]);
+        assert_eq!(ids(&sam_v), [jays.id, anns.id]);
         assert!(
             hub.schedules_for(&ann_v, Some("bank")).is_err(),
-            "Sam's private bot"
+            "Jay's private bot"
         );
         let list = hub.schedules_for(&ann_v, Some("recipes")).unwrap();
         let theirs = list.iter().find(|s| s.id == anns.id).unwrap();
@@ -1201,7 +1202,7 @@ mod tests {
         // Ann can't pause Jay's; Jay (the bot's maker) can pause Ann's.
         assert!(hub.pause_schedule_as(jays.id, true, &ann_v).is_err());
         assert!(
-            hub.delete_schedule_as(sams.id, &ann_v).is_err(),
+            hub.delete_schedule_as(privs.id, &ann_v).is_err(),
             "can't even see it"
         );
         let jay_phone = Viewer::person(jay.clone(), "Jay", false);
@@ -1212,7 +1213,7 @@ mod tests {
         let back = hub.store.schedule(anns.id).unwrap().unwrap();
         assert!(!back.paused && back.next_run_ms.unwrap() > hub.schedule_now());
         hub.delete_schedule_as(anns.id, &ann_v).unwrap();
-        hub.delete_schedule_as(sams.id, &farm).unwrap();
+        hub.delete_schedule_as(privs.id, &farm).unwrap();
         assert_eq!(ids(&farm), [jays.id]);
         // Deleting the bot deletes its schedules.
         hub.delete_bot("recipes", &farm).await.unwrap();

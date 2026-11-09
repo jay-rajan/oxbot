@@ -1,6 +1,6 @@
 name = "Pairing a phone (devices)"
 about = "On the home computer, the QR button next to the gear opens Settings → People with the Add a device form and your name filled in. Show pairing code lets phones use the network the Mac is on (no Wi-Fi list to manage), then shows a QR code and a one-time code and the door opens; Cancel hides it. Someone on a device sees neither the button nor the form."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/door/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**", "crates/oxbot-gate/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/door/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**", "crates/oxbot-gate/**"]
 
 [[step]]
 click = "Connect a device"

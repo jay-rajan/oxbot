@@ -1,6 +1,6 @@
 name = "Right-click on a device: the same rules as ···"
-about = "Sam (on a device) can only file Jay's shared bot (into a section of Sam's own); renaming, privacy and deleting show only on Sam's own bot, exactly where ··· offers them (elsewhere ··· only lists reports)."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
+about = "Sam (on a device) can only file Jay's shared bot (into a section of Sam's own); renaming and deleting show only on Sam's own bot, exactly where ··· offers them (elsewhere ··· only lists reports). Only the owner has private bots, so Sam's own bot (made here: the seed's Bank was handed to the owner) has no Make private."
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
 as = "Sam"
 
 [[step]]
@@ -19,13 +19,24 @@ key = "Escape"
 [[step]]
 expect_js = "document.getElementById('botMenu').hidden"
 [[step]]
-right_click = "Bank by Sam"
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Garden" }
+[[step]]
+click = "Create"
+[[step]]
+expect_js = "document.getElementById('botStatus').dataset.bot === 'garden'"
+timeout_ms = 5000
+note = "Sam's own bot, shared with everyone"
+[[step]]
+right_click = "Garden by Sam"
 [[step]]
 expect = "Rename…"
 [[step]]
-expect = "Make shared"
-[[step]]
 expect = "Delete…"
+[[step]]
+expect_js = "!document.getElementById('botMenu').innerText.includes('Make private') && !document.getElementById('botMenu').innerText.includes('Make shared')"
+note = "Only the owner can have private bots: no privacy item for Sam"
 shot = "mine"
 [[step]]
 key = "Escape"
@@ -41,7 +52,7 @@ expect_js = "document.getElementById('botDlg').open && document.getElementById('
 [[step]]
 click = "Close"
 [[step]]
-click = "Bank by Sam"
+click = "Garden by Sam"
 [[step]]
 expect_js = "!document.getElementById('botMore').hidden && document.getElementById('botMore').getAttribute('aria-label') === 'Bot settings'"
 [[step]]

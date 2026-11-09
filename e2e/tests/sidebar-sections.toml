@@ -1,6 +1,6 @@
 name = "Sidebar sections, search and group by"
 about = "Make a section, move a bot into it (from its right-click menu, and by dragging), find a bot by search, switch to grouping by person, and rename and delete a section. Sections are kept by the server for each person: they survive a reload, and someone else doesn't see them."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "+ New section"
@@ -48,8 +48,8 @@ expect_js = "document.getElementById('botSearch').value === '' && document.query
 [[step]]
 click = "People"
 [[step]]
-expect_js = "(() => { const g = (k) => document.querySelector('.group[data-key=\"' + k + '\"]').innerText; return g('p:Jay').includes('Recipes') && g('p:Jay').includes('Journal') && g('p:Sam').includes('Bank') && !g('p:Jay').includes('Bank'); })()"
-note = "By person: Jay's bots under Jay, Sam's under Sam"
+expect_js = "(() => { const g = (k) => document.querySelector('.group[data-key=\"' + k + '\"]').innerText; return g('p:Jay').includes('Recipes') && g('p:Jay').includes('Journal') && g('p:Jay').includes('Bank') && !document.querySelector('.group[data-key=\"p:Sam\"]'); })()"
+note = "By person: Jay's bots under Jay. Bank (Sam's private bot in the seed) is Jay's now: only the owner has private bots, so Sam has none here"
 [[step]]
 expect_js = "document.querySelector('.group').dataset.key === 'herder' && document.querySelector('.group').innerText.includes('Assistant')"
 note = "Assistant stays pinned first"

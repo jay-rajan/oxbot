@@ -1,0 +1,55 @@
+name = "Only the owner can have private bots"
+about = "Sam isn't the owner of the home computer: New bot has no Private option, his bot is shared with everyone, and its settings say so in one line instead of the Shared with choices. The home computer enforces it too: asking it for a private bot, or to share his bot with just him or picked people, gets a shared bot or a plain refusal."
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+as = "Sam"
+
+[[step]]
+click = "New bot"
+[[step]]
+expect_js = "document.getElementById('newDlg').open && document.getElementById('nbPrivateRow').hidden"
+note = "No Private option for Sam"
+shot = "no-private"
+[[step]]
+type = { into = "Name", text = "Garden" }
+[[step]]
+click = "Create"
+[[step]]
+expect_js = "document.getElementById('botStatus').dataset.bot === 'garden'"
+timeout_ms = 5000
+[[step]]
+expect_js = "!document.getElementById('botStatus').textContent.startsWith('private') && !bots.get('garden').info.private && bots.get('garden').info.sharing === 'everyone'"
+note = "Shared with everyone, no lock"
+[[step]]
+click = "Bot settings"
+[[step]]
+expect_js = "document.getElementById('bdShareBox').hidden && !document.getElementById('bdSharedLine').hidden && document.getElementById('bdSharedLine').textContent === 'Shared with everyone in the home'"
+note = "One plain line instead of the Shared with choices"
+shot = "shared-line"
+[[step]]
+click = "Cancel"
+[[step]]
+expect_js = "(send({ type: 'set_sharing', bot: 'garden', sharing: 'me', people: [] }), true)"
+note = "Ask the home computer to make it just his anyway"
+[[step]]
+expect_js = "(() => { const t = document.getElementById('toast'); return !t.hidden && t.textContent.startsWith('Only the owner of the home computer can have private bots.'); })()"
+timeout_ms = 10000
+note = "A plain refusal"
+shot = "refused"
+[[step]]
+expect_js = "(send({ type: 'set_sharing', bot: 'garden', sharing: 'people', people: ['Jay'] }), true)"
+note = "…or shared with picked people"
+[[step]]
+expect_js = "(() => { const t = document.getElementById('toast'); return !t.hidden && t.textContent.startsWith('Only the owner of the home computer can have private bots.'); })()"
+timeout_ms = 10000
+[[step]]
+expect_db = { query = "SELECT COUNT(*) FROM bot_members WHERE bot = 'garden'", equals = "0" }
+note = "Nobody picked"
+[[step]]
+expect_js = "(send({ type: 'create_bot', name: 'Sneaky', instructions: '', private: true, models: [] }), true)"
+note = "Ask for a private bot outright"
+[[step]]
+expect_js = "document.getElementById('botStatus').dataset.bot === 'sneaky'"
+timeout_ms = 5000
+[[step]]
+expect_js = "!bots.get('sneaky').info.private && bots.get('sneaky').info.sharing === 'everyone' && !document.querySelector('.bot-item[data-bot=sneaky] .lock')"
+note = "It's made shared with everyone"

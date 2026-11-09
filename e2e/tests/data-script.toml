@@ -1,7 +1,7 @@
 name = "A small script asks first, runs sealed in its folder, and Always for this bot sticks"
 about = "A bot wants to run a small script (run_program). oxbot shows an approval request in plain words with the program; Always for this bot runs it and keeps a rule. oxbot runs it itself in macOS's sandbox: it reads and writes the bot's folder, the next program (Node.js) runs without asking, and a program that tries to read another bot's folder or /Users gets Operation not permitted."
 needs = ["codex"]
-covers = ["crates/oxbot-loop/src/tools/program.rs", "crates/oxbot-loop/src/service.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/rules.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-engine/src/trust.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-loop/src/tools/program.rs", "crates/oxbot-loop/src/service.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/rules.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-engine/src/trust.rs", "crates/oxbot/ui-src/**"]
 script = "scripts.toml"
 
 [[step]]

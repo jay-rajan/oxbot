@@ -1,6 +1,6 @@
-name = "Sharing a private sign-in with the home"
-about = "Sam's own sign-in (bank.example, from the seed) shows in Settings → Websites as a private row: \"Private: your bots\" with one button, Share with the home, and none of a home row's actions. On another device the home browser's sites have no Open or Sign out, and there's no Sign out of all sites. Share with the home asks the home computer to copy it; the test browser holds no real cookies, so oxbot says so plainly and changes nothing."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/sign_ins.rs", "crates/oxbot-browser/src/cookies.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+name = "Only the owner has private sign-ins"
+about = "Only the owner of the home computer has a browser of their own, so on Sam's device Settings → Websites shows the home's sites only: Sam's old sign-in (bank.example, in his own browser in the seed) stays on disk but isn't listed, and there's no Share with the home or Sign out of all your private sites. The home browser's sites have no Open or Sign out off the home computer. Asking the home computer anyway (sharing or signing out his own sites) gets a plain refusal. (Before, Sam's own sign-in showed as a private row he could share with the home.)"
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/sign_ins.rs", "crates/oxbot-core/src/hub/browsers.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 as = "Sam"
 
 [[step]]
@@ -8,22 +8,35 @@ click = "Settings"
 [[step]]
 click = "Websites"
 [[step]]
-expect_js = "(() => { const r = [...document.querySelectorAll('#siteRows .site-row')].find((r) => r.innerText.includes('bank.example')); return !!r && r.classList.contains('private') && r.innerText.includes('Private: your bots') && [...r.querySelectorAll('button')].map((b) => b.textContent).join() === 'Share with the home' && !r.querySelector('input[type=checkbox]'); })()"
+expect = "wikipedia.org"
 timeout_ms = 5000
-note = "A private row: Private: your bots, and only Share with the home"
+note = "The home's sites are listed"
 [[step]]
-expect_js = "document.getElementById('signOutAll').hidden && [...document.querySelectorAll('#siteRows .site-row:not(.private) button')].every((b) => !/Sign out|Open/.test(b.textContent))"
-note = "From another device, the home browser's sites can't be opened or signed out (only on the home computer)"
+expect_not = "bank.example"
+note = "Sam's own sign-in isn't: only the owner has private sign-ins"
 [[step]]
-expect = "Sign out of all your private sites"
-shot = "private-row"
+expect_js = "!document.querySelector('#siteRows .site-row.private') && ![...document.querySelectorAll('#siteRows button')].some((b) => b.textContent === 'Share with the home')"
+note = "No private rows and no Share with the home"
 [[step]]
-click = "Share with the home"
+expect_js = "document.getElementById('signOutMine').hidden && document.getElementById('signOutAll').hidden && [...document.querySelectorAll('#siteRows .site-row button')].every((b) => !/Sign out|Open/.test(b.textContent))"
+note = "No Sign out of all your private sites; the home browser's sites can't be opened or signed out from another device"
 [[step]]
-expect_js = "(() => { const t = document.getElementById('toast'); return !t.hidden && t.textContent === \"You're no longer signed in to bank.example. Sign in again, then share it.\" && document.getElementById('appDlg').contains(t); })()"
+expect = "Bots use the home browser and the websites the home is signed in to."
+shot = "home-only"
+[[step]]
+expect_js = "(send({ type: 'share_site', site: 'bank.example' }), true)"
+note = "Ask the home computer to share his old sign-in anyway"
+[[step]]
+expect_js = "(() => { const t = document.getElementById('toast'); return !t.hidden && t.textContent.startsWith('Only the owner of the home computer has private sign-ins.'); })()"
 timeout_ms = 10000
-note = "The test browser holds no bank cookies: oxbot says so, in Settings (not under it), and claims nothing was shared"
-shot = "not-shared"
+note = "A plain refusal"
+shot = "refused"
 [[step]]
-expect_js = "[...document.querySelectorAll('#siteRows .site-row')].filter((r) => r.innerText.includes('bank.example')).every((r) => r.classList.contains('private'))"
-note = "Nothing changed: still only Sam's own"
+expect_js = "(send({ type: 'sign_out_all', mine: true }), true)"
+note = "…or to sign his own browser out of everything"
+[[step]]
+expect_js = "(() => { const t = document.getElementById('toast'); return !t.hidden && t.textContent.startsWith('Only the owner of the home computer has private sign-ins.'); })()"
+timeout_ms = 10000
+[[step]]
+expect_not = "bank.example"
+note = "Nothing changed: still not listed"

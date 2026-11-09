@@ -1,6 +1,6 @@
 name = "A stale OpenRouter sign-in is refused"
 about = "A sign-in that comes back with the wrong state isn't taken: the tab says to start again, and oxbot stays signed out."
-covers = ["crates/oxbot/src/openrouter_auth.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot/src/openrouter_auth.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**"]
 openrouter_signed_in = false
 
 [[step]]

@@ -1,6 +1,6 @@
 name = "A bot from before Claude left keeps its chat and says it moved"
 about = "Recipes ran on Claude (its file named no engine): at the first start oxbot moved it to the AI helper. Its old chat is still there, with one plain line saying it now uses free and paid AI models through the OpenRouter account, and it answers a new message."
-covers = ["crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/store/**", "crates/oxbot/ui/**", "e2e/seed/**"]
+covers = ["crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/store/**", "crates/oxbot/ui-src/**", "e2e/seed/**"]
 
 [[step]]
 click = "Recipes"

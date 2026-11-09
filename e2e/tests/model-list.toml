@@ -1,6 +1,6 @@
 name = "A bot's own models, in order; Kind of job in Advanced"
 about = "A bot given its own list of two free models (the backup first; there's no list editor any more, so the test sends the list as the page would) asks them in that order, its header names the first, and its settings show Advanced → Kind of job as \"Its own list of models\". Switching it back to Automatic and saving clears the list."
-covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-core/src/model_lists.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-core/src/model_lists.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "New bot"
@@ -12,7 +12,8 @@ note = "No kind to pick when making a bot: the server picks from the instruction
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "@scout"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'scout'"
+timeout_ms = 5000
 [[step]]
 click = "Bot settings"
 [[step]]
@@ -29,9 +30,9 @@ click = "Cancel"
 expect_js = "(send({ type: 'set_engine', bot: 'scout', engine: bots.get('scout').info.engine, models: ['e2e/backup:free', 'e2e/tool-model:free'] }), true)"
 note = "Its own list: the backup, then the tool model"
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'backup'"
+expect_js = "!document.getElementById('engineBadge')"
 timeout_ms = 5000
-note = "The header names the list's first model"
+note = "No model pill in the header"
 [[step]]
 send = "hello"
 [[step]]
@@ -53,6 +54,6 @@ note = "Back to Automatic"
 [[step]]
 click = "Save"
 [[step]]
-expect_js = "document.getElementById('engineBadge').textContent === 'Free models'"
+expect_js = "!document.getElementById('engineBadge')"
 timeout_ms = 5000
-note = "No list: free models, best first"
+note = "Still no model pill"

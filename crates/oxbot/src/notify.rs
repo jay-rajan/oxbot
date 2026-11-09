@@ -274,10 +274,8 @@ mod tests {
             HubConfig::new(tmp.path()),
         );
         hub.farm_person_from("Jay", true).unwrap();
-        let sams = hub
-            .create_bot_with("Bank", "", Some("Sam"), true)
-            .await
-            .unwrap();
+        // Only the owner has private bots; Sam's own Assistant is his alone.
+        let sams = hub.herder_for("Sam").unwrap();
         let window = Window(Mutex::new(true));
         let app: Option<&dyn AppControls> = Some(&window);
         let mut waiting = Waiting::default();
@@ -293,9 +291,9 @@ mod tests {
         assert_eq!(body, "Mail is waiting for your OK");
         assert!(!body.contains("bank.example") && !body.contains("4210"));
         assert_eq!(
-            waiting.body(&card(3, &sams.id), &hub, app).as_deref(),
+            waiting.body(&card(3, sams.as_str()), &hub, app).as_deref(),
             Some("A bot is waiting for your OK"),
-            "someone else's private bot isn't named on the Mac's screen"
+            "someone else's own Assistant isn't named on the Mac's screen"
         );
         assert_eq!(
             waiting

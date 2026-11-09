@@ -1,6 +1,6 @@
 name = "Settings: four tabs down the side, one size"
 about = "Settings has four tabs stacked down the side (General, Websites, People, Activity) and no AI models, Schedules or Devices tab; the window keeps one size whichever tab is open, and its buttons stay at the bottom."
-covers = ["crates/oxbot/ui/**"]
+covers = ["crates/oxbot/ui-src/**"]
 smoke = true
 
 [[step]]

@@ -8,7 +8,7 @@ Decided 2026-11-04. Use these words in everything a person sees: the app, phone 
 | **device** ("Sam's phone", "Connect a device") | Gate, client, satellite | A phone, tablet or other laptop on the home Wi-Fi that shows oxbot and sends tasks to the home computer. A phone is never the home computer. |
 | **Assistant** | Herder, central bot | The built-in bot that lists, makes and hands tasks to other bots. |
 | **bot** | agent, engine, worker | A helper you give tasks to. |
-| **private bot** / **shared bot** | — | Only its maker (and the owner) / everyone in the home. |
+| **private bot** / **shared bot** | — | Only the owner (of the home computer) can have private bots: just them, or people they pick / everyone in the home. Everyone else's bots are shared, and only the owner has private sign-ins. |
 | **owner** | admin, Farm owner, household admin | The person who installed oxbot and connected the home's AI account. Must be 18 or older. |
 | **kid account** | kid profile, minor | A child's account; a parent approves anything risky. |
 | **approval request** ("wants to click *Buy*: Allow once · Always allow · Don't allow") | card, red card, amber card | oxbot asking before a bot changes something. |

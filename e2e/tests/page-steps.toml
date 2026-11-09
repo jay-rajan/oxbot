@@ -1,7 +1,7 @@
 name = "Several page steps at once, except where the owner wants fine-grained control"
 about = "Several steps at once is on everywhere by default. The owner sets the form site (example.net) to Fine-grained control (Settings → Websites shows it ticked in the one list); there page_steps is refused and the bot does steps one at a time. On the shop, which nobody set, a bot's fill and tick run in a row, it stops at Add to Cart without asking, and the bot asks for that click on its own: the usual approval request."
 needs = ["codex"]
-covers = ["crates/oxbot-loop/src/tools/steps.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-loop/src/tools/steps.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/gate.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**"]
 script = "scripts.toml"
 
 [[step]]

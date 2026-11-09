@@ -1,6 +1,6 @@
 name = "Files sent to a busy bot aren't lost"
 about = "A message with a file sent while the bot is still working is refused, and its file stays attached (and its words come back) to send once the bot is free."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs"]
 
 [[step]]
 click = "Recipes"

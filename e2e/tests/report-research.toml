@@ -1,6 +1,6 @@
 name = "Research comes back as a report"
 about = "A research question gets a short reply and a report card; the report opens in a sandboxed frame with sections, a table and numbered sources; the ··· menu lists it and deletes it; a hostile title shows as text; a report citing a page the bot never opened isn't saved."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/store/reports.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-protocol/**", "crates/oxbot-browser/src/web.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/report.rs", "crates/oxbot-core/src/hub/reports.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/store/reports.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-protocol/**", "crates/oxbot-browser/src/web.rs"]
 
 [[step]]
 click = "Recipes"
@@ -45,7 +45,9 @@ click = "Delete"
 [[step]]
 click = "Yes, delete"
 [[step]]
-wait_for = "None yet."
+expect_js = "document.querySelector('.reports-box').hidden"
+timeout_ms = 5000
+note = "With no reports left, the Reports section is gone"
 [[step]]
 click = "Cancel"
 [[step]]

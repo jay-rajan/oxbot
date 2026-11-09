@@ -1,6 +1,6 @@
 name = "Several approval requests stack above the box"
 about = "Cards from several bots stack right above the message box, newest nearest it; the area has a max height and scrolls on its own, so the box stays on screen, and toasts move out of the way."
-covers = ["crates/oxbot/ui/**"]
+covers = ["crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "Recipes"

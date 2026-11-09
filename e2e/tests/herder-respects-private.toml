@@ -1,5 +1,5 @@
 name = "Assistant won't use someone else's private bot"
-about = "When Ann asks the Assistant to use Sam's private bot, the Assistant says it's private and nothing reaches the bot."
+about = "When Ann asks the Assistant to use Jay's private bot (the seed's Bank, handed to Jay because only the owner has private bots), the Assistant says it's private and nothing reaches the bot."
 covers = ["crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot-core/src/policy.rs"]
 as = "Ann"
 
@@ -8,6 +8,6 @@ click = "Assistant"
 [[step]]
 send = "please ask bank for the balance"
 [[step]]
-wait_for = "private to Sam"
+wait_for = "private to Jay"
 [[step]]
 expect_not = "SECRET-BALANCE"

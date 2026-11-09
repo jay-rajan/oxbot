@@ -1,6 +1,6 @@
 name = "A device can't connect other devices"
 about = "Someone on a device (Ann) has no Connect a device button, no Devices tab and no Add a device in Settings → People: only the home computer pairs phones. Their bottom row is Settings and Websites."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/door/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/door/**"]
 as = "Ann"
 
 [[step]]

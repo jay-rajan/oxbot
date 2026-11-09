@@ -1,7 +1,7 @@
 name = "Dictation fills the box, on-device"
 about = "Where the Mac can dictate on-device, the home computer gets a microphone button: what it hears goes into the box at the cursor, stays editable, and is sent like typing. (A stand-in helper hears a fixed sentence; nothing uses the real microphone.)"
 dictation = true
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
 
 [[step]]
 click = "Recipes"

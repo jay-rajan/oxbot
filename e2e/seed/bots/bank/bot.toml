@@ -1,3 +1,4 @@
 name = "Bank"
 created_by = "Sam"
 private = true
+sharing = "people"

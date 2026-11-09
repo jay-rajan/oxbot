@@ -1,0 +1,33 @@
+/* The welcome screen, and the profile fields it shares with Settings →
+   People (ProfileFields). */
+.welcome-lead { display: flex; align-items: center; gap: var(--s-4); }
+.welcome-lead p { min-width: 0; }
+.ttt-hero { width: 56px; height: 56px; flex: none; }
+.ttt-hero svg { width: 100%; height: 100%; display: block; }
+
+.profile-fields { display: grid; gap: var(--s-5); min-width: 0; }
+/* A detail and, under it, whether bots may use it */
+.profile-fields .pf { display: grid; gap: var(--s-2); min-width: 0; }
+.profile-fields .pf-label { font-size: var(--text-sm); font-weight: var(--weight-mid); }
+.profile-fields .use { margin: 0; font-size: var(--text-sm); color: var(--muted); }
+.profile-fields .check.use { min-height: 0; }
+.profile-fields .textarea { min-height: 72px; }
+.profile-fields .role { font-size: var(--text-sm); color: var(--muted); }
+
+/* Color swatches: a person's color each (vars({ person })) */
+.profile-fields .swatches { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.profile-fields .swatches label {
+  position: relative; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  background: var(--person, var(--muted));
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 2px transparent;
+  transition: box-shadow var(--fast) var(--ease);
+}
+.profile-fields .swatches label:has(input:checked) { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.profile-fields .swatches label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 5px; }
+.profile-fields .swatches input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+
+.profile-fields .photo-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.profile-fields .photo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--sunken); }
+.profile-fields .file-input { display: none; }
+.profile-fields .confirms { display: grid; gap: var(--s-2); }
+@media (pointer: coarse) { .profile-fields .swatches label { width: 36px; height: 36px; } }

@@ -1,0 +1,10 @@
+.banner {
+  display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap;
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-md);
+  background: var(--sunken); color: var(--ink); font-size: var(--text-sm);
+}
+.banner-lead { flex: none; display: grid; place-items: center; }
+.banner-text { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; display: grid; gap: var(--s-2); }
+.banner-actions { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
+.banner-warn { background: var(--warn-soft); color: var(--warn-ink); }
+.banner-danger { background: var(--danger-soft); color: var(--danger); }

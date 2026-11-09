@@ -1,0 +1,147 @@
+/* oxbot's theme: every color, size and timing the page uses, named by role.
+   Ink and white, one Switch red for the main action and the brand.
+   Light first; the dark values follow the Mac's setting. System fonts only:
+   the page makes no outside requests.
+
+   This is the only file with raw colors and pixel font sizes
+   (scripts/check-ui.sh fails anywhere else). Screens and pieces use these. */
+:root {
+  /* Surfaces, back to front */
+  --bg: #FFFFFF;          /* the page */
+  --side: #FAFAF8;        /* the sidebar */
+  --surface: #FFFFFF;     /* headers, dialogs, cards */
+  --raised: #FFFFFF;      /* menus and popovers */
+  --sunken: #F3F3F0;      /* rows on hover, chips, the bot's bubbles, code */
+  --pressed: #E9E9E5;     /* rows and buttons while pressed */
+
+  /* Text */
+  --ink: #141414;
+  --muted: #5E5E5B;
+  --faint: #8C8C88;       /* placeholders, disabled */
+  --on-ink: #FFFFFF;      /* text on an ink fill */
+
+  /* Lines */
+  --line: #E6E5E1;
+  --line-strong: #D2D1CC; /* field edges */
+  --focus: #141414;       /* the focus ring */
+
+  /* The one accent: the main action and the brand */
+  --accent: #E0242A;
+  --accent-hover: #C81E24;
+  --accent-pressed: #AE181D;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #FDECEC;
+
+  /* Status */
+  --ok: #1F7A45;
+  --ok-soft: #E5F3EA;
+  --danger: #C42020;      /* destructive, errors */
+  --danger-soft: #FDE8E6;
+  --warn: #A65F00;        /* needs a person: approvals, alerts */
+  --warn-soft: #FFF5E3;
+  --warn-ink: #5C3600;
+  --busy: #E2701B;        /* reconnecting */
+
+  /* Chat */
+  --me: #141414;          /* my messages */
+  --me-ink: #FFFFFF;
+  --bubble: #F3F3F0;      /* the bot's messages */
+
+  /* Fixed */
+  --qr-bg: #FFFFFF;       /* a QR code stays black on white */
+  --mark-tile: #111111;   /* the app icon: a dark tile, grey grid, white O (same in dark mode) */
+  --mark-grid: #5A5A62;
+  --mark-o: #FFFFFF;
+  --scrim: rgb(0 0 0 / .35);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .08);
+  --shadow-pop: 0 8px 28px rgb(0 0 0 / .14), 0 1px 3px rgb(0 0 0 / .08);
+  --shadow-dialog: 0 24px 64px rgb(0 0 0 / .18), 0 2px 8px rgb(0 0 0 / .08);
+
+  /* Type: five sizes */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-xs: 12px;        /* captions, counts, time */
+  --text-sm: 13px;        /* hints, rows' second line, labels */
+  --text-md: 15px;        /* body */
+  --text-lg: 17px;        /* dialog and chat titles */
+  --text-xl: 22px;        /* welcome */
+  --weight: 400;
+  --weight-mid: 500;
+  --weight-bold: 600;
+  --leading: 1.5;
+  --leading-tight: 1.25;
+
+  /* Space: a 4-point scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+
+  /* Corners */
+  --r-sm: 6px;            /* chips inside rows, code, small buttons */
+  --r-md: 10px;           /* buttons, fields, rows, menus */
+  --r-lg: 14px;           /* dialogs, cards, bubbles */
+  --r-full: 999px;
+
+  /* Sizes */
+  --control: 36px;        /* buttons and fields */
+  --control-sm: 28px;
+  --icon: 20px;
+  --side-width: 272px;
+
+  /* Motion */
+  --fast: 120ms;
+  --slow: 220ms;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16191E;
+    --side: #111418;
+    --surface: #1C2026;
+    --raised: #242931;
+    --sunken: #242931;
+    --pressed: #2D333C;
+    --ink: #F2F2F0;
+    --muted: #A3A8B0;
+    --faint: #737983;
+    --on-ink: #16191E;
+    --line: #2C323A;
+    --line-strong: #3A414B;
+    --focus: #F2F2F0;
+    --accent: #E8383D;
+    --accent-hover: #F04A4F;
+    --accent-pressed: #D02C31;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #3A1B1D;
+    --ok: #62C98F;
+    --ok-soft: #173024;
+    --danger: #FF8579;
+    --danger-soft: #3A1C19;
+    --warn: #F0A020;
+    --warn-soft: #2A2416;
+    --warn-ink: #FFD98F;
+    --busy: #F08A3A;
+    --me: #0B0D10;
+    --me-ink: #FFFFFF;
+    --bubble: #242931;
+    --scrim: rgb(0 0 0 / .55);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .4);
+    --shadow-pop: 0 8px 28px rgb(0 0 0 / .45), 0 0 0 1px rgb(255 255 255 / .06);
+    --shadow-dialog: 0 24px 64px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .06);
+    color-scheme: dark;
+  }
+}
+
+/* Phones and tablets: 44-point touch targets. */
+@media (pointer: coarse) {
+  :root {
+    --control: 44px;
+    --control-sm: 36px;
+  }
+}

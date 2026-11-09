@@ -30,6 +30,7 @@ pub const DEFAULT_PAGE: u32 = 200;
 
 /// The first message a server sends after a client connects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ServerHello {
     /// Protocol version the server speaks.
     pub protocol_version: u32,
@@ -40,6 +41,7 @@ pub struct ServerHello {
     /// When this server process started (ms since the Unix epoch). A client
     /// that sees it change knows the server restarted (the page reloads).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub started_ms: i64,
 }
 
@@ -65,6 +67,7 @@ impl ServerHello {
 
 /// A message from a client (terminal or phone) to the server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMsg {
     /// Ask for the list of bots.
@@ -78,6 +81,7 @@ pub enum ClientMsg {
         /// Only rows older than this (ms since the Unix epoch), for paging
         /// back.
         #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(type = "number | null"))]
         before_ms: Option<i64>,
         /// Most rows (default [`DEFAULT_NET_ROWS`], at most
         /// [`MAX_NET_ROWS`]).
@@ -93,6 +97,7 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
         /// Last event number the client already has.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         since: u64,
     },
     /// Open a bot: the server answers with one [`ServerMsg::History`] of
@@ -114,6 +119,7 @@ pub enum ClientMsg {
         bot: String,
         /// The oldest event number the client has
         /// ([`ServerMsg::History::first_seq`]).
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         before: u64,
         /// Most events to send, as for [`ClientMsg::OpenBot`].
         #[serde(default)]
@@ -145,6 +151,7 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
         /// The message it was sent with ([`BotEvent::seq`]).
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         seq: u64,
         /// [`Attachment::id`].
         id: String,
@@ -263,6 +270,14 @@ pub enum ClientMsg {
         /// The new name.
         name: String,
     },
+    /// Change what a bot is for: its instructions. Whoever may manage it;
+    /// not the Assistant. Its AI conversation starts fresh; the chat stays.
+    SetBotInstructions {
+        /// Bot id.
+        bot: String,
+        /// The new instructions.
+        instructions: String,
+    },
     /// Delete a bot and its history (its folder goes to oxbot's trash).
     /// Its creator or the Farm only; Herder can't be deleted.
     DeleteBot {
@@ -272,6 +287,7 @@ pub enum ClientMsg {
     /// The user's answer to an [`Approval`].
     Answer {
         /// The approval's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
         /// What they chose.
         answer: Answer,
@@ -291,6 +307,7 @@ pub enum ClientMsg {
     /// owner.
     PauseSchedule {
         /// [`ScheduleInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: i64,
         /// Paused or not.
         paused: bool,
@@ -298,6 +315,7 @@ pub enum ClientMsg {
     /// Delete a schedule. Its person, the bot's maker or the owner.
     DeleteSchedule {
         /// [`ScheduleInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: i64,
     },
     /// End-to-end test mode only: move the scheduler's clock forward by
@@ -320,6 +338,7 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
         /// [`AllowRule::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: i64,
     },
     /// Open one of a bot's research reports: answered with
@@ -366,16 +385,19 @@ pub enum ClientMsg {
     /// Open the sign-in window for a [`SignInRequest`].
     OpenSignIn {
         /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
     /// The user has signed in for a [`SignInRequest`].
     SignInDone {
         /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
     /// The user gave up on a [`SignInRequest`].
     CancelSignIn {
         /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
     /// Sign a browser out of every site (deletes its profile).
@@ -496,6 +518,7 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
         /// The reply's `turn_done` event.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         seq: u64,
         /// Up, down, or `None` to clear it.
         #[serde(default)]
@@ -513,6 +536,7 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
         /// The turn's `turn_done` event.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         seq: u64,
     },
     /// Keeps the turn that ended at `seq` as a test case.
@@ -520,6 +544,7 @@ pub enum ClientMsg {
         /// Bot id.
         bot: String,
         /// The turn's `turn_done` event.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         seq: u64,
         /// Its title.
         title: String,
@@ -635,6 +660,7 @@ fn one() -> u32 {
 /// tasks. (oxbot's own loop, `openrouter`, retired: bots that ran on it
 /// moved to Codex.)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum EngineKind {
     /// Codex CLI's agent loop, through oxbot's relay (every bot).
@@ -644,6 +670,7 @@ pub enum EngineKind {
 
 /// Settings → Engines: which engine does what, and whether it can run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EnginesView {
     /// The notice everyone sees: where bots' model calls go.
     pub notice: String,
@@ -676,6 +703,7 @@ pub struct EnginesView {
 
 /// Settings → Engines → Codex, for the Farm.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CodexView {
     /// Where the `codex` program is, if it was found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -693,6 +721,7 @@ pub struct CodexView {
 
 /// Settings → Engines → `OpenRouter`, for the Farm.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OpenRouterView {
     /// Signed in: oxbot has a key.
     pub signed_in: bool,
@@ -712,6 +741,7 @@ pub struct OpenRouterView {
     pub filtered_out: u32,
     /// When the model list was read (ms since the Unix epoch; 0: never).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub models_fetched_ms: i64,
     /// The household's settings.
     pub prefs: EnginePrefs,
@@ -729,6 +759,7 @@ pub struct OpenRouterView {
 
 /// The `OpenRouter` key's limits and today's use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct KeyLimits {
     /// Spending limit in US dollars (`None`: none).
     #[serde(default)]
@@ -752,6 +783,7 @@ pub struct KeyLimits {
 
 /// A model on the list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ModelRow {
     /// Its id, e.g. `vendor/model:free`.
     pub id: String,
@@ -770,6 +802,7 @@ pub struct ModelRow {
 /// A suggested model list for one kind of job (a bot's settings and the
 /// New bot form offer it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ModelList {
     /// Its key, e.g. `research`.
     pub kind: String,
@@ -783,6 +816,7 @@ pub struct ModelList {
 
 /// One row of today's `OpenRouter` use: a bot's, or a person's.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RouterUsage {
     /// Bot id (a bot's row).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -793,8 +827,10 @@ pub struct RouterUsage {
     /// Model requests.
     pub requests: u32,
     /// Tokens sent.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub prompt_tokens: u64,
     /// Tokens answered.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub completion_tokens: u64,
     /// US dollars (free models: 0).
     pub cost_usd: f64,
@@ -805,6 +841,7 @@ pub struct RouterUsage {
 
 /// The household's engine settings (Settings → Engines).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 pub struct EnginePrefs {
     /// Use paid models when every free one failed, within
@@ -840,6 +877,7 @@ impl Default for EnginePrefs {
 
 /// A message from the server to a client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMsg {
     /// Sent once, right after the connection opens.
@@ -878,6 +916,7 @@ pub enum ServerMsg {
         events: Vec<BotEvent>,
         /// Number of the oldest event in this page (0 if it's empty): ask
         /// for [`ClientMsg::Older`] events before it.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         first_seq: u64,
         /// Whether there are events before this page.
         has_older: bool,
@@ -914,6 +953,7 @@ pub enum ServerMsg {
     /// An approval was answered or timed out; clients drop the card.
     ApprovalResolved {
         /// The approval's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
     /// A bot needs the user to sign in to a site. Sent to every client when
@@ -923,6 +963,7 @@ pub enum ServerMsg {
     /// A sign-in request was answered or timed out; clients drop it.
     SignInResolved {
         /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
     /// What's installed and what's missing (Codex, Chrome, Node.js).
@@ -1063,8 +1104,10 @@ pub enum ServerMsg {
         /// Bot id.
         bot: String,
         /// `turn_done` event → thumbs up (true) or down.
+        #[cfg_attr(feature = "ts", ts(type = "{ [key in number]?: boolean }"))]
         ratings: BTreeMap<u64, bool>,
         /// `turn_done` events already kept as test cases.
+        #[cfg_attr(feature = "ts", ts(type = "Array<number>"))]
         cases: Vec<u64>,
     },
     /// Reply to [`ClientMsg::DraftTestCase`].
@@ -1175,6 +1218,7 @@ pub enum ServerMsg {
 
 /// Use passed a level of one of the household's `OpenRouter` limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct UsageAlert {
     /// oxbot's name for the window, e.g. `openrouter_free_daily` or
     /// `openrouter_bot_daily:<bot>`.
@@ -1184,6 +1228,7 @@ pub struct UsageAlert {
     /// How much was used when it passed it, from 0 to 1.
     pub used: f64,
     /// When the window resets (ms since the Unix epoch; 0 if unknown).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub resets_at_ms: i64,
     /// Ready to show, e.g. `Free requests today are at 52%. Resets in 2 h
     /// 10 min.`
@@ -1192,6 +1237,7 @@ pub struct UsageAlert {
 
 /// The app-wide settings shown in the Settings panel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "a wire message: each flag is its own JSON field"
@@ -1249,8 +1295,10 @@ fn yes() -> bool {
 
 /// A bot asking the user to sign in to a site in the shared browser.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SignInRequest {
     /// Id to answer it with.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub id: u64,
     /// Bot id.
     pub bot: String,
@@ -1271,6 +1319,7 @@ pub struct SignInRequest {
 
 /// How a sign-in request ended, as stored in the chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SignInOutcome {
     /// The user signed in.
@@ -1283,6 +1332,7 @@ pub enum SignInOutcome {
 
 /// The result of oxbot's setup check.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SetupReport {
     /// Every check, in order.
     pub checks: Vec<SetupCheck>,
@@ -1298,6 +1348,7 @@ impl SetupReport {
 
 /// One of a person's sidebar sections.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SectionInfo {
     /// Its id, e.g. `s_0123456789abcdef`.
     pub id: String,
@@ -1307,11 +1358,13 @@ pub struct SectionInfo {
 
 /// A site the user signed in to through oxbot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SiteInfo {
     /// Its main domain, e.g. `google.com` (for a sign-in at
     /// accounts.google.com) or `substack.com`.
     pub site: String,
     /// When the user last signed in (ms since the Unix epoch).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub signed_in_ms: i64,
     /// The site's icon, as Chrome saved it (a `data:image/png` URL), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1320,6 +1373,7 @@ pub struct SiteInfo {
 
 /// One thing oxbot needs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SetupCheck {
     /// Stable id, e.g. `codex`, `chrome`, `node`.
     pub id: String,
@@ -1339,6 +1393,7 @@ pub struct SetupCheck {
 
 /// A code that pairs one Gate with the Farm.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PairingCode {
     /// Who the Gate will belong to.
     pub person: String,
@@ -1351,11 +1406,13 @@ pub struct PairingCode {
     /// The QR code of `link`, as an SVG drawing.
     pub qr_svg: String,
     /// When the code stops working (ms since the Unix epoch).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub expires_ms: i64,
 }
 
 /// A phone or laptop paired with the Farm.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GateInfo {
     /// Its id.
     pub id: String,
@@ -1364,8 +1421,10 @@ pub struct GateInfo {
     /// The device's name, e.g. `Pixel 10 Pro XL`.
     pub name: String,
     /// When it paired (ms since the Unix epoch).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub paired_ms: i64,
     /// When it last connected (ms since the Unix epoch).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub last_seen_ms: i64,
     /// Connected right now.
     pub online: bool,
@@ -1373,6 +1432,7 @@ pub struct GateInfo {
 
 /// A network phones may use to reach the Farm.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DoorNetwork {
     /// The router's hardware address, e.g. `a4:2b:b0:12:34:56`. A café's
     /// Wi-Fi can copy a network's name, not this.
@@ -1387,6 +1447,7 @@ pub struct DoorNetwork {
 
 /// The Gate door, as Settings → Gates shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DoorState {
     /// Phones can connect right now.
     pub open: bool,
@@ -1404,6 +1465,7 @@ pub struct DoorState {
 
 /// What a Gate sends to pair: `POST /pair` on the Gate door.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PairRequest {
     /// The code from the Farm's screen.
     pub code: String,
@@ -1413,6 +1475,7 @@ pub struct PairRequest {
 
 /// The Farm's answer to a good [`PairRequest`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PairReply {
     /// The new Gate's id.
     pub id: String,
@@ -1427,6 +1490,7 @@ pub struct PairReply {
 
 /// Someone who sends messages, with the color they keep.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Person {
     /// Their name, e.g. `Jayadev`.
     pub name: String,
@@ -1443,6 +1507,7 @@ pub struct Person {
 /// One's own profile, as Settings → People and the welcome screen show it.
 /// Only its person gets it (the home area is everyone's).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "a wire message: each flag is its own JSON field"
@@ -1487,6 +1552,7 @@ pub struct ProfileView {
 /// One's own profile as saved from the welcome screen or Settings →
 /// People ([`ClientMsg::SetProfile`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -1522,6 +1588,7 @@ pub struct ProfileEdit {
 
 /// One line from the server's log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LogLine {
     /// `info`, `warn` or `error`.
     pub level: String,
@@ -1530,12 +1597,14 @@ pub struct LogLine {
     /// The message, with any fields appended as `key=value`.
     pub message: String,
     /// When, in milliseconds since the Unix epoch.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub ts_ms: i64,
 }
 
 /// What the shared browser is doing. Every bot uses the same Chrome, which
 /// keeps the user's sign-ins.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserState {
     /// This server gives bots no browser.
@@ -1551,6 +1620,7 @@ pub enum BrowserState {
 
 /// What kind of thing an [`Approval`] is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalKind {
     /// Uploading a file from the Mac to a site.
@@ -1576,8 +1646,10 @@ pub enum ApprovalKind {
 
 /// Something a bot wants to do that needs the user's yes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Approval {
     /// Id to answer it with.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub id: u64,
     /// Bot id.
     pub bot: String,
@@ -1634,8 +1706,10 @@ fn is_false(b: &bool) -> bool {
 /// One "Always allowed" rule: a bot may do `action` on `label` on `site`
 /// without asking.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AllowRule {
     /// Id to remove it with.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub id: i64,
     /// The exact host, e.g. `www.example.com`.
     pub site: String,
@@ -1647,11 +1721,13 @@ pub struct AllowRule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
     /// When, in milliseconds since the Unix epoch.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_ms: i64,
 }
 
 /// A research report as a client shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReportView {
     /// Bot id.
     pub bot: String,
@@ -1660,6 +1736,7 @@ pub struct ReportView {
     /// Its title.
     pub title: String,
     /// When it was saved, in milliseconds since the Unix epoch.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_ms: i64,
     /// The whole report as one HTML document, made safe by the server: no
     /// scripts, no images, links only to its sources. Shown in a sandboxed
@@ -1669,6 +1746,7 @@ pub struct ReportView {
 
 /// One research report in a bot's list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReportInfo {
     /// Its id, e.g. `r_3f…`.
     pub id: String,
@@ -1677,6 +1755,7 @@ pub struct ReportInfo {
     /// One line about it.
     pub summary: String,
     /// When it was saved, in milliseconds since the Unix epoch.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_ms: i64,
     /// How many sources it cites.
     pub sources: u32,
@@ -1685,12 +1764,14 @@ pub struct ReportInfo {
 /// A file sent with a message. It's saved in the bot's folder under
 /// `inbox/`, and the bot opens it with its Read tool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Attachment {
     /// Its upload id (random hex).
     pub id: String,
     /// Its name as shown, e.g. `bill.pdf` (cleaned by the server).
     pub name: String,
     /// Its size in bytes, as uploaded.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub size: u64,
     /// What kind of file it is.
     pub kind: AttachmentKind,
@@ -1721,6 +1802,7 @@ fn is_zero(n: &u32) -> bool {
 
 /// What kind of file an [`Attachment`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentKind {
     /// A photo or picture: PNG, JPEG, GIF, WebP or HEIC.
@@ -1741,6 +1823,7 @@ pub enum AttachmentKind {
 
 /// The user's answer to an [`Approval`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Answer {
     /// Do it, this once.
@@ -1755,6 +1838,7 @@ pub enum Answer {
 
 /// What happened to an approval, as stored in the chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
     /// The user allowed it.
@@ -1769,6 +1853,7 @@ pub enum Outcome {
 
 /// Who a bot is shared with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Sharing {
     /// Everyone in the home (a shared bot; the home's browser).
@@ -1784,6 +1869,7 @@ pub enum Sharing {
 
 /// What a client needs to show a bot in a list.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "a wire message: each flag is its own JSON field"
@@ -1796,10 +1882,12 @@ pub struct BotInfo {
     /// Whether the bot is in the middle of a turn.
     pub busy: bool,
     /// Number of the bot's latest stored event (0 if none).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub last_seq: u64,
     /// Number of the bot's latest reply (0 if none), so a client can mark
     /// bots with replies the user hasn't seen.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub last_reply_seq: u64,
     /// What its browser is doing.
     pub browser_state: BrowserState,
@@ -1838,6 +1926,10 @@ pub struct BotInfo {
     /// private bot). Decided by the server for each client.
     #[serde(default = "yes")]
     pub can_task: bool,
+    /// What it's for: its instructions, as its maker wrote them. Empty for
+    /// a locked bot (decided by the server for each client).
+    #[serde(default)]
+    pub instructions: String,
     /// The bot's own cap on model requests a day, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,
@@ -1855,12 +1947,15 @@ pub struct BotInfo {
 
 /// One stored event in a bot's history.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BotEvent {
     /// Bot id.
     pub bot: String,
     /// Event number, counting from 1 per bot, with no gaps.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub seq: u64,
     /// When it happened, in milliseconds since the Unix epoch.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub ts_ms: i64,
     /// What happened.
     #[serde(flatten)]
@@ -1869,6 +1964,7 @@ pub struct BotEvent {
 
 /// What happened in a [`BotEvent`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventKind {
     /// The user's message.
@@ -1944,6 +2040,7 @@ pub enum EventKind {
         /// Whether it finished without error.
         ok: bool,
         /// How long it took.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         duration_ms: u64,
     },
     /// A plain line from oxbot about the bot (shown as a quiet line, not

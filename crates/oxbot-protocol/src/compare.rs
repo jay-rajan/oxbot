@@ -7,6 +7,7 @@ use crate::{ApprovalKind, EngineKind};
 
 /// What a test case is run on: an engine and one model, with no fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Target {
     /// The engine.
     pub engine: EngineKind,
@@ -16,6 +17,7 @@ pub struct Target {
 
 /// How much a practice run's pages may send.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum TrialNetwork {
     /// Only reads (GET): every other request is blocked.
@@ -27,6 +29,7 @@ pub enum TrialNetwork {
 
 /// A verdict on a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum RunVerdict {
     /// It did the task.
@@ -39,6 +42,7 @@ pub enum RunVerdict {
 
 /// A test case, for the list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TestCaseInfo {
     /// Its id.
     pub id: String,
@@ -62,6 +66,7 @@ pub struct TestCaseInfo {
     #[serde(default)]
     pub network: TrialNetwork,
     /// When it was made (ms since the Unix epoch).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub created_ms: i64,
     /// Hidden from the list.
     #[serde(default)]
@@ -73,6 +78,7 @@ pub struct TestCaseInfo {
 
 /// A case's latest result on one engine and model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CaseResult {
     /// The engine.
     pub engine: EngineKind,
@@ -87,6 +93,7 @@ pub struct CaseResult {
 
 /// A step a practice run recorded instead of doing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TrialIntent {
     /// What kind of step.
     pub kind: ApprovalKind,
@@ -107,6 +114,7 @@ pub struct TrialIntent {
 /// How a run's recorded steps compare with what the case expects, each as
 /// one line (`click button "Post" on jobs.example.test`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct IntentMatch {
     /// Expected, and done.
     pub matched: Vec<String>,
@@ -121,6 +129,7 @@ pub struct IntentMatch {
 /// One of the owner's checks, as a judge saw it (runs judged before
 /// Claude left oxbot).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct JudgeCheck {
     /// The check.
     pub check: String,
@@ -132,6 +141,7 @@ pub struct JudgeCheck {
 
 /// What a judge said about a run (runs judged before Claude left oxbot).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct JudgeView {
     /// Each check.
     pub checks: Vec<JudgeCheck>,
@@ -151,6 +161,7 @@ pub struct JudgeView {
 
 /// A report a practice run would have saved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TrialReport {
     /// Its title.
     pub title: String,
@@ -165,6 +176,7 @@ pub struct TrialReport {
 
 /// One run of a case (or the original turn), with its numbers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunInfo {
     /// Its id.
     pub id: String,
@@ -189,9 +201,11 @@ pub struct RunInfo {
     pub model: String,
     /// When it started.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub started_ms: Option<i64>,
     /// When it ended.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub ended_ms: Option<i64>,
     /// `queued`, `running`, `done`, `failed`, `stopped`, `needs_sign_in`,
     /// `over_budget`, `rate_limited` or `judge_error`.
@@ -201,11 +215,14 @@ pub struct RunInfo {
     /// Model requests.
     pub requests: u32,
     /// Input tokens.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub input_tokens: u64,
     /// Output tokens.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub output_tokens: u64,
     /// Cached input tokens.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub cached_tokens: u64,
     /// US dollars.
     pub cost_usd: f64,
@@ -242,11 +259,13 @@ pub struct RunInfo {
     pub owner_verdict: Option<RunVerdict>,
     /// Days between the original turn and this run (live sites change).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub web_age_days: Option<i64>,
 }
 
 /// One engine and model's row on a bot's scoreboard.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ScoreRow {
     /// The engine.
     pub engine: EngineKind,
@@ -323,6 +342,7 @@ pub struct ScoreRow {
 
 /// What a batch would take, before it starts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BatchEstimate {
     /// The bot.
     pub bot: String,
@@ -348,6 +368,7 @@ pub struct BatchEstimate {
 
 /// Settings → Engines → Comparison.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ComparePrefs {
     /// Share of the day's free `OpenRouter` requests kept for live bots,
@@ -363,10 +384,12 @@ impl Default for ComparePrefs {
 
 /// What the "Test case…" sheet starts with for a finished turn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CaseDraft {
     /// The bot.
     pub bot: String,
     /// The turn's `TurnDone` event.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub seq: u64,
     /// The prompt's first line.
     pub title: String,

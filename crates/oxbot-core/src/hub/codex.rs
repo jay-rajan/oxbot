@@ -27,14 +27,28 @@ pub struct CodexParts {
     pub upstream: Arc<dyn Upstream>,
     /// `OXBOT_CODEX`, if set.
     pub program: Option<PathBuf>,
+    /// The Codex inside oxbot.app, if this build has one.
+    pub built_in: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for CodexParts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CodexParts")
             .field("program", &self.program)
+            .field("built_in", &self.built_in)
             .finish_non_exhaustive()
     }
+}
+
+/// Which Codex runs: a test's `OXBOT_CODEX` first, then the one inside
+/// the app (always the version oxbot was built for, whatever else is
+/// installed), then the owner's choice. `None`: look in `PATH`.
+fn pick_program(
+    env: Option<PathBuf>,
+    built_in: Option<PathBuf>,
+    owner_said: Option<PathBuf>,
+) -> Option<PathBuf> {
+    env.or(built_in).or(owner_said)
 }
 
 impl Hub {
@@ -87,17 +101,22 @@ impl Hub {
         }
     }
 
-    /// Looks for `codex`: where the owner said, else `OXBOT_CODEX`, else
-    /// `PATH` and Homebrew's folders.
+    /// Looks for `codex`: `OXBOT_CODEX`, else the one inside the app,
+    /// else where the owner said, else `PATH` and Homebrew's folders.
     async fn find_codex_program(&self) -> Found {
-        let configured = self
+        let parts = self.config.codex.as_ref();
+        let owner_said = self
             .store
             .pref(PREF_CODEX_PATH)
             .ok()
             .flatten()
             .filter(|p| !p.trim().is_empty())
-            .map(PathBuf::from)
-            .or_else(|| self.config.codex.as_ref().and_then(|p| p.program.clone()));
+            .map(PathBuf::from);
+        let configured = pick_program(
+            parts.and_then(|p| p.program.clone()),
+            parts.and_then(|p| p.built_in.clone()),
+            owner_said,
+        );
         let path_var = self
             .config
             .extra_env
@@ -178,5 +197,30 @@ impl Hub {
         if let Err(err) = self.store.forget_relay_log(cutoff) {
             tracing::warn!(%err, "couldn't forget the relay's old log");
         }
+    }
+}
+
+#[cfg(test)]
+mod pick_tests {
+    use super::pick_program;
+    use std::path::PathBuf;
+
+    #[test]
+    fn the_codex_inside_the_app_wins_over_one_installed_elsewhere() {
+        let p = |s: &str| Some(PathBuf::from(s));
+        let inside = "/Applications/oxbot.app/Contents/Resources/tools/codex/bin/codex";
+        assert_eq!(
+            pick_program(None, p(inside), p("/opt/homebrew/bin/codex")),
+            p(inside)
+        );
+        assert_eq!(
+            pick_program(p("/test/codex"), p(inside), None),
+            p("/test/codex")
+        );
+        assert_eq!(
+            pick_program(None, None, p("/opt/homebrew/bin/codex")),
+            p("/opt/homebrew/bin/codex")
+        );
+        assert_eq!(pick_program(None, None, None), None);
     }
 }

@@ -29,7 +29,8 @@ pub struct ServerOptions {
     pub browser: bool,
     /// The log relay to show in the apps.
     pub logs: Option<Arc<LogRelay>>,
-    /// Dev mode: serve the page from this folder (default: `OXBOT_UI_DIR`).
+    /// Dev mode: serve the built page from this folder, e.g. `ui-dist`
+    /// (default: `OXBOT_UI_DIR`).
     pub ui_dir: Option<PathBuf>,
     /// What the desktop app lets the page control.
     pub app: Option<Arc<dyn AppControls>>,
@@ -201,6 +202,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         codex: Some(oxbot_core::CodexParts {
             upstream: Arc::new(openrouter.client().clone()),
             program: std::env::var_os("OXBOT_CODEX").map(PathBuf::from),
+            // The Codex inside the app runs, not one installed elsewhere.
+            built_in: built_in_codex(),
         }),
         // Practice runs and test cases' files.
         data_dir: home.root().to_path_buf(),
@@ -374,16 +377,33 @@ fn built_in_tool() -> Option<BuiltInTool> {
     built_in
 }
 
-/// The browser tool shipped inside oxbot.app (`Contents/Resources/tools`,
-/// next to the program), or in `OXBOT_BUILT_IN_TOOLS` for testing.
-/// `oxbot serve` from a source checkout has none and uses npm instead.
-fn find_built_in_tool() -> Option<BuiltInTool> {
+/// oxbot's built-in tools folder: `Contents/Resources/tools` in
+/// oxbot.app (next to the program), or `OXBOT_BUILT_IN_TOOLS` for
+/// testing. `oxbot serve` from a source checkout has none.
+fn built_in_tools_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("OXBOT_BUILT_IN_TOOLS") {
-        return BuiltInTool::find_in(std::path::Path::new(&dir));
+        return Some(PathBuf::from(dir));
     }
     let exe = std::env::current_exe().ok()?;
-    let resources = exe.parent()?.parent()?.join("Resources/tools");
-    BuiltInTool::find_in(&resources)
+    Some(exe.parent()?.parent()?.join("Resources/tools"))
+}
+
+/// The browser tool shipped inside oxbot.app; without it, it's
+/// installed with npm instead.
+fn find_built_in_tool() -> Option<BuiltInTool> {
+    BuiltInTool::find_in(&built_in_tools_dir()?)
+}
+
+/// The Codex shipped inside oxbot.app, logged. Without it (`oxbot serve`
+/// from a checkout), Codex is looked for on the Mac.
+fn built_in_codex() -> Option<PathBuf> {
+    let found = built_in_tools_dir().and_then(|dir| oxbot_codex::binary::built_in(&dir));
+    if let Some(program) = &found {
+        tracing::info!(codex = %program.display(), "using the Codex built into the app");
+    } else {
+        tracing::info!("no built-in Codex; looking for one on this Mac");
+    }
+    found
 }
 
 /// oxbot's Mac helper (`oxbot-mac`: video frames and dictation): next to

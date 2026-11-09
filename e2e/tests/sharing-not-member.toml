@@ -1,6 +1,6 @@
 name = "A bot shared with others is locked to you"
 about = "Ann isn't one of the people Jay shared Journal with: she sees it by name with a lock, and nothing of its chat or who it's shared with."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot/src/server.rs"]
 as = "Ann"
 
 [[step]]

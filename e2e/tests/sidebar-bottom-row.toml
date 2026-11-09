@@ -1,6 +1,6 @@
 name = "Sidebar bottom row: Settings, Connect a device, Websites"
 about = "The bottom of the sidebar shows the gear, Connect a device and a Websites link to Settings → Websites (the websites the bots are signed in to); the old signed-in list is gone."
-covers = ["crates/oxbot/ui/**"]
+covers = ["crates/oxbot/ui-src/**"]
 
 [[step]]
 expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn,gateBtn,signedInBtn'"

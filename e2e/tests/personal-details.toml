@@ -1,7 +1,7 @@
 name = "Personal details leave as stand-ins and come back real"
 about = "A private bot is told an email and the owner's name. What reaches OpenRouter has stand-ins ([email 1], [person 1]) and never the real values, and asks no provider to refuse keeping data (so free models work); the answer in the chat has the real email and name back."
 needs = ["codex"]
-covers = ["crates/oxbot-relay/**", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-loop/src/lib.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-llm/src/openrouter.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-relay/**", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-loop/src/lib.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/hub/looped.rs", "crates/oxbot-llm/src/openrouter.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "New bot"
@@ -12,7 +12,8 @@ click = "Private: only you"
 [[step]]
 click = "Create"
 [[step]]
-wait_for = "private · @diary"
+expect_js = "document.getElementById('botStatus').dataset.bot === 'diary' && document.getElementById('botStatus').textContent.startsWith('private')"
+timeout_ms = 10000
 [[step]]
 send = "remember my contact: ann.lee@example.com, ask Jay"
 [[step]]

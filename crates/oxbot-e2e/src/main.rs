@@ -79,6 +79,21 @@ enum Cmd {
         #[arg(long)]
         skipped: Option<PathBuf>,
     },
+    /// A seeded oxbot to look at in your own browser, with the stand-in AI.
+    /// The page is read from crates/oxbot/ui-dist on every request: run
+    /// `npm run build -- --watch` in crates/oxbot/ui-src and refresh.
+    /// Stops on Ctrl-C; the home is thrown away.
+    Preview {
+        /// The port (a fixed address you can keep open).
+        #[arg(long, default_value_t = 5199)]
+        port: u16,
+        /// The stand-ins' reply script in e2e/scripts.
+        #[arg(long, default_value = "default.toml")]
+        script: String,
+        /// Start like a new install: no bots, the welcome.
+        #[arg(long)]
+        fresh: bool,
+    },
     /// Make this run's screenshots the approved baselines.
     Approve {
         /// The run's folder.
@@ -119,6 +134,11 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
+        Cmd::Preview {
+            port,
+            script,
+            fresh,
+        } => preview(&repo, port, &script, fresh).await?,
         Cmd::App { out } => {
             std::fs::create_dir_all(&out)?;
             let config = Config::load(&repo)?;
@@ -227,7 +247,7 @@ async fn run(
             .unwrap_or("asked for")
             .to_owned();
         eprintln!("▶ {} ({})", test.name, engine.name());
-        let run = match missing(&config, &test, scratch.path()).await {
+        let run = match missing(repo, &config, &test, scratch.path()).await {
             Some(why) => skipped(repo, &config, engine, &test, why),
             None => run_one(repo, &config, out, engine, &mut driver, &test, reason).await?,
         };
@@ -254,11 +274,20 @@ async fn run(
 
 /// Why `test` can't run on this Mac (a program it needs is missing), if
 /// it can't.
-async fn missing(config: &Config, test: &Test, scratch: &Path) -> Option<String> {
+async fn missing(repo: &Path, config: &Config, test: &Test, scratch: &Path) -> Option<String> {
     for need in config.needs.iter().chain(&test.needs) {
         match need.as_str() {
             "codex" => {
-                let configured = std::env::var_os("OXBOT_CODEX").map(PathBuf::from);
+                // The order oxbot uses: `OXBOT_CODEX`, then the Codex in
+                // the built-in tools folder, then `PATH`.
+                let configured = std::env::var_os("OXBOT_CODEX")
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        config
+                            .tools
+                            .as_ref()
+                            .and_then(|t| oxbot_codex::binary::built_in(&repo.join(t)))
+                    });
                 let path = std::env::var("PATH").ok();
                 let found = oxbot_codex::binary::find(
                     configured.as_deref(),
@@ -332,6 +361,8 @@ async fn run_one(
         openrouter_context: test.openrouter_context.clone(),
         keychain_delay_ms: test.keychain_delay_ms,
         dictation: test.dictation,
+        ui_dir: None,
+        port: None,
     };
     let mut server = Server::start(repo, config, home.path(), &launch).await?;
     let rel = format!("shots/{}/{id}", engine.name());
@@ -470,4 +501,43 @@ fn starting_steps(test: &Test) -> Vec<spec::Step> {
         open.push_str(p);
     }
     steps
+}
+
+/// Runs a seeded oxbot (stand-in AI, signed in) until Ctrl-C, serving the
+/// page from `crates/oxbot/ui-dist` so a rebuilt page shows on refresh.
+#[allow(
+    clippy::print_stdout,
+    reason = "the preview's addresses are its output"
+)]
+async fn preview(repo: &Path, port: u16, script: &str, fresh: bool) -> anyhow::Result<()> {
+    let config = Config::load(repo)?;
+    let home = tempfile::tempdir()?;
+    if fresh {
+        seed::make_empty_home(home.path())?;
+    } else {
+        seed::make_home(repo, home.path())?;
+    }
+    let launch = Launch {
+        script: repo.join("e2e/scripts").join(script),
+        signed_in: true,
+        openrouter_daily: None,
+        openrouter_context: None,
+        keychain_delay_ms: None,
+        dictation: true,
+        ui_dir: Some(repo.join("crates/oxbot/ui-dist")),
+        port: Some(port),
+    };
+    let server = Server::start(repo, &config, home.path(), &launch).await?;
+    println!("oxbot preview (a throwaway home with sample bots):");
+    println!(
+        "  as {}, the home computer: {}",
+        config.person,
+        server.url("/")
+    );
+    println!("  as someone else:         {}", server.url("/?as=Sam"));
+    println!("Page edits: `npm run build -- --watch` in crates/oxbot/ui-src, then refresh.");
+    println!("Ctrl-C stops it.");
+    tokio::signal::ctrl_c().await?;
+    server.stop().await;
+    Ok(())
 }

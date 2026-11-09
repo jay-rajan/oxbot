@@ -10,9 +10,16 @@ publish.workspace = true
 
 [dependencies]
 serde.workspace = true
+ts-rs = { workspace = true, optional = true }
+
+[features]
+# TypeScript types for the React page (`cargo test -p oxbot-protocol
+# --features ts`): see `tests/bindings.rs`.
+ts = ["dep:ts-rs"]
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
