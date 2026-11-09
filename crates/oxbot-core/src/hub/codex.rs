@@ -142,7 +142,7 @@ impl Hub {
         Ok(())
     }
 
-    /// Settings → Engines → Codex: what was found, for the Farm.
+    /// Settings → Engines → Codex: what was found, for the home computer.
     #[must_use]
     pub fn codex_view(&self) -> CodexView {
         let configured = self

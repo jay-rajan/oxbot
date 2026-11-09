@@ -105,7 +105,7 @@ Rel(engines, kc, "key, in memory only")
 <tr><td class="mono">oxbot-codex, oxbot-claude</td><td>Other engines (Codex; Claude for the owner's dev tools only).</td></tr>
 <tr><td class="mono">oxbot-relay</td><td>Sits in front of OpenRouter: swaps personal details out and back, counts, logs.</td></tr>
 <tr><td class="mono">oxbot-browser</td><td>Chrome control, sign-ins, cookies, website visit counts.</td></tr>
-<tr><td class="mono">oxbot-gate</td><td>Device pairing and connections.</td></tr>
+<tr><td class="mono">oxbot-device</td><td>Device pairing and connections.</td></tr>
 <tr><td class="mono">oxbot-e2e</td><td>End-to-end test runner and stand-ins.</td></tr>
 <tr><td class="mono">app/src-tauri</td><td>The Mac (and later phone) shell around the page.</td></tr>
 </table></div>
@@ -155,7 +155,7 @@ erDiagram
   BOT_FOLDER ||--o{ ALLOW_RULES : "always allow"
   BOT_FOLDER ||--o{ MODEL_CALLS : "costs"
   PEOPLE ||--|| PROFILES : "details"
-  PEOPLE ||--o{ GATES : "devices"
+  PEOPLE ||--o{ DEVICES : "devices"
   PEOPLE ||--o{ BOT_MEMBERS : "member of"
   PEOPLE ||--o{ SECTIONS : "sidebar"
   SECTIONS ||--o{ BOT_SECTIONS : "holds"
@@ -168,7 +168,7 @@ erDiagram
   LOOP_SESSIONS ||--o{ LOOP_TURNS : "turns"
   LOOP_SESSIONS ||--o{ LOOP_RESULTS : "big results"
   PEOPLE ||--o{ NET_LOG : "activity"
-  GATES ||--o{ NET_LOG : "device rows"
+  DEVICES ||--o{ NET_LOG : "device rows"
   BOT_FOLDER {
     text id "folder name, e.g. assistant"
     text bot_toml "name, engine, owner, private"
@@ -191,7 +191,7 @@ erDiagram
   PEOPLE {
     text id PK "p_..."
     text name UK
-    int farm "1 = owner of the home computer"
+    int owner "1 = owner of the home computer"
   }
   PROFILES {
     text person PK
@@ -200,7 +200,7 @@ erDiagram
     text food
     text languages
   }
-  GATES {
+  DEVICES {
     text id PK
     text person_id
     text name "Sam's iPhone"
@@ -260,7 +260,7 @@ erDiagram
     text bot PK
     int seq PK
     text person
-    text entry "home computer, device, test"
+    text entry "home_computer, device, test"
   }
   SCHEDULES {
     int id PK
@@ -293,7 +293,7 @@ erDiagram
     int ts_ms
     text kind "ai, website, device, oxbot"
     text person
-    text gate
+    text device
     int bytes_up
     int bytes_down
   }
@@ -332,7 +332,7 @@ erDiagram
 <h3>Worth fixing in the SQLite schema before launch</h3>
 <ul>
 <li><b>A <code>bots</code> table:</b> today a bot exists only as a folder, so nothing in the database can check that a <code>bot</code> value is real. A table (id, created, deleted) would allow foreign keys and clean deletes.</li>
-<li><b>Foreign keys and <code>STRICT</code> tables</b> for the core tables (people, gates, profiles, bot_members, schedules), so bad rows are refused instead of found later.</li>
+<li><b>Foreign keys and <code>STRICT</code> tables</b> for the core tables (people, devices, profiles, bot_members, schedules), so bad rows are refused instead of found later.</li>
 <li><b>Retention</b> for the growing logs (<code>model_calls</code>, <code>relay_log</code>, <code>loop_messages</code> of closed sessions), like <code>net_log</code>'s 30 days.</li>
 <li><b>Big JSON in <code>events.body</code></b> is fine at a home's scale; keep large content (files, page snapshots) on disk, as now.</li>
 </ul>

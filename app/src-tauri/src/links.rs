@@ -77,7 +77,7 @@ mod tests {
         ] {
             assert_eq!(decide(&url(bad), &mac), Link::Block, "{bad}");
         }
-        let phone = url("http://tauri.localhost/gate.html");
+        let phone = url("http://tauri.localhost/device.html");
         assert_eq!(decide(&url("http://tauri.localhost/x"), &phone), Link::Stay);
         assert_eq!(
             decide(&url("https://example.com/"), &phone),

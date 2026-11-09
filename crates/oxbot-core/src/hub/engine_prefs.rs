@@ -38,15 +38,15 @@ pub const ENGINES_NOTICE: &str = "Bots use AI models through the home's OpenRout
      OpenRouter (or a model on this computer), never anywhere else.";
 
 impl Hub {
-    /// Whether `viewer` is the Farm's owner: the Farm connection, or the
-    /// Farm's person (by id) on any device.
+    /// Whether `viewer` is the home computer's owner: the home computer connection, or the
+    /// home computer's person (by id) on any device.
     #[must_use]
     pub fn is_owner_viewer(&self, viewer: &Viewer) -> bool {
         let viewer = self.resolve(viewer);
         self.is_owner(&ChainOrigin::from_viewer(&viewer, entry_of(&viewer)))
     }
 
-    /// The Farm owner's name, for the page.
+    /// The home computer owner's name, for the page.
     #[must_use]
     pub fn owner_display_name(&self) -> String {
         self.owner_name()
@@ -176,7 +176,7 @@ impl Hub {
     /// the household's).
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's a Herder, the number is out
+    /// Fails if `viewer` may not change it, it's an Assistant, the number is out
     /// of range, or its file can't be written.
     pub async fn set_bot_daily_limit(
         &self,
@@ -304,11 +304,11 @@ fn checked_prefs(mut prefs: EnginePrefs) -> Result<EnginePrefs, HubError> {
     if prefs.paid_models.len() > MAX_PAID_MODELS || !prefs.paid_models.iter().all(|m| id_ok(m)) {
         return refuse("Those aren't model ids oxbot can use.".to_owned());
     }
-    prefs.herder_model = prefs
-        .herder_model
+    prefs.assistant_model = prefs
+        .assistant_model
         .map(|m| m.trim().to_owned())
         .filter(|m| !m.is_empty() && m != "auto");
-    if prefs.herder_model.as_deref().is_some_and(|m| !id_ok(m)) {
+    if prefs.assistant_model.as_deref().is_some_and(|m| !id_ok(m)) {
         return refuse("That isn't a model id oxbot can use.".to_owned());
     }
     Ok(prefs)
@@ -327,13 +327,13 @@ mod tests {
         scout.loop_settings.daily_requests = Some(20);
         scout.save().unwrap();
         let bots = vec![
-            Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
+            Bot::create(dir, BotId::new("assistant").unwrap(), "Assistant", "").unwrap(),
             Bot::create(dir, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
             Bot::create(dir, BotId::new("notes").unwrap(), "Notes", "").unwrap(),
             scout,
         ];
         let hub = Hub::new(bots, Store::open_in_memory().unwrap(), HubConfig::new(dir));
-        hub.farm_person("Jay").unwrap();
+        hub.owner_person("Jay").unwrap();
         hub
     }
 
@@ -353,7 +353,7 @@ mod tests {
         let seen = ann.redact(list.clone());
         let can = |id: &str| seen.iter().find(|b| b.id == id).unwrap().can_task;
         assert!(can("recipes") && can("scout") && can("notes"));
-        let jay_phone = Viewer::person(hub.farm_id().unwrap(), "Jay", false);
+        let jay_phone = Viewer::person(hub.owner_person_id().unwrap(), "Jay", false);
         assert!(hub.is_owner_viewer(&jay_phone) && !hub.is_owner_viewer(&ann));
     }
 
@@ -386,12 +386,12 @@ mod tests {
             .set_engine_prefs(EnginePrefs {
                 paid_fallback: true,
                 paid_models: vec![" vendor/small ".into(), "vendor/small".into()],
-                herder_model: Some("auto".into()),
+                assistant_model: Some("auto".into()),
                 ..EnginePrefs::default()
             })
             .unwrap();
         assert_eq!(kept.paid_models, ["vendor/small"]);
-        assert_eq!(kept.herder_model, None);
+        assert_eq!(kept.assistant_model, None);
         assert_eq!(hub.engine_prefs(), kept);
         for bad in [
             EnginePrefs {
@@ -423,7 +423,7 @@ mod tests {
     async fn a_bots_own_model_list_is_checked_kept_and_listed() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        let jay = hub.farm_viewer("Jay");
+        let jay = hub.home_computer_viewer("Jay");
         hub.set_bot_models(
             "scout",
             vec![" x/b:free ".into(), "x/paid".into(), "x/b:free".into()],
@@ -481,7 +481,7 @@ mod tests {
     async fn a_bots_own_daily_limit_is_its_managers_to_set() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        let jay = hub.farm_viewer("Jay");
+        let jay = hub.home_computer_viewer("Jay");
         hub.set_bot_daily_limit("scout", Some(2), &jay)
             .await
             .unwrap();

@@ -327,7 +327,7 @@ fn skipped(repo: &Path, config: &Config, engine: Engine, test: &Test, why: Strin
         as_person: test
             .as_person
             .clone()
-            .unwrap_or_else(|| format!("{} (the Farm)", config.person)),
+            .unwrap_or_else(|| format!("{} (the home computer)", config.person)),
         size: String::new(),
         status: "skipped".to_owned(),
         ms: 0,
@@ -433,7 +433,7 @@ async fn run_one(
         as_person: test
             .as_person
             .clone()
-            .unwrap_or_else(|| format!("{} (the Farm)", config.person)),
+            .unwrap_or_else(|| format!("{} (the home computer)", config.person)),
         size: format!("{}\u{d7}{}", size.width, size.height),
         status: status.to_owned(),
         ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),

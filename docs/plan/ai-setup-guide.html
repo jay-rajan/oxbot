@@ -135,7 +135,7 @@ flowchart LR
     <li><b>Setup state</b> is derived, not stored: from the key's state (signed in, free tier or not) plus one saved flag per screen the owner skipped. So it fixes itself if the account changes outside oxbot.</li>
     <li><b>Checking by itself</b>: while screens 3 or 4 are open, the home computer re-reads the key every 5 s (screen 3 already gets the sign-in callback; screen 4 polls the key's free-tier flag) and moves on. No "I've done it" button needed, but Refresh stays as a fallback.</li>
     <li><b>Links</b>: oxbot opens only fixed openrouter.ai pages (sign-in, credits) in the person's normal browser. It never fills forms there and never handles card details or passwords.</li>
-    <li><b>Home computer only</b>: setup and spending choices stay farm-only (as today). Devices see the "Ask Jay…" line.</li>
+    <li><b>Home computer only</b>: setup and spending choices stay home-computer-only (as today). Devices see the "Ask Jay…" line.</li>
     <li><b>Words</b>: "OpenRouter" is named (it's their account). Never Codex or relay. "Free questions" not "requests"; "AI spending" not "cap".</li>
     <li><b>Tests</b>: unit tests for the derived state; e2e with the fake OpenRouter (already serves the sign-in page) plus a free-tier switch and a "credit bought" switch: guide → sign in → 50/day screen → credit → 1,000/day → paid choice → done. Nudges at 80% and 100%.</li>
   </ul>

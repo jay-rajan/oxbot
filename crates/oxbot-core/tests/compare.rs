@@ -98,7 +98,7 @@ async fn a_replay_records_the_post_and_changes_nothing() {
         return;
     };
     let hub = hub(tmp.path(), &codex).await;
-    let owner = hub.farm_viewer("Jay");
+    let owner = hub.home_computer_viewer("Jay");
     // "Always allow": a replay records the post all the same.
     let done = live_turn(&hub, &owner, Answer::AlwaysAllow).await;
 
@@ -198,8 +198,8 @@ async fn only_the_owner_compares_and_a_replay_repeats_a_no() {
         return;
     };
     let hub = hub(tmp.path(), &codex).await;
-    let owner = hub.farm_viewer("Jay");
-    let sam = Viewer::gate("Sam");
+    let owner = hub.home_computer_viewer("Jay");
+    let sam = Viewer::device("Sam");
     let done = live_turn(&hub, &sam, Answer::Deny).await;
 
     assert!(hub.draft_test_case("jobs", done, &sam).is_err());

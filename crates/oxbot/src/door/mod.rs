@@ -1,18 +1,18 @@
-//! The Gate door: how phones and laptops (Gates) reach the Farm.
+//! The device door: how phones and laptops (devices) reach the home computer.
 //!
-//! - It listens on port 7879, TLS only, with a certificate the Farm made for
-//!   itself ([`identity`]). A Gate pins that certificate's fingerprint, which
+//! - It listens on port 7879, TLS only, with a certificate the home computer made for
+//!   itself ([`identity`]). A device pins that certificate's fingerprint, which
 //!   it got from the pairing QR code.
-//! - Pairing: Settings → Gates shows a one-time code and its QR code for a
-//!   chosen person ([`pairing`]). The Gate sends it to `POST /pair` and gets
-//!   a key back. Every other request needs that key ([`http`]); the Farm
-//!   keeps only its hash, and a Gate always acts as its person.
-//! - It's open only while the Mac is on a network the Farm listed in
-//!   Settings → Gates ([`network`]), and only while a Gate is paired or a
+//! - Pairing: Settings → devices shows a one-time code and its QR code for a
+//!   chosen person ([`pairing`]). The device sends it to `POST /pair` and gets
+//!   a key back. Every other request needs that key ([`http`]); the home computer
+//!   keeps only its hash, and a device always acts as its person.
+//! - It's open only while the Mac is on a network the home computer listed in
+//!   Settings → devices ([`network`]), and only while a device is paired or a
 //!   code is showing. It checks every 30 seconds and whenever something
 //!   changes, and only devices with local addresses get in ([`listener`]).
 //! - While open, it tells the network where it is (mDNS `_oxbot._tcp`), so
-//!   a Gate finds the Farm after its address changes ([`discovery`]).
+//!   a device finds the home computer after its address changes ([`discovery`]).
 
 pub mod discovery;
 pub mod http;
@@ -31,34 +31,45 @@ use anyhow::Context as _;
 use axum::Router;
 use oxbot_core::{Hub, HubError, Viewer};
 use oxbot_protocol::{
-    DoorNetwork, DoorState, GateInfo, PairReply, PairRequest, PairingCode, ServerMsg,
+    DeviceInfo, DoorNetwork, DoorState, PairReply, PairRequest, PairingCode, ServerMsg,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
 
-pub use http::GateAuth;
+pub use http::DeviceAuth;
 pub use identity::Identity;
 pub use network::Probe;
 
 use pairing::{Check, PairingCodes};
 
-/// The Gate door's usual port.
-pub const DEFAULT_GATE_PORT: u16 = 7879;
+/// The device door's usual port.
+pub const DEFAULT_DEVICE_PORT: u16 = 7879;
+
+/// The device door's folder in `data_dir` (its certificate). It was `gate`
+/// before the rename; that folder is moved here once.
+///
+/// # Errors
+/// Fails if the old folder is there and can't be moved.
+pub fn folder(data_dir: &std::path::Path) -> std::io::Result<PathBuf> {
+    let dir = data_dir.join("door");
+    oxbot_device::move_old_name(&data_dir.join("gate"), &dir)?;
+    Ok(dir)
+}
 /// How often the door checks which network the Mac is on.
 const CHECK_EVERY: Duration = Duration::from_secs(30);
-/// Sent on the removals channel to close every Gate's connection (the door
+/// Sent on the removals channel to close every device's connection (the door
 /// closed).
-pub const EVERY_GATE: &str = "*";
+pub const EVERY_DEVICE: &str = "*";
 
-/// Why pairing failed, as the Gate is told.
+/// Why pairing failed, as the device is told.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PairError {
-    /// No code is showing on the Farm, or it ran out.
+    /// No code is showing on the home computer, or it ran out.
     NoCode,
     /// Wrong code.
     WrongCode,
-    /// Something went wrong on the Farm.
-    Farm(String),
+    /// Something went wrong on the home computer.
+    HomeComputer(String),
 }
 
 impl std::error::Error for PairError {}
@@ -70,7 +81,7 @@ impl std::fmt::Display for PairError {
                 "No pairing code is showing on the home computer, or it ran out. Make a new one in Settings → Devices.",
             ),
             Self::WrongCode => f.write_str("That code isn't right. Check it and try again."),
-            Self::Farm(why) => write!(f, "The home computer couldn't pair just now: {why}"),
+            Self::HomeComputer(why) => write!(f, "The home computer couldn't pair just now: {why}"),
         }
     }
 }
@@ -91,11 +102,11 @@ impl Drop for Open {
     }
 }
 
-/// The Gate door. One per Farm.
+/// The device door. One per home computer.
 pub struct Door {
     dir: PathBuf,
     port: u16,
-    /// The Mac's name: what phones see unless the Farm picked another.
+    /// The Mac's name: what phones see unless the home computer picked another.
     mac_name: String,
     hub: Arc<Hub>,
     probe: Probe,
@@ -110,12 +121,12 @@ pub struct Door {
     addr: Mutex<Option<SocketAddr>>,
     /// The page and WebSocket routes it serves, from [`Door::start`].
     router: Mutex<Option<Router>>,
-    /// Gate id → open connections.
+    /// Device id → open connections.
     online: Mutex<HashMap<String, usize>>,
-    /// Gate ids that were just removed (or [`EVERY_GATE`]); their
+    /// Device ids that were just removed (or [`EVERY_DEVICE`]); their
     /// connections close.
     removed: broadcast::Sender<String>,
-    /// What the Farm was last told, to tell it only about changes.
+    /// What the home computer was last told, to tell it only about changes.
     told: Mutex<Option<DoorState>>,
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -167,7 +178,7 @@ impl Door {
     }
 
     /// Starts watching the network and opens the door when it should be:
-    /// serving `router` (the page and WebSocket) to paired Gates.
+    /// serving `router` (the page and WebSocket) to paired devices.
     pub async fn start(self: &Arc<Self>, router: Router) {
         *lock(&self.router) = Some(router);
         self.refresh().await;
@@ -203,7 +214,7 @@ impl Door {
         Ok(made)
     }
 
-    /// The certificate fingerprint Gates pin.
+    /// The certificate fingerprint devices pin.
     ///
     /// # Errors
     /// Fails if the certificate can't be loaded or made.
@@ -225,7 +236,7 @@ impl Door {
             .map_or_else(|| self.mac_name.clone(), str::to_owned)
     }
 
-    /// The door as Settings → Gates shows it.
+    /// The door as Settings → devices shows it.
     #[must_use]
     pub fn state(&self) -> DoorState {
         let why = if self.addr().is_some() {
@@ -269,7 +280,7 @@ impl Door {
             );
         }
         // If the database can't say, keep phones in rather than shut them out.
-        let paired = self.hub.gates().map_or(true, |g| !g.is_empty());
+        let paired = self.hub.devices().map_or(true, |g| !g.is_empty());
         if !paired && !lock(&self.codes).is_showing(crate::runtime::now_ms()) {
             return (false, "No phones are paired yet.".to_owned());
         }
@@ -289,7 +300,7 @@ impl Door {
     }
 
     /// Opens or closes the door to match the settings and the network last
-    /// checked, and tells the Farm if anything changed.
+    /// checked, and tells the home computer if anything changed.
     async fn apply(&self) -> DoorState {
         let (want, mut why) = self.wanted();
         if want {
@@ -316,12 +327,12 @@ impl Door {
         }
         let router = lock(&self.router)
             .clone()
-            .context("the Gate door isn't started")?;
+            .context("the device door isn't started")?;
         let identity = self.identity()?;
         let tls = identity.tls()?;
         let tcp = TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, self.port)))
             .await
-            .with_context(|| format!("couldn't open the Gate door on port {}", self.port))?;
+            .with_context(|| format!("couldn't open the device door on port {}", self.port))?;
         let (stop, stopped) = watch::channel(false);
         let listener = listener::TlsListener::start(tcp, tls, stopped.clone())?;
         let addr = axum::serve::Listener::local_addr(&listener)?;
@@ -336,14 +347,14 @@ impl Door {
             })
             .await;
             if let Err(err) = served {
-                tracing::warn!(%err, "the Gate door stopped with an error");
+                tracing::warn!(%err, "the device door stopped with an error");
             }
         });
         // Only once it's really listening, so a failed open leaves nothing behind.
         let mdns = discovery::advertise(&self.name(), addr.port(), &identity.fingerprint);
         *open = Some(Open { addr, stop, mdns });
         *lock(&self.addr) = Some(addr);
-        tracing::info!(%addr, "the Gate door is open");
+        tracing::info!(%addr, "the device door is open");
         Ok(addr)
     }
 
@@ -352,8 +363,8 @@ impl Door {
         if open.take().is_some() {
             *lock(&self.addr) = None;
             // Phones connected through it are on their own now.
-            let _ = self.removed.send(EVERY_GATE.to_owned());
-            tracing::info!("the Gate door is closed");
+            let _ = self.removed.send(EVERY_DEVICE.to_owned());
+            tracing::info!("the device door is closed");
         }
     }
 
@@ -400,13 +411,13 @@ impl Door {
     }
 
     /// Shows a new pairing code for `person` (made safe, see
-    /// [`Hub::gate_person`]), opening the door.
+    /// [`Hub::device_person`]), opening the door.
     ///
     /// # Errors
     /// The name isn't usable, phones may not use this network, or the door
     /// can't open.
     pub async fn start_pairing(&self, person: &str) -> anyhow::Result<PairingCode> {
-        let (person, person_id) = self.hub.gate_pick(person)?;
+        let (person, person_id) = self.hub.device_pick(person)?;
         self.refresh().await;
         let here = lock(&self.here).clone();
         anyhow::ensure!(
@@ -420,8 +431,8 @@ impl Door {
             lock(&self.codes).cancel();
             anyhow::bail!("{}", state.why);
         };
-        let link = oxbot_gate::PairLink {
-            farm: oxbot_gate::Farm {
+        let link = oxbot_device::PairLink {
+            home_computer: oxbot_device::HomeComputer {
                 hosts: discovery::lan_hosts(addr.port()),
                 fingerprint: self.fingerprint()?,
                 name: self.name(),
@@ -430,7 +441,7 @@ impl Door {
         }
         .to_link();
         let qr_svg = pairing::qr_svg(&link)?;
-        tracing::info!("showing a Gate pairing code");
+        tracing::info!("showing a device pairing code");
         Ok(PairingCode {
             person,
             code: pairing::display_code(&code),
@@ -440,14 +451,14 @@ impl Door {
         })
     }
 
-    /// Stops showing the pairing code (and closes the door if no Gate is
+    /// Stops showing the pairing code (and closes the door if no device is
     /// paired).
     pub async fn cancel_pairing(&self) {
         lock(&self.codes).cancel();
         self.apply().await;
     }
 
-    /// Checks a Gate's code and pairs it: a new Gate record and its key.
+    /// Checks a device's code and pairs it: a new device record and its key.
     ///
     /// # Errors
     /// No code showing, the wrong code, or the database failing.
@@ -481,81 +492,81 @@ impl Door {
         } else {
             device
         };
-        let key_hash = oxbot_gate::fingerprint(key.as_bytes());
+        let key_hash = oxbot_device::fingerprint(key.as_bytes());
         // The person picked when the code was shown, by id; someone new is
         // made now.
-        let gate = match &person_id {
-            Some(person) => self.hub.add_gate_for(&id, person, &device, &key_hash),
-            None => self.hub.add_gate(&id, &person, &device, &key_hash),
+        let device = match &person_id {
+            Some(person) => self.hub.add_device_for(&id, person, &device, &key_hash),
+            None => self.hub.add_device(&id, &person, &device, &key_hash),
         }
-        .map_err(|e| PairError::Farm(e.to_string()))?;
-        tracing::info!(gate = gate.id, "a Gate paired");
+        .map_err(|e| PairError::HomeComputer(e.to_string()))?;
+        tracing::info!(device = device.id, "a device paired");
         self.hub.announce(ServerMsg::PairingClosed);
-        self.announce_gates();
+        self.announce_devices();
         Ok(PairReply {
             id,
             // Their name as it is now.
-            person: gate.person,
-            farm: self.name(),
+            person: device.person,
+            home_computer: self.name(),
             key,
         })
     }
 
-    /// The paired Gate holding `key`, if any.
+    /// The paired device holding `key`, if any.
     ///
     /// # Errors
     /// The database failed: that's "try again", not "not paired".
-    pub fn check_key(&self, key: &str) -> Result<Option<(GateInfo, Viewer)>, HubError> {
+    pub fn check_key(&self, key: &str) -> Result<Option<(DeviceInfo, Viewer)>, HubError> {
         if !crate::secret::usable(key) {
             return Ok(None);
         }
         self.hub
-            .gate_viewer_by_key(&oxbot_gate::fingerprint(key.as_bytes()))
+            .device_viewer_by_key(&oxbot_device::fingerprint(key.as_bytes()))
     }
 
-    /// Every paired Gate, with who's connected now.
+    /// Every paired device, with who's connected now.
     #[must_use]
-    pub fn gates(&self) -> Vec<GateInfo> {
+    pub fn devices(&self) -> Vec<DeviceInfo> {
         let online = lock(&self.online);
-        let mut gates = self.hub.gates().unwrap_or_default();
-        for gate in &mut gates {
-            gate.online = online.get(&gate.id).is_some_and(|n| *n > 0);
+        let mut devices = self.hub.devices().unwrap_or_default();
+        for device in &mut devices {
+            device.online = online.get(&device.id).is_some_and(|n| *n > 0);
         }
-        gates
+        devices
     }
 
-    /// Tells the Farm's clients the Gates list.
-    pub fn announce_gates(&self) {
-        self.hub.announce(ServerMsg::Gates {
-            gates: self.gates(),
+    /// Tells the home computer's clients the devices list.
+    pub fn announce_devices(&self) {
+        self.hub.announce(ServerMsg::Devices {
+            devices: self.devices(),
         });
     }
 
-    /// Unpairs a Gate and closes its connections (and the door, if it was
+    /// Unpairs a device and closes its connections (and the door, if it was
     /// the last one).
     ///
     /// # Errors
     /// Fails if the database does.
     pub async fn remove(&self, id: &str) -> anyhow::Result<()> {
-        let removed = self.hub.remove_gate(id)?;
+        let removed = self.hub.remove_device(id)?;
         anyhow::ensure!(removed, "That device isn't paired.");
         let _ = self.removed.send(id.to_owned());
-        tracing::info!(gate = id, "a Gate was removed");
-        self.announce_gates();
+        tracing::info!(device = id, "a device was removed");
+        self.announce_devices();
         self.apply().await;
         Ok(())
     }
 
-    /// Hears about removed Gates (each connection listens for its own, and
-    /// for [`EVERY_GATE`]).
+    /// Hears about removed devices (each connection listens for its own, and
+    /// for [`EVERY_DEVICE`]).
     #[must_use]
     pub fn removals(&self) -> broadcast::Receiver<String> {
         self.removed.subscribe()
     }
 
-    /// Marks Gate `id` as connected until the guard is dropped, however the
+    /// Marks device `id` as connected until the guard is dropped, however the
     /// connection ends. With its connection's byte counts, the connection
-    /// is also noted in Settings → Activity (for `person`, the Gate's).
+    /// is also noted in Settings → Activity (for `person`, the device's).
     #[must_use]
     pub fn online(
         self: &Arc<Self>,
@@ -565,12 +576,12 @@ impl Door {
     ) -> Online {
         self.set_online(id, true);
         let noted = bytes.and_then(|bytes| {
-            let gate = self.gates().into_iter().find(|g| g.id == id)?;
+            let device = self.devices().into_iter().find(|g| g.id == id)?;
             let network = lock(&self.here)
                 .as_ref()
                 .map(|h| h.label.clone())
                 .unwrap_or_default();
-            let visit = self.hub.device_connected(&gate, person, &network)?;
+            let visit = self.hub.device_connected(&device, person, &network)?;
             let start = (bytes.written(), bytes.read());
             Some(Noted {
                 visit,
@@ -595,11 +606,11 @@ impl Door {
                 *n = n.saturating_sub(1);
             }
         }
-        self.announce_gates();
+        self.announce_devices();
     }
 }
 
-/// A Gate's connection, counted as online while this lives.
+/// A device's connection, counted as online while this lives.
 #[derive(Debug)]
 pub struct Online {
     door: Arc<Door>,

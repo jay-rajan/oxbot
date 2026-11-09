@@ -43,7 +43,7 @@ detail: string | null,
  */
 screenshot: string | null, 
 /**
- * The person whose request led to this card. Only they and the Farm
+ * The person whose request led to this card. Only they and the home computer
  * see and answer it.
  */
 asker: string | null, 

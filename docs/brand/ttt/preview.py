@@ -8,7 +8,7 @@ R = Path(sys.argv[1])
 S = json.loads((R / "docs/brand/ttt/strings.json").read_text())
 ui = (R / "crates/oxbot/ui/index.html").read_text()
 js = ui[ui.index("// ---------- the board animation"):ui.index('// Live "Working…" line')]
-herder = json.loads(re.search(r'^const HERDER = (".*?"); //', ui, re.M).group(1))
+assistant = json.loads(re.search(r'^const ASSISTANT = (".*?"); //', ui, re.M).group(1))
 avs = S["avatars"]
 colors = ["#7A5AF8", "#E0457B", "#0F9488", "#2F6FEB", "#A0663A", "#5E6B7D",
           "#B98A00", "#2E9A4E", "#E2701B", "#0E93B8", "#B33BC9", "#7C8A1C"]
@@ -35,7 +35,7 @@ phone = (blank * 5 + f'<span class="lbl"><span class="ox">{fg}</span>oxbot</span
 def app(theme):
     return f'''<div class="app {theme}">
   <div class="side"><div class="wm">{wm}</div>
-   <div class="botrow sel"><span class="avatar working">{herder}</span><div><b>Assistant</b><small>leads your bots</small></div></div>{rows}</div>
+   <div class="botrow sel"><span class="avatar working">{assistant}</span><div><b>Assistant</b><small>leads your bots</small></div></div>{rows}</div>
   <div class="main"><div class="msg me">Add eggs and bananas to the grocery list</div>
    <div class="typing"><span class="ttt"></span><span>Reading the grocery list</span></div>
    <div class="chip"><span class="spin"></span>receipts.csv · uploading</div></div></div>'''
@@ -60,7 +60,7 @@ h1{font-size:30px;margin:0;line-height:1.2;text-wrap:balance} h2{font-size:19px;
 .botrow{display:flex;align-items:center;gap:10px;padding:6px;border-radius:8px} .botrow.sel{background:var(--soft)} .botrow b{display:block;font-size:13px} .botrow small{color:var(--mut);font-size:11px}
 .main{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
 .msg.me{align-self:flex-end;background:var(--soft);padding:8px 12px;border-radius:12px;max-width:80%}
-.avatar{width:34px;height:34px;flex:none;display:grid;place-items:center} .avatar svg{width:100%;height:100%;display:block} svg.herder{color:var(--ink)}
+.avatar{width:34px;height:34px;flex:none;display:grid;place-items:center} .avatar svg{width:100%;height:100%;display:block} svg.assistant{color:var(--ink)}
 .avatar .pc{transform-box:view-box;transform-origin:50px 54px}
 .avatar.working .pc-o{animation:ttt-rock 1.4s ease-in-out infinite} .avatar.working .pc-x{animation:ttt-tick 1.4s ease-in-out infinite}
 @keyframes ttt-rock{0%,100%{transform:rotate(0)}25%{transform:rotate(-16deg)}75%{transform:rotate(16deg)}}

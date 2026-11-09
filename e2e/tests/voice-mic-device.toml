@@ -9,4 +9,4 @@ click = "Recipes"
 [[step]]
 expect_js = "document.getElementById('mic').hidden"
 note = "No mic for a device"
-shot = "gate-no-mic"
+shot = "device-no-mic"

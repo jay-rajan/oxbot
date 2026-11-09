@@ -62,9 +62,9 @@ pub struct LoopPrefs {
     pub paid_fallback: bool,
     /// The paid models the owner picked, in order.
     pub paid_models: Vec<String>,
-    /// The model every person's Herder tries first (`None`: the router
+    /// The model every person's Assistant tries first (`None`: the router
     /// picks).
-    pub herder_model: Option<String>,
+    pub assistant_model: Option<String>,
     /// Longest answer to ask for, in tokens.
     pub max_tokens: u32,
     /// Most model requests in one turn.
@@ -77,7 +77,7 @@ impl Default for LoopPrefs {
             // The host sets it from the home's settings (on there).
             paid_fallback: false,
             paid_models: Vec::new(),
-            herder_model: None,
+            assistant_model: None,
             max_tokens: 4096,
             max_steps: 50,
         }

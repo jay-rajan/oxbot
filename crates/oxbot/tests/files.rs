@@ -38,18 +38,24 @@ struct Server {
     _dir: tempfile::TempDir,
 }
 
-/// A server in test mode (`as=` names a person) with Herder, a shared
+/// A server in test mode (`as=` names a person) with the Assistant, a shared
 /// `notes` bot and Sam's private `diary`, and the stand-in Mac helper.
 async fn start() -> Server {
     start_with(false).await
 }
 
-/// As [`start`]; with `farm_person`, Jay is chosen as the Farm's person.
-async fn start_with(farm_person: bool) -> Server {
+/// As [`start`]; with `owner_person`, Jay is chosen as the home computer's person.
+async fn start_with(owner_person: bool) -> Server {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_in_memory().unwrap();
     let sam = store.find_or_create_person("Sam").unwrap().0.id;
-    let herder = Bot::create(dir.path(), BotId::new("assistant").unwrap(), "Herder", "").unwrap();
+    let assistant = Bot::create(
+        dir.path(),
+        BotId::new("assistant").unwrap(),
+        "Assistant",
+        "",
+    )
+    .unwrap();
     let notes = Bot::create(dir.path(), BotId::new("notes").unwrap(), "Notes", "").unwrap();
     let mut diary = Bot::create(dir.path(), BotId::new("diary").unwrap(), "Diary", "").unwrap();
     diary.owner = Some(sam);
@@ -62,7 +68,7 @@ async fn start_with(farm_person: bool) -> Server {
         browser: None,
         ..testing::config(dir.path(), &dir.path().join(".home"), &fake, codex().await)
     };
-    let hub = Hub::new(vec![herder, notes, diary], store, config);
+    let hub = Hub::new(vec![assistant, notes, diary], store, config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     hub.start_codex().await;
     let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake-oxbot-mac.sh");
@@ -73,13 +79,13 @@ async fn start_with(farm_person: bool) -> Server {
         ..AppState::new(hub, "test-mac")
     };
     state.refresh_setup().await;
-    if farm_person {
-        // Chooses Jay as the Farm's person.
-        let _ = state.farm_viewer();
+    if owner_person {
+        // Chooses Jay as the home computer's person.
+        let _ = state.home_computer_viewer();
     }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let key = state.farm_key.clone();
+    let key = state.home_computer_key.clone();
     tokio::spawn(server::serve(listener, state, std::future::pending()));
     Server {
         addr,
@@ -125,7 +131,7 @@ async fn upload(s: &Server, query: &str, extra: &str, body: &[u8]) -> (u16, serd
     )
 }
 
-fn farm(s: &Server) -> String {
+fn home_computer(s: &Server) -> String {
     format!(
         "X-Oxbot-Key: {}\r\nOrigin: http://127.0.0.1:{}\r\n",
         s.key,
@@ -183,10 +189,10 @@ fn files_in(dir: &Path) -> usize {
 }
 
 #[tokio::test]
-async fn uploads_need_the_farm_or_a_test_person_and_this_page() {
+async fn uploads_need_the_home_computer_or_a_test_person_and_this_page() {
     let s = start().await;
     let (status, _) = upload(&s, "bot=notes&name=a.txt", "", b"hi").await;
-    assert_eq!(status, 401, "no Farm secret");
+    assert_eq!(status, 401, "no home computer secret");
     let foreign = format!("X-Oxbot-Key: {}\r\nOrigin: https://evil.example\r\n", s.key);
     let (status, _) = upload(&s, "bot=notes&name=a.txt", &foreign, b"hi").await;
     assert_eq!(status, 403, "another website's page");
@@ -194,7 +200,7 @@ async fn uploads_need_the_farm_or_a_test_person_and_this_page() {
     assert_eq!(status, 404, "Sam's private bot is hidden from Ann: {body}");
     let (status, body) = upload(&s, "bot=diary&name=a.txt&as=Sam", "", b"hi").await;
     assert_eq!(status, 200, "{body}");
-    let (status, body) = upload(&s, "bot=notes&name=a.txt", &farm(&s), b"hi").await;
+    let (status, body) = upload(&s, "bot=notes&name=a.txt", &home_computer(&s), b"hi").await;
     assert_eq!(status, 200, "{body}");
     let file: Attachment = serde_json::from_value(body).unwrap();
     assert_eq!(
@@ -208,7 +214,7 @@ async fn anyone_who_may_task_a_shared_bot_sends_it_files() {
     let s = start_with(true).await;
     let (status, body) = upload(&s, "bot=notes&name=a.txt&as=Ann", "", b"hi").await;
     assert_eq!(status, 200, "{body}");
-    let (status, body) = upload(&s, "bot=notes&name=b.txt", &farm(&s), b"hi").await;
+    let (status, body) = upload(&s, "bot=notes&name=b.txt", &home_computer(&s), b"hi").await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(files_in(&s.work), 2);
 }
@@ -219,7 +225,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     let head = format!(
         "POST /upload?bot=notes&name=clip.mov HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: {}\r\n{}\r\n",
         640 * 1024 * 1024,
-        farm(&s)
+        home_computer(&s)
     );
     let (status, body) = request(s.addr, &head, b"").await;
     assert_eq!(status, 413);
@@ -229,7 +235,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     );
 
     let big = vec![b'a'; 26 * 1024 * 1024];
-    let (status, body) = upload(&s, "bot=notes&name=big.bin", &farm(&s), &big).await;
+    let (status, body) = upload(&s, "bot=notes&name=big.bin", &home_computer(&s), &big).await;
     assert_eq!(status, 413, "{body}");
     assert_eq!(
         body["error"],
@@ -246,7 +252,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     chunked.extend_from_slice(b"0\r\n\r\n");
     let head = format!(
         "POST /upload?bot=notes&name=notes HTTP/1.1\r\nHost: x\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n{}\r\n",
-        farm(&s)
+        home_computer(&s)
     );
     let (status, body) = request(s.addr, &head, &chunked).await;
     assert_eq!(status, 413, "{body}");
@@ -255,7 +261,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     let (status, body) = upload(
         &s,
         "bot=notes&name=photos.zip",
-        &farm(&s),
+        &home_computer(&s),
         b"PK\x03\x04junk",
     )
     .await;
@@ -268,7 +274,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
 }
 
 #[tokio::test]
-async fn a_file_goes_with_a_message_and_opens_on_the_farm_only() {
+async fn a_file_goes_with_a_message_and_opens_on_the_home_computer_only() {
     if codex().await.is_none() {
         return;
     }
@@ -276,7 +282,7 @@ async fn a_file_goes_with_a_message_and_opens_on_the_farm_only() {
     let (_, body) = upload(
         &s,
         "bot=notes&name=list.csv",
-        &farm(&s),
+        &home_computer(&s),
         b"name,qty\nflour,2\n",
     )
     .await;
@@ -344,7 +350,10 @@ async fn dictation_text_goes_only_to_the_connection_that_asked() {
         _ => None,
     })
     .await;
-    assert!(settings.farm && settings.dictation, "the Farm gets the mic");
+    assert!(
+        settings.home_computer && settings.dictation,
+        "the home computer gets the mic"
+    );
     let (mut ann, _) = tokio_tungstenite::connect_async(format!("ws://{}/ws?as=Ann", s.addr))
         .await
         .unwrap();
@@ -353,7 +362,7 @@ async fn dictation_text_goes_only_to_the_connection_that_asked() {
         _ => None,
     })
     .await;
-    assert!(!theirs.dictation, "a Gate never gets the Mac's mic");
+    assert!(!theirs.dictation, "a device never gets the Mac's mic");
 
     let mut other = connect(&url).await;
     send(&mut ws, &ClientMsg::Dictate { on: true }).await;
@@ -379,7 +388,7 @@ async fn dictation_text_goes_only_to_the_connection_that_asked() {
         (text.as_str(), error),
         ("Remind me to call the plumber", None)
     );
-    // The other Farm window heard nothing.
+    // The other home computer window heard nothing.
     send(&mut other, &ClientMsg::ListBots).await;
     let first = next(&mut other).await;
     assert!(matches!(first, ServerMsg::Bots { .. }), "{first:?}");

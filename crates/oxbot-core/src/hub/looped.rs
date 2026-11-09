@@ -90,7 +90,7 @@ fn loop_prefs(p: &EnginePrefs) -> LoopPrefs {
     LoopPrefs {
         paid_fallback: p.paid_fallback,
         paid_models: p.paid_models.clone(),
-        herder_model: p.herder_model.clone(),
+        assistant_model: p.assistant_model.clone(),
         ..LoopPrefs::default()
     }
 }

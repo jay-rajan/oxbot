@@ -115,7 +115,7 @@ pub enum Pick {
 pub struct TurnRouting {
     /// The bot's model choice.
     pub choice: ModelChoice,
-    /// It's a Herder.
+    /// It's an Assistant.
     pub central: bool,
     /// The model that answered last in this turn.
     pub sticky: Option<String>,
@@ -182,7 +182,7 @@ impl Router {
     }
 
     /// Every model the router may use for `choice`, best first: a pinned
-    /// model (or the Assistant's, for a Herder), else the bot's own free
+    /// model (or the Assistant's, for an Assistant), else the bot's own free
     /// models in its order; then every other free model, ranked; then, if
     /// paid models are on, the bot's own paid models in its order and the
     /// owner's. Each once.
@@ -219,7 +219,7 @@ impl Router {
         let mut list = Vec::new();
         let pinned = match choice {
             ModelChoice::Pin(id) => Some(id.clone()),
-            _ if central => prefs.herder_model.clone(),
+            _ if central => prefs.assistant_model.clone(),
             _ => None,
         };
         if let Some(id) = pinned.filter(|id| !id.is_empty() && id != "auto") {

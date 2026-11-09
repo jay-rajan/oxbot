@@ -9,7 +9,7 @@ const settings: AppSettings = {
   data_dir: "/tmp/oxbot",
   launch_at_login: null,
   you: "Jay",
-  farm: true,
+  home_computer: true,
   usage_alerts: true,
   dictation: false,
   owner: true,

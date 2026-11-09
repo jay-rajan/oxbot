@@ -22,7 +22,9 @@ use serde_json::{Value, json};
 /// `answer`.
 async fn run(hub: &Arc<Hub>, bot: &str, answer: Answer) -> (Vec<String>, String, Vec<Approval>) {
     let mut updates = hub.subscribe();
-    hub.send_as(bot, "go", &Viewer::farm("Jay")).await.unwrap();
+    hub.send_as(bot, "go", &Viewer::home_computer("Jay"))
+        .await
+        .unwrap();
     let mut seen = Vec::new();
     let mut cards = Vec::new();
     let mut said = String::new();
@@ -126,11 +128,11 @@ async fn upload_asks_and_never_offers_always() {
     assert_eq!(o.seen.len(), 1);
     assert!(o.seen[0].starts_with("card Upload"), "{:?}", o.seen);
     assert_eq!(o.said, "behavior=allow");
-    assert!(!o.hub.can_always(&o.cards[0], &Viewer::farm("Jay")));
+    assert!(!o.hub.can_always(&o.cards[0], &Viewer::home_computer("Jay")));
 }
 
 #[tokio::test]
-async fn herders_create_bot_asks() {
+async fn assistants_create_bot_asks() {
     let Some(o) = on_codex("assistant", &Tool::CreateBot, None, Answer::Deny).await else {
         return;
     };
@@ -216,7 +218,7 @@ async fn enter_in_a_text_box_asks_and_never_offers_always() {
     assert_eq!(o.seen.len(), 1, "{:?}", o.seen);
     assert!(o.seen[0].starts_with("card "), "{:?}", o.seen);
     assert_eq!(o.said, "behavior=deny");
-    assert!(!o.hub.can_always(&o.cards[0], &Viewer::farm("Jay")));
+    assert!(!o.hub.can_always(&o.cards[0], &Viewer::home_computer("Jay")));
 }
 
 #[tokio::test]
@@ -284,7 +286,7 @@ async fn a_page_that_says_to_delete_still_gets_a_red_card_and_no_means_no() {
     assert_eq!(o.said, "behavior=deny", "the click never ran");
     assert_eq!(o.ran, ["take_snapshot"]);
     assert!(
-        !o.hub.can_always(&o.cards[0], &Viewer::farm("Jay")),
+        !o.hub.can_always(&o.cards[0], &Viewer::home_computer("Jay")),
         "a delete never offers Always allow"
     );
 }

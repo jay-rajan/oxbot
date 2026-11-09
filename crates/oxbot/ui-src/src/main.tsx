@@ -7,7 +7,7 @@ import { App } from "./App";
 import { type App as AppApi, AppContext } from "./app/context";
 import { connect, socketUrl } from "./net/socket";
 import { createStore, local } from "./state/store";
-import { sessionStore, takeKey } from "./web/address";
+import { deviceBridge, sessionStore, takeKey } from "./web/address";
 import { LOGO } from "./components/brand";
 import { expose, exposeFn } from "./web/testBridge";
 import "./theme/tokens.css";
@@ -18,15 +18,15 @@ const key = takeKey(location, sessionStore(), (url) => history.replaceState(null
 // Test mode only: ?as=Name connects as that person (the server ignores it otherwise).
 const as = new URLSearchParams(location.search).get("as");
 const url = socketUrl({ host: location.host, secure: location.protocol === "https:", key, as });
-const gate = window.oxbotGate;
+const device = deviceBridge(window);
 
 const store = createStore();
 const socket = connect({
-  open: () => (gate ? gate.socket() : new WebSocket(url)),
-  phone: Boolean(gate),
+  open: () => (device ? device.socket() : new WebSocket(url)),
+  phone: Boolean(device),
   // A phone in the background can't reach the network anyway: wait until
   // it's opened again (visibilitychange below) instead of draining battery.
-  holdRetries: () => Boolean(gate) && document.hidden,
+  holdRetries: () => Boolean(device) && document.hidden,
 });
 window.addEventListener("online", () => socket.reconnectNow());
 document.addEventListener("visibilitychange", () => {
@@ -56,7 +56,7 @@ const app: AppApi = {
   toast: (text, error = false) => store.dispatch(local("ui/toast", { text, error })),
   hasKey: key !== "" || as !== null,
   key,
-  phone: gate ? { ...(gate.farm ? { farm: gate.farm } : {}), ...(gate.person ? { person: gate.person } : {}) } : null,
+  phone: device ? { ...(device.homeComputer ? { homeComputer: device.homeComputer } : {}), ...(device.person ? { person: device.person } : {}) } : null,
 };
 exposeFn("send", app.send as never);
 exposeFn("toast", app.toast as never);

@@ -66,7 +66,7 @@ pub struct NetRecord {
     /// The person's id.
     pub person: Option<String>,
     /// The device's id.
-    pub gate: Option<String>,
+    pub device: Option<String>,
     /// Where it went.
     pub host: String,
     /// What it was, in plain words.
@@ -92,7 +92,7 @@ impl NetRecord {
             who: String::new(),
             bot: None,
             person: None,
-            gate: None,
+            device: None,
             host: String::new(),
             label: String::new(),
             bytes_up: 0,
@@ -148,7 +148,7 @@ impl NetScope {
     }
 }
 
-const SELECT: &str = "SELECT id, ts_ms, kind, who, bot, person, gate, host, label, bytes_up,
+const SELECT: &str = "SELECT id, ts_ms, kind, who, bot, person, device, host, label, bytes_up,
                              bytes_down, cost_usd, detail FROM net_log";
 
 fn to_i64(n: u64) -> i64 {
@@ -169,7 +169,7 @@ fn record(r: &Row<'_>) -> rusqlite::Result<NetRecord> {
         who: r.get(3)?,
         bot: r.get(4)?,
         person: r.get(5)?,
-        gate: r.get(6)?,
+        device: r.get(6)?,
         host: r.get(7)?,
         label: r.get(8)?,
         bytes_up: to_u64(r.get(9)?),
@@ -293,7 +293,7 @@ impl Store {
     pub fn add_net(&self, rec: &NetRecord) -> Result<i64, StoreError> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO net_log (ts_ms, kind, who, bot, person, gate, host, label, bytes_up,
+            "INSERT INTO net_log (ts_ms, kind, who, bot, person, device, host, label, bytes_up,
                                   bytes_down, cost_usd, detail)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
@@ -302,7 +302,7 @@ impl Store {
                 rec.who,
                 rec.bot,
                 rec.person,
-                rec.gate,
+                rec.device,
                 rec.host,
                 rec.label,
                 to_i64(rec.bytes_up),
@@ -512,7 +512,7 @@ mod tests {
             .add_net(&row(NetKind::Ai, 3, Some("shared"), Some("me")))
             .unwrap();
         let mut phone = row(NetKind::Device, 4, None, Some("me"));
-        phone.gate = Some("g1".into());
+        phone.device = Some("g1".into());
         store.add_net(&phone).unwrap();
         // Not theirs: a shared bot's visit, someone else's question and
         // device, oxbot's own calls.

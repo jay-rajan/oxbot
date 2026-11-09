@@ -1,10 +1,10 @@
 //! "Sign in with `OpenRouter`" (OAuth with PKCE) and the household's key.
 //!
-//! The Farm asks to sign in; oxbot makes a PKCE verifier and a random
+//! The home computer asks to sign in; oxbot makes a PKCE verifier and a random
 //! `state` (kept in memory only, one at a time, for 10 minutes) and opens
 //! `OpenRouter`'s page in the Mac's default browser. `OpenRouter` sends the
 //! browser back to `http://localhost:{port}/openrouter/callback` on oxbot's
-//! own port (never the Gate door) with a code, which oxbot trades for a
+//! own port (never the device door) with a code, which oxbot trades for a
 //! key. The key goes into the Keychain ([`crate::keychain`]) and the
 //! shared [`KeyCell`] the model clients read, and nowhere else: never a
 //! file, a log line, the database, a child's environment or the page.
@@ -403,7 +403,7 @@ pub struct CallbackQuery {
 }
 
 /// `GET /openrouter/callback?code=…&state=…`, on oxbot's own port only.
-/// Needs no Farm secret (it's a top-level page `OpenRouter` sends the
+/// Needs no home computer secret (it's a top-level page `OpenRouter` sends the
 /// browser to); the single-use `state` decides. Logs only how it ended.
 pub async fn callback(
     State(state): State<AppState>,

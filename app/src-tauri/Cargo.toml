@@ -1,6 +1,6 @@
 [package]
 name = "oxbot-desktop"
-description = "The oxbot app: on a Mac the Farm (server inside, chat page as its window, menu bar icon); on Android a Gate onto the Farm."
+description = "The oxbot app: on a Mac the home computer (server inside, chat page as its window, menu bar icon); on Android a device onto the home computer."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,7 +23,7 @@ tauri-build = { version = "2.7.4", features = [] }
 anyhow.workspace = true
 tracing.workspace = true
 
-# The Mac app: the Farm. None of this is built for a phone.
+# The Mac app: the home computer. None of this is built for a phone.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 oxbot.workspace = true
 oxbot-protocol.workspace = true
@@ -35,10 +35,10 @@ tauri-plugin-notification = "2.8.0"
 tokio.workspace = true
 tracing-subscriber.workspace = true
 
-# The phone app: a Gate only.
+# The phone app: a device only.
 [target.'cfg(target_os = "android")'.dependencies]
 futures-util.workspace = true
-oxbot-gate.workspace = true
+oxbot-device.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.5", features = [] }

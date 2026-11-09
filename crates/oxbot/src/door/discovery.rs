@@ -1,11 +1,11 @@
-//! How Gates find the door: this Mac's home-network addresses for the
-//! pairing link, and an mDNS announcement (`_oxbot._tcp`) so a Gate finds
-//! the Farm again after its address changes.
+//! How devices find the door: this Mac's home-network addresses for the
+//! pairing link, and an mDNS announcement (`_oxbot._tcp`) so a device finds
+//! the home computer again after its address changes.
 
-/// The mDNS service Gates look for.
+/// The mDNS service devices look for.
 pub const MDNS_SERVICE: &str = "_oxbot._tcp.local.";
 
-/// Where Gates can reach the door: this Mac's private addresses, then its
+/// Where devices can reach the door: this Mac's private addresses, then its
 /// `.local` name.
 #[must_use]
 pub fn lan_hosts(port: u16) -> Vec<String> {
@@ -43,16 +43,16 @@ fn local_host_name() -> Option<String> {
 pub fn advertise(name: &str, port: u16, fingerprint: &str) -> Option<mdns_sd::ServiceDaemon> {
     let host = format!("{}.local.", local_host_name()?);
     let daemon = mdns_sd::ServiceDaemon::new()
-        .map_err(|err| tracing::warn!(%err, "couldn't announce the Gate door on Wi-Fi"))
+        .map_err(|err| tracing::warn!(%err, "couldn't announce the device door on Wi-Fi"))
         .ok()?;
     let props = [("fp", fingerprint)];
     let info = mdns_sd::ServiceInfo::new(MDNS_SERVICE, name, &host, "", port, &props[..])
         .map(mdns_sd::ServiceInfo::enable_addr_auto)
-        .map_err(|err| tracing::warn!(%err, "couldn't describe the Gate door for Wi-Fi"))
+        .map_err(|err| tracing::warn!(%err, "couldn't describe the device door for Wi-Fi"))
         .ok()?;
     daemon
         .register(info)
-        .map_err(|err| tracing::warn!(%err, "couldn't announce the Gate door on Wi-Fi"))
+        .map_err(|err| tracing::warn!(%err, "couldn't announce the device door on Wi-Fi"))
         .ok()?;
     Some(daemon)
 }

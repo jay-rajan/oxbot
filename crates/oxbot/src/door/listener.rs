@@ -4,7 +4,7 @@
 //! - At most [`MAX_CONNECTIONS`] connections at once, handshakes included,
 //!   and a handshake has [`HANDSHAKE_TIMEOUT`] to finish.
 //! - A connection that sends nothing for [`IDLE_TIMEOUT`] is closed. Phones
-//!   ping every 15 s, so this is how the Farm notices one that walked away.
+//!   ping every 15 s, so this is how the home computer notices one that walked away.
 //! - It stops (and frees the port) when its stop signal fires or drops.
 //! - Each connection counts the bytes it carried ([`ConnBytes`]), for
 //!   Settings → Activity.
@@ -66,11 +66,11 @@ impl TlsListener {
                     continue;
                 };
                 if !super::network::is_private_peer(peer.ip()) {
-                    tracing::warn!(%peer, "refused a Gate door connection from outside the home network");
+                    tracing::warn!(%peer, "refused a device door connection from outside the home network");
                     continue;
                 }
                 let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else {
-                    tracing::warn!(%peer, "too many Gate door connections; refused one");
+                    tracing::warn!(%peer, "too many device door connections; refused one");
                     continue;
                 };
                 let tls = tls.clone();
@@ -85,7 +85,7 @@ impl TlsListener {
                     }
                 });
             }
-            tracing::debug!(%addr, "the Gate door stopped listening");
+            tracing::debug!(%addr, "the device door stopped listening");
         });
         Ok(Self { ready, addr })
     }
@@ -143,8 +143,8 @@ impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, TlsL
     }
 }
 
-/// One Gate connection: closes after [`IDLE_TIMEOUT`] without anything
-/// from the Gate, and frees its slot when dropped.
+/// One device connection: closes after [`IDLE_TIMEOUT`] without anything
+/// from the device, and frees its slot when dropped.
 pub struct Conn {
     inner: TlsStream<TcpStream>,
     idle: Pin<Box<Sleep>>,

@@ -12,9 +12,9 @@ use crate::id::BotId;
 pub struct TurnOriginRecord {
     /// The person the chain started with, by id.
     pub person: Option<String>,
-    /// Whether it started on the Farm connection.
-    pub on_farm: bool,
-    /// How it came in: `farm`, `gate`, `test` or `name`.
+    /// Whether it started on the home computer connection.
+    pub on_home_computer: bool,
+    /// How it came in: `home_computer`, `device`, `test` or `name`.
     pub entry: String,
     /// The bot that got the chain's first message.
     pub root_bot: String,
@@ -42,13 +42,13 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.conn().execute(
             "INSERT OR IGNORE INTO turn_origins
-               (bot, seq, person, on_farm, entry, root_bot, root_seq, via, engine, tainted_by)
+               (bot, seq, person, on_home_computer, entry, root_bot, root_seq, via, engine, tainted_by)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 bot.as_str(),
                 i64::try_from(seq).unwrap_or(i64::MAX),
                 origin.person,
-                origin.on_farm,
+                origin.on_home_computer,
                 origin.entry,
                 origin.root_bot,
                 i64::try_from(origin.root_seq).unwrap_or(i64::MAX),
@@ -72,7 +72,7 @@ impl Store {
         let row = self
             .conn()
             .query_row(
-                "SELECT person, on_farm, entry, root_bot, root_seq, via, engine, tainted_by
+                "SELECT person, on_home_computer, entry, root_bot, root_seq, via, engine, tainted_by
                  FROM turn_origins WHERE bot = ?1 AND seq = ?2",
                 params![bot.as_str(), i64::try_from(seq).unwrap_or(i64::MAX)],
                 |r| {
@@ -89,13 +89,14 @@ impl Store {
                 },
             )
             .optional()?;
-        let Some((person, on_farm, entry, root_bot, root_seq, via, engine, tainted_by)) = row
+        let Some((person, on_home_computer, entry, root_bot, root_seq, via, engine, tainted_by)) =
+            row
         else {
             return Ok(None);
         };
         Ok(Some(TurnOriginRecord {
             person,
-            on_farm,
+            on_home_computer,
             entry,
             root_bot,
             root_seq: from_sql(root_seq),

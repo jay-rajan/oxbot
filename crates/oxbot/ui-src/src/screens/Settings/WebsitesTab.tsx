@@ -29,7 +29,7 @@ const NO_SITES: SiteInfo[] = [];
 
 export function WebsitesTab({ hidden }: { hidden: boolean }) {
   const { send, toast } = useApp();
-  const farm = useSel((s) => !!s.connection.settings?.farm);
+  const homeComputer = useSel((s) => !!s.connection.settings?.home_computer);
   const homeSites = useSel((s) => s.home.homeSites);
   // Only the owner of the home computer has private sign-ins.
   const ownsHome = useSel((s) => !!s.connection.settings?.owner);
@@ -52,7 +52,7 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
     toast(`Opening ${url} in the home's Chrome window. Sign in there, then close the window.`);
   };
 
-  const homeAll = homeSites.length > 0 && farm;
+  const homeAll = homeSites.length > 0 && homeComputer;
   return (
     <div id="setSignins" className="settings-pane" role="tabpanel" hidden={hidden}>
       <Section>
@@ -113,13 +113,13 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
                         className="steps"
                         title={FINE_TITLE}
                         checked={fineSites.includes(s.site)}
-                        disabled={!farm}
+                        disabled={!homeComputer}
                         onChange={(e) => send({ type: "set_fine_grained_site", site: s.site, on: e.target.checked })}
                       >
                         Fine-grained control
                       </Checkbox>
                       {/* Only the home computer may open or sign the home browser out. */}
-                      {!stepOnly && farm ? (
+                      {!stepOnly && homeComputer ? (
                         <>
                           <Button kind="quiet" size="sm" onClick={() => send({ type: "open_site", site: s.site, mine: false })}>
                             Open

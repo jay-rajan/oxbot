@@ -71,9 +71,9 @@ ol.steps li > div{min-width:0}
 
   <p class="muted">Code names differ from what the app says. Keep this list handy:</p>
   <div class="words">
-    <span><b>Farm</b> = home computer</span>
-    <span><b>Gate</b> = device (phone)</span>
-    <span><b>Herder</b> = Assistant</span>
+    <span><b>Home computer</b> = home computer</span>
+    <span><b>Device</b> = device (phone)</span>
+    <span><b>The Assistant</b> = Assistant</span>
     <span><b>engine</b> = what runs a bot (Codex today)</span>
     <span><b>card</b> = approval request</span>
     <span><b>rule</b> = Always allow</span>
@@ -103,9 +103,9 @@ flowchart LR
 flowchart TB
   subgraph clients["Clients"]
     page["Chat page<br/>crates/oxbot/ui/index.html"]
-    phone["Android app (Gate)<br/>app/src-tauri + oxbot-gate"]
+    phone["Android app (device)<br/>app/src-tauri + oxbot-device"]
   end
-  subgraph farm["oxbot process (Tauri app or oxbot serve)"]
+  subgraph home_computer["oxbot process (Tauri app or oxbot serve)"]
     server["Server<br/>axum WS, crates/oxbot/src/server.rs"]
     door["Device door :7879<br/>TLS, pairing, crates/oxbot/src/door"]
     hub["Hub<br/>oxbot-core::hub"]
@@ -154,9 +154,9 @@ flowchart BT
   core --> protocol
   bin["oxbot (binary)"] --> core
   bin --> llm
-  gate["oxbot-gate"] --> protocol
+  device["oxbot-device"] --> protocol
   app["app/src-tauri"] --> bin
-  app --> gate
+  app --> device
   e2e["oxbot-e2e"] --> core
 </pre>
 
@@ -173,8 +173,8 @@ flowchart BT
       <tr><td class="crate">oxbot-codex</td><td class="num">2,926</td><td><span class="pill l2">engine</span></td><td>The Codex engine: finds and checks the <code>codex</code> binary, writes its config, supervises one <code>codex app-server</code> per bot, and maps turns and tool calls onto its JSON-RPC.</td><td><code>engine.rs</code>, <code>supervisor.rs</code>, <code>rpc.rs</code></td></tr>
       <tr><td class="crate">oxbot-core</td><td class="num">34,404</td><td><span class="pill l3">logic</span></td><td>The heart, with no networking: bots on disk, the <b>Hub</b> (split into 26 modules by job), the SQLite <b>store</b> and its migrations, the tool <b>policy</b>, prompts, reports, schedules, attachments.</td><td><code>lib.rs</code>, <code>hub/mod.rs</code>, <code>hub/turns.rs</code></td></tr>
       <tr><td class="crate">oxbot</td><td class="num">8,679</td><td><span class="pill l3">binary</span></td><td>The <code>oxbot</code> command (<code>serve</code>, <code>chat</code>, <code>bots</code>, <code>pair</code>, <code>devices</code>, <code>doctor</code>), the WebSocket server, the device door, Keychain, dictation, notifications. Also ships the 3,329-line chat page <code>ui/index.html</code>.</td><td><code>main.rs</code>, <code>server.rs</code></td></tr>
-      <tr><td class="crate">oxbot-gate</td><td class="num">1,114</td><td><span class="pill l1">client</span></td><td>The phone side: pairing link, TLS pinned to the home computer's certificate, the phone's own copy of chats. Builds for Android.</td><td><code>lib.rs</code></td></tr>
-      <tr><td class="crate">app/src-tauri</td><td class="num">987</td><td><span class="pill l3">app</span></td><td>Tauri 2 shell. On the Mac: server inside, chat page as the window, menu bar icon. On Android: only a Gate.</td><td><code>desktop.rs</code>, <code>gate.rs</code></td></tr>
+      <tr><td class="crate">oxbot-device</td><td class="num">1,114</td><td><span class="pill l1">client</span></td><td>The phone side: pairing link, TLS pinned to the home computer's certificate, the phone's own copy of chats. Builds for Android.</td><td><code>lib.rs</code></td></tr>
+      <tr><td class="crate">app/src-tauri</td><td class="num">987</td><td><span class="pill l3">app</span></td><td>Tauri 2 shell. On the Mac: server inside, chat page as the window, menu bar icon. On Android: only a device.</td><td><code>desktop.rs</code>, <code>device.rs</code></td></tr>
       <tr><td class="crate">oxbot-e2e</td><td class="num">7,449</td><td><span class="pill l0">tests</span></td><td>End-to-end runner behind <code>/pr_test</code>: seeds a throwaway oxbot, drives the page in Chrome, with stand-in OpenRouter, DevTools and Mac helper. 68 tests in <code>e2e/tests/</code>.</td><td><code>main.rs</code>, <code>steps.rs</code></td></tr>
     </tbody>
   </table>
@@ -295,7 +295,7 @@ flowchart LR
     <li><div><b>Policy and approvals: <code>policy.rs</code>, <code>hub/approvals.rs</code>, <code>rules.rs</code>, <code>taint.rs</code>.</b></div></li>
     <li><div><b>Models: <code>oxbot-relay</code>, then the gateway in <code>oxbot-loop</code>, then <code>oxbot-llm</code>.</b> Privacy, routing, limits.</div></li>
     <li><div><b>The browser: <code>oxbot-browser</code> and <code>hub/browsers.rs</code>.</b> Shared Chrome and turn-taking.</div></li>
-    <li><div><b>The edges: <code>oxbot</code> (server, door), <code>oxbot-gate</code>, <code>app/src-tauri</code>, the chat page.</b></div></li>
+    <li><div><b>The edges: <code>oxbot</code> (server, door), <code>oxbot-device</code>, <code>app/src-tauri</code>, the chat page.</b></div></li>
     <li><div><b>Features on top:</b> schedules, reports, the Assistant's team tools, compare and practice runs, attachments.</div></li>
     <li><div><b>Testing: <code>oxbot-e2e</code></b> and how its stand-ins mirror the real pieces.</div></li>
   </ol>

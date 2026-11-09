@@ -203,7 +203,7 @@ pub struct ClientInfo {
     pub privacy: Privacy,
     /// The bot's model.
     pub choice: ModelChoice,
-    /// A Herder (its own model setting).
+    /// An Assistant (its own model setting).
     pub central: bool,
 }
 

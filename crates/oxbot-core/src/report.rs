@@ -65,7 +65,7 @@ pub struct Report {
     pub id: String,
     /// When it was saved (ms since the Unix epoch).
     pub created_ms: i64,
-    /// Who the turn that made it acted for (`None`: the Farm or unknown).
+    /// Who the turn that made it acted for (`None`: the home computer or unknown).
     pub asked_by: Option<PersonId>,
     /// What was asked, as the chat shows it.
     pub question: String,

@@ -20,7 +20,7 @@ pub struct Config {
     pub needs: Vec<String>,
     /// The browser tool built into the app, if built (relative path).
     pub tools: Option<PathBuf>,
-    /// The Farm's person in tests.
+    /// The home computer's person in tests.
     #[serde(default = "default_person")]
     pub person: String,
     /// Changes under these paths also run the tests in Safari.
@@ -81,7 +81,7 @@ pub struct Test {
     /// Always run (the smoke set).
     #[serde(default)]
     pub smoke: bool,
-    /// Connect as this person (a Gate person); empty means the Farm.
+    /// Connect as this person (a device person); empty means the home computer.
     #[serde(default, rename = "as")]
     pub as_person: Option<String>,
     /// The page size, e.g. `{ width = 390, height = 844 }` for a phone;

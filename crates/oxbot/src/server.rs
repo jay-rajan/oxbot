@@ -14,7 +14,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
-use oxbot_core::bot::{DEFAULT_BOT, is_personal_herder};
+use oxbot_core::bot::{DEFAULT_BOT, is_personal_assistant};
 use oxbot_core::engine::{EngineKind, from_wire};
 use oxbot_core::hub::{answers, signs_in};
 use oxbot_core::id::BrowserOwner;
@@ -47,9 +47,9 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// What the desktop app lets the page control (`None` for `oxbot serve`).
     pub app: Option<Arc<dyn AppControls>>,
-    /// The Mac account's first name: who the Farm's own person is the first
+    /// The Mac account's first name: who the home computer's own person is the first
     /// time oxbot runs (then they're found by id; see
-    /// [`Hub::farm_person`]). Gates send as the person they were paired for.
+    /// [`Hub::owner_person`]). Devices send as the person they were paired for.
     pub local_person: String,
     /// The `PATH` oxbot's programs use (see [`crate::setup::search_path`]).
     pub search_path: String,
@@ -59,14 +59,14 @@ pub struct AppState {
     /// app, so the setup check doesn't ask for Node.js.
     pub tool_built_in: bool,
     /// End-to-end test mode: a connection may say who it is with `?as=Name`
-    /// (always a Gate person, never the Farm).
+    /// (always a device person, never the home computer).
     pub e2e: bool,
-    /// The Gate door phones and laptops connect through (`None` in tests
+    /// The device door phones and laptops connect through (`None` in tests
     /// that don't need it).
     pub door: Option<Arc<crate::door::Door>>,
-    /// The Farm secret (see [`crate::secret`]): a connection from this Mac
-    /// is the Farm only if it shows this.
-    pub farm_key: String,
+    /// The home computer secret (see [`crate::secret`]): a connection from this Mac
+    /// is the home computer only if it shows this.
+    pub home_computer_key: String,
     /// Posts Mac notifications (see [`crate::notify`]); `None` posts none.
     pub notifier: Option<Arc<dyn crate::notify::Notifier>>,
     /// Dictation with this Mac's microphone (see [`crate::dictation`]).
@@ -99,10 +99,10 @@ pub trait AppControls: Send + Sync + std::fmt::Debug {
 }
 
 impl AppState {
-    /// The app's settings right now, for the Farm's own person.
+    /// The app's settings right now, for the home computer's own person.
     #[must_use]
     pub fn settings(&self) -> AppSettings {
-        self.settings_for(&self.farm_viewer())
+        self.settings_for(&self.home_computer_viewer())
     }
 
     /// The app's settings as `viewer` gets them.
@@ -114,10 +114,10 @@ impl AppState {
             data_dir: self.data_dir.display().to_string(),
             launch_at_login: self.app.as_ref().and_then(|a| a.launch_at_login()),
             you: viewer.name.clone(),
-            farm: viewer.farm,
+            home_computer: viewer.home_computer,
             usage_alerts: self.hub.usage_alerts_on(),
-            // The Mac's own microphone: the Farm's alone.
-            dictation: viewer.farm && self.dictation.available(),
+            // The Mac's own microphone: the home computer's alone.
+            dictation: viewer.home_computer && self.dictation.available(),
             owner: self.hub.is_owner_viewer(viewer),
             dev_tools: self.dev_tools,
             owner_name: self.hub.owner_display_name(),
@@ -130,11 +130,11 @@ impl AppState {
     }
 
     /// Settings → Engines as `viewer` gets it: everyone the notice and
-    /// whether each engine is ready; the Farm also `OpenRouter`'s account
+    /// whether each engine is ready; the home computer also `OpenRouter`'s account
     /// and what was found of Codex.
     #[must_use]
     pub fn engines_for(&self, viewer: &Viewer) -> EnginesView {
-        let farm = viewer.farm;
+        let home_computer = viewer.home_computer;
         let catalog = self.catalog();
         let models = catalog
             .as_ref()
@@ -148,9 +148,9 @@ impl AppState {
             .as_ref()
             .map(|(c, _)| oxbot_core::model_lists::suggested(c))
             .unwrap_or_default();
-        let openrouter = farm.then(|| self.openrouter_view(catalog.as_ref()));
+        let openrouter = home_computer.then(|| self.openrouter_view(catalog.as_ref()));
         EnginesView {
-            codex: farm.then(|| self.hub.codex_view()),
+            codex: home_computer.then(|| self.hub.codex_view()),
             codex_ready: self.hub.engine_ready(EngineKind::Codex).is_ok(),
             notice: oxbot_core::hub::ENGINES_NOTICE.to_owned(),
             owner: self.hub.owner_display_name(),
@@ -174,7 +174,7 @@ impl AppState {
         }
     }
 
-    /// Settings → Engines → `OpenRouter`, for the Farm.
+    /// Settings → Engines → `OpenRouter`, for the home computer.
     fn openrouter_view(&self, catalog: Option<&(oxbot_llm::Catalog, i64)>) -> OpenRouterView {
         let account = self.openrouter.as_deref();
         let key = account
@@ -217,8 +217,9 @@ impl AppState {
     /// each gets their own settings and engines view.
     pub fn openrouter_changed(&self) {
         self.hub.announce(ServerMsg::Settings(self.settings()));
-        self.hub
-            .announce(ServerMsg::Engines(self.engines_for(&self.farm_viewer())));
+        self.hub.announce(ServerMsg::Engines(
+            self.engines_for(&self.home_computer_viewer()),
+        ));
     }
 
     /// Reads `OpenRouter`'s model list and the key's limits again, keeps the
@@ -249,11 +250,11 @@ impl AppState {
         result
     }
 
-    /// Who the Farm's own window is: the Farm's own person. (Gates connect
-    /// through the Gate door as the person they were paired for.)
+    /// Who the home computer's own window is: the home computer's own person. (devices connect
+    /// through the device door as the person they were paired for.)
     #[must_use]
-    pub fn farm_viewer(&self) -> Viewer {
-        self.hub.farm_viewer(&self.local_person)
+    pub fn home_computer_viewer(&self) -> Viewer {
+        self.hub.home_computer_viewer(&self.local_person)
     }
 }
 
@@ -310,7 +311,7 @@ impl AppState {
             tool_built_in: false,
             e2e: false,
             door: None,
-            farm_key: crate::secret::random_hex::<32>(),
+            home_computer_key: crate::secret::random_hex::<32>(),
             notifier: None,
             dictation: Arc::new(crate::dictation::Dictation::new(None)),
             next_conn: Arc::default(),
@@ -430,7 +431,7 @@ fn with_page_headers(
 }
 
 /// The HTTP routes: the page at `/`, the WebSocket at `/ws`, and `POST /upload` for files sent with messages (this Mac only: not on the
-/// Gate door).
+/// device door).
 pub fn router(state: AppState) -> Router {
     with_page_files(Router::new())
         .route(
@@ -463,8 +464,8 @@ pub fn router(state: AppState) -> Router {
 /// over `POST /upload`).
 const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 
-/// The Gate door's routes: `POST /pair` for anyone with the code, and the
-/// page and WebSocket for paired Gates only (see [`crate::door`]).
+/// The device door's routes: `POST /pair` for anyone with the code, and the
+/// page and WebSocket for paired devices only (see [`crate::door`]).
 pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
     with_page_files(Router::new())
         // The phone app fetches `/` once and puts it in its own window, so
@@ -533,16 +534,16 @@ async fn ws_upgrade(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-    gate: Option<Extension<crate::door::http::GateAuth>>,
+    device: Option<Extension<crate::door::http::DeviceAuth>>,
     conn: Option<Extension<axum::extract::ConnectInfo<crate::door::listener::ConnBytes>>>,
 ) -> Response {
     let ws = ws
         .max_message_size(MAX_WS_MESSAGE)
         .max_frame_size(MAX_WS_MESSAGE);
-    // Through the Gate door: the key was checked; always the Gate's person.
-    if let Some(Extension(auth)) = gate {
+    // Through the device door: the key was checked; always the device's person.
+    if let Some(Extension(auth)) = device {
         let viewer = auth.viewer;
-        let id = auth.gate.id;
+        let id = auth.device.id;
         let bytes = conn.map(|Extension(c)| c.0);
         return ws.on_upgrade(move |socket| connection(socket, state, viewer, Some(id), bytes));
     }
@@ -554,8 +555,8 @@ async fn ws_upgrade(
     ws.on_upgrade(move |socket| connection(socket, state, viewer, None, None))
 }
 
-/// Who a request from this Mac (not the Gate door) is: the Farm if it
-/// shows the Farm secret `key`; in test mode, the person it names with
+/// Who a request from this Mac (not the device door) is: the home computer if it
+/// shows the home computer secret `key`; in test mode, the person it names with
 /// `as`. Refused from another website's page, or without either.
 #[allow(
     clippy::result_large_err,
@@ -575,11 +576,12 @@ fn local_viewer(
         tracing::warn!(?origin, "refused a request from another website");
         return Err((StatusCode::FORBIDDEN, "oxbot only accepts its own page").into_response());
     }
-    // Being on this Mac isn't enough to be the Farm: it takes the Farm
+    // Being on this Mac isn't enough to be the home computer: it takes the home computer
     // secret, which only oxbot's own windows and tools have.
-    let farm = key.is_some_and(|k| crate::secret::same(k.trim(), &state.farm_key));
+    let home_computer =
+        key.is_some_and(|k| crate::secret::same(k.trim(), &state.home_computer_key));
     match as_name.map(str::trim) {
-        _ if farm => Ok(state.farm_viewer()),
+        _ if home_computer => Ok(state.home_computer_viewer()),
         // Test mode only: the page names its person, made on purpose here
         // (as pairing would) so the connection carries their id.
         Some(name) if state.e2e && !name.is_empty() => match state.hub.person_named(name) {
@@ -590,7 +592,7 @@ fn local_viewer(
             }
         },
         _ => {
-            tracing::warn!("refused a local connection without the Farm secret");
+            tracing::warn!("refused a local connection without the home computer secret");
             Err((
                 StatusCode::UNAUTHORIZED,
                 "Open oxbot from its app, or with the link `oxbot serve` printed.",
@@ -604,7 +606,7 @@ fn local_viewer(
 const UPLOAD_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `POST /upload?bot=<id>&name=<file name>`, with the file as the body and
-/// the Farm secret in `X-Oxbot-Key`: saves a file to send with the next
+/// the home computer secret in `X-Oxbot-Key`: saves a file to send with the next
 /// message to that bot. The answer is the file as an [`Attachment`] (JSON),
 /// or `{"error": "…"}` in plain words.
 ///
@@ -625,7 +627,7 @@ async fn upload(
         return upload_error(StatusCode::BAD_REQUEST, "Say which bot the file is for.");
     };
     let bot = if bot == DEFAULT_BOT {
-        herder_for(&state, &viewer)
+        assistant_for(&state, &viewer)
     } else {
         bot.clone()
     };
@@ -780,16 +782,16 @@ fn is_local_origin(origin: &str) -> bool {
 struct Client {
     /// Who's connected.
     viewer: Viewer,
-    /// Their own Herder's id. They see it as `assistant`, and see no other
-    /// Herder (see [`Hub::herder_for`]).
-    herder: String,
+    /// Their own Assistant's id. They see it as `assistant`, and see no other
+    /// the Assistant (see [`Hub::assistant_for`]).
+    assistant: String,
     /// The bots they may see, kept up to date from bot-list updates.
     visible: std::collections::HashSet<String>,
     /// Bot id → last `seq` sent.
     subs: HashMap<String, u64>,
     /// This connection's number (for dictation).
     conn: u64,
-    /// The Farm owner (the Farm, or the Farm's person on their Gate): gets
+    /// The home computer owner (the home computer, or the home computer's person on their device): gets
     /// comparisons of engines and models.
     owner: bool,
 }
@@ -797,12 +799,12 @@ struct Client {
 impl Client {
     #[cfg(test)]
     fn new(viewer: Viewer, bots: &[oxbot_protocol::BotInfo]) -> Self {
-        Self::with_herder(viewer, bots, DEFAULT_BOT.to_owned())
+        Self::with_assistant(viewer, bots, DEFAULT_BOT.to_owned())
     }
 
     #[cfg(test)]
-    fn with_herder(viewer: Viewer, bots: &[oxbot_protocol::BotInfo], herder: String) -> Self {
-        let mut client = Self::with_visible(viewer, std::collections::HashSet::new(), herder);
+    fn with_assistant(viewer: Viewer, bots: &[oxbot_protocol::BotInfo], assistant: String) -> Self {
+        let mut client = Self::with_visible(viewer, std::collections::HashSet::new(), assistant);
         client.see(bots);
         client
     }
@@ -811,11 +813,11 @@ impl Client {
     fn with_visible(
         viewer: Viewer,
         visible: std::collections::HashSet<String>,
-        herder: String,
+        assistant: String,
     ) -> Self {
         Self {
             viewer,
-            herder,
+            assistant,
             visible,
             subs: HashMap::new(),
             conn: 0,
@@ -829,9 +831,9 @@ impl Client {
         self.visible = bots
             .iter()
             .filter(|b| self.viewer.can_see_info(b))
-            // The Farm's Herder is only for those whose Herder it is (as the
+            // The home computer's Assistant is only for those whose Assistant it is (as the
             // hub's visible_ids says).
-            .filter(|b| b.id != DEFAULT_BOT || self.herder == DEFAULT_BOT)
+            .filter(|b| b.id != DEFAULT_BOT || self.assistant == DEFAULT_BOT)
             .map(|b| b.id.clone())
             .collect();
         let visible = &self.visible;
@@ -843,21 +845,21 @@ impl Client {
     }
 
     /// A bot id as this client said it, as the Hub knows it: `assistant`
-    /// is their own Herder.
+    /// is their own Assistant.
     fn inner(&self, bot: String) -> String {
         if bot == DEFAULT_BOT {
-            self.herder.clone()
+            self.assistant.clone()
         } else {
             bot
         }
     }
 
     /// A bot id as the Hub knows it, as this client sees it; `None` for
-    /// someone else's Herder.
+    /// someone else's Assistant.
     fn outer(&self, bot: &str) -> Option<String> {
-        if bot == self.herder {
+        if bot == self.assistant {
             Some(DEFAULT_BOT.to_owned())
-        } else if bot == DEFAULT_BOT || is_personal_herder(bot) {
+        } else if bot == DEFAULT_BOT || is_personal_assistant(bot) {
             None
         } else {
             Some(bot.to_owned())
@@ -971,7 +973,7 @@ impl Client {
     }
 
     /// The message with bot ids as this client sees them, or `None` if it's
-    /// about someone else's Herder.
+    /// about someone else's Assistant.
     fn outbound(&self, msg: ServerMsg) -> Option<ServerMsg> {
         Some(match msg {
             ServerMsg::Event(mut e) => {
@@ -1102,34 +1104,34 @@ impl Client {
     }
 }
 
-/// Which Herder `viewer` talks to: the Farm and the Farm's own person (by
-/// id, on the Mac or a phone) use the Farm's; anyone else gets their own.
-fn herder_for(state: &AppState, viewer: &Viewer) -> String {
-    match state.hub.herder_of(viewer) {
+/// Which Assistant `viewer` talks to: the home computer and the home computer's own person (by
+/// id, on the Mac or a phone) use the home computer's; anyone else gets their own.
+fn assistant_for(state: &AppState, viewer: &Viewer) -> String {
+    match state.hub.assistant_of(viewer) {
         Ok(id) => id.to_string(),
         Err(err) => {
-            // No Herder at all rather than someone else's.
+            // No Assistant at all rather than someone else's.
             let person = viewer.id.as_ref().map(ToString::to_string);
-            tracing::warn!(%err, person, "couldn't make a Herder for a person");
+            tracing::warn!(%err, person, "couldn't make an Assistant for a person");
             String::from("-")
         }
     }
 }
 
-/// One client's connection. `gate` is the Gate's id when it came through
-/// the Gate door: it shows as online meanwhile, and is cut off if removed;
+/// One client's connection. `device` is the device's id when it came through
+/// the device door: it shows as online meanwhile, and is cut off if removed;
 /// `bytes` counts what its connection carried (Settings → Activity).
 async fn connection(
     socket: WebSocket,
     state: AppState,
     viewer: Viewer,
-    gate: Option<String>,
+    device: Option<String>,
     bytes: Option<crate::door::listener::ConnBytes>,
 ) {
-    let door = state.door.clone().filter(|_| gate.is_some());
+    let door = state.door.clone().filter(|_| device.is_some());
     let mut removals = door.as_ref().map(|d| d.removals());
     // Online until this connection ends, however it ends.
-    let _online = match (&door, &gate) {
+    let _online = match (&door, &device) {
         (Some(door), Some(id)) => Some(door.online(id, viewer.id.as_ref(), bytes)),
         _ => None,
     };
@@ -1143,7 +1145,7 @@ async fn connection(
         &state,
         viewer,
         conn,
-        gate.as_deref(),
+        device.as_deref(),
         removals.as_mut(),
     )
     .await;
@@ -1154,7 +1156,7 @@ async fn serve_client(
     state: &AppState,
     viewer: Viewer,
     conn: u64,
-    gate: Option<&str>,
+    device: Option<&str>,
     mut removals: Option<&mut broadcast::Receiver<String>>,
 ) {
     let state = state.clone();
@@ -1162,9 +1164,9 @@ async fn serve_client(
     // Subscribe before replaying history, so nothing falls in the gap.
     let mut updates = state.hub.subscribe();
     let (out_tx, mut out_rx) = mpsc::channel::<ServerMsg>(64);
-    let herder = herder_for(&state, &viewer);
+    let assistant = assistant_for(&state, &viewer);
     let visible = state.hub.visible_ids(&viewer);
-    let mut client = Client::with_visible(viewer, visible, herder);
+    let mut client = Client::with_visible(viewer, visible, assistant);
     client.conn = conn;
     client.owner = state.hub.is_owner_viewer(&client.viewer);
 
@@ -1185,17 +1187,17 @@ async fn serve_client(
     first.extend(state.hub.sites_for(&client.viewer));
     // Always (even with none), so the page knows where it stands.
     first.extend(state.hub.sections_for(&client.viewer));
-    // Only once there are Gates, so clients that don't know Gates (an older
-    // `oxbot chat`) never see the message on a Farm that has none.
-    if let Some(door) = state.door.as_ref().filter(|_| client.viewer.farm) {
-        let gates = door.gates();
-        if !gates.is_empty() {
-            first.push(ServerMsg::Gates { gates });
+    // Only once there are devices, so clients that don't know devices (an older
+    // `oxbot chat`) never see the message on a home computer that has none.
+    if let Some(door) = state.door.as_ref().filter(|_| client.viewer.home_computer) {
+        let devices = door.devices();
+        if !devices.is_empty() {
+            first.push(ServerMsg::Devices { devices });
         }
         first.push(ServerMsg::Door(door.state()));
     }
-    // The log names every bot, site and person: the Farm's only.
-    if let Some(relay) = state.logs.as_ref().filter(|_| client.viewer.farm) {
+    // The log names every bot, site and person: the home computer's only.
+    if let Some(relay) = state.logs.as_ref().filter(|_| client.viewer.home_computer) {
         first.extend(relay.recent().into_iter().map(ServerMsg::Log));
     }
     first.extend(
@@ -1244,8 +1246,8 @@ async fn serve_client(
             Some(msg) = out_rx.recv() => vec![msg],
             Some(line) = next_log(logs.as_mut()) => forward(ServerMsg::Log(line), &mut client).into_iter().collect(),
             removed = next_removal(removals.as_deref_mut()) => {
-                if gate.is_some() && (gate == Some(removed.as_str()) || removed == crate::door::EVERY_GATE) {
-                    tracing::info!(gate = removed, "closing a removed Gate's connection");
+                if device.is_some() && (device == Some(removed.as_str()) || removed == crate::door::EVERY_DEVICE) {
+                    tracing::info!(device = removed, "closing a removed device's connection");
                     let _ = sink.send(Message::Close(None)).await;
                     return;
                 }
@@ -1299,7 +1301,7 @@ async fn next_log(rx: Option<&mut broadcast::Receiver<LogLine>>) -> Option<LogLi
     }
 }
 
-/// The next removed Gate's id; never resolves without a door.
+/// The next removed device's id; never resolves without a door.
 async fn next_removal(rx: Option<&mut broadcast::Receiver<String>>) -> String {
     let Some(rx) = rx else {
         return std::future::pending().await;
@@ -1364,7 +1366,7 @@ async fn handle(
             message: e.to_string(),
         }]
     };
-    if !viewer.farm && farm_only(&msg) {
+    if !viewer.home_computer && home_computer_only(&msg) {
         return error(&"That can only be done on the home computer.");
     }
     // Comparing engines and models: the owner's only (the hub checks).
@@ -1372,7 +1374,7 @@ async fn handle(
         Ok(reply) => return reply,
         Err(other) => other,
     };
-    let msg = match handle_farm(msg, state).await {
+    let msg = match handle_home_computer(msg, state).await {
         Ok(reply) => return reply,
         Err(other) => other,
     };
@@ -1428,7 +1430,7 @@ async fn handle(
         ClientMsg::RemoveAllowRule { bot, id } => {
             reply(state.hub.remove_allow_rule(&bot, id, &viewer))
         }
-        // The hub checks it's the Farm too.
+        // The hub checks it's the home computer too.
         ClientMsg::SetFineGrainedSite { site, on } => {
             reply(state.hub.set_fine_grained_site(&site, on, &viewer))
         }
@@ -1691,9 +1693,12 @@ fn history(bot: String, page: oxbot_core::store::HistoryPage) -> ServerMsg {
     }
 }
 
-/// The Farm's own jobs: pairing and removing Gates, the Mac's setup
-/// (Farm-only ones are checked by the caller). Gives other messages back.
-async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>, ClientMsg> {
+/// The home computer's own jobs: pairing and removing devices, the Mac's setup
+/// (Home-computer-only ones are checked by the caller). Gives other messages back.
+async fn handle_home_computer(
+    msg: ClientMsg,
+    state: &AppState,
+) -> Result<Vec<ServerMsg>, ClientMsg> {
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
             message: e.to_string(),
@@ -1702,7 +1707,7 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
     Ok(match msg {
         ClientMsg::StartPairing { .. }
         | ClientMsg::CancelPairing
-        | ClientMsg::RemoveGate { .. }
+        | ClientMsg::RemoveDevice { .. }
         | ClientMsg::AddDoorNetwork
         | ClientMsg::RemoveDoorNetwork { .. }
         | ClientMsg::SetDoorName { .. } => {
@@ -1743,7 +1748,7 @@ async fn handle_farm(msg: ClientMsg, state: &AppState) -> Result<Vec<ServerMsg>,
 }
 
 /// The household's `OpenRouter` account: sign in and out, the model list,
-/// the settings. The Farm only (checked by the caller).
+/// the settings. The home computer only (checked by the caller).
 async fn handle_openrouter(msg: ClientMsg, state: &AppState) -> Vec<ServerMsg> {
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
@@ -1813,7 +1818,7 @@ fn model_row(m: &oxbot_llm::ModelInfo) -> ModelRow {
     }
 }
 
-/// The door's jobs: pairing, removing Gates, and which networks phones may
+/// The door's jobs: pairing, removing devices, and which networks phones may
 /// use.
 async fn handle_door(msg: ClientMsg, door: &crate::door::Door) -> anyhow::Result<Vec<ServerMsg>> {
     Ok(match msg {
@@ -1824,7 +1829,7 @@ async fn handle_door(msg: ClientMsg, door: &crate::door::Door) -> anyhow::Result
             door.cancel_pairing().await;
             vec![ServerMsg::PairingClosed]
         }
-        ClientMsg::RemoveGate { id } => {
+        ClientMsg::RemoveDevice { id } => {
             door.remove(&id).await?;
             Vec::new()
         }
@@ -1837,14 +1842,14 @@ async fn handle_door(msg: ClientMsg, door: &crate::door::Door) -> anyhow::Result
     })
 }
 
-/// What only the Farm itself may do: pair and remove Gates, pick the
+/// What only the home computer itself may do: pair and remove devices, pick the
 /// networks phones use, change the Mac's setup and its notifications.
-fn farm_only(msg: &ClientMsg) -> bool {
+fn home_computer_only(msg: &ClientMsg) -> bool {
     matches!(
         msg,
         ClientMsg::StartPairing { .. }
             | ClientMsg::CancelPairing
-            | ClientMsg::RemoveGate { .. }
+            | ClientMsg::RemoveDevice { .. }
             | ClientMsg::AddDoorNetwork
             | ClientMsg::RemoveDoorNetwork { .. }
             | ClientMsg::SetDoorName { .. }
@@ -2016,10 +2021,10 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
             Ok(BrowserOwner::Home)
         }
     };
-    // The home browser holds everyone's shared sign-ins: only the Farm
+    // The home browser holds everyone's shared sign-ins: only the home computer
     // changes it or opens its sites. Anyone may use their own.
-    let home_only_farm = |mine: bool| {
-        (!mine && !viewer.farm).then(|| ServerMsg::Error {
+    let home_only_home_computer = |mine: bool| {
+        (!mine && !viewer.home_computer).then(|| ServerMsg::Error {
             message: "The websites everyone's bots are signed in to can only be changed on the home computer.".to_owned(),
         })
     };
@@ -2027,9 +2032,9 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
         ClientMsg::SignOutAll { mine }
         | ClientMsg::OpenSite { mine, .. }
         | ClientMsg::SignOutSite { mine, .. }
-            if home_only_farm(mine).is_some() =>
+            if home_only_home_computer(mine).is_some() =>
         {
-            home_only_farm(mine).into_iter().collect()
+            home_only_home_computer(mine).into_iter().collect()
         }
         ClientMsg::OpenSignIn { id } if state.hub.sign_in_visible(id, viewer) => {
             reply(state.hub.open_sign_in(id).await)
@@ -2050,7 +2055,7 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
             Ok(owner) => reply(state.hub.open_site(&site, owner).await),
             Err(e) => reply(Err(e)),
         },
-        ClientMsg::AddSignIn { url } => match home_only_farm(false) {
+        ClientMsg::AddSignIn { url } => match home_only_home_computer(false) {
             Some(refused) => vec![refused],
             None => reply(state.hub.add_sign_in(&url, BrowserOwner::Home).await),
         },
@@ -2131,7 +2136,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::Activity { ref bot, .. }
         | ServerMsg::Browser { ref bot, .. }
         | ServerMsg::Reports { ref bot, .. } => client.sees(bot).then_some(msg),
-        // A card goes to the person whose request raised it, and the Farm.
+        // A card goes to the person whose request raised it, and the home computer.
         ServerMsg::ApprovalNeeded(ref a) => {
             (client.sees(&a.bot) && answers(a, &client.viewer)).then_some(msg)
         }
@@ -2151,22 +2156,22 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
                 .is_person(owner_id.as_deref(), owner.as_deref()))
         .then_some(msg),
         // A person's sections are their own view: only their connections
-        // get them, by id. Not the Farm: it manages bots, not people's views.
+        // get them, by id. Not the home computer: it manages bots, not people's views.
         ServerMsg::Sections { ref owner_id, .. } => client
             .viewer
             .is_person(owner_id.as_deref(), None)
             .then_some(msg),
-        // The log names every bot, site and person; pairing is the Farm's
-        // job: the Farm's only.
+        // The log names every bot, site and person; pairing is the home computer's
+        // job: the home computer's only.
         // Dictation goes straight to the connection that asked; if it were
-        // ever broadcast, only the Farm could have asked.
+        // ever broadcast, only the home computer could have asked.
         ServerMsg::Log(_)
         | ServerMsg::OpenRouterAuth { .. }
         | ServerMsg::Dictation { .. }
         | ServerMsg::Pairing(_)
         | ServerMsg::PairingClosed
-        | ServerMsg::Gates { .. }
-        | ServerMsg::Door(_) => client.viewer.farm.then_some(msg),
+        | ServerMsg::Devices { .. }
+        | ServerMsg::Door(_) => client.viewer.home_computer.then_some(msg),
         // Comparisons of engines and models: the owner's alone. Practice
         // runs are never a chat's events.
         ServerMsg::Ratings { .. }
@@ -2185,13 +2190,13 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             ref owner_id,
             ..
         } => (owner.is_none()
-            || client.viewer.farm
+            || client.viewer.home_computer
             || client
                 .viewer
                 .is_person(owner_id.as_deref(), owner.as_deref()))
         .then_some(msg),
         // A scheduled run's line goes to its person's own connections
-        // alone, by id (not the Farm's: it isn't theirs), for a bot they see.
+        // alone, by id (not the home computer's: it isn't theirs), for a bot they see.
         ServerMsg::Notify {
             ref bot,
             ref person_id,
@@ -2317,21 +2322,21 @@ mod tests {
                 },
             },
         };
-        let mut sam = Client::new(Viewer::gate("Sam"), &[]);
+        let mut sam = Client::new(Viewer::device("Sam"), &[]);
         assert!(forward(trial(), &mut sam).is_none());
-        // Even the Farm connection gets them only as the owner.
-        let mut farm = Client::new(Viewer::farm("Jay"), &[]);
-        assert!(forward(trial(), &mut farm).is_none());
-        farm.owner = true;
-        assert!(forward(trial(), &mut farm).is_some());
+        // Even the home computer connection gets them only as the owner.
+        let mut home_computer = Client::new(Viewer::home_computer("Jay"), &[]);
+        assert!(forward(trial(), &mut home_computer).is_none());
+        home_computer.owner = true;
+        assert!(forward(trial(), &mut home_computer).is_some());
         // A practice run's key is never a bot anyone is subscribed to.
-        farm.subs.insert("jobs".to_owned(), 0);
-        assert!(forward(event("t--0123456789abcdef", 1), &mut farm).is_none());
+        home_computer.subs.insert("jobs".to_owned(), 0);
+        assert!(forward(event("t--0123456789abcdef", 1), &mut home_computer).is_none());
     }
 
     #[test]
     fn forward_skips_other_bots_and_replayed_events() {
-        let mut client = Client::new(Viewer::farm("Jay"), &[]);
+        let mut client = Client::new(Viewer::home_computer("Jay"), &[]);
         client.subs.insert("a".to_owned(), 2);
         assert!(
             forward(event("b", 1), &mut client).is_none(),
@@ -2346,7 +2351,7 @@ mod tests {
     }
 
     #[test]
-    fn the_log_is_the_farms_and_a_persons_notice_is_theirs() {
+    fn the_log_is_the_home_computers_and_a_persons_notice_is_theirs() {
         let log = || {
             ServerMsg::Log(oxbot_protocol::LogLine {
                 level: "info".into(),
@@ -2360,13 +2365,13 @@ mod tests {
             owner: owner.map(str::to_owned),
             owner_id: None,
         };
-        let mut farm = Client::new(Viewer::farm("Jay"), &[]);
-        let mut sam = Client::new(Viewer::gate("Sam"), &[]);
-        let mut ann = Client::new(Viewer::gate("Ann"), &[]);
-        assert!(forward(log(), &mut farm).is_some());
+        let mut home_computer = Client::new(Viewer::home_computer("Jay"), &[]);
+        let mut sam = Client::new(Viewer::device("Sam"), &[]);
+        let mut ann = Client::new(Viewer::device("Ann"), &[]);
+        assert!(forward(log(), &mut home_computer).is_some());
         assert!(forward(log(), &mut ann).is_none());
         assert!(forward(notice(Some("Sam")), &mut sam).is_some());
-        assert!(forward(notice(Some("Sam")), &mut farm).is_some());
+        assert!(forward(notice(Some("Sam")), &mut home_computer).is_some());
         assert!(forward(notice(Some("Sam")), &mut ann).is_none());
         assert!(forward(notice(None), &mut ann).is_some());
     }
@@ -2377,8 +2382,8 @@ mod tests {
             info("mine", Some("Sam"), true),
             info("shared", Some("Sam"), false),
         ];
-        let mut ann = Client::new(Viewer::gate("Ann"), &bots);
-        let mut farm = Client::new(Viewer::farm("Jay"), &bots);
+        let mut ann = Client::new(Viewer::device("Ann"), &bots);
+        let mut home_computer = Client::new(Viewer::home_computer("Jay"), &bots);
         let list = ServerMsg::Bots {
             bots: bots.to_vec(),
         };
@@ -2396,17 +2401,17 @@ mod tests {
             "but shows nothing of what it does"
         );
         assert!(!ann.sees("mine"));
-        let Some(ServerMsg::Bots { bots: seen }) = forward(list, &mut farm) else {
+        let Some(ServerMsg::Bots { bots: seen }) = forward(list, &mut home_computer) else {
             panic!("a list")
         };
-        assert_eq!(seen.len(), 2, "the Farm sees every bot");
+        assert_eq!(seen.len(), 2, "the home computer sees every bot");
 
         let activity = ServerMsg::Activity {
             bot: "mine".into(),
             text: "Thinking…".into(),
         };
         assert!(forward(activity.clone(), &mut ann).is_none());
-        assert!(forward(activity, &mut farm).is_some());
+        assert!(forward(activity, &mut home_computer).is_some());
 
         let sams = ServerMsg::Sites {
             sites: vec![],
@@ -2417,7 +2422,7 @@ mod tests {
             forward(sams.clone(), &mut ann).is_none(),
             "someone else's sign-ins"
         );
-        assert!(forward(sams, &mut Client::new(Viewer::gate("Sam"), &bots)).is_some());
+        assert!(forward(sams, &mut Client::new(Viewer::device("Sam"), &bots)).is_some());
         let home = ServerMsg::Sites {
             sites: vec![],
             owner: None,
@@ -2434,13 +2439,13 @@ mod tests {
             html: "SECRET".into(),
         });
         assert!(forward(report.clone(), &mut ann).is_none());
-        assert!(forward(report, &mut farm).is_some());
+        assert!(forward(report, &mut home_computer).is_some());
         let list = ServerMsg::Reports {
             bot: "mine".into(),
             reports: vec![],
         };
         assert!(forward(list.clone(), &mut ann).is_none());
-        assert!(forward(list, &mut farm).is_some());
+        assert!(forward(list, &mut home_computer).is_some());
 
         // A bot made private later drops out of the list and the subscriptions.
         ann.subs.insert("shared".into(), 0);
@@ -2545,8 +2550,8 @@ mod tests {
         let sam = oxbot_core::id::PersonId::random();
         let bots = [info("shared", None, false), info("bank", Some("Ann"), true)];
         let mut real = Client::new(Viewer::person(sam.clone(), "Sam", false), &bots);
-        let mut farm = Client::new(Viewer::farm("Jay"), &bots);
-        let mut by_name = Client::new(Viewer::gate("Sam"), &bots);
+        let mut home_computer = Client::new(Viewer::home_computer("Jay"), &bots);
+        let mut by_name = Client::new(Viewer::device("Sam"), &bots);
         let line = |bot: &str| ServerMsg::Notify {
             bot: bot.into(),
             text: "Shared: done".into(),
@@ -2560,8 +2565,8 @@ mod tests {
             "the person's id is never sent"
         );
         assert!(
-            forward(line("shared"), &mut farm).is_none(),
-            "not the Farm's"
+            forward(line("shared"), &mut home_computer).is_none(),
+            "not the home computer's"
         );
         assert!(
             forward(line("shared"), &mut by_name).is_none(),
@@ -2575,7 +2580,10 @@ mod tests {
             bot: None,
             schedules: vec![],
         };
-        assert!(forward(list, &mut farm).is_none(), "made for one viewer");
+        assert!(
+            forward(list, &mut home_computer).is_none(),
+            "made for one viewer"
+        );
         assert!(forward(ServerMsg::SchedulesChanged, &mut real).is_some());
     }
 
@@ -2607,9 +2615,9 @@ mod tests {
         };
         assert_eq!(view.food, "vegan");
         // Never passed on to anyone else's connection.
-        let mut farm = Client::new(Viewer::farm("Jay"), &[]);
-        assert!(forward(ServerMsg::Profile(view.clone()), &mut farm).is_none());
-        assert!(forward(ServerMsg::ProfilesChanged, &mut farm).is_some());
+        let mut home_computer = Client::new(Viewer::home_computer("Jay"), &[]);
+        assert!(forward(ServerMsg::Profile(view.clone()), &mut home_computer).is_none());
+        assert!(forward(ServerMsg::ProfilesChanged, &mut home_computer).is_some());
         let replies = handle(ClientMsg::GetProfile, &state, &mut sam, &out).await;
         assert!(matches!(&replies[..], [ServerMsg::Profile(v)] if v.food == "vegan"));
     }
@@ -2619,11 +2627,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state = state(tmp.path());
         let (out, _rx) = mpsc::channel(8);
-        let mut farm = Client::new(state.farm_viewer(), &[]);
+        let mut home_computer = Client::new(state.home_computer_viewer(), &[]);
         let replies = handle(
             ClientMsg::E2eAdvanceClock { minutes: Some(60) },
             &state,
-            &mut farm,
+            &mut home_computer,
             &out,
         )
         .await;
@@ -2633,7 +2641,7 @@ mod tests {
         let replies = handle(
             ClientMsg::ListSchedules { bot: None },
             &state,
-            &mut farm,
+            &mut home_computer,
             &out,
         )
         .await;
@@ -2643,22 +2651,22 @@ mod tests {
     }
 
     #[test]
-    fn a_card_goes_to_who_asked_and_the_farm() {
+    fn a_card_goes_to_who_asked_and_the_home_computer() {
         let bots = [info("shared", None, false)];
-        let mut jay = Client::new(Viewer::gate("Jay"), &bots);
-        let mut sam = Client::new(Viewer::gate("Sam"), &bots);
-        let mut farm = Client::new(Viewer::farm("Jay"), &bots);
+        let mut jay = Client::new(Viewer::device("Jay"), &bots);
+        let mut sam = Client::new(Viewer::device("Sam"), &bots);
+        let mut home_computer = Client::new(Viewer::home_computer("Jay"), &bots);
         assert!(forward(card("shared", Some("Jay")), &mut jay).is_some());
-        assert!(forward(card("shared", Some("Jay")), &mut farm).is_some());
+        assert!(forward(card("shared", Some("Jay")), &mut home_computer).is_some());
         assert!(
             forward(card("shared", Some("Jay")), &mut sam).is_none(),
             "Sam can't answer Jay's card"
         );
         assert!(
             forward(card("shared", None), &mut sam).is_none(),
-            "nobody asked: the Farm's"
+            "nobody asked: the home computer's"
         );
-        assert!(forward(card("shared", None), &mut farm).is_some());
+        assert!(forward(card("shared", None), &mut home_computer).is_some());
     }
 
     #[test]
@@ -2669,7 +2677,7 @@ mod tests {
             Viewer::person(oxbot_core::id::PersonId::random(), "Sam", false),
             &[],
         );
-        let mut by_name = Client::new(Viewer::gate("Sam"), &[]);
+        let mut by_name = Client::new(Viewer::device("Sam"), &[]);
         let sites = ServerMsg::Sites {
             sites: vec![],
             owner: Some("Sam".into()),
@@ -2721,7 +2729,7 @@ mod tests {
         let (_ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws?as=Ann"))
             .await
             .unwrap();
-        let ann = state.hub.resolve(&Viewer::gate("Ann")).into_owned();
+        let ann = state.hub.resolve(&Viewer::device("Ann")).into_owned();
         assert!(ann.id.is_some(), "made when the page connected");
     }
 
@@ -2738,30 +2746,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_gate_named_like_the_farms_person_is_not_the_farm() {
+    async fn a_device_named_like_the_home_computers_person_is_not_the_home_computer() {
         let tmp = tempfile::tempdir().unwrap();
         let state = state(tmp.path());
-        let farm = state.farm_viewer();
-        assert!(farm.farm && farm.id.is_some());
-        assert_eq!(herder_for(&state, &farm), DEFAULT_BOT);
+        let home_computer = state.home_computer_viewer();
+        assert!(home_computer.home_computer && home_computer.id.is_some());
+        assert_eq!(assistant_for(&state, &home_computer), DEFAULT_BOT);
 
-        // Another person's Gate that calls itself "Jay".
-        let sam = state.hub.resolve(&Viewer::gate("Sam")).into_owned();
+        // Another person's device that calls itself "Jay".
+        let sam = state.hub.resolve(&Viewer::device("Sam")).into_owned();
         let lookalike = Viewer {
             name: "Jay".into(),
             ..sam.clone()
         };
-        let herder = herder_for(&state, &lookalike);
-        assert_ne!(herder, DEFAULT_BOT, "not the Farm's Herder");
-        assert_eq!(herder, herder_for(&state, &sam), "Sam's own");
-        assert!(!state.settings_for(&lookalike).farm, "no Farm rights");
-        // The Farm's person's own phone (same id, no secret) isn't the Farm either.
+        let assistant = assistant_for(&state, &lookalike);
+        assert_ne!(assistant, DEFAULT_BOT, "not the home computer's Assistant");
+        assert_eq!(assistant, assistant_for(&state, &sam), "Sam's own");
+        assert!(
+            !state.settings_for(&lookalike).home_computer,
+            "no home computer rights"
+        );
+        // The home computer's person's own phone (same id, no secret) isn't the home computer either.
         let phone = Viewer {
-            farm: false,
-            ..farm.clone()
+            home_computer: false,
+            ..home_computer.clone()
         };
-        assert_eq!(herder_for(&state, &phone), DEFAULT_BOT);
-        assert!(!state.settings_for(&phone).farm);
+        assert_eq!(assistant_for(&state, &phone), DEFAULT_BOT);
+        assert!(!state.settings_for(&phone).home_computer);
     }
 
     #[tokio::test]
@@ -2775,7 +2786,7 @@ mod tests {
                 mine: true,
             },
         ] {
-            let replies = handle_sign_ins(msg, &state, &Viewer::gate("")).await;
+            let replies = handle_sign_ins(msg, &state, &Viewer::device("")).await;
             assert!(
                 matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("whose browser")),
                 "{replies:?}"
@@ -2784,20 +2795,21 @@ mod tests {
     }
 
     #[test]
-    fn each_person_sees_only_their_own_herder_as_assistant() {
-        let anns = oxbot_core::bot::personal_herder_id("Ann").to_string();
-        let sams = oxbot_core::bot::personal_herder_id("Sam").to_string();
-        let mut herders = [
+    fn each_person_sees_only_their_own_assistant_as_assistant() {
+        let anns = oxbot_core::bot::personal_assistant_id("Ann").to_string();
+        let sams = oxbot_core::bot::personal_assistant_id("Sam").to_string();
+        let mut assistants = [
             info(DEFAULT_BOT, None, false),
             info(&anns, Some("Ann"), true),
             info(&sams, Some("Sam"), true),
         ];
-        for h in &mut herders {
+        for h in &mut assistants {
             h.central = true;
         }
-        let bots = [herders.to_vec(), vec![info("recipes", None, false)]].concat();
-        let ann = Client::with_herder(Viewer::gate("Ann"), &bots, anns.clone());
-        let farm = Client::with_herder(Viewer::farm("Jay"), &bots, DEFAULT_BOT.to_owned());
+        let bots = [assistants.to_vec(), vec![info("recipes", None, false)]].concat();
+        let ann = Client::with_assistant(Viewer::device("Ann"), &bots, anns.clone());
+        let home_computer =
+            Client::with_assistant(Viewer::home_computer("Jay"), &bots, DEFAULT_BOT.to_owned());
 
         let Some(ServerMsg::Bots { bots: seen }) =
             ann.outbound(ServerMsg::Bots { bots: bots.clone() })
@@ -2806,12 +2818,13 @@ mod tests {
         };
         let ids: Vec<&str> = seen.iter().map(|b| b.id.as_str()).collect();
         assert_eq!(ids, [DEFAULT_BOT, "recipes"]);
-        let Some(ServerMsg::Bots { bots: seen }) = farm.outbound(ServerMsg::Bots { bots }) else {
+        let Some(ServerMsg::Bots { bots: seen }) = home_computer.outbound(ServerMsg::Bots { bots })
+        else {
             panic!("a list")
         };
         assert_eq!(seen.iter().filter(|b| b.central).count(), 1);
 
-        // What Ann says to `assistant` goes to her own Herder, and back.
+        // What Ann says to `assistant` goes to her own Assistant, and back.
         let ClientMsg::Send { bot, .. } = ann.inbound(ClientMsg::Send {
             bot: DEFAULT_BOT.into(),
             text: "hi".into(),
@@ -2821,18 +2834,18 @@ mod tests {
         };
         assert_eq!(bot, anns);
         let Some(ServerMsg::Event(e)) = ann.outbound(event(&anns, 1)) else {
-            panic!("her Herder's event")
+            panic!("her Assistant's event")
         };
         assert_eq!(e.bot, DEFAULT_BOT);
         assert!(ann.outbound(event(&sams, 1)).is_none(), "not Sam's");
         assert!(
             ann.outbound(event(DEFAULT_BOT, 1)).is_none(),
-            "not the Farm's"
+            "not the home computer's"
         );
-        assert!(farm.outbound(event(&anns, 1)).is_none());
+        assert!(home_computer.outbound(event(&anns, 1)).is_none());
     }
 
-    /// A server with Sam's shared bot `shop`; Jay is the Farm's person.
+    /// A server with Sam's shared bot `shop`; Jay is the home computer's person.
     fn shop_state(dir: &std::path::Path) -> AppState {
         let store = oxbot_core::Store::open_in_memory().unwrap();
         let sam = store.find_or_create_person("Sam").unwrap().0.id;
@@ -2869,23 +2882,27 @@ mod tests {
     async fn always_is_offered_only_to_those_who_manage_the_bot() {
         let tmp = tempfile::tempdir().unwrap();
         let state = shop_state(tmp.path());
-        let sam = state.hub.resolve(&Viewer::gate("Sam")).into_owned();
-        let jay = state.hub.resolve(&Viewer::gate("Jay")).into_owned();
+        let sam = state.hub.resolve(&Viewer::device("Sam")).into_owned();
+        let jay = state.hub.resolve(&Viewer::device("Jay")).into_owned();
         let with_id = |asker: &Viewer| oxbot_protocol::Approval {
             asker_id: asker.id.as_ref().map(ToString::to_string),
             ..save_card(&asker.name)
         };
-        // Sam's own card on Sam's bot: offered to Sam and the Farm.
-        assert!(offered(&state, with_id(&sam), &Viewer::gate("Sam")));
-        assert!(offered(&state, with_id(&sam), &Viewer::farm("Jay")));
+        // Sam's own card on Sam's bot: offered to Sam and the home computer.
+        assert!(offered(&state, with_id(&sam), &Viewer::device("Sam")));
+        assert!(offered(
+            &state,
+            with_id(&sam),
+            &Viewer::home_computer("Jay")
+        ));
         // Jay's card on Sam's bot: Jay may only allow it once.
-        assert!(!offered(&state, with_id(&jay), &Viewer::gate("Jay")));
+        assert!(!offered(&state, with_id(&jay), &Viewer::device("Jay")));
         // A card that names no rule (pay, Enter, upload) is never offered.
         let plain = oxbot_protocol::Approval {
             rule: None,
             ..with_id(&sam)
         };
-        assert!(!offered(&state, plain, &Viewer::farm("Jay")));
+        assert!(!offered(&state, plain, &Viewer::home_computer("Jay")));
         // The rule itself is never sent.
         let json = serde_json::to_string(&with_id(&sam)).unwrap();
         assert!(!json.contains("Save"), "{json}");
@@ -2895,9 +2912,9 @@ mod tests {
             bot: "shop".into(),
             rules: Vec::new(),
         };
-        assert!(for_viewer(rules(), &state, &Viewer::gate("Sam")).is_some());
-        assert!(for_viewer(rules(), &state, &Viewer::farm("Jay")).is_some());
-        assert!(for_viewer(rules(), &state, &Viewer::gate("Jay")).is_none());
+        assert!(for_viewer(rules(), &state, &Viewer::device("Sam")).is_some());
+        assert!(for_viewer(rules(), &state, &Viewer::home_computer("Jay")).is_some());
+        assert!(for_viewer(rules(), &state, &Viewer::device("Jay")).is_none());
     }
 
     #[tokio::test]
@@ -2906,8 +2923,8 @@ mod tests {
         let state = shop_state(tmp.path());
         let (out, _rx) = mpsc::channel(4);
         let bots = [info("shop", Some("Sam"), false)];
-        let mut jay = Client::new(Viewer::gate("Jay"), &bots);
-        let mut sam = Client::new(Viewer::gate("Sam"), &bots);
+        let mut jay = Client::new(Viewer::device("Jay"), &bots);
+        let mut sam = Client::new(Viewer::device("Sam"), &bots);
         let list = || ClientMsg::ListAllowRules { bot: "shop".into() };
         let refused = handle(list(), &state, &mut jay, &out).await;
         assert!(
@@ -2939,8 +2956,8 @@ mod tests {
     }
 
     #[test]
-    fn rule_requests_for_assistant_go_to_your_own_herder() {
-        let ann = Client::with_herder(Viewer::gate("Ann"), &[], "assistant--ann-1".into());
+    fn rule_requests_for_assistant_go_to_your_own_assistant() {
+        let ann = Client::with_assistant(Viewer::device("Ann"), &[], "assistant--ann-1".into());
         let ClientMsg::ListAllowRules { bot } = ann.inbound(ClientMsg::ListAllowRules {
             bot: DEFAULT_BOT.into(),
         }) else {
@@ -2958,16 +2975,16 @@ mod tests {
             bot: "assistant--ann-1".into(),
             rules: Vec::new(),
         }) else {
-            panic!("her Herder's rules")
+            panic!("her Assistant's rules")
         };
         assert_eq!(bot, DEFAULT_BOT);
     }
 
     #[test]
-    fn a_persons_sections_go_to_them_alone_with_herder_ids_as_they_see_them() {
+    fn a_persons_sections_go_to_them_alone_with_assistant_ids_as_they_see_them() {
         let sam = oxbot_core::id::PersonId::random();
-        let anns = oxbot_core::bot::personal_herder_id("Ann").to_string();
-        let sams = oxbot_core::bot::personal_herder_id("Sam").to_string();
+        let anns = oxbot_core::bot::personal_assistant_id("Ann").to_string();
+        let sams = oxbot_core::bot::personal_assistant_id("Sam").to_string();
         let sections = ServerMsg::Sections {
             sections: vec![oxbot_protocol::SectionInfo {
                 id: "s_1".into(),
@@ -2983,16 +3000,16 @@ mod tests {
             owner_id: Some(sam.to_string()),
         };
         let mut real =
-            Client::with_herder(Viewer::person(sam.clone(), "Sam", false), &[], sams.clone());
-        let mut farm = Client::new(
+            Client::with_assistant(Viewer::person(sam.clone(), "Sam", false), &[], sams.clone());
+        let mut home_computer = Client::new(
             Viewer::person(oxbot_core::id::PersonId::random(), "Jay", true),
             &[],
         );
-        let mut by_name = Client::new(Viewer::gate("Sam"), &[]);
-        let mut nobody = Client::new(Viewer::farm(""), &[]);
+        let mut by_name = Client::new(Viewer::device("Sam"), &[]);
+        let mut nobody = Client::new(Viewer::home_computer(""), &[]);
         assert!(
-            forward(sections.clone(), &mut farm).is_none(),
-            "not even the Farm"
+            forward(sections.clone(), &mut home_computer).is_none(),
+            "not even the home computer"
         );
         assert!(forward(sections.clone(), &mut by_name).is_none());
         assert!(forward(sections.clone(), &mut nobody).is_none());
@@ -3004,10 +3021,10 @@ mod tests {
         assert_eq!(
             bots,
             [DEFAULT_BOT, "recipes"],
-            "their own Herder as assistant; no other Herder"
+            "their own Assistant as assistant; no other the Assistant"
         );
 
-        // `assistant` in a message means their own Herder.
+        // `assistant` in a message means their own Assistant.
         let ClientMsg::MoveBot { bot, .. } = real.inbound(ClientMsg::MoveBot {
             bot: DEFAULT_BOT.into(),
             section: None,
@@ -3025,10 +3042,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sections_need_no_farm_rights() {
+    async fn sections_need_no_home_computer_rights() {
         let tmp = tempfile::tempdir().unwrap();
         let state = state(tmp.path());
-        let ann = state.hub.resolve(&Viewer::gate("Ann")).into_owned();
+        let ann = state.hub.resolve(&Viewer::device("Ann")).into_owned();
         for msg in [
             ClientMsg::CreateSection {
                 name: "Kitchen".into(),
@@ -3039,12 +3056,12 @@ mod tests {
                 section: None,
             },
         ] {
-            assert!(!farm_only(&msg));
+            assert!(!home_computer_only(&msg));
         }
         let (out, _rx) = mpsc::channel(4);
-        let herder = herder_for(&state, &ann);
+        let assistant = assistant_for(&state, &ann);
         let mut client =
-            Client::with_visible(ann.clone(), std::collections::HashSet::new(), herder);
+            Client::with_visible(ann.clone(), std::collections::HashSet::new(), assistant);
         let replies = handle(
             ClientMsg::CreateSection {
                 name: "Kitchen".into(),
@@ -3077,7 +3094,7 @@ mod tests {
     }
 
     const BANK_REPORT: &str = "r_0123456789abcdef0123456789abcdef";
-    const HERDER_REPORT: &str = "r_fedcba9876543210fedcba9876543210";
+    const ASSISTANT_REPORT: &str = "r_fedcba9876543210fedcba9876543210";
 
     fn a_report(id: &str, title: &str) -> oxbot_core::report::Report {
         oxbot_core::report::Report {
@@ -3100,7 +3117,7 @@ mod tests {
     }
 
     /// A server with Sam's private bot `bank` and a report in it, and a
-    /// report in Ann's own Herder.
+    /// report in Ann's own Assistant.
     fn bank_state(dir: &std::path::Path) -> AppState {
         let store = oxbot_core::Store::open_in_memory().unwrap();
         let sam = store.find_or_create_person("Sam").unwrap().0.id;
@@ -3117,12 +3134,15 @@ mod tests {
             .add_report(&bank.id, &mut a_report(BANK_REPORT, "SECRET-REPORT"))
             .unwrap();
         store
-            .add_report(&ann.herder, &mut a_report(HERDER_REPORT, "Ann's research"))
+            .add_report(
+                &ann.assistant,
+                &mut a_report(ASSISTANT_REPORT, "Ann's research"),
+            )
             .unwrap();
         let central = oxbot_core::Bot::create(
             dir,
             oxbot_core::BotId::new(DEFAULT_BOT).unwrap(),
-            "Herder",
+            "Assistant",
             "",
         )
         .unwrap();
@@ -3132,9 +3152,9 @@ mod tests {
 
     fn client_for(state: &AppState, viewer: &Viewer) -> Client {
         let viewer = state.hub.resolve(viewer).into_owned();
-        let herder = herder_for(state, &viewer);
+        let assistant = assistant_for(state, &viewer);
         let visible = state.hub.visible_ids(&viewer);
-        Client::with_visible(viewer, visible, herder)
+        Client::with_visible(viewer, visible, assistant)
     }
 
     #[tokio::test]
@@ -3147,7 +3167,7 @@ mod tests {
             id: id.into(),
             utc_offset_min: Some(60),
         };
-        for viewer in [Viewer::farm("Jay"), Viewer::gate("Sam")] {
+        for viewer in [Viewer::home_computer("Jay"), Viewer::device("Sam")] {
             let mut client = client_for(&state, &viewer);
             let got = handle(open("bank", BANK_REPORT), &state, &mut client, &out).await;
             let [ServerMsg::Report(view)] = &got[..] else {
@@ -3168,7 +3188,7 @@ mod tests {
                 "{listed:?}"
             );
         }
-        let mut ann = client_for(&state, &Viewer::gate("Ann"));
+        let mut ann = client_for(&state, &Viewer::device("Ann"));
         for msg in [
             open("bank", BANK_REPORT),
             ClientMsg::ListReports { bot: "bank".into() },
@@ -3187,24 +3207,30 @@ mod tests {
             matches!(&got[..], [ServerMsg::Error { message }] if message.contains("deleted")),
             "{got:?}"
         );
-        // `assistant` is Ann's own Herder, there and back.
-        let got = handle(open(DEFAULT_BOT, HERDER_REPORT), &state, &mut ann, &out).await;
+        // `assistant` is Ann's own Assistant, there and back.
+        let got = handle(open(DEFAULT_BOT, ASSISTANT_REPORT), &state, &mut ann, &out).await;
         let [ServerMsg::Report(view)] = &got[..] else {
-            panic!("her Herder's report: {got:?}")
+            panic!("her Assistant's report: {got:?}")
         };
         let Some(ServerMsg::Report(view)) = ann.outbound(ServerMsg::Report(view.clone())) else {
             panic!("passed on")
         };
         assert_eq!(view.bot, DEFAULT_BOT);
-        assert!(view.html.contains("By Herder"));
-        // The Farm's page doesn't see Ann's Herder at all.
-        let mut farm = client_for(&state, &Viewer::farm("Jay"));
-        let anns = herder_for(&state, &ann.viewer);
-        let got = handle(open(&anns, HERDER_REPORT), &state, &mut farm, &out).await;
-        assert!(farm.outbound(got[0].clone()).is_none(), "{got:?}");
+        assert!(view.html.contains("By Assistant"));
+        // The home computer's page doesn't see Ann's Assistant at all.
+        let mut home_computer = client_for(&state, &Viewer::home_computer("Jay"));
+        let anns = assistant_for(&state, &ann.viewer);
+        let got = handle(
+            open(&anns, ASSISTANT_REPORT),
+            &state,
+            &mut home_computer,
+            &out,
+        )
+        .await;
+        assert!(home_computer.outbound(got[0].clone()).is_none(), "{got:?}");
 
         // Deleting is for those who manage the bot.
-        let mut sam = client_for(&state, &Viewer::gate("Sam"));
+        let mut sam = client_for(&state, &Viewer::device("Sam"));
         let got = handle(
             ClientMsg::DeleteReport {
                 bot: "bank".into(),
@@ -3227,7 +3253,7 @@ mod tests {
     }
 
     /// A server with every engine rule on: Recipes (shared, Codex) and
-    /// Sam's own Notes (`OpenRouter`); Jay is the Farm's person.
+    /// Sam's own Notes (`OpenRouter`); Jay is the home computer's person.
     fn engines_state(dir: &std::path::Path) -> (AppState, Viewer) {
         engines_state_with(dir, None)
     }
@@ -3251,7 +3277,7 @@ mod tests {
         .unwrap();
         notes.save().unwrap();
         let bots = vec![
-            Bot::create(dir, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
+            Bot::create(dir, BotId::new("assistant").unwrap(), "Assistant", "").unwrap(),
             Bot::create(dir, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
             notes,
         ];
@@ -3264,8 +3290,8 @@ mod tests {
             local_person: "Jay".to_owned(),
             ..AppState::new(hub, "test-mac")
         };
-        // Chooses Jay as the Farm's person.
-        let _ = state.farm_viewer();
+        // Chooses Jay as the home computer's person.
+        let _ = state.home_computer_viewer();
         let sam = Viewer::person(sam.id, "Sam", false);
         (state, sam)
     }
@@ -3274,10 +3300,10 @@ mod tests {
     async fn anyone_may_task_the_bots_they_see_and_engines_are_listed() {
         let tmp = tempfile::tempdir().unwrap();
         let (state, sam) = engines_state(tmp.path());
-        let farm = state.farm_viewer();
+        let home_computer = state.home_computer_viewer();
         let jay_phone = Viewer {
-            farm: false,
-            ..farm.clone()
+            home_computer: false,
+            ..home_computer.clone()
         };
         let bots = state.hub.bots().await.unwrap();
         let can_task = |viewer: &Viewer| {
@@ -3295,7 +3321,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let all = vec![("notes".to_owned(), true), ("recipes".to_owned(), true)];
-        assert_eq!(can_task(&farm), all);
+        assert_eq!(can_task(&home_computer), all);
         assert_eq!(can_task(&jay_phone), all);
         assert_eq!(can_task(&sam), all);
         // The engine is listed for everyone.
@@ -3308,7 +3334,7 @@ mod tests {
         assert!(!settings.owner && settings.owner_name == "Jay");
         assert!(!settings.openrouter_ready);
         assert!(state.settings_for(&jay_phone).owner);
-        assert!(state.settings_for(&farm).owner);
+        assert!(state.settings_for(&home_computer).owner);
     }
 
     #[tokio::test]
@@ -3319,7 +3345,7 @@ mod tests {
         let mut client = Client::with_visible(
             sam.clone(),
             state.hub.visible_ids(&sam),
-            herder_for(&state, &sam),
+            assistant_for(&state, &sam),
         );
         // No OpenRouter here: bots can't run, and nothing changes.
         let to_codex = ClientMsg::SetEngine {
@@ -3328,7 +3354,7 @@ mod tests {
             model: None,
             models: None,
         };
-        assert!(!farm_only(&to_codex));
+        assert!(!home_computer_only(&to_codex));
         let replies = handle(to_codex, &state, &mut client, &out).await;
         assert!(
             matches!(&replies[..], [ServerMsg::Error { message }] if message.starts_with("The home's AI account (OpenRouter) isn't connected")),
@@ -3358,7 +3384,7 @@ mod tests {
         );
         assert!(
             view.codex.is_none() && view.openrouter.is_none(),
-            "the Farm's only"
+            "the home computer's only"
         );
         let json = serde_json::to_string(&ServerMsg::Engines(view)).unwrap();
         assert!(!json.to_lowercase().contains("claude"), "{json}");
@@ -3435,7 +3461,7 @@ mod tests {
         let own = format!("localhost:{}", state.port);
         let (status, _) = get_page(state.port, "/", &own).await;
         assert_eq!(status, 200);
-        let settings = state.settings_for(&state.farm_viewer());
+        let settings = state.settings_for(&state.home_computer_viewer());
         assert!(settings.keychain_waiting && !settings.openrouter_ready);
         assert_eq!(
             state.hub.engine_ready(EngineKind::Codex),
@@ -3446,7 +3472,7 @@ mod tests {
         // Allowed: everything goes on.
         answer.send(()).unwrap();
         loading.await.unwrap();
-        let settings = state.settings_for(&state.farm_viewer());
+        let settings = state.settings_for(&state.home_computer_viewer());
         assert!(!settings.keychain_waiting && settings.openrouter_ready);
         assert!(state.hub.openrouter_ready());
     }
@@ -3469,11 +3495,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_farm_signs_in_and_the_key_never_reaches_a_page() {
+    async fn only_the_home_computer_signs_in_and_the_key_never_reaches_a_page() {
         let tmp = tempfile::tempdir().unwrap();
         let (state, sam, _) = signed_in_state(tmp.path()).await;
         let (out, _rx) = mpsc::channel(4);
-        let farm = state.farm_viewer();
+        let home_computer = state.home_computer_viewer();
         for msg in [
             ClientMsg::OpenRouterSignIn,
             ClientMsg::OpenRouterSignOut,
@@ -3485,11 +3511,11 @@ mod tests {
                 path: "/tmp/not-codex".into(),
             },
         ] {
-            assert!(farm_only(&msg));
+            assert!(home_computer_only(&msg));
             let mut client = Client::with_visible(
                 sam.clone(),
                 state.hub.visible_ids(&sam),
-                herder_for(&state, &sam),
+                assistant_for(&state, &sam),
             );
             let replies = handle(msg, &state, &mut client, &out).await;
             assert!(
@@ -3497,24 +3523,25 @@ mod tests {
                 "{replies:?}"
             );
         }
-        // Sam gets no account details; the Farm does, but never the key.
+        // Sam gets no account details; the home computer does, but never the key.
         assert!(state.engines_for(&sam).openrouter.is_none());
-        let view = state.engines_for(&farm);
+        let view = state.engines_for(&home_computer);
         assert!(view.openrouter.as_ref().unwrap().signed_in);
         // A memory store is no key file: the page keeps the Keychain words.
         assert!(!view.openrouter.as_ref().unwrap().key_in_file);
         for json in [
             serde_json::to_string(&ServerMsg::Engines(view)).unwrap(),
-            serde_json::to_string(&ServerMsg::Settings(state.settings_for(&farm))).unwrap(),
+            serde_json::to_string(&ServerMsg::Settings(state.settings_for(&home_computer)))
+                .unwrap(),
             format!("{state:?}"),
         ] {
             assert!(!json.contains("feedfacecafe"), "{json}");
         }
 
         let mut client = Client::with_visible(
-            farm.clone(),
-            state.hub.visible_ids(&farm),
-            herder_for(&state, &farm),
+            home_computer.clone(),
+            state.hub.visible_ids(&home_computer),
+            assistant_for(&state, &home_computer),
         );
         let replies = handle(ClientMsg::OpenRouterSignIn, &state, &mut client, &out).await;
         let [ServerMsg::OpenRouterAuth { url }] = &replies[..] else {
@@ -3581,15 +3608,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signing_out_forgets_the_key_and_prefs_are_the_farms() {
+    async fn signing_out_forgets_the_key_and_prefs_are_the_home_computers() {
         let tmp = tempfile::tempdir().unwrap();
         let (state, _, secrets) = signed_in_state(tmp.path()).await;
-        let farm = state.farm_viewer();
+        let home_computer = state.home_computer_viewer();
         let (out, _rx) = mpsc::channel(4);
         let mut client = Client::with_visible(
-            farm.clone(),
-            state.hub.visible_ids(&farm),
-            herder_for(&state, &farm),
+            home_computer.clone(),
+            state.hub.visible_ids(&home_computer),
+            assistant_for(&state, &home_computer),
         );
         let prefs = oxbot_protocol::EnginePrefs {
             paid_fallback: false,
@@ -3612,6 +3639,12 @@ mod tests {
             "{replies:?}"
         );
         assert!(oxbot_llm::SecretStore::load(&*secrets).unwrap().is_none());
-        assert!(!state.engines_for(&farm).openrouter.unwrap().signed_in);
+        assert!(
+            !state
+                .engines_for(&home_computer)
+                .openrouter
+                .unwrap()
+                .signed_in
+        );
     }
 }

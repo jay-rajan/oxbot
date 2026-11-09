@@ -73,7 +73,7 @@ pub struct TestCaseRecord {
     pub network: String,
     /// The bot keeps its data on this Mac (local models only).
     pub local_only: bool,
-    /// Who started the original turn (JSON `{person, on_farm, tainted_by}`).
+    /// Who started the original turn (JSON `{person, on_home_computer, tainted_by}`).
     pub origin: Value,
     /// Hidden from the list.
     pub archived: bool,
@@ -852,7 +852,7 @@ mod tests {
             browser_owner: String::new(),
             network: "strict".into(),
             local_only: false,
-            origin: json!({"on_farm": true}),
+            origin: json!({"on_home_computer": true}),
             archived: false,
         }
     }

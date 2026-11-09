@@ -226,11 +226,11 @@ async fn helper_checks(app: &Path, port: u16, home: &Path) -> Vec<Check> {
         .and_then(|v| v["ok"].as_bool())
         .unwrap_or(false);
     let what = "The mic shows only where on-device dictation exists";
-    checks.push(match farm_settings(port, home).await {
+    checks.push(match home_computer_settings(port, home).await {
         Some(settings) if settings["dictation"].as_bool() == Some(can) => pass(
             what,
             if can {
-                "this Mac can dictate on-device: the Farm's page has the mic"
+                "this Mac can dictate on-device: the home computer's page has the mic"
             } else {
                 "this Mac can't dictate on-device: no mic"
             },
@@ -247,10 +247,10 @@ async fn helper_checks(app: &Path, port: u16, home: &Path) -> Vec<Check> {
     checks
 }
 
-/// The settings the app's own window gets (it carries the Farm secret).
-async fn farm_settings(port: u16, home: &Path) -> Option<serde_json::Value> {
+/// The settings the app's own window gets (it carries the home computer secret).
+async fn home_computer_settings(port: u16, home: &Path) -> Option<serde_json::Value> {
     use futures_util::StreamExt as _;
-    let key = std::fs::read_to_string(home.join("farm-key")).ok()?;
+    let key = std::fs::read_to_string(home.join("home-computer-key")).ok()?;
     let url = format!("ws://127.0.0.1:{port}/ws?k={}", key.trim());
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.ok()?;
     let read = async {

@@ -12,7 +12,7 @@ class MainActivity : TauriActivity() {
     askForLocalNetwork()
   }
 
-  // oxbot only ever talks to the Farm on home Wi-Fi. From Android 17 that
+  // oxbot only ever talks to the home computer on home Wi-Fi. From Android 17 that
   // needs the "local network" permission, asked for once.
   private fun askForLocalNetwork() {
     if (Build.VERSION.SDK_INT < 37) return

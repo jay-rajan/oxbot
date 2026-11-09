@@ -1,5 +1,5 @@
-//! The Farm's own TLS certificate. Gates pin its fingerprint, so no outside
-//! authority is involved and a look-alike "Farm" is refused.
+//! The home computer's own TLS certificate. Devices pin its fingerprint, so no outside
+//! authority is involved and a look-alike home computer is refused.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -8,12 +8,12 @@ use anyhow::Context as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::TlsAcceptor;
 
-/// The Farm's certificate and key.
+/// The home computer's certificate and key.
 #[derive(Debug)]
 pub struct Identity {
     cert: CertificateDer<'static>,
     key: PrivatePkcs8KeyDer<'static>,
-    /// SHA-256 of the certificate, as lowercase hex. Gates pin this.
+    /// SHA-256 of the certificate, as lowercase hex. Devices pin this.
     pub fingerprint: String,
 }
 
@@ -24,23 +24,27 @@ impl Identity {
     /// # Errors
     /// Fails if the files can't be read, made or saved.
     pub fn load_or_create(dir: &Path) -> anyhow::Result<Self> {
-        let cert_path = dir.join("farm-cert.der");
-        let key_path = dir.join("farm-key.der");
+        let cert_path = dir.join("home-computer-cert.der");
+        let key_path = dir.join("home-computer-key.der");
+        // Made under the old names before the rename: moved, never made
+        // again, so paired devices (pinned to this certificate) keep working.
+        oxbot_device::move_old_name(&dir.join("farm-cert.der"), &cert_path)?;
+        oxbot_device::move_old_name(&dir.join("farm-key.der"), &key_path)?;
         let (cert, key) = if cert_path.exists() && key_path.exists() {
             (std::fs::read(&cert_path)?, std::fs::read(&key_path)?)
         } else {
             std::fs::create_dir_all(dir)?;
-            let made = rcgen::generate_simple_self_signed(vec![oxbot_gate::CERT_NAME.to_owned()])
-                .context("couldn't make the Farm's certificate")?;
+            let made = rcgen::generate_simple_self_signed(vec![oxbot_device::CERT_NAME.to_owned()])
+                .context("couldn't make the home computer's certificate")?;
             let cert = made.cert.der().to_vec();
             let key = made.signing_key.serialize_der();
             crate::secret::write_private(&key_path, &key)?;
             std::fs::write(&cert_path, &cert)?;
-            tracing::info!("made the Farm's certificate for the Gate door");
+            tracing::info!("made the home computer's certificate for the device door");
             (cert, key)
         };
         Ok(Self {
-            fingerprint: oxbot_gate::fingerprint(&cert),
+            fingerprint: oxbot_device::fingerprint(&cert),
             cert: CertificateDer::from(cert),
             key: PrivatePkcs8KeyDer::from(key),
         })
@@ -72,10 +76,30 @@ mod tests {
         let again = Identity::load_or_create(tmp.path()).unwrap();
         assert_eq!(first.fingerprint, again.fingerprint);
         assert_eq!(first.fingerprint.len(), 64);
-        let mode = std::fs::metadata(tmp.path().join("farm-key.der"))
+        let mode = std::fs::metadata(tmp.path().join("home-computer-key.der"))
             .unwrap()
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_certificate_made_before_the_rename_is_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("gate");
+        let first = Identity::load_or_create(&old).unwrap();
+        std::fs::rename(
+            old.join("home-computer-cert.der"),
+            old.join("farm-cert.der"),
+        )
+        .unwrap();
+        std::fs::rename(old.join("home-computer-key.der"), old.join("farm-key.der")).unwrap();
+        let dir = crate::door::folder(tmp.path()).unwrap();
+        let again = Identity::load_or_create(&dir).unwrap();
+        assert_eq!(
+            again.fingerprint, first.fingerprint,
+            "paired devices still match it"
+        );
+        assert!(!old.exists());
     }
 }

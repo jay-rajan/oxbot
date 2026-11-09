@@ -54,7 +54,7 @@ td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
 <header>
   <div class="eyebrow">oxbot · architecture · branch codex, commit 355facc · Nov 4, 2026</div>
   <h1>oxbot feature map: pick a feature, see where it runs</h1>
-  <p class="muted">Everything runs on the <b>home computer</b>; phones and tablets are <b>devices</b> that show the app. Line numbers are from commit 355facc on the <span class="mono">codex</span> branch (step 2, Claude leaving the product, is still being built, so a few lines will move). Code still says Farm, Gate and Herder in places; the app says home computer, device and Assistant.</p>
+  <p class="muted">Everything runs on the <b>home computer</b>; phones and tablets are <b>devices</b> that show the app. Line numbers are from commit 355facc on the <span class="mono">codex</span> branch (step 2, Claude leaving the product, is still being built, so a few lines will move). Code still says home computer, device and the Assistant in places; the app says home computer, device and Assistant.</p>
 </header>
 
 <section>
@@ -220,7 +220,7 @@ const F = [
   ["oxbot-core/src/hub/browsers.rs:127","take_browser","shared Chrome is lent to one bot per turn"]]},
  {id:"assistant", name:"The Assistant", sum:"The Assistant lists bots, makes one (after asking), and hands tasks to other bots.",
   path:["ui","server","hub","codex","toolsvc","policy"], hops:[
-  ["oxbot-core/src/bot.rs:45","personal_herder_id","each person has their own Assistant (code: Herder)"],
+  ["oxbot-core/src/bot.rs:45","personal_assistant_id","each person has their own Assistant "],
   ["oxbot-core/src/tools.rs:33","CENTRAL_TOOLS","list_bots, create_bot, give_task, read_reply"],
   ["oxbot-loop/src/tools/mod.rs:444","host()","these tools run in the hub, not the browser"],
   ["oxbot-core/src/hub/team.rs:26","host_tool","picks the tool"],
@@ -231,11 +231,11 @@ const F = [
   path:["device","server","hub","store"], hops:[
   ["oxbot/src/door/mod.rs:405","Door::start_pairing","shows a code and QR on the home computer"],
   ["oxbot/src/door/mod.rs:312","open_now","TLS listener, found on the home network by mDNS"],
-  ["oxbot-gate/src/lib.rs:171","pair","the device pins the home computer's certificate"],
+  ["oxbot-device/src/lib.rs:171","pair","the device pins the home computer's certificate"],
   ["oxbot/src/door/http.rs:27","pair → Door::pair","checks the code, adds the device to a person"],
-  ["oxbot-core/src/store/gates.rs:77","add_gate_for","keeps only a hash of the device's key"],
+  ["oxbot-core/src/store/devices.rs:77","add_device_for","keeps only a hash of the device's key"],
   ["oxbot/src/server.rs:342","door_router","every later request must carry the key"],
-  ["app/src-tauri/src/gate.rs:497","run","the device app (Tauri; Android build in app/src-tauri/gen/android)"]]},
+  ["app/src-tauri/src/device.rs:497","run","the device app (Tauri; Android build in app/src-tauri/gen/android)"]]},
  {id:"limits", name:"AI model and limits", sum:"Each bot's model and daily limit are saved with the bot; the household's limits live in Settings; the relay enforces them.",
   path:["ui","server","hub","store","relay","gateway"], hops:[
   ["ui/index.html:2266","bot details","model choice and the bot's daily limit"],

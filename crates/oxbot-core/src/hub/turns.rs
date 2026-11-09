@@ -93,7 +93,7 @@ impl Hub {
     }
 
     /// Delivers a message shown as from `from`, for a turn of the task
-    /// chain `origin` (whose person may not be the sender: Herder passes
+    /// chain `origin` (whose person may not be the sender: the Assistant passes
     /// tasks on for people, `relayed`). Refused, with nothing recorded,
     /// if the chain may not task the bot or its engine can't run. Returns
     /// the message's number in the bot's chat.
@@ -207,7 +207,7 @@ impl Hub {
                 .await;
         }
 
-        // The chat keeps the task as Herder wrote it; only the bot is told
+        // The chat keeps the task as the Assistant wrote it; only the bot is told
         // it was passed on and may quote web text.
         let mut message = match (from, &scheduled) {
             (Some(from), _) if relayed => {
@@ -409,11 +409,11 @@ struct Sent<'a> {
     from: Option<&'a str>,
     /// Whose task chain it is.
     origin: &'a ChainOrigin,
-    /// Herder passing on a task for `person`.
+    /// The Assistant passing on a task for `person`.
     relayed: bool,
 }
 
-/// What a bot gets for a task Herder (`from`) passed on for
+/// What a bot gets for a task the Assistant (`from`) passed on for
 /// `person`: marked as passed on, and as maybe quoting web text, which is
 /// never an instruction. Lines are escaped as in [`sender_line`].
 pub(super) fn relayed_line(from: &str, person: Option<&str>, text: &str) -> String {

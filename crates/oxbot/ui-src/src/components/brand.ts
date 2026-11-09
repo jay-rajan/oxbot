@@ -10,7 +10,7 @@ const AVATARS: string[] = ["<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"
 const AVATAR_COLORS: string[] = ["#7A5AF8", "#E0457B", "#0F9488", "#2F6FEB", "#A0663A", "#5E6B7D", "#B98A00", "#2E9A4E", "#E2701B", "#0E93B8", "#B33BC9", "#7C8A1C"];
 
 /** The Assistant's mark: the board. */
-export const HERDER = "<svg class=\"herder\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" role=\"img\" aria-label=\"Assistant\"><g class=\"pc pc-x\"><g stroke=\"currentColor\" stroke-opacity=\".38\" stroke-width=\"5\" stroke-linecap=\"round\"><line x1=\"37\" y1=\"10\" x2=\"37\" y2=\"90\"/><line x1=\"63\" y1=\"10\" x2=\"63\" y2=\"90\"/><line x1=\"10\" y1=\"37\" x2=\"90\" y2=\"37\"/><line x1=\"10\" y1=\"63\" x2=\"90\" y2=\"63\"/></g><circle cx=\"21\" cy=\"21\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6.5\"/><path d=\"M41 41L59 59M59 41L41 59\" fill=\"none\" class=\"herder-x\" stroke-width=\"7.5\" stroke-linecap=\"round\"/><circle cx=\"79\" cy=\"79\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6.5\"/></g></svg>";
+export const ASSISTANT = "<svg class=\"assistant\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" role=\"img\" aria-label=\"Assistant\"><g class=\"pc pc-x\"><g stroke=\"currentColor\" stroke-opacity=\".38\" stroke-width=\"5\" stroke-linecap=\"round\"><line x1=\"37\" y1=\"10\" x2=\"37\" y2=\"90\"/><line x1=\"63\" y1=\"10\" x2=\"63\" y2=\"90\"/><line x1=\"10\" y1=\"37\" x2=\"90\" y2=\"37\"/><line x1=\"10\" y1=\"63\" x2=\"90\" y2=\"63\"/></g><circle cx=\"21\" cy=\"21\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6.5\"/><path d=\"M41 41L59 59M59 41L41 59\" fill=\"none\" class=\"assistant-x\" stroke-width=\"7.5\" stroke-linecap=\"round\"/><circle cx=\"79\" cy=\"79\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6.5\"/></g></svg>";
 
 /** FNV-1a: the same id always hashes the same. */
 function hash(s: string): number {
@@ -24,7 +24,7 @@ function hash(s: string): number {
 
 /** A bot's mark as SVG markup (oxbot's own, safe to set as innerHTML). */
 export function avatarSvg(id: string, central: boolean): string {
-  if (central) return HERDER;
+  if (central) return ASSISTANT;
   const h = hash(id);
   const shape = AVATARS[h % AVATARS.length] ?? "";
   const color = AVATAR_COLORS[Math.floor(h / AVATARS.length) % AVATAR_COLORS.length] ?? "#111111";

@@ -1,5 +1,5 @@
 //! The page's messages for comparing engines and models (#21). The hub
-//! decides who may (the Farm owner only); this only passes them on and
+//! decides who may (the home computer owner only); this only passes them on and
 //! answers.
 
 use oxbot_core::{Hub, HubError, Viewer};
@@ -208,18 +208,18 @@ mod tests {
     async fn comparing_is_refused_without_developer_tools() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
-        let farm = Viewer::farm("Jay");
-        let off = handle(ClientMsg::ListComparePrefs, &hub, &farm, false)
+        let home_computer = Viewer::home_computer("Jay");
+        let off = handle(ClientMsg::ListComparePrefs, &hub, &home_computer, false)
             .await
             .unwrap();
         assert!(matches!(&off[..], [ServerMsg::Error { message }] if message == DEV_TOOLS_OFF));
-        let on = handle(ClientMsg::ListComparePrefs, &hub, &farm, true)
+        let on = handle(ClientMsg::ListComparePrefs, &hub, &home_computer, true)
             .await
             .unwrap();
         assert!(!matches!(&on[..], [ServerMsg::Error { message }] if message == DEV_TOOLS_OFF));
         // Other messages pass through either way.
         assert!(
-            handle(ClientMsg::ListBots, &hub, &farm, false)
+            handle(ClientMsg::ListBots, &hub, &home_computer, false)
                 .await
                 .is_err()
         );

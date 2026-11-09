@@ -51,7 +51,7 @@ describe("groupBots", () => {
   it("puts Assistant first, then bots not in a section, then each section", () => {
     const g = groupBots(list, secs, { recipes: "s1" }, "sections", "", "Jay");
     expect(g.map((x) => [x.key, x.ids])).toEqual([
-      ["herder", ["assistant"]],
+      ["assistant", ["assistant"]],
       ["none", ["bank", "cafe", "home"]],
       ["s:s1", ["recipes"]],
     ]);
@@ -65,7 +65,7 @@ describe("groupBots", () => {
 
   it("groups by maker: you first, then A-Z, then the home computer", () => {
     const g = groupBots(list, secs, {}, "people", "", "Sam");
-    expect(g.map((x) => x.key)).toEqual(["herder", "p:Sam", "p:Ann", "p:Jay", "p:"]);
+    expect(g.map((x) => x.key)).toEqual(["assistant", "p:Sam", "p:Ann", "p:Jay", "p:"]);
     expect(g.at(-1)?.title).toBe("Home computer");
   });
 

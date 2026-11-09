@@ -80,10 +80,10 @@ async fn each_turn_keeps_who_started_it_on_the_mac_or_a_phone() {
         return;
     };
     let hub = hub_in(tmp.path(), &["recipes"], Tool::None, &codex).await;
-    let jay = hub.farm_person("Jay").unwrap();
+    let jay = hub.owner_person("Jay").unwrap();
     let mut updates = hub.subscribe();
 
-    hub.send_as("recipes", "on the Mac", &hub.farm_viewer("Jay"))
+    hub.send_as("recipes", "on the Mac", &hub.home_computer_viewer("Jay"))
         .await
         .unwrap();
     turn_done(&mut updates, "recipes").await;
@@ -96,17 +96,17 @@ async fn each_turn_keeps_who_started_it_on_the_mac_or_a_phone() {
     let store = Store::open(&tmp.path().join("oxbot.db")).unwrap();
     let recipes = BotId::new("recipes").unwrap();
     let mac = store.turn_origin(&recipes, sent[0].0).unwrap().unwrap();
-    assert!(mac.on_farm);
-    assert_eq!(mac.entry, "farm");
+    assert!(mac.on_home_computer);
+    assert_eq!(mac.entry, "home_computer");
     assert_eq!(mac.person.as_deref(), Some(jay.id.as_str()));
     assert_eq!(
         (mac.root_bot.as_str(), mac.root_seq),
         ("recipes", sent[0].0)
     );
     assert_eq!(mac.engine, "codex");
-    let gate = store.turn_origin(&recipes, sent[1].0).unwrap().unwrap();
-    assert!(!gate.on_farm);
-    assert_eq!(gate.entry, "gate");
+    let device = store.turn_origin(&recipes, sent[1].0).unwrap().unwrap();
+    assert!(!device.on_home_computer);
+    assert_eq!(device.entry, "device");
     hub.shutdown().await;
 }
 
@@ -117,9 +117,9 @@ async fn anyone_in_the_household_tasks_a_shared_bot() {
         return;
     };
     let hub = hub_in(tmp.path(), &["recipes"], Tool::None, &codex).await;
-    hub.farm_person("Jay").unwrap();
+    hub.owner_person("Jay").unwrap();
     let mut updates = hub.subscribe();
-    let sam = Viewer::gate("Sam");
+    let sam = Viewer::device("Sam");
     assert!(hub.may_send("recipes", &sam).is_ok());
     hub.send_as("recipes", "hello", &sam).await.unwrap();
     turn_done(&mut updates, "recipes").await;
@@ -131,18 +131,22 @@ async fn anyone_in_the_household_tasks_a_shared_bot() {
 }
 
 #[tokio::test]
-async fn the_owners_herder_passes_a_task_on_in_the_owners_chain() {
+async fn the_owners_assistant_passes_a_task_on_in_the_owners_chain() {
     let tmp = tempfile::tempdir().unwrap();
     let Some(codex) = testing::codex(tmp.path()).await else {
         return;
     };
     let hub = hub_in(tmp.path(), &["assistant", "helper"], Tool::Task, &codex).await;
-    let jay = hub.farm_person("Jay").unwrap();
+    let jay = hub.owner_person("Jay").unwrap();
     let mut updates = hub.subscribe();
 
-    hub.send_as("assistant", "ask the helper", &hub.farm_viewer("Jay"))
-        .await
-        .unwrap();
+    hub.send_as(
+        "assistant",
+        "ask the helper",
+        &hub.home_computer_viewer("Jay"),
+    )
+    .await
+    .unwrap();
     turn_done(&mut updates, "assistant").await;
     let sent = user_messages(&hub, "helper");
     assert_eq!(sent.len(), 1, "the task reached the helper");
@@ -153,7 +157,7 @@ async fn the_owners_herder_passes_a_task_on_in_the_owners_chain() {
         .unwrap();
     assert_eq!(origin.via, ["assistant"]);
     assert_eq!(origin.person.as_deref(), Some(jay.id.as_str()));
-    assert!(origin.on_farm, "still the owner's chain");
+    assert!(origin.on_home_computer, "still the owner's chain");
     assert_eq!(origin.root_bot, "assistant");
     hub.shutdown().await;
 }
@@ -164,17 +168,17 @@ async fn without_an_openrouter_sign_in_every_bot_says_so() {
     let bots = tmp.path().join("bots");
     std::fs::create_dir_all(&bots).unwrap();
     let all = vec![
-        Bot::create(&bots, BotId::new("assistant").unwrap(), "Herder", "").unwrap(),
+        Bot::create(&bots, BotId::new("assistant").unwrap(), "Assistant", "").unwrap(),
         Bot::create(&bots, BotId::new("recipes").unwrap(), "Recipes", "").unwrap(),
     ];
     // No OpenRouter here at all: no bot can run.
     let hub = Hub::new(all, Store::open_in_memory().unwrap(), HubConfig::new(&bots));
-    hub.farm_person("Jay").unwrap();
-    let anns = hub.herder_for("Ann").unwrap();
+    hub.owner_person("Jay").unwrap();
+    let anns = hub.assistant_for("Ann").unwrap();
     for (bot, viewer) in [
-        ("assistant", hub.farm_viewer("Jay")),
-        (anns.as_str(), Viewer::gate("Ann")),
-        ("recipes", Viewer::gate("Sam")),
+        ("assistant", hub.home_computer_viewer("Jay")),
+        (anns.as_str(), Viewer::device("Ann")),
+        ("recipes", Viewer::device("Sam")),
     ] {
         assert_eq!(hub.engine_of_bot(bot), Some(EngineKind::Codex), "{bot}");
         let err = hub.send_as(bot, "hi", &viewer).await.unwrap_err();
@@ -200,7 +204,7 @@ async fn a_session_of_another_engine_starts_new() {
         async move {
             let hub = hub_in(&dir, &["recipes"], Tool::None, &codex).await;
             let mut updates = hub.subscribe();
-            hub.send_as("recipes", text, &Viewer::farm("Jay"))
+            hub.send_as("recipes", text, &Viewer::home_computer("Jay"))
                 .await
                 .unwrap();
             turn_done(&mut updates, "recipes").await;
@@ -240,21 +244,21 @@ async fn a_session_of_another_engine_starts_new() {
 }
 
 #[tokio::test]
-async fn whoever_manages_a_bot_sets_its_model_but_never_a_herders() {
+async fn whoever_manages_a_bot_sets_its_model_but_never_a_assistants() {
     let tmp = tempfile::tempdir().unwrap();
     let Some(codex) = testing::codex(tmp.path()).await else {
         return;
     };
     let hub = hub_in(tmp.path(), &["assistant"], Tool::None, &codex).await;
-    hub.farm_person("Jay").unwrap();
-    let owner = hub.farm_viewer("Jay");
+    hub.owner_person("Jay").unwrap();
+    let owner = hub.home_computer_viewer("Jay");
     let notes = hub
         .create_bot_with("Notes", "", Some("Sam"), true)
         .await
         .unwrap();
     assert_eq!(notes.engine, oxbot_protocol::EngineKind::Codex);
-    let sam = Viewer::gate("Sam");
-    let ann = Viewer::gate("Ann");
+    let sam = Viewer::device("Sam");
+    let ann = Viewer::device("Ann");
 
     // Ann may not change Sam's bot; Sam may, with a model of his choice.
     assert!(matches!(
@@ -292,7 +296,7 @@ async fn whoever_manages_a_bot_sets_its_model_but_never_a_herders() {
     .await
     .unwrap();
     assert_eq!(hub.bot("notes").unwrap().loop_settings.model, None);
-    // A Herder's is the owner's to set.
+    // An Assistant's is the owner's to set.
     let err = hub
         .set_engine("assistant", EngineKind::Codex, None, None, &owner)
         .await
@@ -315,8 +319,8 @@ async fn a_message_waiting_for_a_slot_is_checked_again() {
         c.approval_timeout = Duration::from_secs(30);
     })
     .await;
-    hub.farm_person("Jay").unwrap();
-    let owner = hub.farm_viewer("Jay");
+    hub.owner_person("Jay").unwrap();
+    let owner = hub.home_computer_viewer("Jay");
     let mut updates = hub.subscribe();
     hub.send_as("busy", "upload my CV", &owner).await.unwrap();
     let card = tokio::time::timeout(Duration::from_secs(20), async {
@@ -332,7 +336,7 @@ async fn a_message_waiting_for_a_slot_is_checked_again() {
     // Sam's message to Scout waits for the slot…
     let waiting = {
         let hub = Arc::clone(&hub);
-        tokio::spawn(async move { hub.send_as("scout", "hello", &Viewer::gate("Sam")).await })
+        tokio::spawn(async move { hub.send_as("scout", "hello", &Viewer::device("Sam")).await })
     };
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!waiting.is_finished(), "it waits for the only slot");
@@ -352,7 +356,7 @@ async fn a_message_waiting_for_a_slot_is_checked_again() {
 /// A data folder as an oxbot from before Codex was the only engine leaves
 /// one: a shared bot on Claude (no engine in its file, a Claude model),
 /// one that says `claude`, a bot on oxbot's own loop (`openrouter`, with
-/// a loop session), the Farm's Herder and a person's own Herder (whose
+/// a loop session), the home computer's Assistant and a person's own Assistant (whose
 /// files name no engine), Claude sessions saved for them, a chat each,
 /// and an alert for Claude's 5-hour window.
 fn pre_upgrade_folder(dir: &Path) -> std::path::PathBuf {
@@ -433,7 +437,7 @@ async fn bots_from_retired_engines_move_to_codex_once_and_keep_their_chats() {
         )
     };
     let hub = start();
-    hub.farm_person("Jay").unwrap();
+    hub.owner_person("Jay").unwrap();
     let file = |id: &str| std::fs::read_to_string(bots.join(id).join("bot.toml")).unwrap();
 
     // Their files say Codex now, and lose Claude's model; the rest stays
@@ -486,7 +490,7 @@ async fn bots_from_retired_engines_move_to_codex_once_and_keep_their_chats() {
     assert_eq!(
         note(&hub, "assistant--ann-1a2b3c", MOVED_FROM_LOOP),
         1,
-        "a person's own Herder ran on the loop"
+        "a person's own Assistant ran on the loop"
     );
     assert_eq!(
         MOVED_FROM_CLAUDE,
@@ -530,7 +534,7 @@ async fn bots_from_retired_engines_move_to_codex_once_and_keep_their_chats() {
 
     // With no OpenRouter sign-in yet, they say so rather than fail later.
     let err = hub
-        .send_as("recipes", "hi", &hub.farm_viewer("Jay"))
+        .send_as("recipes", "hi", &hub.home_computer_viewer("Jay"))
         .await
         .unwrap_err();
     assert_eq!(
@@ -571,11 +575,11 @@ async fn a_moved_bot_starts_a_new_session_on_codex() {
     );
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     hub.start_codex().await;
-    hub.farm_person("Jay").unwrap();
+    hub.owner_person("Jay").unwrap();
     let mut updates = hub.subscribe();
     let store = Store::open(&tmp.path().join("oxbot.db")).unwrap();
     for (id, old) in [("recipes", "old-session-1"), ("scout", "old-session-3")] {
-        hub.send_as(id, "hi", &hub.farm_viewer("Jay"))
+        hub.send_as(id, "hi", &hub.home_computer_viewer("Jay"))
             .await
             .unwrap();
         turn_done(&mut updates, id).await;

@@ -16,7 +16,7 @@ export interface App {
   /** The home computer's key for this window ("" if none), for uploads. */
   key: string;
   /** The phone app's connection, when this page runs inside it. */
-  phone: { farm?: string; person?: string } | null;
+  phone: { homeComputer?: string; person?: string } | null;
 }
 
 export const AppContext = createContext<App | null>(null);

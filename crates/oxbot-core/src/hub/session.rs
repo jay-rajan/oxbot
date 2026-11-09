@@ -63,7 +63,7 @@ impl Hub {
         bot: &Bot,
         overrides: SessionOverrides,
     ) -> Result<Runtime, HubError> {
-        let bot = &self.as_herder(bot);
+        let bot = &self.as_assistant(bot);
         let kind = overrides.engine.unwrap_or_else(|| self.engine_of(bot));
         let engine = self.engine(kind)?;
         let shared = if overrides.no_browser {
@@ -105,7 +105,7 @@ impl Hub {
                 mcp: crate::engine::McpCommand::default(),
             });
         }
-        // As the prompt says: Herder gets its team tools, a bot given a
+        // As the prompt says: the Assistant gets its team tools, a bot given a
         // browser can save reports.
         let host_tools = HostTools {
             central: bot.is_central(),

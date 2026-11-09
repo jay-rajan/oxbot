@@ -1,7 +1,7 @@
 /* The board animation's strokes (Board.tsx), and the Assistant avatar's X
-   (brand.ts HERDER). Colors only from theme tokens. */
+   (brand.ts ASSISTANT). Colors only from theme tokens. */
 .board-line { stroke: var(--line); }
 .board-line.busy { stroke: var(--focus); }
 .board-o { stroke: var(--ink); }
 .board-x { stroke: var(--accent); }
-.herder-x { stroke: var(--accent); }
+.assistant-x { stroke: var(--accent); }

@@ -62,12 +62,12 @@ flowchart TB
   A["Household admin (18+)<br/>sets budgets, privacy level, kid profiles"]
   M["Household member<br/>makes and uses bots"]
   K["Kid (kid profile)<br/>bots under parental control"]
-  OX["oxbot on the Farm (Mac)<br/>bots, browser, scripts, data"]
+  OX["oxbot on the home computer (Mac)<br/>bots, browser, scripts, data"]
   OR["OpenRouter<br/>one household account"]
   MP["Model providers<br/>(chosen by the household)"]
   W["Websites"]
   LM["Local model<br/>(on the Mac, later)"]
-  A -->|"app on the Mac or a Gate on home Wi-Fi"| OX
+  A -->|"app on the Mac or a device on home Wi-Fi"| OX
   M --> OX
   K -->|"risky steps go to the parent"| OX
   OX -->|"task text only, personal details removed"| OR --> MP
@@ -82,10 +82,10 @@ flowchart TB
   <h2>What runs on the Mac</h2>
   <div class="diagram"><pre class="mermaid">
 flowchart LR
-  subgraph G["Gates (phones, laptops)"]
+  subgraph G["Devices (phones, laptops)"]
     UIg["oxbot app / web UI"]
   end
-  subgraph F["Farm (Mac)"]
+  subgraph F["Home computer (Mac)"]
     UI["oxbot UI<br/>chat, cards, Settings,<br/>What was sent, Parent view"]
     HUB["oxbot hub (Rust)<br/>people, bots, turns, approvals"]
     ENG["Codex engine adapter<br/>JSON-RPC client"]
@@ -98,7 +98,7 @@ flowchart LR
     DB[("SQLite + files<br/>chats, pages, budgets, logs")]
   end
   OR["OpenRouter"]
-  UIg -->|"encrypted link (Gates)"| HUB
+  UIg -->|"encrypted link (devices)"| HUB
   UI --> HUB
   HUB --> ENG -->|"stdio JSON-RPC"| CX
   CX -->|"item/tool/call"| ENG --> GATE
@@ -113,7 +113,7 @@ flowchart LR
   <div class="tbl"><table>
     <thead><tr><th>Container</th><th>Status</th><th>Notes</th></tr></thead>
     <tbody>
-      <tr><td>oxbot hub, UI, store, Gates link</td><td>exists</td><td>Engine field per bot shrinks to one engine; Claude paths removed.</td></tr>
+      <tr><td>oxbot hub, UI, store, devices link</td><td>exists</td><td>Engine field per bot shrinks to one engine; Claude paths removed.</td></tr>
       <tr><td>Codex engine adapter</td><td class="new">new</td><td>Spawns <span class="mono">codex app-server --listen stdio://</span> per person, maps threads to bot sessions, events to chat, approvals to cards, enforces step/time/token limits by <span class="mono">turn/interrupt</span>.</td></tr>
       <tr><td>codex app-server</td><td class="new">new (shipped binary)</td><td>Pinned version inside oxbot.app with LICENSE + NOTICE. Config written by oxbot, never by hand (below).</td></tr>
       <tr><td>Gate + page tools</td><td>exists (oxbot-core policy, oxbot-loop page tools)</td><td>Moved behind one interface that Codex reaches as dynamic tools. <span class="mono">evaluate_script</span> stays denied.</td></tr>

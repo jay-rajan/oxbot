@@ -47,11 +47,11 @@ pub(super) fn maker_name(bot: &Bot, names: &HashMap<PersonId, String>) -> Option
 }
 
 impl Hub {
-    /// A person's Herder as its engine runs it: with the Farm's Herder's
+    /// A person's Assistant as its engine runs it: with the home computer's Assistant's
     /// name and instructions.
-    pub(super) fn as_herder(&self, bot: &Bot) -> Bot {
+    pub(super) fn as_assistant(&self, bot: &Bot) -> Bot {
         let mut bot = bot.clone();
-        if !bot.is_main_herder()
+        if !bot.is_main_assistant()
             && bot.is_central()
             && let Some(main) = self
                 .bots
@@ -135,19 +135,19 @@ impl Hub {
     }
 
     /// Whether `viewer` (already resolved) may open `bot`: as
-    /// [`Bot::visible_to`] says, and the Farm's Herder only on the Farm or
-    /// for the Farm's person. Everyone else talks to their own Herder.
+    /// [`Bot::visible_to`] says, and the home computer's Assistant only on the home computer or
+    /// for the home computer's person. Everyone else talks to their own Assistant.
     pub(super) fn opens(&self, bot: &Bot, viewer: &Viewer) -> bool {
-        bot.visible_to(viewer) && (!bot.is_main_herder() || self.is_farm_side(viewer))
+        bot.visible_to(viewer) && (!bot.is_main_assistant() || self.is_home_computer_side(viewer))
     }
 
-    /// Whether `viewer` is the Farm or the Farm's person (by id).
-    pub(super) fn is_farm_side(&self, viewer: &Viewer) -> bool {
-        viewer.farm
+    /// Whether `viewer` is the home computer or the home computer's person (by id).
+    pub(super) fn is_home_computer_side(&self, viewer: &Viewer) -> bool {
+        viewer.home_computer
             || viewer
                 .id
                 .as_ref()
-                .is_some_and(|id| self.farm_id().as_ref() == Some(id))
+                .is_some_and(|id| self.owner_person_id().as_ref() == Some(id))
     }
 
     /// Every bot as `viewer` gets it: a private bot they can't open is
@@ -207,12 +207,12 @@ impl Hub {
         Ok(bot)
     }
 
-    /// Makes a bot private (only its owner and the Farm see it, and it
+    /// Makes a bot private (only its owner and the home computer see it, and it
     /// uses its owner's own browser) or shared with everyone again. A bot
     /// nobody owns becomes `viewer`'s when it goes private.
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's Herder, it's working, or
+    /// Fails if `viewer` may not change it, it's an Assistant, it's working, or
     /// its file can't be written.
     pub async fn set_private(
         &self,
@@ -347,7 +347,7 @@ impl Hub {
     /// Gives a bot a new name.
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's Herder, the name is empty,
+    /// Fails if `viewer` may not change it, it's an Assistant, the name is empty,
     /// too long, on more than one line or taken, or its file can't be
     /// written.
     pub async fn rename_bot(&self, id: &str, name: &str, viewer: &Viewer) -> Result<(), HubError> {
@@ -444,7 +444,7 @@ impl Hub {
     /// moves the folder to oxbot's trash.
     ///
     /// # Errors
-    /// Fails if `viewer` may not change it, it's Herder, it's working, or
+    /// Fails if `viewer` may not change it, it's an Assistant, it's working, or
     /// its history or folder can't be saved or moved.
     pub async fn delete_bot(&self, id: &str, viewer: &Viewer) -> Result<(), HubError> {
         let viewer = &*self.resolve(viewer);
@@ -554,7 +554,7 @@ impl Hub {
         let by = viewer
             .id
             .as_ref()
-            .map_or_else(|| "the Farm".to_owned(), ToString::to_string);
+            .map_or_else(|| "the home computer".to_owned(), ToString::to_string);
         tracing::info!(bot = %bot.id, by, "deleted a bot; its folder is in the trash");
         Ok(filed_by)
     }
@@ -743,7 +743,7 @@ mod tests {
     use crate::store::Store;
     use oxbot_protocol::{Approval, ApprovalKind, SignInRequest};
 
-    /// Jay (the Farm's person) has a bot, Garden; Sam and Ann are people.
+    /// Jay (the home computer's person) has a bot, Garden; Sam and Ann are people.
     async fn hub(
         db: &std::path::Path,
         dir: &std::path::Path,
@@ -753,7 +753,7 @@ mod tests {
             Store::open(db).unwrap(),
             HubConfig::new(dir),
         );
-        let jay = hub.farm_person("Jay").unwrap();
+        let jay = hub.owner_person("Jay").unwrap();
         let sam = hub.person_named("Sam").unwrap();
         let ann = hub.person_named("Ann").unwrap();
         if hub.bot("garden").is_err() {
@@ -829,7 +829,10 @@ mod tests {
 
         // Its maker and the owner always may.
         assert!(hub.bot_for("garden", &jay).is_ok() && hub.bot_to_manage("garden", &jay).is_ok());
-        assert!(hub.bot_for("garden", &hub.farm_viewer("Jay")).is_ok());
+        assert!(
+            hub.bot_for("garden", &hub.home_computer_viewer("Jay"))
+                .is_ok()
+        );
 
         // Back to just Jay: Sam is out.
         hub.set_private("garden", true, &jay).await.unwrap();
@@ -872,13 +875,13 @@ mod tests {
             2,
             "each once, never the maker"
         );
-        let herder = hub.herder_for("Sam").unwrap();
+        let assistant = hub.assistant_for("Sam").unwrap();
         assert!(
             hub.set_sharing(
-                herder.as_str(),
+                assistant.as_str(),
                 Sharing::People,
                 &["Ann".into()],
-                &hub.farm_viewer("Jay")
+                &hub.home_computer_viewer("Jay")
             )
             .await
             .is_err(),
@@ -966,7 +969,10 @@ mod tests {
             !super::super::signs_in(&sign_in, &sam),
             "Sam never signs Jay's browser in"
         );
-        assert!(super::super::signs_in(&sign_in, &hub.farm_viewer("Jay")));
+        assert!(super::super::signs_in(
+            &sign_in,
+            &hub.home_computer_viewer("Jay")
+        ));
     }
 
     #[tokio::test]
@@ -976,8 +982,8 @@ mod tests {
         hub.set_sharing("garden", Sharing::People, &["Sam".into()], &jay)
             .await
             .unwrap();
-        let sams = hub.herder_for("Sam").unwrap();
-        let anns = hub.herder_for("Ann").unwrap();
+        let sams = hub.assistant_for("Sam").unwrap();
+        let anns = hub.assistant_for("Ann").unwrap();
         let (list, _) = hub.team(&sams, &sam).await;
         let line = list.lines().find(|l| l.contains("(id garden)")).unwrap();
         assert!(

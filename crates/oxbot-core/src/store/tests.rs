@@ -4,7 +4,7 @@ use super::*;
 use crate::engine::{EngineKind, LimitWindow};
 use oxbot_protocol::{EventKind, SignInOutcome};
 
-use crate::bot::personal_herder_id;
+use crate::bot::personal_assistant_id;
 
 #[test]
 fn each_person_keeps_their_own_color() {
@@ -75,7 +75,7 @@ fn sign_ins_from_before_the_sites_list_are_found_in_the_history() {
                 .unwrap();
         }
         let conn = store.conn();
-        conn.execute_batch("DELETE FROM sites; DROP TABLE gates; PRAGMA user_version = 4;")
+        conn.execute_batch("DELETE FROM sites; DROP TABLE devices; PRAGMA user_version = 4;")
             .unwrap();
     }
     let store = Store::open(&path).unwrap();
@@ -120,18 +120,21 @@ fn each_browser_keeps_its_own_sites() {
 }
 
 #[test]
-fn a_removed_gate_s_key_stops_working() {
+fn a_removed_device_s_key_stops_working() {
     let store = Store::open_in_memory().unwrap();
-    store.add_gate("g1", "Jay", "Pixel", "hash-1").unwrap();
-    store.add_gate("g2", "Sam", "Laptop", "hash-2").unwrap();
-    assert_eq!(store.gate_by_key("hash-1").unwrap().unwrap().person, "Jay");
-    assert!(store.gate_by_key("nope").unwrap().is_none());
-    assert_eq!(store.gates().unwrap().len(), 2);
-    assert!(store.remove_gate("g1").unwrap());
-    assert!(store.gate_by_key("hash-1").unwrap().is_none());
-    assert!(!store.remove_gate("g1").unwrap());
+    store.add_device("g1", "Jay", "Pixel", "hash-1").unwrap();
+    store.add_device("g2", "Sam", "Laptop", "hash-2").unwrap();
+    assert_eq!(
+        store.device_by_key("hash-1").unwrap().unwrap().person,
+        "Jay"
+    );
+    assert!(store.device_by_key("nope").unwrap().is_none());
+    assert_eq!(store.devices().unwrap().len(), 2);
+    assert!(store.remove_device("g1").unwrap());
+    assert!(store.device_by_key("hash-1").unwrap().is_none());
+    assert!(!store.remove_device("g1").unwrap());
     assert!(
-        store.add_gate("g3", "Ann", "Phone", "hash-2").is_err(),
+        store.add_device("g3", "Ann", "Phone", "hash-2").is_err(),
         "keys are unique"
     );
 }
@@ -408,7 +411,7 @@ fn an_old_database_is_migrated() {
 
 /// A database exactly as oxbot left it before people had ids (version
 /// 8, made by the real migrations), with people, browser owners and
-/// Gates known only by name.
+/// devices known only by name.
 fn version_8_database(path: &Path) {
     Store::open_at_version(path, 8).unwrap();
     let conn = Connection::open(path).unwrap();
@@ -428,7 +431,7 @@ fn version_8_database(path: &Path) {
 }
 
 #[test]
-fn people_known_by_name_get_ids_and_keep_their_folders_and_herders() {
+fn people_known_by_name_get_ids_and_keep_their_folders_and_assistants() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("v8.db");
     version_8_database(&path);
@@ -439,13 +442,13 @@ fn people_known_by_name_get_ids_and_keep_their_folders_and_herders() {
     assert_eq!(
         names,
         ["Jay", "Sam", "sam", "Ann", "Lee"],
-        "site owners and Gates' people too"
+        "site owners and devices' people too"
     );
     for p in &people {
         assert_eq!(PersonId::new(p.id.as_str()).as_ref(), Ok(&p.id));
         // Their Chrome profile stays where it was: no sign-in is lost.
         assert_eq!(p.folder, person_folder(&p.name), "{}", p.name);
-        assert!(!p.farm, "chosen later, by the hub");
+        assert!(!p.owner, "chosen later, by the hub");
     }
     let person = |name: &str| people.iter().find(|p| p.name == name).unwrap().clone();
     assert_eq!(person("Jay").color, PEOPLE_COLORS[3], "colors are kept");
@@ -455,13 +458,17 @@ fn people_known_by_name_get_ids_and_keep_their_folders_and_herders() {
         PEOPLE_COLORS[0],
         "new ones get a free color"
     );
-    // Their Herders keep their ids; `sam` no longer shares Sam's.
+    // Their Assistants keep their ids; `sam` no longer shares Sam's.
     for name in ["Jay", "Sam", "Ann", "Lee"] {
-        assert_eq!(person(name).herder, personal_herder_id(name), "{name}");
+        assert_eq!(
+            person(name).assistant,
+            personal_assistant_id(name),
+            "{name}"
+        );
     }
-    assert_ne!(person("sam").herder, person("Sam").herder);
-    assert!(crate::bot::is_personal_herder(
-        person("sam").herder.as_str()
+    assert_ne!(person("sam").assistant, person("Sam").assistant);
+    assert!(crate::bot::is_personal_assistant(
+        person("sam").assistant.as_str()
     ));
 
     // Browser owners are ids now, and hosts are main domains.
@@ -495,11 +502,11 @@ fn people_known_by_name_get_ids_and_keep_their_folders_and_herders() {
     store.site_check_done(HOME).unwrap();
     assert!(!store.site_check_due(HOME).unwrap());
 
-    // Gates point at their person.
-    let (gate, id) = store.gate_and_person_by_key("hash-1").unwrap().unwrap();
-    assert_eq!((gate.person.as_str(), id), ("Ann", person("Ann").id));
-    let (gate, id) = store.gate_and_person_by_key("hash-2").unwrap().unwrap();
-    assert_eq!((gate.person.as_str(), id), ("Lee", person("Lee").id));
+    // Devices point at their person.
+    let (device, id) = store.device_and_person_by_key("hash-1").unwrap().unwrap();
+    assert_eq!((device.person.as_str(), id), ("Ann", person("Ann").id));
+    let (device, id) = store.device_and_person_by_key("hash-2").unwrap().unwrap();
+    assert_eq!((device.person.as_str(), id), ("Lee", person("Lee").id));
 
     // Opening it again changes nothing.
     drop(store);
@@ -538,19 +545,19 @@ fn people_added_by_an_older_oxbot_get_the_folder_it_would_have_used() {
     fill_people(&store.conn()).unwrap();
     let sam = store.person_by_name("Sam").unwrap().unwrap();
     assert_eq!(sam.folder, person_folder("Sam"));
-    assert_eq!(sam.herder, personal_herder_id("Sam"));
+    assert_eq!(sam.assistant, personal_assistant_id("Sam"));
 }
 
 #[test]
-fn new_people_get_their_id_as_folder_and_never_share_a_herder() {
+fn new_people_get_their_id_as_folder_and_never_share_a_assistant() {
     let store = Store::open_in_memory().unwrap();
     let (sam, new) = store.find_or_create_person("Sam").unwrap();
     assert!(new);
     assert_eq!(sam.folder, sam.id.as_str());
-    assert_eq!(sam.herder, personal_herder_id("Sam"));
+    assert_eq!(sam.assistant, personal_assistant_id("Sam"));
     let (other, _) = store.find_or_create_person("sam").unwrap();
     assert_ne!(other.id, sam.id, "names are told apart exactly");
-    assert_ne!(other.herder, sam.herder);
+    assert_ne!(other.assistant, sam.assistant);
     assert_eq!(
         store.find_or_create_person("Sam").unwrap(),
         (sam.clone(), false)
@@ -563,12 +570,12 @@ fn new_people_get_their_id_as_folder_and_never_share_a_herder() {
         (
             renamed.name.as_str(),
             renamed.folder.as_str(),
-            &renamed.herder
+            &renamed.assistant
         ),
-        ("Samuel", sam.folder.as_str(), &sam.herder)
+        ("Samuel", sam.folder.as_str(), &sam.assistant)
     );
-    store.set_farm_person(&other.id).unwrap();
-    assert_eq!(store.farm_person().unwrap().unwrap().id, other.id);
+    store.set_owner_person(&other.id).unwrap();
+    assert_eq!(store.owner_person().unwrap().unwrap().id, other.id);
 }
 
 #[test]
@@ -595,7 +602,7 @@ fn migration_9_derivations_are_frozen() {
     use migrations::{v9_herder_id, v9_herder_id_for, v9_person_folder, v9_site_of};
     let id = PersonId::new("p_0123456789abcdef").unwrap();
     // Worked out with the live functions when migration 9 shipped.
-    for (name, folder, herder, herder_for) in [
+    for (name, folder, assistant, assistant_for) in [
         (
             "Sam",
             "sam-9836be19",
@@ -646,8 +653,8 @@ fn migration_9_derivations_are_frozen() {
         ),
     ] {
         assert_eq!(v9_person_folder(name), folder, "{name:?}");
-        assert_eq!(v9_herder_id(name), herder, "{name:?}");
-        assert_eq!(v9_herder_id_for(name, &id), herder_for, "{name:?}");
+        assert_eq!(v9_herder_id(name), assistant, "{name:?}");
+        assert_eq!(v9_herder_id_for(name, &id), assistant_for, "{name:?}");
         // Every frozen id is still a valid bot id.
         assert!(BotId::new(v9_herder_id(name)).is_ok());
         assert!(BotId::new(v9_herder_id_for(name, &id)).is_ok());
@@ -753,11 +760,11 @@ fn a_copy_already_there_is_kept() {
 }
 
 #[test]
-fn one_person_per_folder_and_herder_and_one_farm() {
+fn one_person_per_folder_and_assistant_and_one_owner() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("oxbot.db");
-    // Version 10 had no such rules: two people share a Herder and a
-    // folder, and two are the Farm's.
+    // Version 10 had no such rules: two people share an Assistant and a
+    // folder, and both are the owner.
     Store::open_at_version(&path, 10).unwrap();
     Connection::open(&path)
         .unwrap()
@@ -771,31 +778,27 @@ fn one_person_per_folder_and_herder_and_one_farm() {
     let people = store.person_records().unwrap();
     let (first, second) = (&people[0], &people[1]);
     assert_eq!(
-        (first.folder.as_str(), first.herder.as_str()),
+        (first.folder.as_str(), first.assistant.as_str()),
         ("sam-folder", "assistant--sam-d5f7dc"),
         "the first keeps theirs"
     );
     assert_ne!(second.folder, first.folder);
-    assert_ne!(second.herder, first.herder);
-    assert!(crate::bot::is_personal_herder(second.herder.as_str()));
-    assert_eq!(
-        people.iter().filter(|p| p.farm).count(),
-        1,
-        "one Farm person"
-    );
-    assert!(first.farm);
+    assert_ne!(second.assistant, first.assistant);
+    assert!(crate::bot::is_personal_assistant(second.assistant.as_str()));
+    assert_eq!(people.iter().filter(|p| p.owner).count(), 1, "one owner");
+    assert!(first.owner);
 
-    // Choosing another Farm person moves it.
-    store.set_farm_person(&second.id).unwrap();
-    assert_eq!(store.farm_person().unwrap().unwrap().id, second.id);
-    store.set_farm_person(&first.id).unwrap();
-    assert_eq!(store.farm_person().unwrap().unwrap().id, first.id);
+    // Choosing another owner moves it.
+    store.set_owner_person(&second.id).unwrap();
+    assert_eq!(store.owner_person().unwrap().unwrap().id, second.id);
+    store.set_owner_person(&first.id).unwrap();
+    assert_eq!(store.owner_person().unwrap().unwrap().id, first.id);
 
     let conn = store.conn();
     for bad in [
-        "UPDATE people SET farm = 1",
-        "UPDATE people SET farm = 2 WHERE name = 'sam'",
-        "UPDATE people SET herder = 'assistant--sam-d5f7dc' WHERE name = 'sam'",
+        "UPDATE people SET owner = 1",
+        "UPDATE people SET owner = 2 WHERE name = 'sam'",
+        "UPDATE people SET assistant = 'assistant--sam-d5f7dc' WHERE name = 'sam'",
         "UPDATE people SET folder = 'sam-folder' WHERE name = 'sam'",
     ] {
         assert!(conn.execute(bad, []).is_err(), "{bad}");
@@ -803,7 +806,7 @@ fn one_person_per_folder_and_herder_and_one_farm() {
 }
 
 #[test]
-fn a_person_added_by_an_older_oxbot_never_takes_someone_elses_herder() {
+fn a_person_added_by_an_older_oxbot_never_takes_someone_elses_assistant() {
     let store = Store::open_in_memory().unwrap();
     let (sam, _) = store.find_or_create_person("Sam").unwrap();
     // An older oxbot adds `sam` by name only.
@@ -816,7 +819,7 @@ fn a_person_added_by_an_older_oxbot_never_takes_someone_elses_herder() {
         .unwrap();
     fill_people(&store.conn()).unwrap();
     let other = store.person_by_name("sam").unwrap().unwrap();
-    assert_ne!(other.herder, sam.herder);
+    assert_ne!(other.assistant, sam.assistant);
     assert_eq!(other.folder, person_folder("sam"), "its old folder is free");
 }
 
@@ -1403,8 +1406,8 @@ fn who_started_a_turn_is_kept_until_the_bot_is_deleted() {
     let store = Store::open_in_memory().unwrap();
     let origin = TurnOriginRecord {
         person: Some("p_0123456789abcdef".into()),
-        on_farm: false,
-        entry: "gate".into(),
+        on_home_computer: false,
+        entry: "device".into(),
         root_bot: "assistant".into(),
         root_seq: 4,
         via: vec!["assistant".into()],
@@ -1414,7 +1417,7 @@ fn who_started_a_turn_is_kept_until_the_bot_is_deleted() {
     store.add_turn_origin(&bot("helper"), 7, &origin).unwrap();
     // Kept as first recorded.
     let other = TurnOriginRecord {
-        on_farm: true,
+        on_home_computer: true,
         ..origin.clone()
     };
     store.add_turn_origin(&bot("helper"), 7, &other).unwrap();
@@ -1838,4 +1841,71 @@ fn a_version_22_database_stops_the_loops_turns_and_keeps_what_codex_uses() {
         one("SELECT COUNT(*) FROM loop_turns WHERE status = 'stopped'"),
         2
     );
+}
+
+#[test]
+fn a_database_with_the_old_words_upgrades_and_keeps_everything() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("v27.db");
+    // Version 27 still said Gate, Farm and Herder.
+    Store::open_at_version(&path, 27).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO people (id, name, color, first_ms, folder, herder, farm) VALUES
+               ('p_00000000000000a1', 'Jay', 0, 1, 'jay', 'assistant--jay-1', 1),
+               ('p_00000000000000b2', 'Ann', 1, 2, 'ann', 'assistant--ann-2', 0);
+             INSERT INTO gates (id, person_id, name, key_hash, paired_ms, last_seen_ms) VALUES
+               ('g1', 'p_00000000000000b2', 'Pixel', 'hash-1', 10, 20);
+             INSERT INTO net_log (ts_ms, kind, who, person, gate, host, label) VALUES
+               (30, 'device', 'Pixel', 'p_00000000000000b2', 'g1', '192.168.1.5', 'Pixel');
+             INSERT INTO turn_origins (bot, seq, person, on_farm, entry, root_bot, root_seq, engine) VALUES
+               ('assistant', 1, 'p_00000000000000a1', 1, 'farm', 'assistant', 1, 'codex'),
+               ('assistant', 2, 'p_00000000000000b2', 0, 'gate', 'assistant', 2, 'codex');",
+        )
+        .unwrap();
+
+    let store = Store::open(&path).unwrap();
+    let owner = store.owner_person().unwrap().unwrap();
+    assert_eq!(
+        (owner.name.as_str(), owner.assistant.as_str()),
+        ("Jay", "assistant--jay-1")
+    );
+    let (device, person) = store.device_and_person_by_key("hash-1").unwrap().unwrap();
+    assert_eq!(
+        (device.id.as_str(), device.name.as_str(), person.as_str()),
+        ("g1", "Pixel", "p_00000000000000b2")
+    );
+    let logged: String = store
+        .conn()
+        .query_row("SELECT device FROM net_log", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(logged, "g1");
+    let assistant = bot("assistant");
+    let first = store.turn_origin(&assistant, 1).unwrap().unwrap();
+    assert!(first.on_home_computer);
+    assert_eq!(first.entry, "home_computer");
+    let second = store.turn_origin(&assistant, 2).unwrap().unwrap();
+    assert!(!second.on_home_computer);
+    assert_eq!(second.entry, "device");
+
+    // The rules came along: one owner, one Assistant each.
+    let conn = store.conn();
+    for bad in [
+        "UPDATE people SET owner = 1",
+        "UPDATE people SET assistant = 'assistant--jay-1' WHERE name = 'Ann'",
+    ] {
+        assert!(conn.execute(bad, []).is_err(), "{bad}");
+    }
+    // And the old names are gone.
+    for old in ["gates", "people_herder", "people_one_farm"] {
+        let there: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE name = ?1",
+                [old],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!there, "{old}");
+    }
 }

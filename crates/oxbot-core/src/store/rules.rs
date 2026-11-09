@@ -19,7 +19,7 @@ pub struct RuleKey {
     pub label: String,
 }
 
-/// A rule as stored: who set it is a person id (`None`: the Farm).
+/// A rule as stored: who set it is a person id (`None`: the home computer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredRule {
     /// The rule; its `by` is empty (names are looked up by the caller).
@@ -30,7 +30,7 @@ pub struct StoredRule {
 
 impl Store {
     /// Lets `bot` do `key` without asking from now on, set by `by` (`None`:
-    /// the Farm). The same rule twice is kept once (the first).
+    /// the home computer). The same rule twice is kept once (the first).
     ///
     /// # Errors
     /// Fails if SQLite fails.

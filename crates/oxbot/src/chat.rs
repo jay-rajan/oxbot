@@ -19,7 +19,7 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
     let (ws, _) = tokio_tungstenite::connect_async(url)
         .await
         .with_context(|| {
-            // Without the Farm secret in the query.
+            // Without the home computer secret in the query.
             let at = url.split('?').next().unwrap_or(url);
             format!("couldn't reach oxbot at {at}. Is `oxbot serve` running?")
         })?;
@@ -248,7 +248,7 @@ impl View {
             | ServerMsg::Dictation { .. }
             | ServerMsg::Pairing(_)
             | ServerMsg::PairingClosed
-            | ServerMsg::Gates { .. }
+            | ServerMsg::Devices { .. }
             | ServerMsg::Door(_)
             | ServerMsg::Activity { .. }
             | ServerMsg::Browser { .. }

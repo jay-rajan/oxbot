@@ -1,15 +1,15 @@
-//! oxbot on a phone: always a Gate, never the Farm.
+//! oxbot on a phone: always a device, never the home computer.
 //!
-//! The window shows `gate.html` (bundled). Unpaired, it offers to scan the
-//! Farm's QR code. Paired, it asks this module for the Farm's page and
-//! shows it, with `window.oxbotGate` standing in for the WebSocket: the
-//! page's messages travel through [`oxbot_gate`]'s TLS link, pinned to the
-//! Farm's certificate. The page never holds the key and the phone opens no
+//! The window shows `device.html` (bundled). Unpaired, it offers to scan the
+//! home computer's QR code. Paired, it asks this module for the home computer's page and
+//! shows it, with `window.oxbotDevice` standing in for the WebSocket: the
+//! page's messages travel through [`oxbot_device`]'s TLS link, pinned to the
+//! home computer's certificate. The page never holds the key and the phone opens no
 //! ports.
 //!
-//! Away from home, the app shows the last copy of the Farm's page and the
-//! phone's own copy of its chats ([`oxbot_gate::copy`]), read-only, until
-//! the Farm can be reached again.
+//! Away from home, the app shows the last copy of the home computer's page and the
+//! phone's own copy of its chats ([`oxbot_device::copy`]), read-only, until
+//! the home computer can be reached again.
 //!
 //! Web links open in the phone's browser, never in the app's window.
 
@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use futures_util::{SinkExt as _, StreamExt as _};
-use oxbot_gate::copy::ChatCopy;
-use oxbot_gate::{GateError, Message, PairLink, Paired};
+use oxbot_device::copy::ChatCopy;
+use oxbot_device::{DeviceError, Message, PairLink, Paired};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager as _, State};
@@ -27,14 +27,14 @@ use tauri::{AppHandle, Manager as _, State};
 use crate::links::{self, Link};
 use tokio::sync::{Mutex, mpsc};
 
-/// How often the link checks the Farm is still there.
+/// How often the link checks the home computer is still there.
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(15);
-/// How long without a word from the Farm before the link counts as lost.
+/// How long without a word from the home computer before the link counts as lost.
 const SILENCE: std::time::Duration = std::time::Duration::from_secs(35);
 
 /// What the app keeps: the pairing, the open link if any, and the chat copy.
 #[derive(Default)]
-struct Gate {
+struct Device {
     paired: Mutex<Option<Paired>>,
     link: Mutex<Option<mpsc::Sender<String>>>,
     copy: std::sync::Mutex<Option<ChatCopy>>,
@@ -43,7 +43,11 @@ struct Gate {
 /// The saved pairing's format. A newer app reads older versions.
 const SAVED_VERSION: u32 = 1;
 
-/// `farm.json`: the pairing, with its format's version.
+/// The saved pairing's file, and its name before the rename (moved once).
+const SAVED_FILE: &str = "home-computer.json";
+const OLD_SAVED_FILE: &str = "farm.json";
+
+/// [`SAVED_FILE`]: the pairing, with its format's version.
 #[derive(Serialize, Deserialize)]
 struct Saved {
     version: u32,
@@ -53,11 +57,11 @@ struct Saved {
 /// What the page is told about the pairing.
 #[derive(Debug, Clone, Serialize)]
 struct Status {
-    farm: String,
+    home_computer: String,
     person: String,
 }
 
-/// The Farm's page, and whether it's the copy from last time (the Farm
+/// The home computer's page, and whether it's the copy from last time (the home computer
 /// can't be reached).
 #[derive(Debug, Clone, Serialize)]
 struct Page {
@@ -68,7 +72,7 @@ struct Page {
 impl From<&Paired> for Status {
     fn from(p: &Paired) -> Self {
         Self {
-            farm: p.farm.name.clone(),
+            home_computer: p.home_computer.name.clone(),
             person: p.person.clone(),
         }
     }
@@ -78,11 +82,11 @@ impl From<&Paired> for Status {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Wire {
-    /// Connected to the Farm.
+    /// Connected to the home computer.
     Open,
-    /// A message from the Farm (JSON text).
+    /// A message from the home computer (JSON text).
     Msg { text: String },
-    /// The link closed. `unpaired`: the Farm removed this phone.
+    /// The link closed. `unpaired`: the home computer removed this phone.
     Closed { reason: String, unpaired: bool },
 }
 
@@ -116,13 +120,15 @@ fn save(app: &AppHandle, paired: &Paired) -> anyhow::Result<()> {
         version: SAVED_VERSION,
         paired: paired.clone(),
     };
-    write_whole(&data_path(app, "farm.json")?, &serde_json::to_vec(&saved)?)
+    write_whole(&data_path(app, SAVED_FILE)?, &serde_json::to_vec(&saved)?)
 }
 
 /// The saved pairing: `Ok(None)` if there's none, an error if it can't be
 /// read (so the page can say so instead of quietly asking to pair again).
 fn load(app: &AppHandle) -> anyhow::Result<Option<Paired>> {
-    let path = data_path(app, "farm.json")?;
+    let path = data_path(app, SAVED_FILE)?;
+    oxbot_device::move_old_name(&data_path(app, OLD_SAVED_FILE)?, &path)
+        .context("couldn't read the saved pairing")?;
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -142,16 +148,16 @@ fn load(app: &AppHandle) -> anyhow::Result<Option<Paired>> {
     Ok(Some(paired))
 }
 
-/// Forgets the Farm: the pairing, the link, the chat copy and the page.
-async fn forget(app: &AppHandle, gate: &Gate) {
-    gate.paired.lock().await.take();
-    gate.link.lock().await.take();
-    if let Some(copy) = lock(&gate.copy).take() {
+/// Forgets the home computer: the pairing, the link, the chat copy and the page.
+async fn forget(app: &AppHandle, device: &Device) {
+    device.paired.lock().await.take();
+    device.link.lock().await.take();
+    if let Some(copy) = lock(&device.copy).take() {
         copy.wipe();
     } else if let Ok(path) = data_path(app, "chats.db") {
         let _ = std::fs::remove_file(path);
     }
-    for name in ["farm.json", "page.html"] {
+    for name in [SAVED_FILE, OLD_SAVED_FILE, "page.html"] {
         if let Ok(path) = data_path(app, name) {
             let _ = std::fs::remove_file(path);
         }
@@ -163,8 +169,8 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// The pairing, loading it the first time.
-async fn paired(app: &AppHandle, gate: &Gate) -> Result<Option<Paired>, String> {
-    let mut paired = gate.paired.lock().await;
+async fn paired(app: &AppHandle, device: &Device) -> Result<Option<Paired>, String> {
+    let mut paired = device.paired.lock().await;
     if paired.is_none() {
         *paired = load(app).map_err(|e| format!("{e:#}"))?;
     }
@@ -175,11 +181,11 @@ async fn paired(app: &AppHandle, gate: &Gate) -> Result<Option<Paired>, String> 
 /// convenience: if it fails, the link carries on without it.
 fn with_copy(
     app: &AppHandle,
-    gate: &Gate,
+    device: &Device,
     person: &str,
-    f: impl FnOnce(&mut ChatCopy) -> Result<(), oxbot_gate::copy::CopyError>,
+    f: impl FnOnce(&mut ChatCopy) -> Result<(), oxbot_device::copy::CopyError>,
 ) {
-    let mut copy = lock(&gate.copy);
+    let mut copy = lock(&device.copy);
     if copy.is_none() {
         match data_path(app, "chats.db").map(|p| ChatCopy::open(&p, person)) {
             Ok(Ok(opened)) => *copy = Some(opened),
@@ -201,13 +207,13 @@ fn now_ms() -> i64 {
 }
 
 /// Puts the address that answered first, so it's tried first next time.
-async fn remember_host(app: &AppHandle, gate: &Gate, host: &str) {
-    let mut paired = gate.paired.lock().await;
+async fn remember_host(app: &AppHandle, device: &Device, host: &str) {
+    let mut paired = device.paired.lock().await;
     if let Some(p) = paired.as_mut()
-        && p.farm.hosts.first().map(String::as_str) != Some(host)
+        && p.home_computer.hosts.first().map(String::as_str) != Some(host)
     {
-        p.farm.hosts.retain(|h| h != host);
-        p.farm.hosts.insert(0, host.to_owned());
+        p.home_computer.hosts.retain(|h| h != host);
+        p.home_computer.hosts.insert(0, host.to_owned());
         let _ = save(app, p);
     }
 }
@@ -225,27 +231,30 @@ fn device_name() -> String {
 }
 
 #[tauri::command]
-async fn gate_status(app: AppHandle, gate: State<'_, Arc<Gate>>) -> Result<Option<Status>, String> {
-    Ok(paired(&app, &gate).await?.as_ref().map(Status::from))
+async fn device_status(
+    app: AppHandle,
+    device: State<'_, Arc<Device>>,
+) -> Result<Option<Status>, String> {
+    Ok(paired(&app, &device).await?.as_ref().map(Status::from))
 }
 
 #[tauri::command]
-async fn gate_pair(
+async fn device_pair(
     app: AppHandle,
-    gate: State<'_, Arc<Gate>>,
+    device: State<'_, Arc<Device>>,
     link: String,
 ) -> Result<Status, String> {
     let link = PairLink::parse(&link).map_err(|e| e.to_string())?;
-    let paired = oxbot_gate::pair(&link, &device_name())
+    let paired = oxbot_device::pair(&link, &device_name())
         .await
         .map_err(|e| e.to_string())?;
     save(&app, &paired).map_err(|e| format!("couldn't save the pairing: {e:#}"))?;
     let status = Status::from(&paired);
     // A new pairing starts a new copy (it may be another person's).
-    if let Some(copy) = lock(&gate.copy).take() {
+    if let Some(copy) = lock(&device.copy).take() {
         copy.wipe();
     }
-    *gate.paired.lock().await = Some(paired);
+    *device.paired.lock().await = Some(paired);
     Ok(status)
 }
 
@@ -255,7 +264,7 @@ async fn gate_pair(
 /// `height`. Text, not raw bytes, because Android's bridge between the page
 /// and Rust carries only text. Runs on the phone; nothing is sent anywhere.
 #[tauri::command]
-fn gate_scan(frame: &str, width: usize, height: usize) -> Result<Option<String>, String> {
+fn device_scan(frame: &str, width: usize, height: usize) -> Result<Option<String>, String> {
     let luma = frame_bytes(frame, width, height)?;
     let mut image =
         rqrr::PreparedImage::prepare_from_greyscale(width, height, |x, y| luma[y * width + x]);
@@ -266,7 +275,7 @@ fn gate_scan(frame: &str, width: usize, height: usize) -> Result<Option<String>,
         .find(|text| text.starts_with("oxbot://pair")))
 }
 
-/// What the page adds to each brightness byte (see `gate_scan`).
+/// What the page adds to each brightness byte (see `device_scan`).
 const FRAME_SHIFT: u32 = 0x100;
 
 /// Turns the page's frame text back into one brightness byte per pixel.
@@ -290,21 +299,21 @@ fn frame_bytes(frame: &str, width: usize, height: usize) -> Result<Vec<u8>, Stri
 }
 
 #[tauri::command]
-async fn gate_forget(app: AppHandle, gate: State<'_, Arc<Gate>>) -> Result<(), String> {
-    forget(&app, &gate).await;
+async fn device_forget(app: AppHandle, device: State<'_, Arc<Device>>) -> Result<(), String> {
+    forget(&app, &device).await;
     Ok(())
 }
 
-/// The Farm's page, or the copy from last time if the Farm can't be
-/// reached. `"unpaired"` if the Farm removed this phone.
+/// The home computer's page, or the copy from last time if the home computer can't be
+/// reached. `"unpaired"` if the home computer removed this phone.
 #[tauri::command]
-async fn gate_page(app: AppHandle, gate: State<'_, Arc<Gate>>) -> Result<Page, String> {
-    let Some(paired) = paired(&app, &gate).await? else {
+async fn device_page(app: AppHandle, device: State<'_, Arc<Device>>) -> Result<Page, String> {
+    let Some(paired) = paired(&app, &device).await? else {
         return Err("unpaired".to_owned());
     };
-    match oxbot_gate::fetch(&paired, "/").await {
+    match oxbot_device::fetch(&paired, "/").await {
         Ok((host, page)) => {
-            remember_host(&app, &gate, &host).await;
+            remember_host(&app, &device, &host).await;
             if let Ok(path) = data_path(&app, "page.html") {
                 let _ = write_whole(&path, &page);
             }
@@ -313,8 +322,8 @@ async fn gate_page(app: AppHandle, gate: State<'_, Arc<Gate>>) -> Result<Page, S
                 cached: false,
             })
         }
-        Err(GateError::Unpaired) => {
-            forget(&app, &gate).await;
+        Err(DeviceError::Unpaired) => {
+            forget(&app, &device).await;
             Err("unpaired".to_owned())
         }
         Err(e) => match data_path(&app, "page.html").map(std::fs::read_to_string) {
@@ -324,16 +333,16 @@ async fn gate_page(app: AppHandle, gate: State<'_, Arc<Gate>>) -> Result<Page, S
     }
 }
 
-/// Opens the link to the Farm; what arrives goes to `events`. Replaces any
+/// Opens the link to the home computer; what arrives goes to `events`. Replaces any
 /// link already open.
 #[tauri::command]
-async fn gate_open(
+async fn device_open(
     app: AppHandle,
-    gate: State<'_, Arc<Gate>>,
+    device: State<'_, Arc<Device>>,
     events: Channel<Wire>,
 ) -> Result<(), String> {
-    let gate = Arc::clone(&gate);
-    let Some(paired) = paired(&app, &gate).await? else {
+    let device = Arc::clone(&device);
+    let Some(paired) = paired(&app, &device).await? else {
         let _ = events.send(Wire::Closed {
             reason: "not paired".to_owned(),
             unpaired: true,
@@ -341,21 +350,21 @@ async fn gate_open(
         return Ok(());
     };
     let (tx, mut outgoing) = mpsc::channel::<String>(64);
-    *gate.link.lock().await = Some(tx.clone());
+    *device.link.lock().await = Some(tx.clone());
     tauri::async_runtime::spawn(async move {
-        let socket = match oxbot_gate::connect(&paired).await {
+        let socket = match oxbot_device::connect(&paired).await {
             Ok((host, socket)) => {
-                remember_host(&app, &gate, &host).await;
+                remember_host(&app, &device, &host).await;
                 socket
             }
             Err(e) => {
-                let unpaired = matches!(e, GateError::Unpaired);
+                let unpaired = matches!(e, DeviceError::Unpaired);
                 if unpaired {
-                    forget(&app, &gate).await;
+                    forget(&app, &device).await;
                 } else {
-                    // Away from the Farm: show the chats from the phone's copy.
+                    // Away from the home computer: show the chats from the phone's copy.
                     let mut kept = Vec::new();
-                    with_copy(&app, &gate, &paired.person, |copy| {
+                    with_copy(&app, &device, &paired.person, |copy| {
                         kept = copy.replay()?;
                         Ok(())
                     });
@@ -382,7 +391,7 @@ async fn gate_open(
                     heard = tokio::time::Instant::now();
                     match frame {
                         Some(Ok(Message::Text(text))) => {
-                            with_copy(&app, &gate, &paired.person, |copy| copy.record(&text, now_ms()));
+                            with_copy(&app, &device, &paired.person, |copy| copy.record(&text, now_ms()));
                             if events.send(Wire::Msg { text: text.to_string() }).is_err() {
                                 break "the page went away".to_owned();
                             }
@@ -424,8 +433,8 @@ async fn gate_open(
 }
 
 #[tauri::command]
-async fn gate_send(gate: State<'_, Arc<Gate>>, text: String) -> Result<(), String> {
-    let link = gate.link.lock().await.clone();
+async fn device_send(device: State<'_, Arc<Device>>, text: String) -> Result<(), String> {
+    let link = device.link.lock().await.clone();
     match link {
         Some(tx) => tx.send(text).await.map_err(|_| "not connected".to_owned()),
         None => Err("not connected".to_owned()),
@@ -433,8 +442,8 @@ async fn gate_send(gate: State<'_, Arc<Gate>>, text: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn gate_close(gate: State<'_, Arc<Gate>>) -> Result<(), String> {
-    gate.link.lock().await.take();
+async fn device_close(device: State<'_, Arc<Device>>) -> Result<(), String> {
+    device.link.lock().await.take();
     Ok(())
 }
 
@@ -493,10 +502,10 @@ fn view_intent(
     Ok(())
 }
 
-/// Opens the Gate window.
+/// Opens the device window.
 pub fn run() -> anyhow::Result<()> {
     tauri::Builder::default()
-        .manage(Arc::new(Gate::default()))
+        .manage(Arc::new(Device::default()))
         // The window is made here, not in the config, to keep it on
         // oxbot's page: web links (a report's sources, links in a chat)
         // open in the phone's browser instead.
@@ -506,7 +515,7 @@ pub fn run() -> anyhow::Result<()> {
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::App("gate.html".into()),
+                tauri::WebviewUrl::App("device.html".into()),
             )
             .title("oxbot")
             .on_navigation(move |to| {
@@ -527,14 +536,14 @@ pub fn run() -> anyhow::Result<()> {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            gate_status,
-            gate_pair,
-            gate_scan,
-            gate_forget,
-            gate_page,
-            gate_open,
-            gate_send,
-            gate_close
+            device_status,
+            device_pair,
+            device_scan,
+            device_forget,
+            device_page,
+            device_open,
+            device_send,
+            device_close
         ])
         .run(tauri::generate_context!())
         .context("couldn't run the app")

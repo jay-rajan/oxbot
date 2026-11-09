@@ -123,7 +123,7 @@ impl From<BotId> for String {
 /// A person's id: `p_` and 16 hex digits, like `p_3f9a0c1b2d4e5f60`.
 ///
 /// Made once when oxbot first meets someone and never changed, so a person
-/// keeps their bots, sign-ins and Herder when their name changes.
+/// keeps their bots, sign-ins and the Assistant when their name changes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PersonId(String);

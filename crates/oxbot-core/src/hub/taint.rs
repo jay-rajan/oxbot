@@ -1,5 +1,5 @@
 //! Taint: whether a bot's session has read text oxbot doesn't trust,
-//! which may be asking for what the bot does next. Herder then needs its
+//! which may be asking for what the bot does next. The Assistant then needs its
 //! person's OK on a card before passing a task to their private bot.
 //!
 //! Untrusted, so it taints the session:
@@ -10,7 +10,7 @@
 //!   a team tool called right after it can't miss it;
 //! - another bot's reply, from `give_task` or `read_reply`;
 //! - `list_bots` output with bot names or instructions written by someone
-//!   other than the person Herder acts for.
+//!   other than the person the Assistant acts for.
 //!
 //! Trusted (`crate::engine::trust`, shared by every engine): oxbot's own tools, whose text oxbot writes
 //! (statuses, refusals, sign-in results, whether a report was saved); the team tools mark the session
@@ -52,7 +52,7 @@ const TRUSTED_TOOLS: [&str; 10] = [
 
 /// Why a call to tool `name` taints the session (`page`: the page the
 /// browser is on, if known), or `None` for a trusted tool. Shown on the
-/// card after "Herder has read".
+/// card after "The Assistant has read".
 pub(super) fn untrusted_tool(name: &str, page: Option<&(String, String)>) -> Option<String> {
     if is_trusted_tool(name) {
         return None;

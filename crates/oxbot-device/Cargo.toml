@@ -1,6 +1,6 @@
 [package]
-name = "oxbot-gate"
-description = "The Gate side of the link to the Farm: pairing, TLS pinned to the Farm's certificate, the page and the WebSocket. Builds for Android."
+name = "oxbot-device"
+description = "The device side of the link to the home computer: pairing, TLS pinned to the home computer's certificate, the page and the WebSocket. Builds for Android."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -852,10 +852,10 @@ mod tests {
             no_page: true,
             ..FakeBots::default()
         };
-        let first = fake.answer(&conv("You are \"Herder\"", &[(Role::User, "a", 0)]));
+        let first = fake.answer(&conv("You are \"Assistant\"", &[(Role::User, "a", 0)]));
         assert_eq!(first.call.unwrap().0, "mcp__oxbot__list_bots");
         let second = fake.answer(&conv(
-            "You are \"Herder\"",
+            "You are \"Assistant\"",
             &[
                 (Role::User, "a", 0),
                 (Role::Assistant, "tool_ok=true", 0),

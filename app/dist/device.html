@@ -67,7 +67,7 @@ textarea { font: 14px ui-monospace, Menlo, monospace; width: 100%; min-height: 9
 
   <section id="down" class="row" hidden>
     <h1>Waiting for home Wi-Fi</h1>
-    <p>This phone can't reach <span id="downFarm">the home computer</span>. It connects by itself when it's back on your home Wi-Fi, with the home computer awake and oxbot running.</p>
+    <p>This phone can't reach <span id="downHomeComputer">the home computer</span>. It connects by itself when it's back on your home Wi-Fi, with the home computer awake and oxbot running.</p>
     <p id="downText" style="font-size:.85rem"></p>
     <button class="primary" id="retry" type="button">Try again</button>
     <button class="link" id="unpair" type="button">Pair with a different home computer</button>
@@ -84,9 +84,9 @@ function show(which) { for (const id of ["pair", "busy", "down"]) $(id).hidden =
 // Stands in for a WebSocket: the app carries the messages to the home computer.
 // Installed inside the home computer's page itself (see open()), so it survives the
 // page replacing this one.
-function installGate(farm, person) {
+function installDevice(homeComputer, person) {
   const T = window.__TAURI__.core;
-  class GateSocket {
+  class DeviceSocket {
     constructor() {
       this.readyState = 0;
       const ch = new T.Channel();
@@ -96,17 +96,19 @@ function installGate(farm, person) {
         else if (w.kind === "closed") {
           if (this.readyState === 3) return;
           this.readyState = 3;
-          console.warn("oxbot gate: closed:", w.reason);
+          console.warn("oxbot device: closed:", w.reason);
           if (w.unpaired) { location.reload(); return; }
           this.onclose && this.onclose({ reason: w.reason });
         }
       };
-      T.invoke("gate_open", { events: ch }).catch((e) => ch.onmessage({ kind: "closed", reason: String(e), unpaired: false }));
+      T.invoke("device_open", { events: ch }).catch((e) => ch.onmessage({ kind: "closed", reason: String(e), unpaired: false }));
     }
-    send(text) { if (this.readyState === 1) T.invoke("gate_send", { text }).catch((e) => console.warn("oxbot gate: send:", e)); }
-    close() { this.readyState = 3; T.invoke("gate_close").catch(() => {}); }
+    send(text) { if (this.readyState === 1) T.invoke("device_send", { text }).catch((e) => console.warn("oxbot device: send:", e)); }
+    close() { this.readyState = 3; T.invoke("device_close").catch(() => {}); }
   }
-  window.oxbotGate = { socket: () => new GateSocket(), farm, person };
+  window.oxbotDevice = { socket: () => new DeviceSocket(), homeComputer, person };
+  // A home computer not yet updated reads the bridge by its old name.
+  window.oxbotGate = { socket: window.oxbotDevice.socket, farm: homeComputer, person };
 }
 
 // Swaps this screen for the home computer's page, in place (no navigation, so the
@@ -135,22 +137,22 @@ async function open() {
 }
 async function openOnce() {
   let st;
-  try { st = await T.invoke("gate_status"); }
+  try { st = await T.invoke("device_status"); }
   catch (e) { $("pairErr").textContent = `${e}. Pair again.`; show("pair"); return; }
   if (!st) { show("pair"); return; }
-  $("busyText").textContent = `Connecting to ${st.farm} as ${st.person}…`;
+  $("busyText").textContent = `Connecting to ${st.home_computer} as ${st.person}…`;
   show("busy");
   try {
     // The home computer's page, or last time's copy when it can't be reached: the
     // page then shows the phone's copy of the chats and keeps trying.
-    const page = await T.invoke("gate_page");
-    installGate(st.farm, st.person);
+    const page = await T.invoke("device_page");
+    installDevice(st.home_computer, st.person);
     stopRetrying();
     showPage(page.html);
   } catch (e) {
     if (String(e) === "unpaired") { $("pairErr").textContent = "The home computer removed this phone. Pair it again."; show("pair"); return; }
     $("downText").textContent = String(e);
-    $("downFarm").textContent = st.farm;
+    $("downHomeComputer").textContent = st.home_computer;
     show("down");
     waitAndRetry();
   }
@@ -160,7 +162,7 @@ async function pair(link) {
   $("pairErr").textContent = "";
   $("busyText").textContent = "Pairing…";
   show("busy");
-  try { await T.invoke("gate_pair", { link }); await open(); }
+  try { await T.invoke("device_pair", { link }); await open(); }
   catch (e) { $("pairErr").textContent = String(e); show("pair"); }
 }
 
@@ -207,7 +209,7 @@ $("scan").onclick = async () => {
         for (let k = 0; k < luma.length; k++) shifted[k] = luma[k] + 0x100;
         let frame = "";
         for (let k = 0; k < shifted.length; k += 8192) frame += String.fromCharCode.apply(null, shifted.subarray(k, k + 8192));
-        const link = await T.invoke("gate_scan", { frame, width: w, height: h });
+        const link = await T.invoke("device_scan", { frame, width: w, height: h });
         if (link && scanning) { await stopScan(); await pair(link); return; }
       } catch (e) { console.warn("scan:", e); }
     }
@@ -233,7 +235,7 @@ function stopRetrying() {
   document.removeEventListener("visibilitychange", onVisible);
 }
 $("retry").onclick = open;
-$("unpair").onclick = async () => { await T.invoke("gate_forget"); show("pair"); };
+$("unpair").onclick = async () => { await T.invoke("device_forget"); show("pair"); };
 open();
 })();
 </script>

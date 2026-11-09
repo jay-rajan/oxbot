@@ -51,7 +51,7 @@ click = "People"
 expect_js = "(() => { const g = (k) => document.querySelector('.group[data-key=\"' + k + '\"]').innerText; return g('p:Jay').includes('Recipes') && g('p:Jay').includes('Journal') && g('p:Jay').includes('Bank') && !document.querySelector('.group[data-key=\"p:Sam\"]'); })()"
 note = "By person: Jay's bots under Jay. Bank (Sam's private bot in the seed) is Jay's now: only the owner has private bots, so Sam has none here"
 [[step]]
-expect_js = "document.querySelector('.group').dataset.key === 'herder' && document.querySelector('.group').innerText.includes('Assistant')"
+expect_js = "document.querySelector('.group').dataset.key === 'assistant' && document.querySelector('.group').innerText.includes('Assistant')"
 note = "Assistant stays pinned first"
 shot = "by-person"
 [[step]]

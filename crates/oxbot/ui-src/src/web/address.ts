@@ -3,17 +3,27 @@
 
 /** What the phone app (a paired device) gives the page: it carries the
  *  connection to the home computer itself, encrypted and checked. */
-export interface GateBridge {
+export interface DeviceBridge {
   socket(): WebSocket;
-  farm?: string;
+  homeComputer?: string;
   /** The person this phone is paired as. */
   person?: string;
 }
 
 declare global {
   interface Window {
-    oxbotGate?: GateBridge;
+    oxbotDevice?: DeviceBridge;
+    /** The same bridge from a phone app made before the rename to "device". */
+    oxbotGate?: { socket: () => WebSocket; farm?: string; person?: string };
   }
+}
+
+/** The phone app's bridge, from this app or one made before the rename. */
+export function deviceBridge(w: Window): DeviceBridge | undefined {
+  if (w.oxbotDevice) return w.oxbotDevice;
+  const old = w.oxbotGate;
+  if (!old) return undefined;
+  return { socket: old.socket, ...(old.farm ? { homeComputer: old.farm } : {}), ...(old.person ? { person: old.person } : {}) };
 }
 
 /** Storage the key is kept in for this window only. */
@@ -22,7 +32,7 @@ export interface KeyStorage {
   setItem(key: string, value: string): void;
 }
 
-const KEY_ITEM = "oxbotFarmKey";
+const KEY_ITEM = "oxbotHomeComputerKey";
 const KEY_IN_HASH = /(?:^#|&)k=([0-9a-f]{32,})/;
 
 /**

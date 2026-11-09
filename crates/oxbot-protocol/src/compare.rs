@@ -1,5 +1,5 @@
 //! Comparing engines and models per bot (#21): test cases, practice runs
-//! and the scoreboard. Every message here is the Farm owner's only.
+//! and the scoreboard. Every message here is the home computer owner's only.
 
 use serde::{Deserialize, Serialize};
 

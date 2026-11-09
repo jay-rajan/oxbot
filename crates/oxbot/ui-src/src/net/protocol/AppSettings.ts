@@ -22,23 +22,23 @@ launch_at_login: boolean | null,
  */
 you: string, 
 /**
- * Whether this client is on the Farm itself, which can see, change and
+ * Whether this client is on the home computer itself, which can see, change and
  * delete every bot, private ones included.
  */
-farm: boolean, 
+home_computer: boolean, 
 /**
  * Whether oxbot tells the user when use passes 50% and 80% of the
  * household's `OpenRouter` limits.
  */
 usage_alerts: boolean, 
 /**
- * Whether this client may dictate with the Mac's microphone: the Farm
+ * Whether this client may dictate with the Mac's microphone: the home computer
  * only, and only where the Mac can recognize speech on-device.
  */
 dictation: boolean, 
 /**
- * Whether this client is the Farm's owner (the Farm, or the Farm's
- * person on a Gate): the only one who compares engines.
+ * Whether this client is the home computer's owner (the home computer, or the home computer's
+ * person on a device): the only one who compares engines.
  */
 owner: boolean, 
 /**
@@ -48,7 +48,7 @@ owner: boolean,
  */
 dev_tools: boolean, 
 /**
- * The Farm owner's name, e.g. `Jay`.
+ * The home computer owner's name, e.g. `Jay`.
  */
 owner_name: string, 
 /**

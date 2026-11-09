@@ -92,7 +92,7 @@ impl Hub {
             None
         };
         let found = found.ok_or_else(|| HubError::NotAllowed(DELETED.to_owned()))?;
-        let name = self.as_herder(&bot).name;
+        let name = self.as_assistant(&bot).name;
         Ok(ReportView {
             bot: bot.id.to_string(),
             id: found.id.clone(),
@@ -132,7 +132,7 @@ impl Hub {
     }
 
     /// Titles of the reports `bot` saved after its event `since`, oldest
-    /// first (for Herder, after a task).
+    /// first (for the Assistant, after a task).
     pub(super) fn reports_since(&self, bot: &BotId, since: u64) -> Vec<String> {
         self.store
             .report_titles_since(bot, since)

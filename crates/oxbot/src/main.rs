@@ -127,7 +127,7 @@ async fn serve(
         ..ServerOptions::new(port)
     };
     let server = runtime::start(options).await?;
-    // The link carries the Farm secret: whoever opens it is the Farm. It goes
+    // The link carries the home computer secret: whoever opens it is the home computer. It goes
     // to this terminal only, never to the log the apps show.
     #[allow(clippy::print_stdout, reason = "CLI output")]
     {

@@ -88,9 +88,9 @@ export function groupBots(
 ): Group[] {
   const q = fold(query).trim();
   const hit = (b: BotInfo) => !q || fold(b.name || b.id).includes(q);
-  const herder = list.filter((b) => b.central);
+  const assistant = list.filter((b) => b.central);
   const rest = list.filter((b) => !b.central);
-  const groups: Group[] = [{ key: "herder", title: "", ids: herder.filter(hit).map((b) => b.id) }];
+  const groups: Group[] = [{ key: "assistant", title: "", ids: assistant.filter(hit).map((b) => b.id) }];
   if (mode === "people") {
     const by = new Map<string, BotInfo[]>();
     for (const b of rest) {
