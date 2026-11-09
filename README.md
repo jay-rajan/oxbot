@@ -100,10 +100,15 @@ a typed one, as the person who made it: their bots, websites and AI spending, ev
 request. Its answer lands in the bot's chat and its first line goes to their devices; a run that
 waits for an OK or a sign-in says it needs them. One run at a time per bot, at least 15 minutes
 apart, up to 30 schedules per person; a run over the day's limits is skipped and says so. Missed
-while the home computer was asleep or oxbot closed: it runs once if that's within 2 hours, else
-it's noted as missed. The bot's ··· settings and Settings → Schedules list them (next run, last
-run and how it went, Pause, Delete): the owner sees all, everyone else their own and those in bots
-they may open.
+while the home computer was asleep or oxbot closed: when it's back, each schedule's most recent
+missed run runs once (as long as its next run isn't due yet), and the chat and the bot say so
+("Ran at 11:04 AM; the home computer was asleep or oxbot was closed at 8 AM."); older ones are
+noted as missed. **Keep the Mac awake while plugged in** (Settings → General and the owner's
+welcome screen; on by default) keeps a `caffeinate -s` tied to oxbot running, so on power the Mac
+doesn't sleep and runs happen on time (the screen still sleeps; on battery or with the lid closed
+it sleeps as usual). The bot's ··· settings and Settings → Schedules list them (bot, next run,
+last run: ran, late, missed or failed, Pause/Resume, Delete): the owner sees all, everyone else
+their own and those in bots they may open.
 
 Welcome: the owner's first start, and each newly paired device, show a welcome screen: name,
 colour and photo, role (the first person is the owner, who confirms they're 18 or older and accept

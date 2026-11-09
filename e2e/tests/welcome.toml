@@ -1,7 +1,7 @@
 name = "First start: the welcome screen asks the owner who they are"
-about = "On an empty home the owner gets a welcome screen: name, colour, home area, food needs, languages and notes, each saying whether bots may use it (never the name). The owner confirms they're 18 or older and accept OpenRouter's terms before it saves; Settings → People shows it after (Edit on your own row)."
+about = "On an empty home the owner gets a welcome screen: name, colour, home area, food needs, languages and notes, each saying whether bots may use it (never the name), and \"Keep this Mac awake while plugged in\" (on). The owner confirms they're 18 or older and accept OpenRouter's terms before it saves; Settings → People shows it after (Edit on your own row)."
 fresh = true
-covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/profiles.rs", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/store/profiles.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/awake.rs", "crates/oxbot-core/src/hub/profiles.rs", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/store/profiles.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
 [[step]]
 wait_for = "Welcome to oxbot"
@@ -10,6 +10,12 @@ expect = "Bots may use this: never"
 note = "The name is never for bots"
 [[step]]
 expect = "Owner: you installed oxbot"
+[[step]]
+expect = "Keep this Mac awake while plugged in, so bots can run schedules. The screen still sleeps."
+note = "The owner at the home computer hears about keeping the Mac awake"
+[[step]]
+expect_js = "document.getElementById('welcomeAwake').checked && !document.getElementById('welcomeAwake').closest('label').hidden"
+note = "On by default"
 [[step]]
 type = { into = "Home area", text = "Toronto, ON" }
 [[step]]

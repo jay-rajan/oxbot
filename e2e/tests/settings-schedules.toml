@@ -1,0 +1,70 @@
+name = "Settings → Schedules: every schedule you can see, paused and resumed there"
+about = "Settings has a Schedules tab. With none it shows one line on how to make one (ask a bot). Once a bot's schedule card is answered with Create, the tab lists it: the bot's name, the schedule in words and its next run, with Pause/Resume and Delete. Pausing and resuming there change the schedule itself. General has \"Keep the Mac awake while plugged in\", on by default, so schedules run on time."
+needs = ["codex"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/schedules.rs", "crates/oxbot-core/src/schedule.rs", "crates/oxbot/src/server.rs", "crates/oxbot/src/awake.rs", "crates/oxbot-protocol/**"]
+
+[[step]]
+click = "Settings"
+[[step]]
+expect_js = "!!document.getElementById('keepAwake') && document.getElementById('keepAwake').checked && !document.getElementById('keepAwake').closest('label').hidden"
+note = "General: Keep the Mac awake while plugged in, on by default"
+[[step]]
+expect = "Bots can run schedules; the screen still sleeps."
+shot = "general-keep-awake"
+[[step]]
+click = "Schedules"
+[[step]]
+wait_for = "No schedules yet. Ask a bot"
+note = "No schedules: one line, no list"
+[[step]]
+expect_js = "!document.getElementById('allScheds')"
+shot = "schedules-empty"
+[[step]]
+key = "Escape"
+[[step]]
+click = "Recipes"
+[[step]]
+send = "every weekday at 8:15 send me today's prep plan"
+[[step]]
+wait_for = "wants to set up a schedule"
+timeout_ms = 60000
+[[step]]
+click = "Create"
+[[step]]
+wait_for = "Scheduled, id"
+timeout_ms = 60000
+[[step]]
+click = "Settings"
+[[step]]
+click = "Schedules"
+[[step]]
+wait_for = "Every weekday at 8:15 AM: Send me today's prep plan."
+note = "The schedule, in words"
+[[step]]
+expect_js = "(() => { const row = document.querySelector('#allScheds .sched-row'); return !!row && /^Recipes · next /.test(row.querySelector('.list-sub').textContent); })()"
+timeout_ms = 5000
+note = "Its bot and next run"
+shot = "schedules-list"
+[[step]]
+click = "Pause"
+[[step]]
+wait_for = "Resume"
+[[step]]
+expect_db = { query = "SELECT paused FROM schedules", equals = "1" }
+note = "Paused from Settings"
+[[step]]
+expect_js = "/· paused/.test(document.querySelector('#allScheds .sched-row .list-sub').textContent)"
+timeout_ms = 5000
+shot = "schedules-paused"
+[[step]]
+click = "Resume"
+[[step]]
+wait_for = "Pause"
+[[step]]
+expect_db = { query = "SELECT paused FROM schedules", equals = "0" }
+note = "Resumed from Settings"
+[[step]]
+expect_js = "/· next /.test(document.querySelector('#allScheds .sched-row .list-sub').textContent)"
+timeout_ms = 5000
+[[step]]
+key = "Escape"

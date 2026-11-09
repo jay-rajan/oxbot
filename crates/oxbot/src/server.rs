@@ -81,6 +81,9 @@ pub struct AppState {
     /// Developer tools (comparing AI models): on only when the app started
     /// with `OXBOT_DEV_TOOLS=1`. Homes never see them.
     pub dev_tools: bool,
+    /// Keeps the Mac awake while plugged in (see [`crate::awake`]); `None`
+    /// where that doesn't apply (not a Mac, or tests that don't need it).
+    pub awake: Option<Arc<crate::awake::KeepAwake>>,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -126,6 +129,12 @@ impl AppState {
                 .openrouter
                 .as_ref()
                 .is_some_and(|a| a.waiting_for_keychain()),
+            // The Mac's own sleep: the home computer's alone.
+            keep_awake: self
+                .awake
+                .as_ref()
+                .filter(|_| viewer.home_computer)
+                .map(|_| self.hub.keep_awake_on()),
         }
     }
 
@@ -318,6 +327,7 @@ impl AppState {
             port: 0,
             openrouter: None,
             dev_tools: false,
+            awake: None,
         }
     }
 }
@@ -1732,6 +1742,20 @@ async fn handle_home_computer(
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
+        ClientMsg::SetKeepAwake { on } => {
+            let Some(awake) = &state.awake else {
+                return Ok(error(
+                    &"Keeping the Mac awake is only in the oxbot app on a Mac.",
+                ));
+            };
+            match state.hub.set_keep_awake(on) {
+                Ok(()) => {
+                    awake.set(on);
+                    vec![ServerMsg::Settings(state.settings())]
+                }
+                Err(e) => error(&e),
+            }
+        }
         ClientMsg::OpenRouterSignIn
         | ClientMsg::OpenRouterSignOut
         | ClientMsg::RefreshModels
@@ -1855,6 +1879,8 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetDoorName { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
+            // The Mac's own sleep.
+            | ClientMsg::SetKeepAwake { .. }
             // The household's OpenRouter account and settings.
             | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut
@@ -2731,6 +2757,58 @@ mod tests {
             .unwrap();
         let ann = state.hub.resolve(&Viewer::device("Ann")).into_owned();
         assert!(ann.id.is_some(), "made when the page connected");
+    }
+
+    #[tokio::test]
+    async fn only_the_home_computer_keeps_the_mac_awake_and_turns_it_off() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = state(tmp.path());
+        let awake = Arc::new(crate::awake::KeepAwake::start(
+            crate::awake::Holder::Pretend,
+            base.hub.keep_awake_on(),
+            std::time::Duration::from_millis(10),
+        ));
+        let state = AppState {
+            awake: Some(Arc::clone(&awake)),
+            ..base
+        };
+        // On by default, and only the home computer sees it.
+        assert_eq!(state.settings().keep_awake, Some(true));
+        assert!(awake.is_on());
+        let sam = Viewer::device("Sam");
+        assert_eq!(state.settings_for(&sam).keep_awake, None);
+        assert!(home_computer_only(&ClientMsg::SetKeepAwake { on: false }));
+        let (out, _rx) = mpsc::channel(4);
+        let mut phone = Client::new(sam, &[]);
+        let replies = handle(
+            ClientMsg::SetKeepAwake { on: false },
+            &state,
+            &mut phone,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("home computer"))
+        );
+        assert!(state.hub.keep_awake_on());
+        // The home computer turns it off: kept, and the program stops.
+        let replies = handle_home_computer(ClientMsg::SetKeepAwake { on: false }, &state)
+            .await
+            .unwrap();
+        assert!(matches!(&replies[..], [ServerMsg::Settings(s)] if s.keep_awake == Some(false)));
+        assert!(!state.hub.keep_awake_on());
+        assert!(!awake.is_on());
+        // Not a Mac (no keep-awake here): it doesn't apply.
+        let none = AppState {
+            awake: None,
+            ..state.clone()
+        };
+        assert_eq!(none.settings().keep_awake, None);
+        assert!(
+            handle_home_computer(ClientMsg::SetKeepAwake { on: true }, &none)
+                .await
+                .is_ok_and(|r| matches!(&r[..], [ServerMsg::Error { .. }]))
+        );
     }
 
     fn state(dir: &std::path::Path) -> AppState {

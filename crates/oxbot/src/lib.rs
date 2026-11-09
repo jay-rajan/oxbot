@@ -2,6 +2,7 @@
 //! drive them:
 //!
 //! - [`server`]: `oxbot serve`, the WebSocket server
+//! - [`awake`]: keeps the Mac awake while plugged in, so schedules run
 //! - [`chat`]: `oxbot chat`, the terminal client
 //! - [`dictation`]: dictation with the Mac's microphone, on-device
 //! - [`client`]: one-shot requests from CLI commands to a running server
@@ -13,6 +14,7 @@
 //! - [`runtime`]: starts and stops a whole server (CLI and desktop app)
 //! - [`setup`]: what oxbot needs on the Mac, and where to find it
 
+pub mod awake;
 pub mod chat;
 pub mod client;
 pub mod compare;

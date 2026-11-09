@@ -52,6 +52,11 @@ last_run_ms: number | null,
  */
 last_outcome: string | null, 
 /**
+ * That run started late (the Mac asleep or oxbot closed when it was
+ * due), and said so.
+ */
+last_late: boolean, 
+/**
  * Paused: it doesn't run until resumed.
  */
 paused: boolean, 

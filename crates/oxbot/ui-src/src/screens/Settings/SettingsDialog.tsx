@@ -1,5 +1,5 @@
-// Settings: one fixed-size window, four tabs down the side (General,
-// Websites, People, Activity); only the right side scrolls. Opened with
+// Settings: one fixed-size window, five tabs down the side (General,
+// Websites, People, Schedules, Activity); only the right side scrolls. Opened with
 // `ui/open {dialog:"settings", arg?}` (arg: a tab id, or "addDevice").
 // The tab it was left on is kept for next time.
 import { useCallback, useEffect } from "react";
@@ -11,6 +11,7 @@ import { expose } from "../../web/testBridge";
 import { ActivityTab, askNet } from "./ActivityTab";
 import { GeneralTab } from "./GeneralTab";
 import { PeopleTab } from "./PeopleTab";
+import { SchedulesTab } from "./SchedulesTab";
 import { WebsitesTab } from "./WebsitesTab";
 import "./settings.css";
 
@@ -18,6 +19,7 @@ const TABS: (readonly [SettingsTab, string, string?])[] = [
   ["setGeneral", "General"],
   ["setSignins", "Websites"],
   ["setPeople", "People", "peopleTab"],
+  ["setSchedules", "Schedules", "schedulesTab"],
   ["setActivity", "Activity", "activityTab"],
 ];
 
@@ -67,6 +69,7 @@ export function SettingsDialog() {
           <GeneralTab hidden={tab !== "setGeneral"} />
           <WebsitesTab hidden={tab !== "setSignins"} />
           <PeopleTab hidden={tab !== "setPeople"} />
+          <SchedulesTab hidden={!open || tab !== "setSchedules"} />
           <ActivityTab hidden={tab !== "setActivity"} />
         </div>
       </DialogFrame>

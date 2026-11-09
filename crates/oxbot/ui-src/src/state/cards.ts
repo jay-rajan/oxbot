@@ -74,6 +74,8 @@ export interface CardsState {
   settingsFor: string | null;
   reports: ReportInfo[] | null;
   schedules: ScheduleInfo[] | null;
+  /** Every schedule this client may see (Settings → Schedules); null until asked. */
+  allSchedules: ScheduleInfo[] | null;
   /** Bumped on `schedules_changed`: the open settings ask again. */
   schedulesChanged: number;
   /** Per bot: the owner's thumbs (by turn_done seq) and turns kept as test cases. */
@@ -105,6 +107,7 @@ export const initialCards: CardsState = {
   settingsFor: null,
   reports: null,
   schedules: null,
+  allSchedules: null,
   schedulesChanged: 0,
   rated: {},
   caseDraft: null,
@@ -162,7 +165,9 @@ function onServer(state: CardsState, action: Extract<Action, { kind: "server" }>
     case "reports":
       return msg.bot === state.settingsFor ? { ...state, reports: msg.reports } : state;
     case "schedules":
-      return msg.bot && msg.bot === state.settingsFor ? { ...state, schedules: msg.schedules } : state;
+      // No bot: every schedule this client may see.
+      if (!msg.bot) return { ...state, allSchedules: msg.schedules };
+      return msg.bot === state.settingsFor ? { ...state, schedules: msg.schedules } : state;
     case "schedules_changed":
       return { ...state, schedulesChanged: state.schedulesChanged + 1 };
     case "ratings":

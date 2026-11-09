@@ -214,7 +214,7 @@ impl Hub {
                 let name = origin.asker().and_then(|id| self.person_name(id));
                 relayed_line(from, name.as_deref(), text)
             }
-            (from, Some(label)) => scheduled_line(from, label, text),
+            (from, Some(label)) => scheduled_line(from, label, origin.late.as_deref(), text),
             (from, None) => sender_line(from, text),
         };
         // oxbot's own note on the files, after the (escaped) words.
@@ -267,7 +267,7 @@ impl Hub {
 
     /// A schedule's run says so in the chat, just above its task. Returns
     /// its rule in words.
-    fn note_scheduled(
+    pub(super) fn note_scheduled(
         &self,
         bot: &Bot,
         origin: &ChainOrigin,
@@ -278,12 +278,11 @@ impl Hub {
             .filter(|_| origin.is_scheduled_run() && !relayed)
             .and_then(|id| self.schedule_label(id));
         if let Some(label) = &label {
-            self.record(
-                &bot.id,
-                EventKind::Note {
-                    text: format!("Scheduled: {label}"),
-                },
-            )?;
+            let text = match &origin.late {
+                Some(late) => format!("Scheduled: {label}. {late}"),
+                None => format!("Scheduled: {label}"),
+            };
+            self.record(&bot.id, EventKind::Note { text })?;
         }
         Ok(label)
     }
@@ -426,10 +425,23 @@ pub(super) fn relayed_line(from: &str, person: Option<&str>, text: &str) -> Stri
 }
 
 /// What a bot gets for a schedule's run: its person's task, marked as set
-/// up earlier (they may not be watching), escaped as in [`sender_line`].
-pub(super) fn scheduled_line(from: Option<&str>, label: &str, text: &str) -> String {
-    let note =
-        format!("(scheduled task they set up earlier, {label}; they may not be watching now)");
+/// up earlier (they may not be watching) and, for a late run, when it ran
+/// and when it was due (`late`), escaped as in [`sender_line`].
+pub(super) fn scheduled_line(
+    from: Option<&str>,
+    label: &str,
+    late: Option<&str>,
+    text: &str,
+) -> String {
+    let note = match late {
+        Some(late) => format!(
+            "(scheduled task they set up earlier, {label}; they may not be watching now. It runs \
+             late: {late} Say so in one line.)"
+        ),
+        None => {
+            format!("(scheduled task they set up earlier, {label}; they may not be watching now)")
+        }
+    };
     match from {
         Some(name) => format!("[{name}] {note} {}", sender_line(None, text)),
         None => format!("{note} {}", sender_line(None, text)),

@@ -273,6 +273,9 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         port: addr.port(),
         openrouter: Some(openrouter),
         dev_tools: std::env::var_os(DEV_TOOLS_ENV).is_some_and(|v| v == "1"),
+        // Schedules run on time: the Mac stays awake on power while the
+        // setting is on (test mode: a stand-in, never the real one).
+        awake: crate::awake::KeepAwake::for_this_mac(hub.keep_awake_on(), e2e).map(Arc::new),
     };
     state.refresh_setup().await;
     load_key(&state);

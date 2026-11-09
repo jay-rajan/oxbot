@@ -78,6 +78,10 @@ describe("cards", () => {
     expect(s.schedulesChanged).toBe(1);
     s = run(s, local("cards/settingsFor", { bot: null }));
     expect(s.reports).toBeNull();
+    // Settings → Schedules: every one, kept apart from a bot's.
+    s = run(s, srv({ type: "schedules", schedules: [] }));
+    expect(s.allSchedules).toEqual([]);
+    expect(s.schedules).toBeNull();
   });
 
   it("opens Compare fresh on a bot and tab", () => {

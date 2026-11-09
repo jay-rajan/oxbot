@@ -77,6 +77,11 @@ pub struct ChainOrigin {
     /// The schedule whose run started it ([`Entry::Schedule`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule: Option<i64>,
+    /// A late scheduled run: what its chat and its bot are told, e.g. `Ran
+    /// at 11:04 AM; the home computer was asleep or oxbot was closed at 8
+    /// AM.` Never stored.
+    #[serde(skip)]
+    pub late: Option<String>,
 }
 
 impl ChainOrigin {

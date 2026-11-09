@@ -874,6 +874,7 @@ impl Hub {
             via: Vec::new(),
             tainted_by: input.tainted_by.clone(),
             schedule: None,
+            late: None,
         };
         if let Some(why) = &input.tainted_by {
             self.mark_untrusted(key, format!("a task passed on after reading {why}"))

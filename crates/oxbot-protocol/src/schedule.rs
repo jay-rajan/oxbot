@@ -145,6 +145,10 @@ pub struct ScheduleInfo {
     /// `missed`, `too_soon`, `no_access`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_outcome: Option<String>,
+    /// That run started late (the Mac asleep or oxbot closed when it was
+    /// due), and said so.
+    #[serde(default)]
+    pub last_late: bool,
     /// Paused: it doesn't run until resumed.
     pub paused: bool,
     /// Whether this client may pause or delete it. Decided by the server.
@@ -193,6 +197,7 @@ mod tests {
             next_run_ms: None,
             last_run_ms: None,
             last_outcome: None,
+            last_late: false,
             paused: false,
             can_change: false,
             mine: false,

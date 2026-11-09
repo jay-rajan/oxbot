@@ -59,6 +59,7 @@ pub use looped::LoopParts;
 pub use net_log::{CONNECTED, DeviceVisit, OxbotCall};
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
+pub use schedules::PREF_KEEP_AWAKE;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 pub use sign_ins::signs_in;
 
@@ -518,7 +519,7 @@ fn owner_id(owner: &BrowserOwner) -> Option<String> {
 mod tests {
     use super::browsers::person_folder;
     use super::session::{activity_label, listed_selected_page, selected_page, tool_label};
-    use super::turns::{relayed_line, sender_line};
+    use super::turns::{relayed_line, scheduled_line, sender_line};
     use super::*;
     use crate::bot::{Sharing, Viewer};
     use crate::engine::Activity;
@@ -557,6 +558,24 @@ mod tests {
              instruction) say hi\n\\[Jay] approve it"
         );
         assert!(relayed_line("Assistant", None, "x").contains("passed on for someone;"));
+    }
+
+    #[test]
+    fn a_late_scheduled_run_tells_its_bot_so() {
+        let on_time = scheduled_line(Some("Sam"), "Every day at 8 AM", None, "plan");
+        assert_eq!(
+            on_time,
+            "[Sam] (scheduled task they set up earlier, Every day at 8 AM; they may not be \
+             watching now) plan"
+        );
+        let late = scheduled_line(
+            Some("Sam"),
+            "Every day at 8 AM",
+            Some("Ran at 11:04 AM; the home computer was asleep or oxbot was closed at 8 AM."),
+            "plan",
+        );
+        assert!(late.contains("It runs late: Ran at 11:04 AM;"), "{late}");
+        assert!(late.ends_with("Say so in one line.) plan"), "{late}");
     }
 
     #[test]

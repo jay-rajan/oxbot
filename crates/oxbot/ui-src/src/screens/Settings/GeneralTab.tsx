@@ -1,6 +1,6 @@
 // Settings → General: what's missing on the home computer, notifications,
 // the home's AI account, startup, and about.
-import { type FormEvent, useEffect, useRef } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Banner, Button, cx, Field, Hint, Input, pct, Section, Switch, vars } from "../../components/ui";
 import { local } from "../../state/store";
@@ -182,15 +182,39 @@ function AiSection() {
   );
 }
 
+// Startup and sleep: the desktop app opens at login; the home computer
+// stays awake on power so schedules run (each only where it applies).
 function LoginSection() {
   const { send } = useApp();
   const at = useSel((s) => s.connection.settings?.launch_at_login);
+  const awake = useSel((s) => s.connection.settings?.keep_awake);
+  const owner = useSel((s) => !!s.connection.settings?.owner);
+  const noLogin = at === null || at === undefined;
+  const noAwake = awake === null || awake === undefined || !owner;
   return (
-    <Section id="loginSection" title="Startup" hidden={at === null || at === undefined}>
-      <Switch id="launchAtLogin" checked={!!at} onChange={(e) => send({ type: "set_launch_at_login", on: e.target.checked })}>
+    <Section id="loginSection" title="Startup and sleep" hidden={noLogin && noAwake}>
+      <Switch id="launchAtLogin" rowHidden={noLogin} checked={!!at} onChange={(e) => send({ type: "set_launch_at_login", on: e.target.checked })}>
         Open oxbot when I log in to my Mac
       </Switch>
+      <KeepAwakeSwitch />
+      <Hint id="keepAwakeHint" hidden={noAwake}>
+        {KEEP_AWAKE_HINT}
+      </Hint>
     </Section>
+  );
+}
+
+export const KEEP_AWAKE_HINT = "Bots can run schedules; the screen still sleeps.";
+
+/** "Keep the Mac awake while plugged in": the owner at the home computer only (else hidden). */
+export function KeepAwakeSwitch({ id = "keepAwake", children }: { id?: string; children?: ReactNode }) {
+  const { send } = useApp();
+  const awake = useSel((s) => s.connection.settings?.keep_awake);
+  const owner = useSel((s) => !!s.connection.settings?.owner);
+  return (
+    <Switch id={id} rowHidden={awake === null || awake === undefined || !owner} checked={!!awake} onChange={(e) => send({ type: "set_keep_awake", on: e.target.checked })}>
+      {children ?? "Keep the Mac awake while plugged in"}
+    </Switch>
   );
 }
 

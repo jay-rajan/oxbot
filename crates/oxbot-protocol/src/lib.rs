@@ -382,6 +382,13 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
+    /// Home computer only: turn "Keep the Mac awake while plugged in" on or
+    /// off ([`AppSettings::keep_awake`]). The asker gets the new
+    /// [`ServerMsg::Settings`].
+    SetKeepAwake {
+        /// On or off.
+        on: bool,
+    },
     /// Open the sign-in window for a [`SignInRequest`].
     OpenSignIn {
         /// The request's id.
@@ -1289,6 +1296,11 @@ pub struct AppSettings {
     /// asking the person to allow oxbot.
     #[serde(default)]
     pub keychain_waiting: bool,
+    /// Whether oxbot keeps the Mac awake while it's plugged in, so
+    /// schedules run on time (the screen still sleeps); `None` when it
+    /// doesn't apply: not the home computer, or not a Mac.
+    #[serde(default)]
+    pub keep_awake: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -2676,6 +2688,7 @@ mod tests {
             owner_name: "Jay".into(),
             openrouter_ready: false,
             keychain_waiting: false,
+            keep_awake: None,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
