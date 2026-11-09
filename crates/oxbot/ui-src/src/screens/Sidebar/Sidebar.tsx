@@ -3,6 +3,7 @@
 // phone it's a drawer over the chat, with a scrim behind it.
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
+import { Button, IconButton, Input, Pill, PlusIcon, Segmented } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { groupBots, initialSidebar } from "../../state/sidebar";
 import { local } from "../../state/store";
@@ -11,6 +12,12 @@ import { BotList } from "./BotList";
 import { BotMenu, type MenuAt, type MenuFor, refocus } from "./BotMenu";
 import { BrandMark } from "./BrandMark";
 import { keep, keptJson } from "./storage";
+import "./sidebar.css";
+
+const GROUP_BY = [
+  ["sections", "Sections"],
+  ["people", "People"],
+] as const;
 
 export function Sidebar() {
   const { store, dispatch } = useApp();
@@ -130,17 +137,11 @@ export function Sidebar() {
     }
   };
 
-  // Group by sections or by people: this device remembers which.
+  // Group by sections or by people: this device remembers which. (Real
+  // radios: the arrow keys switch between them.)
   const setGroupBy = (mode: "sections" | "people") => {
     keep.set("oxbot.groupBy", mode);
     dispatch(local("sidebar/groupBy", { groupBy: mode }));
-  };
-  const groupKey = (ev: KeyboardEvent<HTMLButtonElement>) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
-    ev.preventDefault();
-    const next = groupBy === "people" ? "sections" : "people";
-    setGroupBy(next);
-    document.querySelector<HTMLElement>(`#groupBy [data-group="${next}"]`)?.focus();
   };
 
   // The server's name; "Reconnecting…" once a connection is lost (or never came).
@@ -149,70 +150,92 @@ export function Sidebar() {
   return (
     <>
       <aside className={`side${sideOpen ? " open" : ""}`} id="side">
-        <div className="brand">
-          <BrandMark />
-          <button className="new-bot" id="newBot" type="button" aria-label="New bot" title="New bot" onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M8 2.5v11M2.5 8h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
-            </svg>
-          </button>
+        <div className="side-head">
+          <div className="brand">
+            <BrandMark />
+            <IconButton className="new-bot" id="newBot" size="sm" label="New bot" onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}>
+              <PlusIcon />
+            </IconButton>
+          </div>
+          <div className="server" id="server">
+            {server}
+          </div>
         </div>
-        <div className="server" id="server">
-          {server}
-        </div>
-        <input
-          type="search"
-          className="bot-search"
-          id="botSearch"
-          placeholder="Search bots"
-          aria-label="Search bots"
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
-          onKeyDown={searchKey}
-        />
-        <div className="group-by" id="groupBy" role="radiogroup" aria-label="Group bots by">
-          <button type="button" role="radio" data-group="sections" aria-checked={String(groupBy === "sections") as "true" | "false"} onClick={() => setGroupBy("sections")} onKeyDown={groupKey}>
-            Sections
-          </button>
-          <button type="button" role="radio" data-group="people" aria-checked={String(groupBy === "people") as "true" | "false"} onClick={() => setGroupBy("people")} onKeyDown={groupKey}>
-            People
-          </button>
+        <div className="side-find">
+          <Input
+            type="search"
+            className="bot-search"
+            id="botSearch"
+            placeholder="Search bots"
+            aria-label="Search bots"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
+            onKeyDown={searchKey}
+          />
+          <Segmented
+            className="group-by"
+            id="groupBy"
+            name="groupBy"
+            label="Group bots by"
+            options={GROUP_BY}
+            value={groupBy}
+            onChange={setGroupBy}
+          />
         </div>
         <BotList openMenu={openMenu} closeMenu={closeMenu} askName={askName} />
         <div className="side-foot">
-          <button className="gear" id="settingsBtn" type="button" aria-label="Settings" title="Settings" onClick={() => toSettings()}>
+          <IconButton className="gear" id="settingsBtn" label="Settings" onClick={() => toSettings()}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" strokeWidth="3.6" strokeDasharray="2.83 2.83" />
               <circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" strokeWidth="2" />
               <circle cx="12" cy="12" r="2" fill="currentColor" />
             </svg>
             <span className="badge" id="warnBadge" hidden={warnings === 0}>
-              {String(warnings)}
+              <Pill tone="danger">{String(warnings)}</Pill>
             </span>
-          </button>
-          <button className="foot-btn" id="gateBtn" type="button" aria-label="Connect a device" title="Connect a device: pair a phone, tablet or laptop" hidden={!farm} onClick={() => toSettings("addDevice")}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" />
-              <rect x="14" y="3.5" width="6.5" height="6.5" rx="1" />
-              <rect x="3.5" y="14" width="6.5" height="6.5" rx="1" />
-              <path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5" strokeLinecap="round" />
-              <rect x="5.8" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none" />
-              <rect x="16.3" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none" />
-              <rect x="5.8" y="16.3" width="1.9" height="1.9" fill="currentColor" stroke="none" />
-            </svg>
+          </IconButton>
+          <Button
+            kind="quiet"
+            className="foot-btn"
+            id="gateBtn"
+            aria-label="Connect a device"
+            title="Connect a device: pair a phone, tablet or laptop"
+            hidden={!farm}
+            onClick={() => toSettings("addDevice")}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" />
+                <rect x="14" y="3.5" width="6.5" height="6.5" rx="1" />
+                <rect x="3.5" y="14" width="6.5" height="6.5" rx="1" />
+                <path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5" strokeLinecap="round" />
+                <rect x="5.8" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none" />
+                <rect x="16.3" y="5.8" width="1.9" height="1.9" fill="currentColor" stroke="none" />
+                <rect x="5.8" y="16.3" width="1.9" height="1.9" fill="currentColor" stroke="none" />
+              </svg>
+            }
+          >
             <span className="label">Connect a device</span>
-          </button>
-          <button className="foot-btn end" id="signedInBtn" type="button" aria-label="Websites" title="Websites: the ones your bots are signed in to (Settings → Websites)" onClick={() => toSettings("setSignins")}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <circle cx="12" cy="12" r="8.5" />
-              <path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z" strokeLinejoin="round" />
-            </svg>
+          </Button>
+          <Button
+            kind="quiet"
+            className="foot-btn end"
+            id="signedInBtn"
+            aria-label="Websites"
+            title="Websites: the ones your bots are signed in to (Settings → Websites)"
+            onClick={() => toSettings("setSignins")}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="12" r="8.5" />
+                <path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z" strokeLinejoin="round" />
+              </svg>
+            }
+          >
             <span className="count" id="signedInCount" hidden={signedIn === 0}>
-              {String(signedIn)}
+              <Pill>{String(signedIn)}</Pill>
             </span>
-          </button>
+          </Button>
         </div>
       </aside>
       <div className="scrim" id="scrim" aria-hidden="true" onClick={() => dispatch(local("ui/side", { open: false }))} />

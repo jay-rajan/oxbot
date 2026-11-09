@@ -1,0 +1,28 @@
+/* Bot settings: layout only; the look comes from the pieces. */
+.bd-stack { display: grid; gap: var(--s-5); min-width: 0; }
+.bd-group { display: grid; gap: var(--s-2); min-width: 0; }
+#bdShareBox .segmented { justify-self: start; }
+
+.people-pick { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); }
+.people-pick .note-text { flex-basis: 100%; }
+
+.advanced { min-width: 0; }
+.advanced > summary {
+  cursor: pointer; width: fit-content; min-height: var(--control-sm);
+  display: flex; align-items: center; gap: var(--s-2);
+  font-size: var(--text-sm); font-weight: var(--weight-mid); color: var(--muted);
+  list-style: none;
+}
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary::before { content: "›"; transition: transform var(--fast) var(--ease); }
+.advanced[open] > summary::before { transform: rotate(90deg); }
+.advanced > summary:hover { color: var(--ink); }
+.advanced[open] > .field { margin-top: var(--s-3); }
+
+.report-open {
+  all: unset; cursor: pointer; overflow-wrap: anywhere;
+}
+.report-open:hover { text-decoration: underline; }
+.report-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }
+
+.sched-row.paused .list-title { color: var(--muted); }

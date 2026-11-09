@@ -1,6 +1,6 @@
 name = "Bot settings: rename, share with just me, delete"
 about = "The ··· menu renames a bot, shares it with just its maker (private), and deletes it after a second press."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "Recipes"

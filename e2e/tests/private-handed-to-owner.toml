@@ -1,6 +1,6 @@
 name = "Someone else's private bot is handed to the owner"
 about = "Only the owner of the home computer can have private bots. The seed's Bank is Sam's private bot from before that rule, shared with Jay as a picked person; when oxbot starts it becomes Jay's own private bot (Just me): listed by Jay with a lock, its chat kept, nobody picked any more. A restart changes nothing. Sam, who made it, can no longer open it."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/hub/mod.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/store/members.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/hub/mod.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/store/members.rs"]
 
 [[step]]
 expect_js = "[...document.querySelectorAll('.bot-item')].some((b) => b.innerText.includes('Bank') && b.innerText.includes('by Jay') && b.querySelector('.lock'))"

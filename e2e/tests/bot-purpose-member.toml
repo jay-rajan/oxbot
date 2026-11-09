@@ -1,6 +1,6 @@
 name = "Someone who doesn't manage a bot reads what it's for"
 about = "Sam opens Recipes (shared with everyone, made by Jay): its window shows What it's for read-only, with no hint about changing it and no Save."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**"]
 as = "Sam"
 
 [[step]]

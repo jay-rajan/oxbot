@@ -1,6 +1,8 @@
 // The right-click menu: a bot's (the same rules as its ··· settings) or a
 // section's. Right-click, a long press on a phone, or the menu key opens it;
 // a press elsewhere, Escape, Tab, scrolling the list or resizing closes it.
+// Styled by components/ui/menu.css (its ›, drawn by CSS, turns when the
+// section list is open).
 import { type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useApp, useSel } from "../../app/context";
@@ -270,10 +272,10 @@ export function BotMenu({
   };
 
   return createPortal(
-    <div className="pop-menu" id="botMenu" role="menu" hidden={!open} ref={ref} aria-label={open ? who || "Menu" : undefined} onKeyDown={keyDown}>
+    <div className="menu-pop" id="botMenu" role="menu" hidden={!open} ref={ref} aria-label={open ? who || "Menu" : undefined} onKeyDown={keyDown}>
       {open
         ? items.map((it, n) => {
-            if (it.rule) return <hr key={`rule${n}`} role="separator" />;
+            if (it.rule) return <hr key={`rule${n}`} className="menu-rule" role="separator" />;
             const key = `${it.indent ? "sub:" : ""}${it.label}`;
             const isArmed = !!it.confirm && armed === key;
             const click = (ev: MouseEvent) => {
@@ -285,7 +287,7 @@ export function BotMenu({
               }
               it.act?.();
             };
-            const cls = [it.indent ? "sub" : "", it.danger || isArmed ? "danger" : ""].filter(Boolean).join(" ");
+            const cls = ["menu-item", it.indent ? "sub" : "", it.danger || isArmed ? "danger" : ""].filter(Boolean).join(" ");
             return (
               <button
                 key={key}
@@ -294,12 +296,12 @@ export function BotMenu({
                 aria-checked={it.checked !== undefined ? String(it.checked) as "true" | "false" : undefined}
                 aria-haspopup={it.sub ? "true" : undefined}
                 aria-expanded={it.sub ? String(!!it.expanded) as "true" | "false" : undefined}
-                className={cls || undefined}
+                className={cls}
                 title={it.title || undefined}
                 aria-disabled={it.disabled ? "true" : undefined}
                 onClick={click}
               >
-                {isArmed ? it.confirm : it.sub ? `${it.label} ${it.expanded ? "▾" : "▸"}` : it.label}
+                {isArmed ? it.confirm : it.label}
               </button>
             );
           })

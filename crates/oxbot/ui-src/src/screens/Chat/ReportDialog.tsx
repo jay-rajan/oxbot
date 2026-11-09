@@ -4,6 +4,7 @@
 // stays in the page while closed (empty), as the tests read it.
 import { useEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
+import { Button } from "../../components/ui";
 import { splitReportKey } from "../../state/chat";
 import { local } from "../../state/store";
 import { openReport } from "./actions";
@@ -58,10 +59,10 @@ export function ReportDialog() {
   }, [dispatch]);
 
   return (
-    <dialog id="reportDlg" className="report-view" aria-labelledby="reportTitle" ref={ref}>
+    <dialog id="reportDlg" className="dlg dlg-xl report-view" aria-labelledby="reportTitle" ref={ref}>
       <header className="report-head">
-        <button className="ghost" type="button" id="reportBack" onClick={() => ref.current?.close()}>← Back</button>
-        <h2 id="reportTitle">{report?.title ?? "Report"}</h2>
+        <Button kind="quiet" size="sm" id="reportBack" onClick={() => ref.current?.close()}>← Back</Button>
+        <h2 id="reportTitle" className="report-title">{report?.title ?? "Report"}</h2>
       </header>
       <iframe id="reportFrame" ref={frame} title="Report" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" />
     </dialog>

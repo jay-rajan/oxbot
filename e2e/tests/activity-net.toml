@@ -1,6 +1,6 @@
 name = "Settings → Activity: what left the home computer"
 about = "After a bot answers once (the stand-in), Settings → Activity shows today's totals and at least one row (or says Nothing yet), and the chips (All, AI, Websites, Devices, oxbot) switch what it lists. oxbot's own log is folded away below."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/store/**", "crates/oxbot-relay/**", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/store/**", "crates/oxbot-relay/**", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "Recipes"

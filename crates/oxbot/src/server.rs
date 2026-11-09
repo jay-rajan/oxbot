@@ -321,23 +321,19 @@ impl AppState {
     }
 }
 
-/// The chat page, baked into the binary.
-const INDEX_HTML: &str = include_str!("../ui/index.html");
-
-/// The React page (`crates/oxbot/ui-src`, built into `ui-dist/`), served at
-/// `/` (and at `/next/`, its address while it was being built). The
-/// hand-written page stays at `/old/` until the React one has replaced it.
-mod next_page {
+/// The page (`crates/oxbot/ui-src`, built into `ui-dist/`), baked into the
+/// binary.
+mod page {
     pub const INDEX_HTML: &str = include_str!("../ui-dist/index.html");
     pub const APP_JS: &str = include_str!("../ui-dist/app.js");
     pub const APP_CSS: &str = include_str!("../ui-dist/app.css");
 }
 
-/// The React page's Content-Security-Policy: its own script and stylesheet
+/// The page's Content-Security-Policy: its own script and stylesheet
 /// only, no inline scripts, and connections back to this server only. The
 /// report frame (`srcdoc`, which inherits this policy) may use exactly the
 /// reports' own stylesheet, allowed by its hash; nothing else inline.
-fn next_csp() -> &'static str {
+fn page_csp() -> &'static str {
     static CSP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CSP.get_or_init(|| {
         let style =
@@ -371,47 +367,59 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
-/// The React page's routes, added to both routers so it's reached (and
-/// checked) the same way on this Mac and through the device door.
-fn with_next_page(router: Router<AppState>) -> Router<AppState> {
+/// The page's script and stylesheet, added to both routers so they're
+/// reached (and checked) the same way on this Mac and through the device door.
+fn with_page_files(router: Router<AppState>) -> Router<AppState> {
     router
         .route(
             "/app.js",
-            get(|| async { next_file("text/javascript; charset=utf-8", next_page::APP_JS) }),
+            get(|State(state): State<AppState>| async move {
+                page_file(
+                    &state,
+                    "app.js",
+                    "text/javascript; charset=utf-8",
+                    page::APP_JS,
+                )
+                .await
+            }),
         )
         .route(
             "/app.css",
-            get(|| async { next_file("text/css; charset=utf-8", next_page::APP_CSS) }),
-        )
-        .route("/old/", get(index))
-        .route(
-            "/next",
-            get(|| async { axum::response::Redirect::permanent("/next/") }),
-        )
-        .route(
-            "/next/",
-            get(|| async { next_file("text/html; charset=utf-8", next_page::INDEX_HTML) }),
-        )
-        .route(
-            "/next/index.html",
-            get(|| async { next_file("text/html; charset=utf-8", next_page::INDEX_HTML) }),
-        )
-        .route(
-            "/next/app.js",
-            get(|| async { next_file("text/javascript; charset=utf-8", next_page::APP_JS) }),
-        )
-        .route(
-            "/next/app.css",
-            get(|| async { next_file("text/css; charset=utf-8", next_page::APP_CSS) }),
+            get(|State(state): State<AppState>| async move {
+                page_file(&state, "app.css", "text/css; charset=utf-8", page::APP_CSS).await
+            }),
         )
 }
 
-/// One of the React page's files, with its type and the strict policy.
-fn next_file(content_type: &'static str, body: &'static str) -> Response {
+/// One of the page's files, with its type and the strict policy. In dev
+/// mode (`ui_dir`) it's read from that folder on every request, so a
+/// rebuilt page shows on refresh.
+async fn page_file(
+    state: &AppState,
+    name: &str,
+    content_type: &'static str,
+    built_in: &'static str,
+) -> Response {
+    if let Some(dir) = &state.ui_dir {
+        match tokio::fs::read_to_string(dir.join(name)).await {
+            Ok(body) => return with_page_headers(content_type, body),
+            Err(err) => {
+                tracing::warn!(%err, name, "dev page file not readable; serving the built-in one");
+            }
+        }
+    }
+    with_page_headers(content_type, built_in)
+}
+
+/// A page file's response: its type and the strict policy.
+fn with_page_headers(
+    content_type: &'static str,
+    body: impl axum::response::IntoResponse,
+) -> Response {
     (
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CONTENT_SECURITY_POLICY, next_csp()),
+            (header::CONTENT_SECURITY_POLICY, page_csp()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             (header::REFERRER_POLICY, "no-referrer"),
             (header::CACHE_CONTROL, "no-cache"),
@@ -421,14 +429,21 @@ fn next_file(content_type: &'static str, body: &'static str) -> Response {
         .into_response()
 }
 
-/// The HTTP routes: the chat page at `/` (and the React page being built
-/// at `/next/`), the WebSocket at `/ws`, and `POST /upload` for files sent with messages (this Mac only: not on the
+/// The HTTP routes: the page at `/`, the WebSocket at `/ws`, and `POST /upload` for files sent with messages (this Mac only: not on the
 /// Gate door).
 pub fn router(state: AppState) -> Router {
-    with_next_page(Router::new())
+    with_page_files(Router::new())
         .route(
             "/",
-            get(|| async { next_file("text/html; charset=utf-8", next_page::INDEX_HTML) }),
+            get(|State(state): State<AppState>| async move {
+                page_file(
+                    &state,
+                    "index.html",
+                    "text/html; charset=utf-8",
+                    page::INDEX_HTML,
+                )
+                .await
+            }),
         )
         .route("/ws", get(ws_upgrade))
         // "Sign in with OpenRouter" comes back here: this Mac only.
@@ -451,7 +466,7 @@ const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 /// The Gate door's routes: `POST /pair` for anyone with the code, and the
 /// page and WebSocket for paired Gates only (see [`crate::door`]).
 pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
-    with_next_page(Router::new())
+    with_page_files(Router::new())
         // The phone app fetches `/` once and puts it in its own window, so
         // it gets the page with its script and styles inside.
         .route("/", get(|| async { Html(inline_page()) }))
@@ -482,12 +497,12 @@ pub async fn serve(
         .await
 }
 
-/// The React page as one file, its script and stylesheet inside, for the
+/// The page as one file, its script and stylesheet inside, for the
 /// phone app (which loads the page through its own connection, not by
 /// address). Built once.
 fn inline_page() -> &'static str {
     static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    PAGE.get_or_init(|| inline_into(next_page::INDEX_HTML, next_page::APP_JS, next_page::APP_CSS))
+    PAGE.get_or_init(|| inline_into(page::INDEX_HTML, page::APP_JS, page::APP_CSS))
 }
 
 /// `html` with its `app.js` script and `app.css` link replaced by their
@@ -511,17 +526,6 @@ fn inline_into(html: &str, js: &str, css: &str) -> String {
         }
     }
     page
-}
-
-/// The hand-written page (at `/old/` while the React page replaces it).
-async fn index(State(state): State<AppState>) -> Html<String> {
-    if let Some(dir) = &state.ui_dir {
-        match tokio::fs::read_to_string(dir.join("index.html")).await {
-            Ok(page) => return Html(page),
-            Err(err) => tracing::warn!(%err, "dev page not readable; serving the built-in one"),
-        }
-    }
-    Html(INDEX_HTML.to_owned())
 }
 
 async fn ws_upgrade(
@@ -2238,7 +2242,7 @@ mod tests {
         assert_eq!(super::base64(b"foo"), "Zm9v");
         assert_eq!(super::base64(b"foobar"), "Zm9vYmFy");
         // The page's policy allows the reports' stylesheet by its hash.
-        assert!(super::next_csp().contains("style-src 'self' 'sha256-"));
+        assert!(super::page_csp().contains("style-src 'self' 'sha256-"));
     }
 
     #[test]

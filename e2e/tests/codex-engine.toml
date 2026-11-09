@@ -1,7 +1,7 @@
 name = "A bot on Codex browses through oxbot's gate"
 about = "A new bot (Codex, the default) runs Codex CLI's agent loop with oxbot's own tools: asked to search jobs, it opens the page, reads it and clicks Search through the browser tool, each step in the chat, and answers with the model and request count under it. A click that posts shows an approval request first, and Deny is respected. Codex is never offered page scripts, its requests reach the stand-in OpenRouter only through oxbot's relay with Codex's ids and headers stripped, and every request is metered and logged. Skipped on a Mac without Codex 0.148."
 needs = ["codex"]
-covers = ["crates/oxbot-codex/**", "crates/oxbot-relay/**", "crates/oxbot-loop/src/service.rs", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-llm/src/client.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-codex/**", "crates/oxbot-relay/**", "crates/oxbot-loop/src/service.rs", "crates/oxbot-loop/src/gateway.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-core/src/store/codex.rs", "crates/oxbot-llm/src/client.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "New bot"

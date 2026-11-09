@@ -4,11 +4,28 @@
 // those who manage it change it.
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  DialogForm,
+  Field,
+  Hint,
+  Input,
+  List,
+  ListRow,
+  Note,
+  Section,
+  Segmented,
+  Select,
+  TextArea,
+  vars,
+} from "../../components/ui";
 import type { BotInfo, ModelList, Person, Sharing } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ScheduleList } from "./ScheduleList";
 import { mayKeepPrivate, sharingOf } from "./sharing";
+import "./botSettings.css";
 
 export function BotSettingsDialog() {
   const { dispatch } = useApp();
@@ -127,26 +144,36 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
     onClose();
   };
 
-  const purposeHint = !manage
-    ? ""
-    : busy
-      ? "Wait until it's done working to change this."
-      : "The bot follows this. Changing it starts a fresh conversation for the AI; the chat stays.";
+  const purposeHint = busy ? "Wait until it's done working to change this." : "Changing it starts a fresh conversation; the chat stays.";
 
   return (
-    <form id="botForm" onSubmit={submit}>
-      <h2 id="bdTitle">{manage ? "Bot settings" : b.name || b.id}</h2>
-      <div className="manage" id="bdManage" hidden={!manage}>
-        <label>
-          Name
-          <input id="bdName" required autoComplete="off" disabled={!manage} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-      </div>
+    <DialogForm
+      id="botForm"
+      title={manage ? "Bot settings" : b.name || b.id}
+      titleId="bdTitle"
+      onClose={onClose}
+      onSubmit={submit}
+      footer={
+        <>
+          <Button kind="danger" className="start" id="bdDelete" hidden={!manage} onClick={onDelete}>
+            {deleteArmed ? `Yes, delete ${b.name}` : "Delete bot"}
+          </Button>
+          <Button id="bdCancel" onClick={onClose}>
+            {manage ? "Cancel" : "Close"}
+          </Button>
+          <Button kind="primary" type="submit" id="bdSave" hidden={!manage}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <Field label="Name" id="bdManage" hidden={!manage}>
+        <Input id="bdName" required autoComplete="off" disabled={!manage} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
       {/* What it's for: its instructions. Others read them; the Assistant's are built in. */}
-      <div id="bdPurposeBox" hidden={central}>
-        <label>
-          What it's for
-          <textarea
+      <div className="bd-group" id="bdPurposeBox" hidden={central}>
+        <Field label="What it's for">
+          <TextArea
             id="bdPurpose"
             rows={4}
             maxLength={8000}
@@ -156,68 +183,67 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
           />
-        </label>
-        <p className="hint" id="bdPurposeHint" hidden={!manage}>
+        </Field>
+        <Hint id="bdPurposeHint" hidden={!manage}>
           {purposeHint}
-        </p>
+        </Hint>
       </div>
-      <div className="manage" id="bdManage2" hidden={!manage}>
-        <fieldset className="share-pick" id="bdShareBox" hidden={central || !picks}>
-          <legend>Shared with</legend>
-          <div className="for-pick" role="radiogroup" aria-label="Shared with">
-            {(
-              [
-                ["everyone", "Everyone in the home"],
-                ["me", "Just me"],
-                ["people", "Picked people"],
-              ] as [Sharing, string][]
-            ).map(([v, t]) => (
-              <label key={v}>
-                <input type="radio" name="bdSharing" value={v} checked={sharing === v} disabled={busy} onChange={() => setSharing(v)} />{" "}
-                {t}
-              </label>
-            ))}
-          </div>
+      <div className="bd-stack" id="bdManage2" hidden={!manage}>
+        <div className="bd-group" id="bdShareBox" hidden={central || !picks}>
+          <span className="field-name">
+            Shared with
+          </span>
+          <Segmented<Sharing>
+            name="bdSharing"
+            label="Shared with"
+            options={SHARING}
+            value={sharing}
+            disabled={busy}
+            onChange={setSharing}
+          />
           <PeoplePick b={b} people={people} chosen={picked} setChosen={setPicked} hidden={sharing !== "people"} />
-        </fieldset>
-        <p className="share-line" id="bdSharedLine" hidden={central || picks}>
+        </div>
+        <p className="note-text" id="bdSharedLine" hidden={central || picks}>
           Shared with everyone in the home
         </p>
-        <p className="hint" id="bdHint" hidden={!busy}>
+        {/* The purpose's hint already says so, unless the bot has none. */}
+        <Hint id="bdHint" hidden={!busy || !central}>
           Wait until it's done working to change this.
-        </p>
+        </Hint>
         <details className="advanced" id="bdAdvanced" hidden={!manage || central}>
           <summary>Advanced</summary>
-          <label>
-            Kind of job
-            <select id="bdKind" ref={kindRef} disabled={busy} value={kind} onChange={(e) => setKind(e.target.value)}>
+          <Field label="Kind of job" hint="Decides which AI models it tries, free ones first.">
+            <Select id="bdKind" ref={kindRef} disabled={busy} value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="">Automatic</option>
               {lists.map((l) => (
                 <option key={l.kind} value={l.kind}>{`${l.label} — ${l.about}`}</option>
               ))}
               {kindOf(lists, bdList) === "own" ? <option value="own">Its own list of models</option> : null}
-            </select>
-          </label>
-          <p className="hint">Picked from the bot's instructions when it was made. It decides which AI models the bot tries, free ones first.</p>
+            </Select>
+          </Field>
         </details>
       </div>
-      <section className="reports-box" aria-labelledby="bdReportsTitle" hidden={!reports?.length}>
-        <h3 id="bdReportsTitle">Reports</h3>
-        <ul className="rules" id="bdReports">
+      <Section className="reports-box" title="Reports" titleId="bdReportsTitle" hidden={!reports?.length}>
+        <List id="bdReports">
           {(reports ?? []).map((r) => (
-              <li className="report-row" key={r.id}>
+            <ListRow
+              className="report-row"
+              key={r.id}
+              title={
                 <button
                   type="button"
-                  className="open"
+                  className="report-open"
                   onClick={() => dispatch(local("ui/open", { dialog: "report", arg: `${id}:${r.id}` }))}
                 >
-                  <span>{r.title}</span>
-                  <small>{`${new Date(r.created_ms).toLocaleDateString([], { month: "short", day: "numeric" })} · ${r.sources} source${r.sources === 1 ? "" : "s"}`}</small>
+                  {r.title}
                 </button>
-                {manage ? (
-                  <button
-                    type="button"
-                    className="ghost"
+              }
+              sub={`${new Date(r.created_ms).toLocaleDateString([], { month: "short", day: "numeric" })} · ${r.sources} source${r.sources === 1 ? "" : "s"}`}
+              trail={
+                manage ? (
+                  <Button
+                    kind="quiet"
+                    size="sm"
                     onClick={() => {
                       clearTimeout(timers.current.rep);
                       if (reportArmed !== r.id) {
@@ -230,31 +256,25 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
                     }}
                   >
                     {reportArmed === r.id ? "Yes, delete" : "Delete"}
-                  </button>
-                ) : null}
-              </li>
-            ))}
-        </ul>
-      </section>
-      <section className="rules-box" aria-labelledby="bdSchedTitle">
-        <h3 id="bdSchedTitle">Schedules</h3>
+                  </Button>
+                ) : null
+              }
+            />
+          ))}
+        </List>
+      </Section>
+      <Section className="rules-box" title="Schedules" titleId="bdSchedTitle">
         <ScheduleList id="bdScheds" list={schedules} withBot={false} />
-      </section>
-      <div className="row">
-        <button className="ghost" type="button" id="bdDelete" hidden={!manage} onClick={onDelete}>
-          {deleteArmed ? `Yes, delete ${b.name}` : "Delete bot"}
-        </button>
-        <span style={{ flex: 1 }} />
-        <button className="ghost" type="button" id="bdCancel" onClick={onClose}>
-          {manage ? "Cancel" : "Close"}
-        </button>
-        <button className="primary" type="submit" id="bdSave" hidden={!manage}>
-          Save
-        </button>
-      </div>
-    </form>
+      </Section>
+    </DialogForm>
   );
 }
+
+const SHARING = [
+  ["everyone", "Everyone"],
+  ["me", "Just me"],
+  ["people", "Picked people"],
+] as const satisfies readonly (readonly [Sharing, string])[];
 
 /** The bot's own models (the server leaves an empty list out). */
 function modelsOf(b: BotInfo): string[] {
@@ -284,19 +304,18 @@ function PeoplePick({
   const others = people.filter((p) => p.name !== b.created_by);
   return (
     <div className="people-pick" id="bdPeople" hidden={hidden}>
-      {!others.length ? <span className="hint">Nobody else yet: connect a device for someone first.</span> : null}
+      {!others.length ? <Note>Nobody else yet. Add a device for someone first.</Note> : null}
       {others.map((p) => (
-        <label key={p.name}>
-          <input
-            type="checkbox"
-            value={p.name}
-            checked={chosen.includes(p.name)}
-            disabled={b.busy}
-            onChange={(e) => setChosen(e.target.checked ? [...chosen, p.name] : chosen.filter((n) => n !== p.name))}
-          />
-          <span className="maker-dot" style={{ background: p.color || "var(--muted)" }} />
+        <Checkbox
+          key={p.name}
+          value={p.name}
+          checked={chosen.includes(p.name)}
+          disabled={b.busy}
+          onChange={(e) => setChosen(e.target.checked ? [...chosen, p.name] : chosen.filter((n) => n !== p.name))}
+        >
+          <span className="person-dot maker-dot" style={vars({ person: p.color })} />
           {p.name}
-        </label>
+        </Checkbox>
       ))}
     </div>
   );

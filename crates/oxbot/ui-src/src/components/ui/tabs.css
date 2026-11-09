@@ -1,0 +1,10 @@
+.tabs { display: flex; gap: var(--s-1); min-width: 0; }
+.tabs button {
+  border: 0; background: transparent; color: var(--muted);
+  min-height: var(--control); padding: 0 var(--s-3); border-radius: var(--r-md);
+  font-size: var(--text-md); font-weight: var(--weight-mid); white-space: nowrap; text-align: left;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.tabs button:hover { color: var(--ink); background: var(--sunken); }
+.tabs button[aria-selected="true"] { color: var(--ink); background: var(--sunken); }
+.tabs-vertical { flex-direction: column; }

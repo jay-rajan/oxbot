@@ -3,6 +3,7 @@
 // (welcome screen), otherwise it loops (the Working… line). With reduced
 // motion it shows the board still.
 import type { ReactNode } from "react";
+import "./board.css";
 
 const cell = (i: number): [number, number] => [15 + 30 * (i % 3), 15 + 30 * Math.floor(i / 3)];
 
@@ -38,7 +39,7 @@ export function Board({ once = false, grid = true }: { once?: boolean; grid?: bo
           y1={y1}
           x2={x2}
           y2={y2}
-          style={{ stroke: `var(${once ? "--line" : "--focus"})` }}
+          className={once ? "board-line" : "board-line busy"}
           strokeWidth={once ? 3 : 5}
           opacity={once ? 1 : 0.6}
           strokeLinecap="round"
@@ -69,7 +70,7 @@ export function Board({ once = false, grid = true }: { once?: boolean; grid?: bo
           cy={cy}
           r={8.5}
           fill="none"
-          style={{ stroke: "var(--ink)" }}
+          className="board-o"
           strokeWidth={4.5}
           transform={`rotate(-90 ${cx} ${cy})`}
           {...dash(53.4)}
@@ -84,7 +85,7 @@ export function Board({ once = false, grid = true }: { once?: boolean; grid?: bo
             key={`m${n}${k}`}
             d={d}
             fill="none"
-            style={{ stroke: "var(--rust)" }}
+            className="board-x"
             strokeWidth={5}
             strokeLinecap="round"
             {...dash(21.2)}
@@ -102,7 +103,7 @@ export function Board({ once = false, grid = true }: { once?: boolean; grid?: bo
         y1={10}
         x2={10}
         y2={80}
-        style={{ stroke: "var(--rust)" }}
+        className="board-x"
         strokeWidth={3.5}
         strokeLinecap="round"
         opacity={0.85}

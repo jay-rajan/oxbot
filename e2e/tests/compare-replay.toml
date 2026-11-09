@@ -1,6 +1,6 @@
 name = "A replay changes nothing and shows scores"
 about = "The owner keeps a finished post as a test case and replays it on a free model: the post is recorded, never done (no approval request, nothing in the chat, no write reaches the site even though the test browser really loads its page), and the scoreboard shows the model with the original and the replay."
-covers = ["crates/oxbot-core/src/hub/trials.rs", "crates/oxbot-core/src/hub/compare.rs", "crates/oxbot-core/src/compare.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-browser/src/netguard.rs", "crates/oxbot-browser/src/trial.rs", "crates/oxbot/src/compare.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-core/src/hub/trials.rs", "crates/oxbot-core/src/hub/compare.rs", "crates/oxbot-core/src/compare.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-browser/src/netguard.rs", "crates/oxbot-browser/src/trial.rs", "crates/oxbot/src/compare.rs", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "Recipes"
@@ -78,7 +78,7 @@ note = "…and every write the page tried in it was blocked: still only the live
 [[step]]
 click = "Runs"
 [[step]]
-expect_js = "(() => { const li = [...document.querySelectorAll('#cmpRunList li')].find((l) => l.querySelector('span').textContent === 'post the nurse job · e2e/tool-model:free' && l.querySelector('small').textContent.startsWith('replay')); if (!li) return false; li.click(); return true; })()"
+expect_js = "(() => { const li = [...document.querySelectorAll('#cmpRunList li')].find((l) => l.querySelector('.list-title').textContent === 'post the nurse job · e2e/tool-model:free' && l.querySelector('small').textContent.startsWith('replay')); if (!li) return false; li.click(); return true; })()"
 timeout_ms = 10000
 note = "The replay (the original, on the same model, is listed too)"
 [[step]]

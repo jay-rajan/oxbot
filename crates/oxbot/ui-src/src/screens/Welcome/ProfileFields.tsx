@@ -1,9 +1,11 @@
 // The profile fields, shared by the welcome screen and Settings → People.
-// Each detail says whether bots may use it (never the name, colour or photo).
+// Each detail says whether bots may use it (never the name, color or photo).
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../app/context";
+import { Button, Checkbox, Field, Hint, Input, TextArea, vars } from "../../components/ui";
 import type { ProfileView } from "../../net/protocol";
 import { type ProfileDraft, ROLES, draftFrom } from "./profile";
+import "./welcome.css";
 
 /** A draft that follows the server's view, except while the form is in use. */
 export function useProfileDraft(view: ProfileView | null) {
@@ -58,53 +60,56 @@ export function ProfileFields({
   const pickRef = useRef<HTMLInputElement>(null);
   const set = (patch: Partial<ProfileDraft>) => onChange({ ...draft, ...patch });
 
-  const field = (label: string, key: TextKey, max: number, use: UseKey | null, area = false) => {
+  const field = (label: string, key: TextKey, max: number, use: UseKey | null, area = false, placeholder?: string) => {
+    const common = {
+      "data-key": key,
+      maxLength: max,
+      autoComplete: "off",
+      placeholder,
+      value: draft[key],
+    };
     const input = area ? (
-      <textarea data-key={key} maxLength={max} autoComplete="off" value={draft[key]} onChange={(e) => set({ [key]: e.target.value })} />
+      <TextArea {...common} onChange={(e) => set({ [key]: e.target.value })} />
     ) : (
-      <input data-key={key} maxLength={max} autoComplete="off" value={draft[key]} onChange={(e) => set({ [key]: e.target.value })} />
+      <Input {...common} onChange={(e) => set({ [key]: e.target.value })} />
     );
+    if (use === null)
+      return (
+        <Field label={label} hint="Bots may use this: never">
+          {input}
+        </Field>
+      );
     return (
       <div className="pf">
-        <label>
-          {label}
-          {input}
-        </label>
-        <div className="use">
-          {use === null ? (
-            "Bots may use this: never"
-          ) : (
-            <label>
-              <input type="checkbox" data-use={key} checked={draft[use]} onChange={(e) => set({ [use]: e.target.checked })} />
-              {" Bots may use this"}
-            </label>
-          )}
-        </div>
+        <Field label={label}>{input}</Field>
+        <Checkbox className="use" data-use={key} checked={draft[use]} onChange={(e) => set({ [use]: e.target.checked })}>
+          Bots may use this
+        </Checkbox>
       </div>
     );
   };
 
   return (
-    <div id={boxId}>
+    <div id={boxId} className="profile-fields">
       {field("Name", "name", 40, null)}
-      {/* Colour and photo: shown with your messages, never sent to bots. */}
+      {/* Color and photo: shown with your messages, never sent to bots. */}
       <div className="pf">
-        <label>Colour and photo</label>
+        <span className="pf-label">Color and photo</span>
         <div className="swatches">
           {view.colors.map((c) => (
-            <label key={c} style={{ background: c }} title={c}>
+            <label key={c} style={vars({ person: c })} title={c}>
               <input type="radio" name={`${boxId}Color`} value={c} checked={c === draft.color} aria-label={c} onChange={() => set({ color: c })} />
             </label>
           ))}
         </div>
         <div className="photo-row">
           <img className="photo" alt="Your photo" hidden={!draft.photo} src={draft.photo ?? undefined} />
-          <button type="button" className="ghost" onClick={() => pickRef.current?.click()}>
+          <Button size="sm" onClick={() => pickRef.current?.click()}>
             {draft.photo ? "Change photo" : "Add a photo"}
-          </button>
-          <button type="button" className="ghost" hidden={!draft.photo} onClick={() => set({ photo: null })}>
+          </Button>
+          <Button kind="quiet" size="sm" hidden={!draft.photo} onClick={() => set({ photo: null })}>
             Remove
-          </button>
+          </Button>
           <input
             type="file"
             accept="image/*"
@@ -117,27 +122,25 @@ export function ProfileFields({
             }}
           />
         </div>
-        <div className="use">Bots may use this: never</div>
+        <p className="use">Bots may use this: never</p>
       </div>
-      <div className="role">{`In the home: ${ROLES[view.role] || view.role}`}</div>
+      <p className="role">{`In the home: ${ROLES[view.role] || view.role}`}</p>
       {view.can_edit_area ? (
-        field("Home area (the household's: city, region)", "home_area", 100, "home_area_use")
+        field("Home area", "home_area", 100, "home_area_use", false, "City, region")
       ) : view.home_area ? (
-        <p className="hint">{`Home area: ${view.home_area} (the owner sets it)`}</p>
+        <Hint>{`Home area: ${view.home_area} (the owner sets it)`}</Hint>
       ) : null}
-      {field("Food needs (optional, e.g. vegetarian, no nuts)", "food", 200, "food_use")}
-      {field("Languages (optional)", "languages", 200, "languages_use")}
-      {field("Notes for bots (optional, e.g. I prefer metric; no paid apps)", "notes", 500, "notes_use", true)}
+      {field("Food needs", "food", 200, "food_use", false, "Optional: vegetarian, no nuts")}
+      {field("Languages", "languages", 200, "languages_use", false, "Optional")}
+      {field("Notes for bots", "notes", 500, "notes_use", true, "Optional: I prefer metric; no paid apps")}
       {view.owner_confirm ? (
         <div className="confirms">
-          <label className="check">
-            <input type="checkbox" data-confirm="adult" checked={draft.adult} onChange={(e) => set({ adult: e.target.checked })} />
-            {" I'm 18 or older."}
-          </label>
-          <label className="check">
-            <input type="checkbox" data-confirm="terms" checked={draft.terms} onChange={(e) => set({ terms: e.target.checked })} />
-            {" I accept OpenRouter's terms of service (openrouter.ai/terms), for the home's AI account."}
-          </label>
+          <Checkbox data-confirm="adult" checked={draft.adult} onChange={(e) => set({ adult: e.target.checked })}>
+            I'm 18 or older.
+          </Checkbox>
+          <Checkbox data-confirm="terms" checked={draft.terms} onChange={(e) => set({ terms: e.target.checked })}>
+            I accept OpenRouter's terms of service (openrouter.ai/terms), for the home's AI account.
+          </Checkbox>
         </div>
       ) : null}
     </div>

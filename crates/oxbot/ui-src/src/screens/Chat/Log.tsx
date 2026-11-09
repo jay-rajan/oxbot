@@ -1,7 +1,7 @@
 // The chat log: every stored event as the hand-written page drew it, the
 // reply streaming in, the "Working…" line, meters, report cards, the owner's
 // thumbs, and the blurred picture of someone else's private bot.
-import { type CSSProperties, Fragment, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { Fragment, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
 import type { BotEvent, BotInfo } from "../../net/protocol";
 import { type BotChat, type Meter, type Ratings, newBotChat } from "../../state/chat";
@@ -9,6 +9,7 @@ import { local } from "../../state/store";
 import { isLocked, maybeLoadOlder, openReport, sizeText } from "./actions";
 import { type MdNode, md } from "./md";
 import { Board } from "../../components/Board";
+import { Button, Chip, vars } from "../../components/ui";
 
 const LOCK = (
   <svg className="lock" viewBox="0 0 12 12" aria-label="Private" role="img">
@@ -55,12 +56,13 @@ function RateRow({ e, r }: { e: BotEvent; r: Ratings }) {
   return (
     <span className="rate-row">
       {([["👍", true, "Good reply"], ["👎", false, "Bad reply"]] as const).map(([label, value, title]) => (
-        <button key={label} type="button" title={title} aria-pressed={up === value} onClick={() => send({ type: "rate_turn", bot: e.bot, seq: e.seq, up: up === value ? null : value })}>
+        <Button key={label} kind="quiet" size="sm" title={title} aria-pressed={up === value} onClick={() => send({ type: "rate_turn", bot: e.bot, seq: e.seq, up: up === value ? null : value })}>
           {label}
-        </button>
+        </Button>
       ))}
-      <button
-        type="button"
+      <Button
+        kind="quiet"
+        size="sm"
         title={kept ? "Kept as a test case: see Compare in the bot's menu" : "Keep this task to replay on other models"}
         onClick={() => {
           if (kept) dispatch(local("ui/open", { dialog: "compare", arg: `${e.bot}:cmpCases` }));
@@ -72,7 +74,7 @@ function RateRow({ e, r }: { e: BotEvent; r: Ratings }) {
         }}
       >
         {kept ? "✓ test case" : "Test case…"}
-      </button>
+      </Button>
     </span>
   );
 }
@@ -104,16 +106,11 @@ function SentFiles({ e, farm }: { e: Extract<BotEvent, { kind: "user_message" }>
   return (
     <div className="msg-files">
       {e.files.map((f) => {
-        const body = (
-          <>
-            <span className="nm">{f.name}</span>
-            <small>{f.kind === "video" ? `Bots can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size)}</small>
-          </>
-        );
+        const sub = f.kind === "video" ? `Bots can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size);
         return farm ? (
-          <button key={f.id} type="button" className="chip" title="Open it on the home computer" onClick={() => send({ type: "open_file", bot: e.bot, seq: e.seq, id: f.id })}>{body}</button>
+          <Chip key={f.id} sub={sub} title="Open it on the home computer" onClick={() => send({ type: "open_file", bot: e.bot, seq: e.seq, id: f.id })}>{f.name}</Chip>
         ) : (
-          <span key={f.id} className="chip" title="Files open on the home computer">{body}</span>
+          <Chip key={f.id} sub={sub} title="Files open on the home computer">{f.name}</Chip>
         );
       })}
     </div>
@@ -127,8 +124,8 @@ const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx })
     case "user_message": {
       const color = e.from ? ctx.people[e.from] || "var(--muted)" : undefined;
       return (
-        <div className="mine" title={title} style={color ? ({ "--person": color } as CSSProperties) : undefined}>
-          {e.from ? <div className="who"><i style={{ background: color }} />{e.from}</div> : null}
+        <div className="mine" title={title} style={color ? vars({ person: color }) : undefined}>
+          {e.from ? <div className="who"><i className="person-dot" />{e.from}</div> : null}
           {e.text || !e.files?.length ? <div className="msg me">{e.text}</div> : null}
           {e.files?.length ? <SentFiles e={e} farm={ctx.farm} /> : null}
         </div>
@@ -170,7 +167,7 @@ function LockedView({ info }: { info: BotInfo }) {
   return (
     <div className="locked-view">
       {([[70, false], [45, true], [85, false], [55, true], [65, false]] as const).map(([w, me], i) => (
-        <div key={i} className={`ghostline${me ? " me" : ""}`} style={{ width: `${w}%` }} />
+        <div key={i} className={`ghostline${me ? " me" : ""}`} style={vars({ w: `${w}%` })} />
       ))}
       <div className="note">
         {LOCK}

@@ -1,6 +1,6 @@
 name = "A report on a phone"
 about = "On a phone-size screen the report fills the screen, its table scrolls on its own, and Back returns to the chat."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/report.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/report.rs"]
 viewport = { width = 390, height = 844 }
 
 [[step]]

@@ -1,6 +1,6 @@
 name = "A bot's own models, in order; Kind of job in Advanced"
 about = "A bot given its own list of two free models (the backup first; there's no list editor any more, so the test sends the list as the page would) asks them in that order, its header names the first, and its settings show Advanced → Kind of job as \"Its own list of models\". Switching it back to Automatic and saving clears the list."
-covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-core/src/model_lists.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-core/src/model_lists.rs", "crates/oxbot-core/src/hub/engines.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**", "crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "New bot"

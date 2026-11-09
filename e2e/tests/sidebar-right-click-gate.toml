@@ -1,6 +1,6 @@
 name = "Right-click on a device: the same rules as ···"
 about = "Sam (on a device) can only file Jay's shared bot (into a section of Sam's own); renaming and deleting show only on Sam's own bot, exactly where ··· offers them (elsewhere ··· only lists reports). Only the owner has private bots, so Sam's own bot (made here: the seed's Bank was handed to the owner) has no Make private."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
 as = "Sam"
 
 [[step]]

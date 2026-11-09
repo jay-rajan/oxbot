@@ -1,6 +1,6 @@
 name = "Adding to a cart asks first"
 about = "A shop's Add to cart button, named with the product, gets an approval request (it puts something in the cart), with Always allow offered since it doesn't pay; Don't allow means nothing is added."
-covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "Recipes"

@@ -2,10 +2,11 @@
 // in their details yet (profile.welcome), and it stays until they're saved.
 import { type FormEvent, useEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import { Button, Dialog, DialogForm, ErrorText } from "../../components/ui";
 import { ProfileFields, useProfileDraft } from "./ProfileFields";
 import { profileEdit } from "./profile";
 import { Board } from "../../components/Board";
+import "./welcome.css";
 
 const noop = () => {};
 
@@ -22,7 +23,7 @@ export function WelcomeDialog() {
   }, []);
 
   return (
-    <Dialog id="welcomeDlg" className="wide" labelledBy="welcomeTitle" open={open} onClose={noop}>
+    <Dialog id="welcomeDlg" size="lg" labelledBy="welcomeTitle" open={open} onClose={noop}>
       <WelcomeForm />
     </Dialog>
   );
@@ -49,23 +50,29 @@ function WelcomeForm() {
   };
 
   return (
-    <form id="welcomeForm" className="profile-form" ref={formRef} onSubmit={save}>
-      <div className="ttt-hero" id="welcomeArt" aria-hidden="true">
-        <Board once />
-      </div>
-      <h2 id="welcomeTitle">Welcome to oxbot</h2>
-      <p className="hint">
-        Tell oxbot who you are. It stays on the home computer. For each detail you choose whether your bots may use it; you can change all of it later in Settings → People.
-      </p>
-      {profile && draft ? <ProfileFields boxId="welcomeFields" view={profile} draft={draft} onChange={setDraft} /> : <div id="welcomeFields" />}
-      <p className="err-text" id="welcomeErr" hidden={!err}>
-        {err}
-      </p>
-      <div className="row">
-        <button className="primary" type="submit">
+    <DialogForm
+      id="welcomeForm"
+      ref={formRef}
+      className="profile-form"
+      title="Welcome to oxbot"
+      titleId="welcomeTitle"
+      onSubmit={save}
+      footer={
+        <Button kind="primary" type="submit">
           Save and start
-        </button>
+        </Button>
+      }
+    >
+      <div className="welcome-lead">
+        <span className="ttt-hero" id="welcomeArt" aria-hidden="true">
+          <Board once />
+        </span>
+        <p className="muted">Tell oxbot who you are. It stays on the home computer.</p>
       </div>
-    </form>
+      {profile && draft ? <ProfileFields boxId="welcomeFields" view={profile} draft={draft} onChange={setDraft} /> : <div id="welcomeFields" />}
+      <ErrorText id="welcomeErr" hidden={!err}>
+        {err}
+      </ErrorText>
+    </DialogForm>
   );
 }

@@ -1,7 +1,7 @@
 name = "First start: the welcome screen asks the owner who they are"
 about = "On an empty home the owner gets a welcome screen: name, colour, home area, food needs, languages and notes, each saying whether bots may use it (never the name). The owner confirms they're 18 or older and accept OpenRouter's terms before it saves; Settings → People shows it after (Edit on your own row)."
 fresh = true
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/profiles.rs", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/store/profiles.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/profiles.rs", "crates/oxbot-core/src/hub/people.rs", "crates/oxbot-core/src/store/profiles.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
 [[step]]
 wait_for = "Welcome to oxbot"

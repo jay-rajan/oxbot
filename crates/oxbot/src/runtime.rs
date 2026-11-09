@@ -29,7 +29,8 @@ pub struct ServerOptions {
     pub browser: bool,
     /// The log relay to show in the apps.
     pub logs: Option<Arc<LogRelay>>,
-    /// Dev mode: serve the page from this folder (default: `OXBOT_UI_DIR`).
+    /// Dev mode: serve the built page from this folder, e.g. `ui-dist`
+    /// (default: `OXBOT_UI_DIR`).
     pub ui_dir: Option<PathBuf>,
     /// What the desktop app lets the page control.
     pub app: Option<Arc<dyn AppControls>>,

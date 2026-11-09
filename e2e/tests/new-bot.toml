@@ -1,6 +1,6 @@
 name = "Making a shared bot"
 about = "The + makes a bot; it shows \"by Jay\" with no colored dot (only unread dots are colored)."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "New bot"

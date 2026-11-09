@@ -6,22 +6,23 @@
 // Share with the home.
 import { type FormEvent, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
+import { Button, Checkbox, cx, Hint, Input, List, ListRow, Note, Section } from "../../components/ui";
 import type { SiteInfo } from "../../net/protocol";
 import { siteRows } from "./format";
 import { useArm } from "./useArm";
 
 const FINE_TITLE =
-  "Bots do one step at a time here, so each fill and click shows on its own. Off: they may fill in, pick and click several things in a row. Either way they ask before Add to cart, Submit, Post or Sign in.";
+  "Bots do one step at a time here. Either way they ask before Add to cart, Submit, Post or Sign in.";
 
 /** The site's own icon (from that browser's saved icons), else its first letter. */
 function SiteMark({ s }: { s: SiteInfo }) {
   if (s.icon?.startsWith("data:image/"))
     return (
-      <span className="mono has-icon">
+      <span className="site-mark has-icon">
         <img src={s.icon} alt="" />
       </span>
     );
-  return <span className="mono">{s.site.replace(/^www\./, "")[0] || "?"}</span>;
+  return <span className="site-mark">{s.site.replace(/^www\./, "")[0] || "?"}</span>;
 }
 
 const NO_SITES: SiteInfo[] = [];
@@ -51,11 +52,12 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
     toast(`Opening ${url} in the home's Chrome window. Sign in there, then close the window.`);
   };
 
+  const homeAll = homeSites.length > 0 && farm;
   return (
-    <div id="setSignins" role="tabpanel" hidden={hidden}>
-      <section>
+    <div id="setSignins" className="settings-pane" role="tabpanel" hidden={hidden}>
+      <Section>
         <form className="add-site" id="addSiteForm" onSubmit={addSite}>
-          <input
+          <Input
             id="addSiteUrl"
             ref={urlRef}
             type="text"
@@ -65,90 +67,94 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
             placeholder="e.g. gmail.com"
             aria-label="Add a website"
           />
-          <button className="primary" type="submit">
+          <Button kind="primary" type="submit">
             Sign in
-          </button>
+          </Button>
         </form>
-        <p className="hint" id="siteHint">
+        <Hint id="siteHint">
           {ownsHome
-            ? "You sign in once, in the home browser, and shared bots use it. A private bot asks for its own sign-in when it needs one."
+            ? "Sign in once here and shared bots use it. Private bots ask for their own."
             : "Bots use the home browser and the websites the home is signed in to."}
-        </p>
-        <ul className="site-rows" id="siteRows">
-          {rows.length === 0 ? <li className="hint">No websites yet.</li> : null}
+        </Hint>
+      </Section>
+      <Section>
+        <List className="site-rows" id="siteRows">
+          {rows.length === 0 ? (
+            <li>
+              <Note>No websites yet.</Note>
+            </li>
+          ) : null}
           {rows.map(({ site: s, mine, stepOnly }) => {
             const key = (mine ? "me:" : "home:") + s.site;
             const since = s.signed_in_ms
               ? ` · since ${new Date(s.signed_in_ms).toLocaleDateString([], { month: "short", day: "numeric" })}`
               : "";
             return (
-              <li key={key} className={`site-row${mine ? " private" : ""}`}>
-                <SiteMark s={s} />
-                <span className="name">
-                  {s.site}
-                  <small>{mine ? `Private: your bots${since}` : stepOnly ? "Not signed in" : `Shared bots${since}`}</small>
-                </span>
-                <div className="site-acts">
-                  {mine ? (
+              <ListRow
+                key={key}
+                className={cx("site-row", mine && "private")}
+                lead={<SiteMark s={s} />}
+                title={s.site}
+                sub={mine ? `Private: your bots${since}` : stepOnly ? "Not signed in" : `Shared bots${since}`}
+                trail={
+                  mine ? (
                     // The home computer says when it's shared (or why it couldn't be).
-                    <button
-                      type="button"
-                      className="ghost"
+                    <Button
+                      kind="quiet"
+                      size="sm"
                       title="Shared bots can then use this sign-in too. Your private bots keep theirs."
                       onClick={() => send({ type: "share_site", site: s.site })}
                     >
                       Share with the home
-                    </button>
+                    </Button>
                   ) : (
                     <>
-                      <label className="check steps" title={FINE_TITLE}>
-                        <input
-                          type="checkbox"
-                          checked={fineSites.includes(s.site)}
-                          disabled={!farm}
-                          onChange={(e) => send({ type: "set_fine_grained_site", site: s.site, on: e.target.checked })}
-                        />
-                        {" Fine-grained control"}
-                      </label>
+                      <Checkbox
+                        className="steps"
+                        title={FINE_TITLE}
+                        checked={fineSites.includes(s.site)}
+                        disabled={!farm}
+                        onChange={(e) => send({ type: "set_fine_grained_site", site: s.site, on: e.target.checked })}
+                      >
+                        Fine-grained control
+                      </Checkbox>
                       {/* Only the home computer may open or sign the home browser out. */}
                       {!stepOnly && farm ? (
                         <>
-                          <button type="button" className="ghost" onClick={() => send({ type: "open_site", site: s.site, mine: false })}>
+                          <Button kind="quiet" size="sm" onClick={() => send({ type: "open_site", site: s.site, mine: false })}>
                             Open
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost"
+                          </Button>
+                          <Button
+                            kind="quiet"
+                            size="sm"
                             onClick={() => {
                               if (row.fire(key)) send({ type: "sign_out_site", site: s.site, mine: false });
                             }}
                           >
                             {row.armed === key ? "Yes, sign out" : "Sign out"}
-                          </button>
+                          </Button>
                         </>
                       ) : null}
                     </>
-                  )}
-                </div>
-              </li>
+                  )
+                }
+              />
             );
           })}
-        </ul>
-        <div className="btns">
-          <button
-            className="ghost"
-            type="button"
+        </List>
+        <div className="btn-row" hidden={!homeAll && !mySites.length}>
+          <Button
+            size="sm"
             id="signOutAll"
-            hidden={!homeSites.length || !farm}
+            hidden={!homeAll}
             onClick={() => {
               if (all.fire("all")) send({ type: "sign_out_all", mine: false });
             }}
           >
             {all.armed === "all" ? "Yes, sign out everywhere" : "Sign out of all sites"}
-          </button>
-          <button
-            className="ghost"
-            type="button"
+          </Button>
+          <Button
+            size="sm"
             id="signOutMine"
             hidden={!mySites.length}
             onClick={() => {
@@ -156,9 +162,9 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
             }}
           >
             {mineAll.armed === "mine" ? "Yes, sign out of all your private sites" : "Sign out of all your private sites"}
-          </button>
+          </Button>
         </div>
-      </section>
+      </Section>
     </div>
   );
 }

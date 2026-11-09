@@ -1,6 +1,6 @@
 name = "Only the owner can have private bots"
 about = "Sam isn't the owner of the home computer: New bot has no Private option, his bot is shared with everyone, and its settings say so in one line instead of the Shared with choices. The home computer enforces it too: asking it for a private bot, or to share his bot with just him or picked people, gets a shared bot or a plain refusal."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 as = "Sam"
 
 [[step]]

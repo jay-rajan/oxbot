@@ -3,8 +3,9 @@
 // an error).
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useApp, useSel } from "../app/context";
-import { local } from "../state/store";
+import { useApp, useSel } from "../../app/context";
+import { local } from "../../state/store";
+import "./toast.css";
 
 export function Toast() {
   const { dispatch } = useApp();
@@ -24,7 +25,7 @@ export function Toast() {
     return () => clearTimeout(t);
   }, [toast, dispatch]);
   return createPortal(
-    <div className={`toast${toast?.error ? " error" : ""}`} id="toast" hidden={!toast}>
+    <div className={`toast${toast?.error ? " error" : ""}`} id="toast" role="status" aria-live="polite" hidden={!toast}>
       {toast?.text}
     </div>,
     host,

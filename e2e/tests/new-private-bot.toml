@@ -1,6 +1,6 @@
 name = "Making a private bot"
 about = "The owner of the home computer (Jay, on it) still ticks Private: the bot is only theirs to open, and shows a lock and \"private\". (Only the owner has the Private option; see private-only-owner.)"
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "New bot"

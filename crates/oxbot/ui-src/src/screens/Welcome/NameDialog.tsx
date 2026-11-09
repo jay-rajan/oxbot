@@ -4,7 +4,7 @@
 // with the trimmed name. Cancel or Escape just closes it.
 import { type FormEvent, useCallback, useEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import { Button, Dialog, DialogForm, Field, Input } from "../../components/ui";
 import { type Action, local } from "../../state/store";
 
 export interface NameAsk {
@@ -31,7 +31,7 @@ export function NameDialog() {
     dispatch(local("ui/close", { dialog: "name" }));
   }, [dispatch]);
   return (
-    <Dialog id="nameDlg" labelledBy="ndTitle" open={open} onClose={onClose}>
+    <Dialog id="nameDlg" size="sm" labelledBy="ndTitle" open={open} onClose={onClose}>
       <NameForm onClose={onClose} />
     </Dialog>
   );
@@ -53,20 +53,26 @@ function NameForm({ onClose }: { onClose: () => void }) {
     done?.(name);
   };
   return (
-    <form id="nameForm" onSubmit={save}>
-      <h2 id="ndTitle">{ask?.title ?? "Name"}</h2>
-      <label>
-        Name
-        <input id="ndName" ref={ref} required autoComplete="off" spellCheck={false} defaultValue={ask?.value ?? ""} maxLength={ask?.max} />
-      </label>
-      <div className="row">
-        <button className="ghost" type="button" id="ndCancel" onClick={onClose}>
-          Cancel
-        </button>
-        <button className="primary" type="submit" id="ndSave">
-          {ask?.value ? "Save" : "Create"}
-        </button>
-      </div>
-    </form>
+    <DialogForm
+      id="nameForm"
+      title={ask?.title ?? "Name"}
+      titleId="ndTitle"
+      onClose={onClose}
+      onSubmit={save}
+      footer={
+        <>
+          <Button kind="secondary" id="ndCancel" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button kind="primary" type="submit" id="ndSave">
+            {ask?.value ? "Save" : "Create"}
+          </Button>
+        </>
+      }
+    >
+      <Field label="Name">
+        <Input id="ndName" ref={ref} required autoComplete="off" spellCheck={false} defaultValue={ask?.value ?? ""} maxLength={ask?.max} />
+      </Field>
+    </DialogForm>
   );
 }

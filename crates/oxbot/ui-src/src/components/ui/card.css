@@ -1,0 +1,10 @@
+.card {
+  display: grid; gap: var(--s-2); min-width: 0;
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--line); border-left-width: 4px;
+}
+.card-title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.card-warn { background: var(--warn-soft); border-color: var(--warn); }
+.card-warn .card-title { color: var(--warn-ink); }
+.card-danger { background: var(--danger-soft); border-color: var(--danger); }
+.card-danger .card-title { color: var(--danger); }

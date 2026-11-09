@@ -4,6 +4,7 @@
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { type App, useApp, useSel } from "../../app/context";
 import { avatarSvg } from "../../components/brand";
+import { Banner, Button, CloseIcon, IconButton, MenuIcon, MoreIcon } from "../../components/ui";
 import type { BotInfo, UsageAlert } from "../../net/protocol";
 import { uploading } from "../../state/chat";
 import { local } from "../../state/store";
@@ -13,6 +14,7 @@ import { addFiles, follow, isLocked, openEngines, openReport, stopDictation } fr
 import { Composer } from "./Composer";
 import { Log } from "./Log";
 import { purposeLine } from "./purpose";
+import "./chat.css";
 
 const KEYCHAIN_WAITING = "Waiting for the Mac's Keychain: allow oxbot in the dialog.";
 
@@ -77,13 +79,23 @@ function UsageAlertBanner() {
     tick((n) => n + 1);
   };
   return (
-    <div className="offline alert-banner" id="usageAlert" role="status" hidden={!a} title={a?.message}>
-      <span className="alert-text" id="usageAlertText">
+    <Banner
+      tone="warn"
+      className="chat-banner offline alert-banner"
+      id="usageAlert"
+      role="status"
+      hidden={!a}
+      actions={
+        <>
+          <Button kind="quiet" size="sm" className="alert-more" id="usageAlertMore" onClick={() => openEngines(app)}>Details</Button>
+          <IconButton label="Dismiss" size="sm" id="usageAlertClose" onClick={dismiss}><CloseIcon /></IconButton>
+        </>
+      }
+    >
+      <span className="alert-text" id="usageAlertText" title={a?.message}>
         {a ? <><b>{`${label(a.limit)} at ${Math.round(a.used * 100)}%`}</b>{when ? ` · ${when}` : ""}</> : null}
       </span>
-      <button type="button" className="alert-more" id="usageAlertMore" onClick={() => openEngines(app)}>Details</button>
-      <button type="button" id="usageAlertClose" aria-label="Dismiss" title="Dismiss" onClick={dismiss}>✕</button>
-    </div>
+    </Banner>
   );
 }
 
@@ -92,7 +104,13 @@ function SetupBox() {
   const setup = useSel((s) => s.home.setup);
   const ready = !setup || setup.checks.every((c) => c.ok || c.optional);
   return (
-    <div className="setup" id="setupBox" hidden={ready}>
+    <Banner
+      tone="warn"
+      className="chat-banner setup"
+      id="setupBox"
+      hidden={ready}
+      actions={<Button kind="secondary" size="sm" id="setupAgain" onClick={() => send({ type: "check_setup" })}>Check again</Button>}
+    >
       <h3>oxbot needs a few things first</h3>
       <ul className="checks" id="setupChecks">
         {(setup?.checks ?? []).filter((c) => !c.ok && !c.optional).map((c) => (
@@ -108,8 +126,7 @@ function SetupBox() {
           </li>
         ))}
       </ul>
-      <div className="btns"><button className="primary" type="button" id="setupAgain" onClick={() => send({ type: "check_setup" })}>Check again</button></div>
-    </div>
+    </Banner>
   );
 }
 
@@ -126,10 +143,9 @@ function Offline() {
       ? "This window isn't oxbot's own. Open oxbot from its app, or with the link `oxbot serve` printed."
       : "Lost the connection to oxbot. Reconnecting…";
   return (
-    <div className="offline" id="offline" role="status" hidden={hidden}>
-      <span className="offline-dot" aria-hidden="true" />
+    <Banner className="chat-banner offline" id="offline" role="status" hidden={hidden} lead={<span className="offline-dot" aria-hidden="true" />}>
       <span id="offlineText">{text}</span>
-    </div>
+    </Banner>
   );
 }
 
@@ -150,10 +166,15 @@ function EngineNote({ info }: { info: BotInfo | undefined }) {
     else text = `The AI helper isn't ready on the home computer; ask ${owner}.`;
   }
   return (
-    <div className="engine-note" id="engineNote" role="status" hidden={!text}>
+    <Banner
+      className="chat-banner engine-note"
+      id="engineNote"
+      role="status"
+      hidden={!text}
+      actions={<Button kind="secondary" size="sm" id="engineNoteBtn" hidden={!action} onClick={() => openEngines(app)}>{action ?? ""}</Button>}
+    >
       <span id="engineNoteText">{text}</span>
-      <button className="ghost" type="button" id="engineNoteBtn" hidden={!action} onClick={() => openEngines(app)}>{action ?? ""}</button>
-    </div>
+    </Banner>
   );
 }
 
@@ -246,7 +267,7 @@ export function ChatMain() {
       onDrop={(ev) => { if (!hasFiles(ev)) return; ev.preventDefault(); dragDepth.current = 0; setDrag(false); addFiles(app, ev.dataTransfer.files); }}
     >
       <header className="chat-head">
-        <button className="menu" id="menu" type="button" aria-label="Show bots" onClick={() => dispatch(local("ui/side", { open: !sideOpen }))}>☰</button>
+        <IconButton className="menu" id="menu" label="Show bots" onClick={() => dispatch(local("ui/side", { open: !sideOpen }))}><MenuIcon /></IconButton>
         <span
           className={`avatar head-avatar${busy && !locked && info ? " working" : ""}`}
           id="botAvatar"
@@ -254,23 +275,21 @@ export function ChatMain() {
           // biome-ignore lint: a fixed SVG made from the bot id, no user text
           dangerouslySetInnerHTML={{ __html: current ? avatarSvg(current, !!info?.central) : "" }}
         />
-        <div>
+        <div className="head-text">
           <div className="head-title">
             <h1 id="botName">{current ? info?.name || current : "oxbot"}</h1>
           </div>
           <div className="status" id="botStatus" data-bot={current ?? undefined}>{info ? statusText(info, busy, chat?.activity ?? null, dictating) : ""}</div>
         </div>
-        <button
+        <IconButton
           className="head-more"
           id="botMore"
-          type="button"
-          aria-label={info ? moreLabel : "Bot settings"}
-          title={info ? moreLabel : "Bot settings"}
+          label={info ? moreLabel : "Bot settings"}
           hidden={!info || locked}
           onClick={() => { if (info && !locked) dispatch(local("ui/open", { dialog: "botSettings" })); }}
         >
-          ···
-        </button>
+          <MoreIcon />
+        </IconButton>
       </header>
       <SetupBox />
       <Offline />

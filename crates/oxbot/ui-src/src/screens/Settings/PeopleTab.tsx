@@ -5,6 +5,7 @@
 // use the network the home computer is on.
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
+import { Banner, Button, cx, ErrorText, Input, List, ListRow, PlusIcon, Section, vars } from "../../components/ui";
 import type { GateInfo, Person } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ProfileFields, useProfileDraft } from "../Welcome/ProfileFields";
@@ -14,12 +15,14 @@ import { useArm } from "./useArm";
 
 export function PeopleTab({ hidden }: { hidden: boolean }) {
   return (
-    <div id="setPeople" role="tabpanel" hidden={hidden}>
-      <section>
+    <div id="setPeople" className="settings-pane" role="tabpanel" hidden={hidden}>
+      <Section>
         <PeopleRows />
+      </Section>
+      <Section>
         <Pairing />
-        <p className="hint">A device is a phone, tablet or laptop that uses the home computer's bots over your home Wi-Fi, as the person it's for.</p>
-      </section>
+        <p className="note-text">A device is a phone, tablet or laptop that uses the home's bots over your Wi-Fi.</p>
+      </Section>
     </div>
   );
 }
@@ -89,13 +92,13 @@ function Pairing() {
   const mins = live ? Math.max(0, Math.ceil((live.pairing.expires_ms - live.now) / 60000)) : 0;
   return (
     <>
-      <div className="btns" id="addDeviceRow" hidden={!farm || formOpen || !!pairing}>
-        <button className="primary" type="button" id="addDevice" onClick={() => dispatch(local("activity/pairForm", { open: true }))}>
+      <div className="btn-row" id="addDeviceRow" hidden={!farm || formOpen || !!pairing}>
+        <Button id="addDevice" icon={<PlusIcon />} onClick={() => dispatch(local("activity/pairForm", { open: true }))}>
           Add a device
-        </button>
+        </Button>
       </div>
       <form className="add-site" id="pairForm" hidden={!formOpen || !!pairing} onSubmit={submit}>
-        <input
+        <Input
           id="pairPerson"
           ref={personRef}
           type="text"
@@ -110,16 +113,16 @@ function Pairing() {
             <option key={p.name} value={p.name} />
           ))}
         </datalist>
-        <button className="primary" type="submit">
+        <Button kind="primary" type="submit">
           Show pairing code
-        </button>
-        <button className="ghost" type="button" id="pairFormCancel" onClick={() => dispatch(local("activity/pairForm", { open: false }))}>
+        </Button>
+        <Button kind="quiet" id="pairFormCancel" onClick={() => dispatch(local("activity/pairForm", { open: false }))}>
           Cancel
-        </button>
+        </Button>
       </form>
-      <p className="hint" id="pairWhy" hidden={!why}>
+      <Banner tone="warn" id="pairWhy" hidden={!why}>
         {why}
-      </p>
+      </Banner>
       <div className="pairing" id="pairBox" hidden={!pairing}>
         <div
           className="qr"
@@ -135,16 +138,16 @@ function Pairing() {
           <p className="code" id="pairCode">
             {pairing?.code}
           </p>
-          <p className="hint" id="pairWhen">
-            {pairing ? `For ${pairing.person}. Works once, for ${mins} more minute${mins === 1 ? "" : "s"}. On the phone you can also paste the link.` : ""}
+          <p className="field-hint" id="pairWhen">
+            {pairing ? `For ${pairing.person}. Works once, for ${mins} more minute${mins === 1 ? "" : "s"}.` : ""}
           </p>
-          <div className="btns">
-            <button className="ghost" type="button" id="pairCopy" onClick={copy}>
+          <div className="btn-row">
+            <Button size="sm" id="pairCopy" onClick={copy}>
               Copy link
-            </button>
-            <button className="ghost" type="button" id="pairCancel" onClick={() => send({ type: "cancel_pairing" })}>
+            </Button>
+            <Button kind="quiet" size="sm" id="pairCancel" onClick={() => send({ type: "cancel_pairing" })}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -169,7 +172,7 @@ function PeopleRows() {
       list.push({ name: g.person, color: people.find((p) => p.name === g.person)?.color || "var(--muted)", role: "adult", photo: null });
 
   return (
-    <ul className="people-rows" id="peopleRows">
+    <List className="people-rows" id="peopleRows">
       {list.map((p) => {
         const devs = gates.filter((g) => g.person === p.name);
         const role = p.role === "owner" ? "owner" : p.role === "kid" ? "kid account" : "";
@@ -179,56 +182,66 @@ function PeopleRows() {
         const canOpen = mine || (farm && devs.length > 0);
         const isOpen = personOpen === p.name;
         return (
-          <li key={p.name} className="person-row">
-            {p.photo?.startsWith("data:image/") ? (
-              <img className="person-photo" src={p.photo} alt="" />
-            ) : (
-              <span className="maker-dot" style={{ background: p.color }} />
-            )}
-            <span className="name">
-              {p.name + (role ? ` (${role})` : "")}
-              <small>{devText}</small>
-            </span>
-            {canOpen ? (
-              <button
-                type="button"
-                className="ghost"
-                aria-expanded={isOpen}
-                onClick={() => {
-                  if (!isOpen && mine) send({ type: "get_profile" });
-                  dispatch(local("activity/person", { name: p.name }));
-                }}
-              >
-                {isOpen ? "Done" : mine ? "Edit" : "Devices"}
-              </button>
-            ) : (
-              <span />
-            )}
+          <ListRow
+            key={p.name}
+            className="person-row"
+            lead={
+              p.photo?.startsWith("data:image/") ? (
+                <img className="person-photo" src={p.photo} alt="" />
+              ) : (
+                <span className="person-dot maker-dot" style={vars({ person: p.color })} />
+              )
+            }
+            title={p.name + (role ? ` (${role})` : "")}
+            sub={devText}
+            trail={
+              canOpen ? (
+                <Button
+                  kind="quiet"
+                  size="sm"
+                  aria-expanded={isOpen}
+                  onClick={() => {
+                    if (!isOpen && mine) send({ type: "get_profile" });
+                    dispatch(local("activity/person", { name: p.name }));
+                  }}
+                >
+                  {isOpen ? "Done" : mine ? "Edit" : "Devices"}
+                </Button>
+              ) : null
+            }
+          >
             {isOpen ? (
               <div className="person-edit">
-                {farm ? devs.map((g) => <DeviceRow key={g.id} g={g} armed={arm.armed === g.id} onRemove={() => arm.fire(g.id) && send({ type: "remove_gate", id: g.id })} />) : null}
+                {farm && devs.length ? (
+                  <List className="device-list">
+                    {devs.map((g) => (
+                      <DeviceRow key={g.id} g={g} armed={arm.armed === g.id} onRemove={() => arm.fire(g.id) && send({ type: "remove_gate", id: g.id })} />
+                    ))}
+                  </List>
+                ) : null}
                 {mine ? <MeForm /> : null}
               </div>
             ) : null}
-          </li>
+          </ListRow>
         );
       })}
-    </ul>
+    </List>
   );
 }
 
 function DeviceRow({ g, armed, onRemove }: { g: GateInfo; armed: boolean; onRemove: () => void }) {
   return (
-    <div className="device-row">
-      <i className={`gate-dot${g.online ? " on" : ""}`} />
-      <span>
-        {g.name}
-        <small>{seenText(g)}</small>
-      </span>
-      <button type="button" className="ghost" onClick={onRemove}>
-        {armed ? "Yes, remove" : "Remove"}
-      </button>
-    </div>
+    <ListRow
+      className="device-row"
+      lead={<i className={cx("dot", g.online && "on")} />}
+      title={g.name}
+      sub={seenText(g)}
+      trail={
+        <Button kind="quiet" size="sm" onClick={onRemove}>
+          {armed ? "Yes, remove" : "Remove"}
+        </Button>
+      }
+    />
   );
 }
 
@@ -255,13 +268,13 @@ function MeForm() {
   return (
     <form id="meForm" className="profile-form" ref={formRef} onSubmit={save}>
       {view && draft ? <ProfileFields boxId="meFields" view={view} draft={draft} onChange={setDraft} /> : <div id="meFields" />}
-      <p className="err-text" id="meErr" hidden={!err}>
+      <ErrorText id="meErr" hidden={!err}>
         {err}
-      </p>
-      <div className="btns">
-        <button type="submit" className="primary">
+      </ErrorText>
+      <div className="btn-row">
+        <Button kind="primary" type="submit">
           Save
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -4,6 +4,7 @@
 // its bot; oldest first, so the newest sits right above the message box.
 import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
+import { Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
 import type { Answer, ScheduleEdit } from "../../net/protocol";
 import {
   type CardApproval,
@@ -17,12 +18,14 @@ import {
 } from "../../state/cards";
 import { local } from "../../state/store";
 import { expose, exposeFn } from "../../web/testBridge";
+import "./cards.css";
 
-function Btn({ label, cls, onClick }: { label: string; cls: string; onClick: () => void }) {
+/** A card's button; `cls` names it for the eye ("deny") as before. */
+function Btn({ label, kind, cls, onClick }: { label: string; kind: ButtonKind; cls?: string; onClick: () => void }) {
   return (
-    <button type="button" className={cls} onClick={onClick}>
+    <Button kind={kind} className={cls} onClick={onClick}>
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -85,22 +88,21 @@ export function Cards() {
 
   function signInCard(s: CardSignIn) {
     return (
-      <div className="card signin" key={`s:${s.id}`}>
-        <h3>{`${botName(s.bot)} needs you to sign in to ${s.site}`}</h3>
+      <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}`}>
         <div className="where">
           {s.window_open
             ? "Sign in in the Chrome window that opened. Then press I'm signed in, or just close the window."
             : `${s.why ? `${s.why}. ` : ""}You type your password yourself, in a normal Chrome window. Every bot then stays signed in there.`}
         </div>
-        <div className="btns">
+        <div className="btn-row btns">
           {s.window_open ? (
-            <Btn label="I'm signed in" cls="primary" onClick={() => send({ type: "sign_in_done", id: s.id })} />
+            <Btn label="I'm signed in" kind="primary" onClick={() => send({ type: "sign_in_done", id: s.id })} />
           ) : (
-            <Btn label="Open sign-in window" cls="primary" onClick={() => send({ type: "open_sign_in", id: s.id })} />
+            <Btn label="Open sign-in window" kind="primary" onClick={() => send({ type: "open_sign_in", id: s.id })} />
           )}
-          <Btn label="Cancel" cls="ghost" onClick={() => send({ type: "cancel_sign_in", id: s.id })} />
+          <Btn label="Cancel" kind="secondary" onClick={() => send({ type: "cancel_sign_in", id: s.id })} />
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -141,41 +143,40 @@ export function Cards() {
     let form: ReactNode = null;
     if (!isNew) {
       btns = (
-        <div className="btns">
-          <Btn label={a.action.startsWith("delete") ? "Delete it" : "Resume it"} cls="primary" onClick={() => answer(a.id, "allow_once")} />
-          <Btn label="Don't" cls="deny" onClick={() => answer(a.id, "deny")} />
+        <div className="btn-row btns">
+          <Btn label={a.action.startsWith("delete") ? "Delete it" : "Resume it"} kind="primary" onClick={() => answer(a.id, "allow_once")} />
+          <Btn label="Don't" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
         </div>
       );
     } else {
       const e = editOf(cards, a);
       if (!e.open) {
         btns = (
-          <div className="btns">
-            <Btn label="Create" cls="primary" onClick={() => answer(a.id, "allow_once")} />
-            <Btn label="Change" cls="ghost" onClick={() => setEdit(a.id, { ...e, open: true })} />
-            <Btn label="Don't" cls="deny" onClick={() => answer(a.id, "deny")} />
+          <div className="btn-row btns">
+            <Btn label="Create" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Change" kind="secondary" onClick={() => setEdit(a.id, { ...e, open: true })} />
+            <Btn label="Don't" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
           </div>
         );
       } else {
         form = <ScheduleForm e={e} onChange={(next) => setEdit(a.id, next)} />;
         btns = (
-          <div className="btns">
-            <Btn label="Create" cls="primary" onClick={() => answer(a.id, "allow_once", { task: e.task.trim(), rule: ruleOf(e) })} />
-            <Btn label="Back" cls="ghost" onClick={() => setEdit(a.id, { ...e, open: false })} />
-            <Btn label="Don't" cls="deny" onClick={() => answer(a.id, "deny")} />
+          <div className="btn-row btns">
+            <Btn label="Create" kind="primary" onClick={() => answer(a.id, "allow_once", { task: e.task.trim(), rule: ruleOf(e) })} />
+            <Btn label="Back" kind="secondary" onClick={() => setEdit(a.id, { ...e, open: false })} />
+            <Btn label="Don't" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
           </div>
         );
       }
     }
     return (
-      <div className="card sched" key={key}>
-        <h3>{head}</h3>
+      <Card className="sched" key={key} title={head}>
         <div className="sched-text">{d.text}</div>
         <div className="where">{where}</div>
         {d.from ? <div className="from">{`⚠ Not straight from a message of yours: ${d.from}. Check it's what you want.`}</div> : null}
         {form}
         {btns}
-      </div>
+      </Card>
     );
   }
 
@@ -186,70 +187,66 @@ export function Cards() {
       // The Assistant wants to make a bot: its name and instructions. The
       // server says who it's for ("create a private bot for Sam").
       return (
-        <div className="card newbot" key={key}>
-          <h3>{`${who} wants to ${a.action || "create a bot"}: ${a.target}`}</h3>
+        <Card className="newbot" key={key} title={`${who} wants to ${a.action || "create a bot"}: ${a.target}`}>
           <div className="where">It will follow these instructions. You can change or remove it later.</div>
           {a.detail ? <pre>{a.detail}</pre> : null}
-          <div className="btns">
-            <Btn label="Create" cls="primary" onClick={() => answer(a.id, "allow_once")} />
-            <Btn label="Don't create" cls="ghost" onClick={() => answer(a.id, "deny")} />
+          <div className="btn-row btns">
+            <Btn label="Create" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Don't create" kind="secondary" onClick={() => answer(a.id, "deny")} />
           </div>
-        </div>
+        </Card>
       );
     }
     if (a.kind === "give_task") {
       // The Assistant has read something oxbot doesn't trust (a.page says
       // what), then wants to use a private bot: the whole task.
       return (
-        <div className="card change" key={key}>
-          <h3>{`⚠ ${who} wants to ${a.action} ${a.target}`}</h3>
+        <Card tone="danger" className="change" key={key} title={`⚠ ${who} wants to ${a.action} ${a.target}`}>
           <div className="where">{`${who} has read ${a.page || "web content or another bot's reply"} in this conversation, which may have asked for this. The task, word for word:`}</div>
           <pre>{a.detail || ""}</pre>
-          <div className="btns">
-            <Btn label="Give the task" cls="primary" onClick={() => answer(a.id, "allow_once")} />
-            <Btn label="Don't give it" cls="deny red" onClick={() => answer(a.id, "deny")} />
+          <div className="btn-row btns">
+            <Btn label="Give the task" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Don't give it" kind="danger" cls="deny" onClick={() => answer(a.id, "deny")} />
           </div>
-        </div>
+        </Card>
       );
     }
     if (a.kind === "script") {
       // A small script in the bot's own folder: the program, word for word.
       const ask = `${a.action} ${a.target}?`;
       return (
-        <div className="card script" key={key}>
-          <h3>{`${ask.charAt(0).toUpperCase()}${ask.slice(1)}`}</h3>
+        <Card tone="warn" className="script" key={key} title={`${ask.charAt(0).toUpperCase()}${ask.slice(1)}`}>
           <div className="where">
             It can only see this bot's folder and can't use the internet. It runs on the home computer for at most 30 seconds. The program:
           </div>
           <pre>{a.detail || ""}</pre>
-          <div className="btns">
-            <Btn label="Yes" cls="primary" onClick={() => answer(a.id, "allow_once")} />
-            {a.always ? <Btn label="Always for this bot" cls="ghost" onClick={() => answer(a.id, "always_allow")} /> : null}
-            <Btn label="No" cls="deny" onClick={() => answer(a.id, "deny")} />
+          <div className="btn-row btns">
+            <Btn label="Yes" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            {a.always ? <Btn label="Always for this bot" kind="secondary" onClick={() => answer(a.id, "always_allow")} /> : null}
+            <Btn label="No" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
           </div>
           {a.always ? (
             <div className="hint">{`Always lets ${who} run small scripts in its own folder without asking, unless it has read a web page or a file in the conversation. Remove it in the bot's ··· settings.`}</div>
           ) : null}
-        </div>
+        </Card>
       );
     }
     const change = a.kind === "change";
     return (
-      <div className={change ? "card change" : "card"} key={key}>
-        <h3>{`⚠ ${who} wants to ${a.action} ${a.target} on ${a.site}`}</h3>
+      <Card tone={change ? "danger" : "warn"} className={change ? "change" : undefined} key={key} title={`⚠ ${who} wants to ${a.action} ${a.target} on ${a.site}`}>
         <div className="where">{`${a.page ? `${a.page} · ` : ""}${change ? "This changes something on the site, where you may be signed in." : "This sends a file from the home computer to the site."}`}</div>
         {a.detail ? <pre>{a.detail}</pre> : null}
         {a.screenshot?.startsWith("data:image/") ? shot(a, key, who) : null}
-        <div className="btns">
-          <Btn label="Allow once" cls="primary" onClick={() => answer(a.id, "allow_once")} />
+        <div className="btn-row btns">
+          <Btn label="Allow once" kind="primary" onClick={() => answer(a.id, "allow_once")} />
           {/* Offered by the server for this viewer only (never for pay, delete, Enter, uploads or the Assistant). */}
-          {a.always ? <Btn label="Always allow" cls="ghost" onClick={() => answer(a.id, "always_allow")} /> : null}
-          <Btn label="Don't allow" cls={change ? "deny red" : "deny"} onClick={() => answer(a.id, "deny")} />
+          {a.always ? <Btn label="Always allow" kind="secondary" onClick={() => answer(a.id, "always_allow")} /> : null}
+          <Btn label="Don't allow" kind={change ? "danger" : "secondary"} cls="deny" onClick={() => answer(a.id, "deny")} />
         </div>
         {a.always ? (
           <div className="hint">{`Always lets ${who} ${a.action} ${a.target} on ${a.site} without asking. Remove it in the bot's ··· settings.`}</div>
         ) : null}
-      </div>
+      </Card>
     );
   }
 
@@ -264,51 +261,45 @@ export function Cards() {
 function ScheduleForm({ e, onChange }: { e: SchedEdit; onChange: (e: SchedEdit) => void }) {
   return (
     <div className="sched-edit">
-      <label>
-        What the bot does each time
-        <textarea value={e.task} maxLength={1000} onChange={(ev) => onChange({ ...e, task: ev.target.value })} />
-      </label>
+      <Field label="What the bot does each time">
+        <TextArea value={e.task} maxLength={1000} rows={2} onChange={(ev) => onChange({ ...e, task: ev.target.value })} />
+      </Field>
       <div className="row">
-        <label>
-          How often
-          <select value={e.kind} onChange={(ev) => onChange({ ...e, kind: ev.target.value as SchedEdit["kind"] })}>
+        <Field label="How often">
+          <Select value={e.kind} onChange={(ev) => onChange({ ...e, kind: ev.target.value as SchedEdit["kind"] })}>
             {SCHED_KINDS.map(([v, t]) => (
               <option key={v} value={v}>
                 {t}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
         {e.kind === "once" ? (
-          <label>
-            Day
-            <input type="date" value={e.date} onChange={(ev) => onChange({ ...e, date: ev.target.value })} />
-          </label>
+          <Field label="Day">
+            <Input type="date" value={e.date} onChange={(ev) => onChange({ ...e, date: ev.target.value })} />
+          </Field>
         ) : null}
         {e.kind === "monthly" ? (
-          <label>
-            Day of the month
-            <input type="number" min={1} max={31} value={e.day} onChange={(ev) => onChange({ ...e, day: ev.target.value })} />
-          </label>
+          <Field label="Day of the month">
+            <Input type="number" min={1} max={31} value={e.day} onChange={(ev) => onChange({ ...e, day: ev.target.value })} />
+          </Field>
         ) : null}
-        <label>
-          Time
-          <input type="time" value={e.time} onChange={(ev) => onChange({ ...e, time: ev.target.value })} />
-        </label>
+        <Field label="Time">
+          <Input type="time" value={e.time} onChange={(ev) => onChange({ ...e, time: ev.target.value })} />
+        </Field>
       </div>
       {e.kind === "weekly" ? (
         <div className="days">
           {DAYS.map(([v, t]) => (
-            <label key={v}>
-              <input
-                type="checkbox"
-                checked={e.days.includes(v)}
-                onChange={(ev) =>
-                  onChange({ ...e, days: ev.target.checked ? [...e.days, v] : e.days.filter((d) => d !== v) })
-                }
-              />
+            <Checkbox
+              key={v}
+              checked={e.days.includes(v)}
+              onChange={(ev) =>
+                onChange({ ...e, days: ev.target.checked ? [...e.days, v] : e.days.filter((d) => d !== v) })
+              }
+            >
               {t}
-            </label>
+            </Checkbox>
           ))}
         </div>
       ) : null}

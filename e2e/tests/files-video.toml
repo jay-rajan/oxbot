@@ -1,6 +1,6 @@
 name = "A short video becomes still frames"
 about = "Bots can't watch video: oxbot takes evenly spaced still frames on the Mac (one a second for a short clip), says so on the chip and in the chat, and the bot reads the frames."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
 
 [[step]]
 click = "Recipes"

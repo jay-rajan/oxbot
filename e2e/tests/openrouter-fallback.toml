@@ -1,6 +1,6 @@
 name = "A busy free model falls back to the next"
 about = "When the first free model is rate-limited (429), the request's next free model answers, and the chat says which model it was."
-covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/**", "crates/oxbot/ui/**"]
+covers = ["crates/oxbot-loop/src/router.rs", "crates/oxbot-loop/src/runner.rs", "crates/oxbot-llm/**", "crates/oxbot/ui-src/**"]
 
 [[step]]
 click = "New bot"

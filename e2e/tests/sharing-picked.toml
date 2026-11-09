@@ -1,6 +1,6 @@
 name = "Shared with…: picked people, then everyone again"
 about = "A bot's settings choose who it's shared with: everyone in the home, just its maker, or picked people. Picking Sam says the bot acts with its maker's sign-ins, and the chat's header says who it's shared with."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/store/members.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/access.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-core/src/store/members.rs", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "Recipes"
@@ -29,7 +29,7 @@ click = "Bot settings"
 [[step]]
 expect_js = "document.querySelector('input[name=bdSharing][value=people]').checked && [...document.querySelectorAll('#bdPeople input')].some((c) => c.value === 'Sam' && c.checked)"
 [[step]]
-click = "Everyone in the home"
+click = "Everyone"
 [[step]]
 click = "Save"
 [[step]]

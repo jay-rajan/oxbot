@@ -3,13 +3,31 @@
 // `ui/open {dialog: "compare", arg: "<bot>"}` or `"<bot>:cmpCases"`.
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  DialogFrame,
+  Field,
+  Hint,
+  Input,
+  List,
+  ListRow,
+  Note,
+  Pill,
+  pct,
+  Section,
+  Select,
+  Tabs,
+  vars,
+} from "../../components/ui";
 import type { BotEvent, IntentMatch, RunInfo, Target } from "../../net/protocol";
 import type { CmpTab, RunDetail } from "../../state/cards";
 import { local } from "../../state/store";
 import { md, type MdNode } from "../Chat/md";
 import { comparable, isOwner } from "./devTools";
 import { cmpMoney, cmpNum, cmpPct, cmpSecs, heldBack, targetName, VERDICT } from "./format";
+import "./compare.css";
 
 const TABS: [CmpTab, string][] = [
   ["cmpScore", "Scoreboard"],
@@ -39,7 +57,7 @@ export function CompareDialog() {
   }, [owner, current, canCompare, send]);
 
   return (
-    <Dialog id="compareDlg" className="wide" open={open && !!bot} onClose={onClose} labelledBy="cmpTitle">
+    <Dialog id="compareDlg" size="xl" open={open && !!bot} onClose={onClose} labelledBy="cmpTitle">
       {bot ? <Compare key={bot} bot={bot} onClose={onClose} /> : null}
     </Dialog>
   );
@@ -94,26 +112,15 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
 
   const p = cmp.batch;
   const running = !!p && (p.status === "running" || p.status === "paused" || p.status === "queued");
+  const fill = pct(p?.done ?? 0, p?.total ?? 0);
 
   return (
-    <div className="settings">
-      <header className="settings-head">
-        <h2 id="cmpTitle">{`Compare · ${name || bot}`}</h2>
-        <button className="ghost" id="cmpClose" type="button" onClick={onClose}>
-          Close
-        </button>
-      </header>
-      <div className="tabs" role="tablist" aria-label="Compare">
-        {TABS.map(([id, label]) => (
-          <button key={id} type="button" role="tab" data-cmp={id} aria-selected={cmp.tab === id} onClick={() => tab(id)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div id="cmpScore" role="tabpanel" hidden={cmp.tab !== "cmpScore"}>
-        <section>
-          <div className="tbl">
-            <table className="usage">
+    <DialogFrame title={`Compare · ${name || bot}`} titleId="cmpTitle" onClose={onClose} closeId="cmpClose" bodyClassName="cmp-body">
+      <Tabs label="Compare" tabs={TABS} value={cmp.tab} onChange={tab} className="cmp-tabs" />
+      <div id="cmpScore" className="cmp-pane" role="tabpanel" hidden={cmp.tab !== "cmpScore"}>
+        <Section>
+          <div className="cmp-table-wrap">
+            <table className="cmp-table">
               <thead>
                 <tr>
                   <th>Model</th>
@@ -169,7 +176,9 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
                         {r.good_enough ? (
                           <>
                             {" "}
-                            <span className="pill good">good enough</span>
+                            <Pill tone="ok" className="good">
+                              good enough
+                            </Pill>
                           </>
                         ) : null}
                       </td>
@@ -182,79 +191,92 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
                 })}
                 {!cmp.rows.length ? (
                   <tr>
-                    <td colSpan={17}>No runs yet.</td>
+                    <td colSpan={17} className="cmp-empty">
+                      No runs yet.
+                    </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-          <p className="hint">
-            Pass rate uses your marks. Medians per run. "Good enough": at least 5 runs, within 10 points of the best, and never a step you had said no to.
-          </p>
-        </section>
+          <Hint>Pass uses your marks. Good enough: 5+ runs, within 10 points of the best, no step you said no to.</Hint>
+        </Section>
       </div>
-      <div id="cmpCases" role="tabpanel" hidden={cmp.tab !== "cmpCases"}>
-        <section>
-          <ul className="cmp-list" id="cmpCaseList">
+      <div id="cmpCases" className="cmp-pane" role="tabpanel" hidden={cmp.tab !== "cmpCases"}>
+        <Section>
+          <List className="cmp-list" id="cmpCaseList">
             {cmp.cases
               .filter((c) => !c.archived)
-              .map((c) => (
-                <li key={c.id}>
-                  <input
-                    type="checkbox"
-                    value={c.id}
-                    aria-label={c.title}
-                    checked={cases.includes(c.id)}
-                    onChange={(e) => {
-                      setCases(e.target.checked ? [...cases, c.id] : cases.filter((x) => x !== c.id));
-                      changed();
-                    }}
+              .map((c) => {
+                const about = [(c.sites ?? []).join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : ""]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <ListRow
+                    key={c.id}
+                    lead={
+                      <Checkbox
+                        value={c.id}
+                        aria-label={c.title}
+                        checked={cases.includes(c.id)}
+                        onChange={(e) => {
+                          setCases(e.target.checked ? [...cases, c.id] : cases.filter((x) => x !== c.id));
+                          changed();
+                        }}
+                      >
+                        <span className="visually-hidden">{c.title}</span>
+                      </Checkbox>
+                    }
+                    title={
+                      <span className="cmp-case-title">
+                        <span>{c.title}</span>
+                        <Pill tone={c.kind === "acts" ? "warn" : undefined} className={c.kind}>
+                          {c.kind}
+                        </Pill>
+                      </span>
+                    }
+                    sub={
+                      about || (c.last ?? []).length ? (
+                        <span className="cmp-case-sub">
+                          {about ? <span>{about}</span> : null}
+                          {(c.last ?? []).length ? (
+                            <span className="cmp-vdots">
+                              {(c.last ?? []).map((r) => (
+                                <span key={`${r.engine}/${r.model}`} className={`vdot ${r.verdict || ""}`} title={`${targetName(r)}: ${r.verdict || r.status}`} />
+                              ))}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : undefined
+                    }
+                    trail={<DeleteCase id={c.id} />}
                   />
-                  <div>
-                    <span>{c.title}</span> <span className={`pill ${c.kind}`}>{c.kind}</span>
-                    <small>
-                      {[(c.sites ?? []).join(", "), c.uses_sign_ins ? "signed in" : "", c.network === "xhr" ? "reads by POST allowed" : ""]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
-                    <small>
-                      {(c.last ?? []).map((r) => (
-                        <span key={`${r.engine}/${r.model}`} className={`vdot ${r.verdict || ""}`} title={`${targetName(r)}: ${r.verdict || r.status}`} />
-                      ))}
-                    </small>
-                  </div>
-                  <DeleteCase id={c.id} />
-                </li>
-              ))}
-          </ul>
-          <p className="hint" id="cmpCasesEmpty" hidden={cmp.cases.length > 0}>
-            No test cases yet. Under one of this bot's replies, choose "Test case…".
-          </p>
-        </section>
-        <section id="cmpRunBox">
-          <h3>Run selected on…</h3>
-          <div className="targets" id="cmpTargets">
+                );
+              })}
+          </List>
+          <Note id="cmpCasesEmpty" hidden={cmp.cases.length > 0}>
+            No test cases yet. Pick "Test case…" under one of this bot's replies.
+          </Note>
+        </Section>
+        <Section id="cmpRunBox" title="Run selected on" titleId="cmpRunBoxH">
+          <div className="cmp-targets" id="cmpTargets">
             {choices.map((t) => (
-              <label className="check" key={t.model}>
-                <input
-                  type="checkbox"
-                  value={JSON.stringify(t)}
-                  checked={targets.includes(t.model)}
-                  onChange={(e) => {
-                    setTargets(e.target.checked ? [...targets, t.model] : targets.filter((x) => x !== t.model));
-                    changed();
-                  }}
-                />
+              <Checkbox
+                key={t.model}
+                value={JSON.stringify(t)}
+                checked={targets.includes(t.model)}
+                onChange={(e) => {
+                  setTargets(e.target.checked ? [...targets, t.model] : targets.filter((x) => x !== t.model));
+                  changed();
+                }}
+              >
                 {targetName(t)}
-              </label>
+              </Checkbox>
             ))}
-            {!choices.length ? (
-              <p className="hint">Models show here once the home's AI account is connected (Settings → AI models).</p>
-            ) : null}
+            {!choices.length ? <Note>Connect the AI account in Settings → AI models to pick models.</Note> : null}
           </div>
-          <label>
-            Times each
-            <select
+          <Field label="Times each" className="cmp-repeats">
+            <Select
               id="cmpRepeats"
               value={repeats}
               onChange={(e) => {
@@ -265,15 +287,14 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
               <option>1</option>
               <option>2</option>
               <option>3</option>
-            </select>
-          </label>
-          <p className="hint" id="cmpEstimate">
+            </Select>
+          </Field>
+          <Hint id="cmpEstimate" hidden={!cmp.estimate}>
             {cmp.estimate}
-          </p>
-          <div className="btns">
-            <button
-              className="ghost"
-              type="button"
+          </Hint>
+          <div className="btn-row">
+            <Button
+              kind="secondary"
               id="cmpEstimateBtn"
               onClick={() => {
                 const q = picked();
@@ -285,10 +306,9 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
               }}
             >
               Estimate
-            </button>
-            <button
-              className="primary"
-              type="button"
+            </Button>
+            <Button
+              kind="primary"
               id="cmpStart"
               disabled={!cmp.canStart}
               onClick={() => {
@@ -297,29 +317,27 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
               }}
             >
               Start
-            </button>
-            <button className="ghost" type="button" id="cmpStop" hidden={!running} onClick={() => p && send({ type: "stop_batch", id: p.batch })}>
+            </Button>
+            <Button kind="secondary" id="cmpStop" hidden={!running} onClick={() => p && send({ type: "stop_batch", id: p.batch })}>
               Stop
-            </button>
+            </Button>
           </div>
-          <div className="cmp-progress" id="cmpProgress" hidden={!running}>
-            <i style={{ width: `${p?.total ? Math.round((p.done / p.total) * 100) : 0}%` }} />
+          <div className="cmp-progress" id="cmpProgress" hidden={!running} style={vars({ fill })}>
+            <i />
           </div>
-          <p className="hint" id="cmpProgressText">
+          <Hint id="cmpProgressText" hidden={!p}>
             {!p ? "" : p.status === "paused" ? `Paused: ${p.paused_reason || "waiting"}` : `${p.done} of ${p.total}${running ? "" : ` · ${p.status}`}`}
-          </p>
-          <p className="hint">
-            Test runs use their own browser with a copy of the websites you're signed in to (no history) and block every request that would write. A link that acts when opened (one-click unsubscribe, magic links) can't be told from a read, as in live runs.
-          </p>
-        </section>
+          </Hint>
+          <Hint>Test runs use their own browser and block every write, except links that act when opened.</Hint>
+        </Section>
       </div>
-      <div id="cmpRuns" role="tabpanel" hidden={cmp.tab !== "cmpRuns"}>
-        <section id="cmpRunListBox" hidden={!!cmp.detail}>
-          <ul className="cmp-list" id="cmpRunList">
+      <div id="cmpRuns" className="cmp-pane" role="tabpanel" hidden={cmp.tab !== "cmpRuns"}>
+        <Section id="cmpRunListBox" hidden={!!cmp.detail}>
+          <List className="cmp-list" id="cmpRunList">
             {cmp.runs.map((r) => {
               const openRun = () => send({ type: "open_run", run: r.id });
               return (
-                <li
+                <ListRow
                   key={r.id}
                   className="run"
                   tabIndex={0}
@@ -327,43 +345,42 @@ function Compare({ bot, onClose }: { bot: string; onClose: () => void }) {
                   onKeyDown={(ev) => {
                     if (ev.key === "Enter") openRun();
                   }}
-                >
-                  <div>
-                    <span>{`${r.case_title || "Run"} · ${targetName(r)}`}</span>
-                    <small>
-                      {[
-                        r.kind === "original" ? "the original" : r.kind,
-                        r.status,
-                        `${r.steps} steps`,
-                        r.requests ? `${r.requests} questions` : "",
-                        heldBack(r.intents),
-                        r.net_blocked ? `${r.net_blocked} blocked` : "",
-                        r.started_ms ? new Date(r.started_ms).toLocaleString() : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
-                  </div>
-                  <span className="pill">{r.verdict ? VERDICT[r.verdict] : r.status === "running" ? "running…" : "–"}</span>
-                </li>
+                  title={`${r.case_title || "Run"} · ${targetName(r)}`}
+                  sub={[
+                    r.kind === "original" ? "the original" : r.kind,
+                    r.status,
+                    `${r.steps} steps`,
+                    r.requests ? `${r.requests} questions` : "",
+                    heldBack(r.intents),
+                    r.net_blocked ? `${r.net_blocked} blocked` : "",
+                    r.started_ms ? new Date(r.started_ms).toLocaleString() : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  trail={
+                    <Pill tone={r.verdict === "pass" ? "ok" : r.verdict === "partial" ? "warn" : r.verdict === "fail" ? "danger" : undefined}>
+                      {r.verdict ? VERDICT[r.verdict] : r.status === "running" ? "running…" : "–"}
+                    </Pill>
+                  }
+                />
               );
             })}
-          </ul>
-          <p className="hint" id="cmpRunsEmpty" hidden={cmp.runs.length > 0}>
+          </List>
+          <Note id="cmpRunsEmpty" hidden={cmp.runs.length > 0}>
             No runs yet.
-          </p>
-        </section>
+          </Note>
+        </Section>
         <Prefs reservePct={reservePct} />
-        <section id="cmpRunDetail" hidden={!cmp.detail}>
-          <div className="btns">
-            <button className="ghost" type="button" id="cmpRunBack" onClick={() => dispatch(local("cards/cmpBack"))}>
+        <Section id="cmpRunDetail" hidden={!cmp.detail}>
+          <div className="btn-row">
+            <Button kind="quiet" size="sm" id="cmpRunBack" onClick={() => dispatch(local("cards/cmpBack"))}>
               ← Runs
-            </button>
+            </Button>
           </div>
           {cmp.detail ? <Detail d={cmp.detail} /> : <div className="side-by-side" />}
-        </section>
+        </Section>
       </div>
-    </div>
+    </DialogFrame>
   );
 }
 
@@ -371,16 +388,16 @@ function DeleteCase({ id }: { id: string }) {
   const { send } = useApp();
   const [armed, setArmed] = useState(false);
   return (
-    <button
-      type="button"
-      className="ghost"
+    <Button
+      kind={armed ? "danger" : "quiet"}
+      size="sm"
       onClick={() => {
         if (armed) send({ type: "delete_test_case", id });
         else setArmed(true);
       }}
     >
       {armed ? "Yes, delete" : "Delete"}
-    </button>
+    </Button>
   );
 }
 
@@ -397,21 +414,16 @@ function Prefs({ reservePct }: { reservePct: number | null }) {
     toast("Saved.");
   };
   return (
-    <section id="cmpPrefsSection" hidden={reservePct == null}>
-      <h3>Comparison</h3>
-      <form className="engine-prefs" id="cmpPrefsForm" onSubmit={submit}>
-        <label>
-          Free questions kept for live bots, in percent
-          <input type="number" id="cmpReserve" min={0} max={90} step={1} required value={reserve} onChange={(e) => setReserve(e.target.value)} />
-        </label>
-        <div className="btns">
-          <button className="primary" type="submit">
-            Save
-          </button>
-          <button
-            className="ghost"
-            type="button"
+    <Section id="cmpPrefsSection" hidden={reservePct == null} title="Comparison" titleId="cmpPrefsH">
+      <form className="engine-prefs cmp-prefs" id="cmpPrefsForm" onSubmit={submit}>
+        <Field label="Free questions kept for live bots (%)" hint="Test runs get a copy of your sign-ins and delete it when they end.">
+          <Input type="number" id="cmpReserve" min={0} max={90} step={1} required value={reserve} onChange={(e) => setReserve(e.target.value)} />
+        </Field>
+        <div className="btn-row">
+          <Button
+            kind="danger"
             id="cmpDeleteRuns"
+            className="cmp-start"
             onClick={() => {
               if (!armed) {
                 setArmed(true);
@@ -422,13 +434,13 @@ function Prefs({ reservePct }: { reservePct: number | null }) {
             }}
           >
             {armed ? "Yes, delete all test runs" : "Delete all test runs"}
-          </button>
+          </Button>
+          <Button kind="primary" type="submit">
+            Save
+          </Button>
         </div>
-        <p className="hint">
-          Test runs get a copy of the websites they need you signed in to, in their own browser without history, and delete it when they end. A link that acts when opened (one-click unsubscribe, magic links) can't be told from a read, as in live runs.
-        </p>
       </form>
-    </section>
+    </Section>
   );
 }
 
@@ -449,19 +461,20 @@ function Detail({ d }: { d: RunDetail }) {
           ["fail", "✗"],
         ] as const
       ).map(([v, label]) => (
-        <button
+        <Button
           key={v}
-          type="button"
-          className="ghost"
+          kind="secondary"
+          size="sm"
+          className="cmp-verdict"
           title={VERDICT[v]}
           aria-pressed={run.owner_verdict === v}
           onClick={() => send({ type: "set_run_verdict", run: run.id, verdict: run.owner_verdict === v ? null : v })}
         >
           {label}
-        </button>
+        </Button>
       ))}
       {/* Runs judged before Claude left oxbot keep what the judge said. */}
-      {judgeText ? <p className="hint">{judgeText}</p> : null}
+      {judgeText ? <Hint>{judgeText}</Hint> : null}
     </div>
   );
   return (
@@ -501,8 +514,8 @@ function RunSide({
   if (!run)
     return (
       <div id={id}>
-        <h4>{title}</h4>
-        <p className="hint">Not kept.</p>
+        <h4 className="cmp-side-title">{title}</h4>
+        <Note>Not kept.</Note>
       </div>
     );
   const intents: string[] = [];
@@ -533,7 +546,7 @@ function RunSide({
   const lines = (events ?? []).map((e) => <EventLine key={`${e.seq}-${e.kind}`} e={e} />).filter(Boolean);
   return (
     <div id={id}>
-      <h4>{title}</h4>
+      <h4 className="cmp-side-title">{title}</h4>
       {verdicts}
       <div className="msg bot">
         <MdNodes nodes={md(run.answer || "(no answer)")} />
@@ -547,7 +560,7 @@ function RunSide({
           ))}
         </ul>
       ) : null}
-      <p className="hint">{nums}</p>
+      <Hint>{nums}</Hint>
       {events?.length ? <div className="transcript">{lines}</div> : null}
     </div>
   );

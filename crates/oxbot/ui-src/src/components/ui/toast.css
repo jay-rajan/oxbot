@@ -1,0 +1,16 @@
+.toast {
+  position: fixed; z-index: 10; left: 50%; transform: translateX(-50%);
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  max-width: min(520px, calc(100% - var(--s-6)));
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-md);
+  background: var(--ink); color: var(--on-ink); box-shadow: var(--shadow-pop);
+  font-size: var(--text-md); overflow-wrap: anywhere;
+  animation: toast-in var(--slow) var(--ease);
+}
+.toast.error { background: var(--danger); color: var(--accent-ink); }
+dialog .toast { animation-name: toast-down; }
+@keyframes toast-down { from { opacity: 0; transform: translate(-50%, -8px); } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+/* While cards or a dialog are open, the toast moves to the top so it never
+   covers their buttons. */
+body.has-cards .toast, dialog .toast { top: calc(var(--s-3) + env(safe-area-inset-top)); bottom: auto; }

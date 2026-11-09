@@ -3,6 +3,7 @@
 // may see (the owner: everything).
 import { Fragment, useEffect, useRef } from "react";
 import { type App, useApp, useSel } from "../../app/context";
+import { Button, cx, Hint, List, ListRow, Note, Section } from "../../components/ui";
 import type { NetKind, NetRow } from "../../net/protocol";
 import { local } from "../../state/store";
 import { NET_KINDS, bytes, money, plural, swappedText } from "./format";
@@ -40,14 +41,15 @@ export function ActivityTab({ hidden }: { hidden: boolean }) {
 
   let day = "";
   return (
-    <div id="setActivity" role="tabpanel" hidden={hidden}>
-      <section>
+    <div id="setActivity" className="settings-pane" role="tabpanel" hidden={hidden}>
+      <Section>
         <div className="net-chips" role="radiogroup" aria-label="Show">
           {CHIPS.map(([kind, label]) => (
             <button
               key={kind}
               type="button"
               role="radio"
+              className="net-chip"
               data-net={kind}
               aria-checked={net.kind === kind}
               onClick={() => {
@@ -59,13 +61,17 @@ export function ActivityTab({ hidden }: { hidden: boolean }) {
             </button>
           ))}
         </div>
-        <p className="hint" id="netTotals">
+        <Hint id="netTotals">
           {t
             ? `Today: ${plural(t.today_rows, "exchange")} · ${bytes(t.today_up)} sent · ${bytes(t.today_down)} received · ${money(t.today_cost_usd || 0)} of AI`
             : "Loading…"}
-        </p>
-        <ol className="net-rows" id="netRows">
-          {t && !net.rows.length ? <li className="hint">Nothing yet.</li> : null}
+        </Hint>
+        <List className="net-rows" id="netRows">
+          {t && !net.rows.length ? (
+            <li>
+              <Note>Nothing yet.</Note>
+            </li>
+          ) : null}
           {net.rows.map((r) => {
             const d = new Date(r.ts_ms).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
             const head = d !== day;
@@ -77,11 +83,10 @@ export function ActivityTab({ hidden }: { hidden: boolean }) {
               </Fragment>
             );
           })}
-        </ol>
-        <div className="btns">
-          <button
-            className="ghost"
-            type="button"
+        </List>
+        <div className="btn-row" hidden={!net.more}>
+          <Button
+            size="sm"
             id="netMore"
             hidden={!net.more}
             onClick={() => {
@@ -92,10 +97,10 @@ export function ActivityTab({ hidden }: { hidden: boolean }) {
             }}
           >
             Show older
-          </button>
+          </Button>
         </div>
-        <p className="hint">What left the home computer and where it went, kept for 30 days. Sizes and counts only: never what was sent.</p>
-      </section>
+        <Note>What left the home computer, kept 30 days. Sizes and counts only, never what was sent.</Note>
+      </Section>
       <details className="oxlog">
         <summary>oxbot's own log</summary>
         <LogList />
@@ -110,8 +115,8 @@ function Row({ r, open, onToggle }: { r: NetRow; open: boolean; onToggle: () => 
   if (r.person) lines.push(`for ${r.person}`);
   if (r.other_hosts) lines.push(`the page also pulled from ${plural(r.other_hosts, "other site")}`);
   return (
-    <li
-      className={`net-row${failed ? " failed" : ""}`}
+    <ListRow
+      className={cx("net-row", !!failed && "failed")}
       tabIndex={0}
       role="button"
       aria-expanded={open}
@@ -122,21 +127,20 @@ function Row({ r, open, onToggle }: { r: NetRow; open: boolean; onToggle: () => 
           onToggle();
         }
       }}
+      lead={<span className="t">{new Date(r.ts_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
+      title={
+        <span className="what">
+          <span>{`${r.who} → ${r.kind === "ai" ? "AI" : r.host}`}</span>
+          <small>{[r.label, swappedText(r.swapped), failed ? r.outcome : ""].filter(Boolean).join(" · ")}</small>
+        </span>
+      }
+      trail={
+        <span className="size">
+          {`${bytes(r.bytes_up)} ↑ ${bytes(r.bytes_down)} ↓`}
+          {r.cost_usd != null ? <small>{money(r.cost_usd)}</small> : null}
+        </span>
+      }
     >
-      <span className="t">{new Date(r.ts_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
-      <span className="what">
-        <span>{`${r.who} → ${r.kind === "ai" ? "AI" : r.host}`}</span>
-        <small>{[r.label, swappedText(r.swapped), failed ? r.outcome : ""].filter(Boolean).join(" · ")}</small>
-      </span>
-      <span className="size">
-        {`${bytes(r.bytes_up)} ↑ ${bytes(r.bytes_down)} ↓`}
-        {r.cost_usd != null ? (
-          <>
-            <br />
-            {money(r.cost_usd)}
-          </>
-        ) : null}
-      </span>
       {open ? (
         <div className="more">
           {lines.map((l) => (
@@ -144,7 +148,7 @@ function Row({ r, open, onToggle }: { r: NetRow; open: boolean; onToggle: () => 
           ))}
         </div>
       ) : null}
-    </li>
+    </ListRow>
   );
 }
 

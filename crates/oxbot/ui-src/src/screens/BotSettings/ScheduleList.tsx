@@ -2,6 +2,7 @@
 // last run went, with Pause/Resume and Delete for those who may change it.
 import { useState } from "react";
 import { useApp } from "../../app/context";
+import { Button, cx, List, ListRow } from "../../components/ui";
 import type { ScheduleInfo } from "../../net/protocol";
 
 const OUTCOMES: Record<string, string> = {
@@ -41,42 +42,44 @@ export function ScheduleList({ id, list, withBot }: { id: string; list: Schedule
   const { send } = useApp();
   const [armed, setArmed] = useState<number | null>(null);
   return (
-    <ul className="rules" id={id}>
+    <List id={id}>
       {!list ? (
-        <li className="hint">Loading…</li>
+        <li className="note-text">Loading…</li>
       ) : !list.length ? (
-        <li className="hint">None. Ask the bot for one ("every Saturday at 6 PM, check…") and press Create on its schedule card.</li>
+        <li className="note-text">None yet. Ask the bot, e.g. "every Saturday at 6 PM, check…"</li>
       ) : (
         list.map((sc) => (
-          <li className={`sched-row${sc.paused ? " paused" : ""}`} key={sc.id}>
-            <span className="name">
-              <span>{sc.text}</span>
-              <small>{scheduleMeta(sc, withBot)}</small>
-            </span>
-            {sc.can_change ? (
-              <div className="btns">
-                <button type="button" className="ghost" onClick={() => send({ type: "pause_schedule", id: sc.id, paused: !sc.paused })}>
-                  {sc.paused ? "Resume" : "Pause"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    if (armed !== sc.id) {
-                      setArmed(sc.id);
-                      return;
-                    }
-                    setArmed(null);
-                    send({ type: "delete_schedule", id: sc.id });
-                  }}
-                >
-                  {armed === sc.id ? "Yes, delete" : "Delete"}
-                </button>
-              </div>
-            ) : null}
-          </li>
+          <ListRow
+            className={cx("sched-row", sc.paused && "paused")}
+            key={sc.id}
+            title={sc.text}
+            sub={scheduleMeta(sc, withBot)}
+            trail={
+              sc.can_change ? (
+                <>
+                  <Button kind="quiet" size="sm" onClick={() => send({ type: "pause_schedule", id: sc.id, paused: !sc.paused })}>
+                    {sc.paused ? "Resume" : "Pause"}
+                  </Button>
+                  <Button
+                    kind="quiet"
+                    size="sm"
+                    onClick={() => {
+                      if (armed !== sc.id) {
+                        setArmed(sc.id);
+                        return;
+                      }
+                      setArmed(null);
+                      send({ type: "delete_schedule", id: sc.id });
+                    }}
+                  >
+                    {armed === sc.id ? "Yes, delete" : "Delete"}
+                  </Button>
+                </>
+              ) : null
+            }
+          />
         ))
       )}
-    </ul>
+    </List>
   );
 }

@@ -1,7 +1,7 @@
 name = "Schedules: made on their card, run on their own, paused in bot settings"
 about = "Asked in plain words, a bot proposes a schedule on a card (Create, Change, Don't) and nothing is scheduled before Create. When it's due (the test moves oxbot's clock), the run is a turn as its person: a line in the chat says it's scheduled, the answer lands there, and the person's devices get its first line. Pausing it in the bot's settings stops the next run. Schedules are only in bot settings (Settings has no Schedules tab)."
 needs = ["codex"]
-covers = ["crates/oxbot-core/src/hub/schedules.rs", "crates/oxbot-core/src/schedule.rs", "crates/oxbot-core/src/store/schedules.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot-core/src/hub/schedules.rs", "crates/oxbot-core/src/schedule.rs", "crates/oxbot-core/src/store/schedules.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-core/src/tools.rs", "crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "Recipes"

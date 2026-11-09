@@ -1,7 +1,7 @@
 name = "Usage alerts at 50% and 80%, once each"
 about = "A bot allowed 5 AI questions a day passes 50% and then 80% of them: a banner and one Mac notification for each level, never two; the banner survives a reload and can be dismissed."
 script = "usage-alerts.toml"
-covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot/src/notify.rs", "crates/oxbot/src/server.rs", "crates/oxbot/ui-src/**", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "Recipes"

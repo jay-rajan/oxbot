@@ -3,6 +3,7 @@
 import { type DragEvent, type KeyboardEvent, type MouseEvent, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { avatarSvg } from "../../components/brand";
+import { Button, ChevronIcon, Note, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { type Group, fold, groupBots, isUnread } from "../../state/sidebar";
 import { local } from "../../state/store";
@@ -131,13 +132,13 @@ export function BotList({
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: oxbot's own SVG */}
         <span className={`avatar${busy ? " working" : ""}`} dangerouslySetInnerHTML={{ __html: avatarSvg(id, b.central) }} />
         <span className="meta">
-          <div className="name">
+          <span className="name">
             <span>{b.name || id}</span>
             {b.private ? <Lock /> : null}
-          </div>
+          </span>
           {tag ? <span className="central">{tag}</span> : null}
         </span>
-        {isUnread(side, id) ? <span className="unread" title="New messages" /> : null}
+        {isUnread(side, id) ? <span className="dot on unread" title="New messages" /> : null}
       </button>
     );
   };
@@ -195,9 +196,9 @@ export function BotList({
                 }
               >
                 <span className="chev" aria-hidden="true">
-                  ▾
+                  <ChevronIcon />
                 </span>
-                {g.person !== undefined ? <i className="maker-dot" style={{ background: color(g.person) || "var(--muted)" }} /> : null}
+                {g.person !== undefined ? <i className="maker-dot person-dot" style={vars({ person: color(g.person) })} /> : null}
                 <span className="title" id={titleId}>
                   {g.title}
                 </span>
@@ -210,15 +211,16 @@ export function BotList({
           </div>
         );
       })}
-      {searching && groups.length === 0 ? <div className="no-match">{`No bot called “${side.query.trim()}”.`}</div> : null}
+      {searching && groups.length === 0 ? <Note>{`No bot called “${side.query.trim()}”.`}</Note> : null}
       {side.groupBy === "sections" && !searching ? (
-        <button
-          type="button"
+        <Button
+          kind="quiet"
+          size="sm"
           className="new-section"
           onClick={() => askName({ title: "New section", value: "", max: 40, done: (name) => send({ type: "create_section", name, bot: null }) })}
         >
           + New section
-        </button>
+        </Button>
       ) : null}
     </nav>
   );

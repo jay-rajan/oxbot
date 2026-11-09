@@ -1,6 +1,6 @@
 name = "No microphone without on-device dictation"
 about = "Where the Mac can't dictate on-device, there's no microphone button at all, and Settings → General says why and how to turn it on."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/dictation.rs", "crates/oxbot/src/runtime.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "mac/**"]
 
 [[step]]
 click = "Recipes"

@@ -25,6 +25,22 @@ if grep -rnE '\b(document|window|location|navigator|history|globalThis)\.|\b(loc
   exit 1
 fi
 
+echo "== one theme: colors and type sizes from theme/tokens.css, no inline styles"
+# Raw colors and pixel font sizes live only in src/theme/; screens and pieces
+# use its tokens. A style from data goes through vars() (custom properties).
+styles=$(find "$src/src" -name '*.css' -not -path "$src/src/theme/*")
+bad=0
+if grep -nE '#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\(' $styles; then
+  echo "Raw colors above: use a token from src/theme/tokens.css." >&2; bad=1
+fi
+if grep -nE 'font-size:[^;]*[0-9.]+(px|rem|em|pt)|(^|[^-])font:' $styles; then
+  echo "Font sizes above: use var(--text-xs|sm|md|lg|xl)." >&2; bad=1
+fi
+if grep -rnE 'style=\{\{' "$src/src" --include='*.tsx'; then
+  echo "Inline styles above: put the look in CSS; data goes through style={vars({...})}." >&2; bad=1
+fi
+[ "$bad" = 0 ]
+
 echo "== install (lockfile only, no install scripts)"
 (cd "$src" && npm ci --no-audit --no-fund)
 

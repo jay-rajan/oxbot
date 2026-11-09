@@ -11,7 +11,8 @@ export type DialogName =
   | "welcome"
   | "name"
   | "case"
-  | "compare";
+  | "compare"
+  | "pieces";
 
 export interface UiState {
   /** The open bot's id. */

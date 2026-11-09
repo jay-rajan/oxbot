@@ -1,6 +1,6 @@
 name = "Right-click a bot: rename, private, shared, delete"
 about = "On the home computer, a bot's right-click menu renames it, makes it private and shared again (sharing asks twice), and deletes it after a second press. Assistant has no menu."
-covers = ["crates/oxbot/ui/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
 click = "Recipes"

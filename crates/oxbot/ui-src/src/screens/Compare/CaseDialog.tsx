@@ -2,7 +2,7 @@
 // Opens when the server sends the sheet's draft (after "Test case…").
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import { Button, Checkbox, Dialog, DialogForm, Field, Hint, Input, Select, TextArea } from "../../components/ui";
 import type { CaseDraft, TrialNetwork } from "../../net/protocol";
 import { local } from "../../state/store";
 
@@ -32,7 +32,8 @@ function CaseForm({ draft, onClose }: { draft: CaseDraft; onClose: () => void })
   const [rubric, setRubric] = useState(draft.rubric);
   const [signIns, setSignIns] = useState(!!draft.uses_sign_ins);
   const [network, setNetwork] = useState<TrialNetwork>("strict");
-  const hint = `${draft.kind === "acts" ? "It changed something live: test runs record those steps instead of doing them." : "It only read."}${(draft.sites ?? []).length ? ` Sites: ${(draft.sites ?? []).join(", ")}.` : ""} Nothing a test run does reaches this chat.`;
+  const sites = draft.sites ?? [];
+  const hint = `${draft.kind === "acts" ? "Test runs record its live steps instead of doing them." : "It only read."}${sites.length ? ` Sites: ${sites.join(", ")}.` : ""}`;
   const submit = (ev: FormEvent) => {
     ev.preventDefault();
     send({ type: "mark_test_case", bot: draft.bot, seq: draft.seq, title: title.trim(), rubric, network, uses_sign_ins: signIns });
@@ -40,37 +41,39 @@ function CaseForm({ draft, onClose }: { draft: CaseDraft; onClose: () => void })
     toast("Kept as a test case. Run it from Compare in the bot's menu.");
   };
   return (
-    <form id="caseForm" onSubmit={submit}>
-      <h2 id="caseTitleH">Keep as a test case</h2>
-      <label>
-        Title
-        <input id="caseTitle" required maxLength={120} autoComplete="off" value={title} onChange={(e) => setTitle(e.target.value)} />
-      </label>
-      <label>
-        What a good result looks like (one check per line)
-        <textarea id="caseRubric" rows={4} placeholder="Lists at least 3 jobs in Riverside" value={rubric} onChange={(e) => setRubric(e.target.value)} />
-      </label>
-      <label className="check">
-        <input type="checkbox" id="caseSignIns" checked={signIns} onChange={(e) => setSignIns(e.target.checked)} /> Needs websites you're signed in to (runs get a copy, without the browser's history)
-      </label>
-      <label>
-        Network in test runs
-        <select id="caseNetwork" value={network} onChange={(e) => setNetwork(e.target.value as TrialNetwork)}>
-          <option value="strict">Strict: block every write (default)</option>
-          <option value="xhr">Allow reads sent as POST (sites that search with POST)</option>
-        </select>
-      </label>
-      <p className="hint" id="caseHint">
-        {hint}
-      </p>
-      <div className="row">
-        <button className="ghost" type="button" id="caseCancel" onClick={onClose}>
-          Cancel
-        </button>
-        <button className="primary" type="submit" id="caseSave">
-          Keep
-        </button>
-      </div>
-    </form>
+    <DialogForm
+      id="caseForm"
+      onSubmit={submit}
+      title="Keep as a test case"
+      titleId="caseTitleH"
+      onClose={onClose}
+      footer={
+        <>
+          <Button kind="secondary" id="caseCancel" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button kind="primary" type="submit" id="caseSave">
+            Keep
+          </Button>
+        </>
+      }
+    >
+      <Field label="Title">
+        <Input id="caseTitle" required maxLength={120} autoComplete="off" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </Field>
+      <Field label="What a good result looks like" hint="One check per line.">
+        <TextArea id="caseRubric" rows={4} placeholder="Lists at least 3 jobs in Riverside" value={rubric} onChange={(e) => setRubric(e.target.value)} />
+      </Field>
+      <Checkbox id="caseSignIns" checked={signIns} onChange={(e) => setSignIns(e.target.checked)}>
+        Needs websites you're signed in to
+      </Checkbox>
+      <Field label="Network in test runs">
+        <Select id="caseNetwork" value={network} onChange={(e) => setNetwork(e.target.value as TrialNetwork)}>
+          <option value="strict">Strict: block every write</option>
+          <option value="xhr">Allow reads sent as POST</option>
+        </Select>
+      </Field>
+      <Hint id="caseHint">{hint}</Hint>
+    </DialogForm>
   );
 }

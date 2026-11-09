@@ -1,6 +1,6 @@
 name = "The sidebar on a phone"
 about = "In the phone's drawer the search, the group-by switch and the bottom row fit, and the right-click menu (a long press) shows above the drawer."
-covers = ["crates/oxbot/ui/**"]
+covers = ["crates/oxbot/ui-src/**"]
 as = "Sam"
 viewport = { width = 390, height = 844 }
 

@@ -1,6 +1,6 @@
 name = "Assistant asks before tasking your private bot after reading the web"
 about = "After the Assistant reads a web page, passing a task to your own private bot shows an approval request with the whole task; no stops it, yes sends it."
-covers = ["crates/oxbot-core/src/hub/team.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot/ui/**", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot-core/src/hub/team.rs", "crates/oxbot-core/src/hub/approvals.rs", "crates/oxbot-core/src/hub/session.rs", "crates/oxbot/ui-src/**", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "Assistant"

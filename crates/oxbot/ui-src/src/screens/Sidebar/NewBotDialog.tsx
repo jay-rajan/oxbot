@@ -2,7 +2,7 @@
 // its models from the instructions.
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import { Button, Checkbox, Dialog, DialogForm, Field, Input, TextArea } from "../../components/ui";
 import { local } from "../../state/store";
 
 export function NewBotDialog() {
@@ -10,7 +10,7 @@ export function NewBotDialog() {
   const open = useSel((s) => s.ui.dialog === "newBot");
   const close = () => dispatch(local("ui/close", { dialog: "newBot" }));
   return (
-    <Dialog id="newDlg" open={open} onClose={close}>
+    <Dialog id="newDlg" open={open} onClose={close} labelledBy="nbTitle">
       <NewBotForm close={close} />
     </Dialog>
   );
@@ -37,32 +37,36 @@ function NewBotForm({ close }: { close: () => void }) {
     close();
   };
   return (
-    <form id="newForm" onSubmit={submit}>
-      <h2>New bot</h2>
-      <label>
-        Name
-        <input id="nbName" ref={name} required placeholder="Daily News" autoComplete="off" />
-      </label>
-      <label>
-        What should it do?
-        <textarea
+    <DialogForm
+      id="newForm"
+      title="New bot"
+      titleId="nbTitle"
+      onClose={close}
+      onSubmit={submit}
+      footer={
+        <>
+          <Button kind="secondary" id="nbCancel" onClick={close}>
+            Cancel
+          </Button>
+          <Button kind="primary" type="submit">
+            Create
+          </Button>
+        </>
+      }
+    >
+      <Field label="Name">
+        <Input id="nbName" ref={name} required placeholder="Daily News" autoComplete="off" />
+      </Field>
+      <Field label="What should it do?">
+        <TextArea
           id="nbInstr"
           ref={instr}
           placeholder="Every morning when I ask, read the top stories on news.ycombinator.com and give me five lines."
         />
-      </label>
-      <label className="check" id="nbPrivateRow" hidden={!ownsHome}>
-        <input type="checkbox" id="nbPrivate" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private: only you can
-        see and use it
-      </label>
-      <div className="row">
-        <button className="ghost" type="button" id="nbCancel" onClick={close}>
-          Cancel
-        </button>
-        <button className="primary" type="submit">
-          Create
-        </button>
-      </div>
-    </form>
+      </Field>
+      <Checkbox rowId="nbPrivateRow" rowHidden={!ownsHome} id="nbPrivate" checked={priv} onChange={(e) => setPriv(e.target.checked)}>
+        Private: only you can see and use it
+      </Checkbox>
+    </DialogForm>
   );
 }

@@ -1,6 +1,6 @@
 name = "The New bot form while the Keychain is still being read"
 about = "Right after oxbot starts, macOS may still be asking for Keychain access: the New bot form says it's waiting for that, not that the home's AI account isn't connected."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/keychain.rs"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/keychain.rs"]
 keychain_delay_ms = 20000
 
 [[step]]

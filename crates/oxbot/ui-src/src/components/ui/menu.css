@@ -1,0 +1,29 @@
+/* A floating menu (right-click, ···). Markup:
+   <div class="menu-pop" role="menu"><button class="menu-item" role="menuitem">…</button><hr class="menu-rule"></div>
+   Items: .danger (destructive), .sub (indented), aria-checked="true" (a ✓),
+   aria-disabled="true". */
+.menu-pop {
+  position: fixed; z-index: 7;
+  min-width: 220px; max-width: min(300px, calc(100vw - var(--s-4))); max-height: calc(100vh - var(--s-4)); overflow-y: auto;
+  display: grid; gap: 1px; padding: var(--s-1);
+  background: var(--raised); color: var(--ink);
+  border-radius: var(--r-md); box-shadow: var(--shadow-pop);
+  animation: menu-in var(--fast) var(--ease);
+}
+@keyframes menu-in { from { opacity: 0; transform: scale(.97); } }
+.menu-item {
+  all: unset; box-sizing: border-box; position: relative;
+  display: flex; align-items: center; gap: var(--s-2);
+  min-height: var(--control-sm); padding: var(--s-1) var(--s-3) var(--s-1) var(--s-5);
+  border-radius: var(--r-sm); cursor: pointer;
+  font-size: var(--text-md); overflow-wrap: anywhere;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--sunken); }
+.menu-item[aria-disabled="true"] { color: var(--faint); cursor: default; }
+.menu-item[aria-disabled="true"]:hover { background: transparent; }
+.menu-item.danger { color: var(--danger); }
+.menu-item.sub { padding-left: calc(var(--s-5) + var(--s-3)); }
+.menu-item[aria-checked="true"]::before { content: "✓"; position: absolute; left: var(--s-2); }
+.menu-item[aria-expanded]::after { content: "›"; margin-left: auto; color: var(--muted); transition: transform var(--fast) var(--ease); }
+.menu-item[aria-expanded="true"]::after { transform: rotate(90deg); }
+.menu-rule { border: 0; border-top: 1px solid var(--line); margin: var(--s-1) var(--s-2); }

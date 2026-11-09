@@ -1,0 +1,41 @@
+/* Cards above the message box: newest last, scrolling on their own so the
+   box stays on screen (dvh follows a phone's keyboard). Layout only; the
+   card itself is components/ui Card. */
+.cards {
+  flex: none; display: grid; gap: var(--s-3); min-width: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  max-height: min(45vh, 440px); max-height: min(45dvh, 440px);
+  padding: var(--s-3) max(var(--s-5), env(safe-area-inset-right)) var(--s-2) var(--s-5);
+  background: var(--bg);
+}
+.cards:empty { display: none; }
+@media (max-width: 720px) {
+  .cards { max-height: 38vh; max-height: 38dvh; padding-left: var(--s-3); padding-right: var(--s-3); }
+}
+@media (max-height: 520px) { .cards { max-height: 50vh; max-height: 50dvh; } } /* phone on its side, keyboard up */
+
+.cards .card { gap: var(--s-3); padding: var(--s-4); }
+.cards .card .where { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
+.cards .card-warn .where { color: var(--warn-ink); }
+.cards .card .hint { font-size: var(--text-xs); color: var(--muted); }
+.cards .card pre {
+  margin: 0; padding: var(--s-2) var(--s-3); max-height: 180px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+  font-family: var(--mono); font-size: var(--text-sm); line-height: var(--leading);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cards .card img {
+  justify-self: start; max-width: min(100%, 420px); max-height: min(180px, 18vh);
+  border: 1px solid var(--line); border-radius: var(--r-md); cursor: zoom-in;
+}
+.cards .card img.big { max-width: 100%; max-height: none; cursor: zoom-out; }
+@media (max-width: 720px) { .cards .card img { max-height: 14vh; } }
+
+/* A schedule to confirm */
+.card.sched .sched-text { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.card .from { padding: var(--s-2) var(--s-3); border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn-ink); font-size: var(--text-sm); }
+.sched-edit { display: grid; gap: var(--s-3); }
+.sched-edit .textarea { min-height: 0; }
+.sched-edit .row { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: end; }
+.sched-edit .row > .field { flex: 1 1 140px; }
+.sched-edit .days { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); }

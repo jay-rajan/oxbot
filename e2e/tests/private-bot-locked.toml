@@ -1,6 +1,6 @@
 name = "Someone else's private bot is locked"
 about = "Ann sees Jay's private bot by name with a lock (the seed's Bank: Sam made it before only the owner could have private bots, so oxbot handed it to Jay), but opening it shows only blurred placeholders: none of its chat, and no way to message it."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/bot.rs", "crates/oxbot-protocol/**"]
 as = "Ann"
 
 [[step]]

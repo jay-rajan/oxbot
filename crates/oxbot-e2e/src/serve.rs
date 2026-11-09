@@ -268,6 +268,11 @@ pub struct Launch {
     pub keychain_delay_ms: Option<u64>,
     /// The stand-in Mac helper can dictate.
     pub dictation: bool,
+    /// Serve the page from this folder on every request (the preview's
+    /// `ui-dist`), so a rebuilt page shows on refresh.
+    pub ui_dir: Option<PathBuf>,
+    /// This port instead of any free one (the preview's fixed address).
+    pub port: Option<u16>,
 }
 
 /// A running oxbot under test. Stops it when dropped.
@@ -346,7 +351,10 @@ impl Server {
             None => None,
         };
         let site = TestSite::start().await?;
-        let port = free_port()?;
+        let port = match launch.port {
+            Some(port) => port,
+            None => free_port()?,
+        };
         let log = home.join("oxbot.log");
         let child = spawn_oxbot(
             repo,
@@ -520,6 +528,9 @@ fn spawn_oxbot(
     }
     if let Some(fake) = openrouter {
         openrouter_env(&mut cmd, repo, config, fake, launch.signed_in);
+    }
+    if let Some(dir) = &launch.ui_dir {
+        cmd.env("OXBOT_UI_DIR", dir);
     }
     cmd.spawn()
         .with_context(|| format!("starting {}", config.server.display()))

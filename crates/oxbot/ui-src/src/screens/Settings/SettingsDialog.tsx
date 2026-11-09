@@ -4,7 +4,7 @@
 // The tab it was left on is kept for next time.
 import { useCallback, useEffect } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Dialog } from "../../components/Dialog";
+import { Dialog, DialogFrame, Tabs } from "../../components/ui";
 import type { SettingsTab } from "../../state/activity";
 import { local } from "../../state/store";
 import { expose } from "../../web/testBridge";
@@ -12,10 +12,11 @@ import { ActivityTab, askNet } from "./ActivityTab";
 import { GeneralTab } from "./GeneralTab";
 import { PeopleTab } from "./PeopleTab";
 import { WebsitesTab } from "./WebsitesTab";
+import "./settings.css";
 
-const TABS: [SettingsTab, string, string | undefined][] = [
-  ["setGeneral", "General", undefined],
-  ["setSignins", "Websites", undefined],
+const TABS: (readonly [SettingsTab, string, string?])[] = [
+  ["setGeneral", "General"],
+  ["setSignins", "Websites"],
   ["setPeople", "People", "peopleTab"],
   ["setActivity", "Activity", "activityTab"],
 ];
@@ -45,45 +46,30 @@ export function SettingsDialog() {
   }, [profilesChanged, store, send]);
 
   return (
-    <Dialog id="appDlg" className="settings-dlg" labelledBy="appTitle" open={open} onClose={onClose}>
-      <div className="settings-frame">
-        <header className="settings-head">
-          <h2 id="appTitle">Settings</h2>
-          <button className="ghost" id="appClose" type="button" onClick={onClose}>
-            Close
-          </button>
-        </header>
-        <div className="settings-body">
-          <div className="tabs vtabs" role="tablist" aria-label="Settings" aria-orientation="vertical">
-            {TABS.map(([id, label, btnId]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                data-tab={id}
-                aria-selected={tab === id}
-                id={btnId}
-                onClick={() => {
-                  if (tab === id) {
-                    // Clicking the open tab asks again, as before.
-                    if (id === "setPeople") send({ type: "get_profile" });
-                    if (id === "setActivity") askNet(app);
-                  }
-                  dispatch(local("activity/tab", { tab: id }));
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="settings-panes">
-            <GeneralTab hidden={tab !== "setGeneral"} />
-            <WebsitesTab hidden={tab !== "setSignins"} />
-            <PeopleTab hidden={tab !== "setPeople"} />
-            <ActivityTab hidden={tab !== "setActivity"} />
-          </div>
+    <Dialog id="appDlg" size="xl" className="settings-dlg" labelledBy="appTitle" open={open} onClose={onClose}>
+      <DialogFrame title="Settings" titleId="appTitle" onClose={onClose} closeId="appClose" className="settings-frame" bodyClassName="settings-body">
+        <Tabs
+          label="Settings"
+          vertical
+          className="settings-tabs"
+          tabs={TABS}
+          value={tab}
+          onChange={(id) => {
+            if (tab === id) {
+              // Clicking the open tab asks again, as before.
+              if (id === "setPeople") send({ type: "get_profile" });
+              if (id === "setActivity") askNet(app);
+            }
+            dispatch(local("activity/tab", { tab: id }));
+          }}
+        />
+        <div className="settings-panes">
+          <GeneralTab hidden={tab !== "setGeneral"} />
+          <WebsitesTab hidden={tab !== "setSignins"} />
+          <PeopleTab hidden={tab !== "setPeople"} />
+          <ActivityTab hidden={tab !== "setActivity"} />
         </div>
-      </div>
+      </DialogFrame>
     </Dialog>
   );
 }

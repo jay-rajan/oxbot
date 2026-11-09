@@ -1,0 +1,39 @@
+/* The page's base: box sizing, the body's type and color, focus rings,
+   form controls inheriting the font. Everything from theme/tokens.css. */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+#root { height: 100%; }
+h1, h2, h3, h4, p { margin: 0; }
+h1, h2, h3, h4 { line-height: var(--leading-tight); text-wrap: balance; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+::placeholder { color: var(--faint); }
+code, pre, kbd { font-family: var(--mono); }
+small { font-size: var(--text-sm); color: var(--muted); }
+
+/* Helpers used across screens */
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: var(--text-sm); }
+.spacer { flex: 1; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; flex: none; }
+.dot.on { background: var(--ok); }
+.dot.off { background: var(--danger); }
+/* A person's color, set with vars({ person }) */
+.person-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; background: var(--person, var(--muted)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; }
+}

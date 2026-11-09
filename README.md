@@ -301,8 +301,8 @@ Privacy & Security → Open Anyway. Setup steps for friends: the oxbot Setup Gui
 
 ## Dev mode (auto-rebuild)
 `brew install watchexec` once, then `scripts/dev.sh`. Rust edits rebuild and restart the server;
-page edits (`crates/oxbot/ui/index.html`) show on refresh; an open page reloads itself after each
-restart. Use `OXBOT_HOME=/tmp/oxdev scripts/dev.sh` to keep dev data apart from your real bots.
+with `npm run build -- --watch` running in `crates/oxbot/ui-src`, page edits show on refresh; an
+open page reloads itself after each restart. Use `OXBOT_HOME=/tmp/oxdev scripts/dev.sh` to keep dev data apart from your real bots.
 
 ## Develop
 The toolchain is pinned in `rust-toolchain.toml`. Before calling any step done:

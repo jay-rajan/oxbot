@@ -1,0 +1,51 @@
+/* Compare: layout only. Colors, sizes and spacing come from theme/tokens.css.
+   The transcript's lines (.msg, .tool, .dryline...) are drawn by the chat's CSS. */
+.cmp-body { gap: var(--s-4); }
+.cmp-tabs { overflow-x: auto; }
+.cmp-pane { display: grid; gap: var(--s-5); min-width: 0; }
+
+/* Scoreboard */
+.cmp-table-wrap { overflow-x: auto; min-width: 0; }
+.cmp-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.cmp-table th, .cmp-table td {
+  text-align: right; white-space: nowrap;
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
+}
+.cmp-table th:first-child, .cmp-table td:first-child { text-align: left; padding-left: 0; }
+.cmp-table th { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-bold); }
+.cmp-table td.cmp-empty { text-align: left; color: var(--muted); border-bottom: 0; }
+
+/* Test cases */
+.cmp-case-title { display: inline-flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.cmp-case-sub { display: grid; gap: var(--s-1); }
+.cmp-vdots { display: flex; gap: var(--s-1); flex-wrap: wrap; }
+.vdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); }
+.vdot.pass { background: var(--ok); }
+.vdot.partial { background: var(--warn); }
+.vdot.fail { background: var(--danger); }
+
+.cmp-targets { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); }
+.cmp-repeats { max-width: 160px; }
+.cmp-progress { height: 6px; border-radius: var(--r-full); background: var(--sunken); overflow: hidden; }
+.cmp-progress i { display: block; height: 100%; width: var(--fill, 0%); background: var(--ink); transition: width var(--slow) var(--ease); }
+
+/* Runs */
+.cmp-list .run:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.cmp-prefs { display: grid; gap: var(--s-3); }
+.cmp-prefs .cmp-start { margin-right: auto; }
+
+/* A run beside the original */
+.side-by-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-4); min-width: 0; }
+.side-by-side > div { display: grid; gap: var(--s-2); align-content: start; min-width: 0; }
+.cmp-side-title { font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
+.verdicts { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
+.cmp-verdict { min-width: var(--control-sm); }
+.intents { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.transcript {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--s-2); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+@media (max-width: 600px) {
+  .side-by-side { grid-template-columns: minmax(0, 1fr); }
+}

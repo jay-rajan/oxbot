@@ -2,13 +2,16 @@
 // the home's AI account, startup, and about.
 import { type FormEvent, useEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
+import { Banner, Button, cx, Field, Hint, Input, pct, Section, Switch, vars } from "../../components/ui";
+import { local } from "../../state/store";
+import { isOwner } from "../Compare/devTools";
 import { fixParts, missingChecks, money, setupReady } from "./format";
 
 export const KEYCHAIN_WAITING = "Waiting for the Mac's Keychain: allow oxbot in the dialog.";
 
 export function GeneralTab({ hidden }: { hidden: boolean }) {
   return (
-    <div id="setGeneral" role="tabpanel" hidden={hidden}>
+    <div id="setGeneral" className="settings-pane" role="tabpanel" hidden={hidden}>
       <SetupSection />
       <NotifySection />
       <AiSection />
@@ -28,32 +31,36 @@ function SetupSection() {
   const ready = setupReady(setup);
   const optionalOff = !!(setup && farm && setup.checks.some((c) => !c.ok && c.optional));
   return (
-    <section id="setupSection" hidden={ready && !optionalOff}>
-      <p className={`setup-line${ready ? " optional" : ""}`} id="setupLine">
-        {ready ? "Optional, not turned on:" : "Something on the home computer needs a fix:"}
-      </p>
-      <ul className="checks" id="setupList">
-        {missingChecks(setup, optionalOff).map((c) => (
-          <li key={c.id} className={c.ok ? "ok" : c.optional ? "opt" : "bad"}>
-            <span>{c.ok ? "✓" : c.optional ? "–" : "✕"}</span>
-            <span>
-              <b>{c.name}</b>
-              {` · ${c.detail}`}
-              {c.fix ? (
-                <div className="fix">
-                  {fixParts(c.fix).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : p.text))}
-                </div>
-              ) : null}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <div className="btns">
-        <button className="ghost" type="button" id="setupAgain2" onClick={() => send({ type: "check_setup" })}>
-          Check again
-        </button>
-      </div>
-    </section>
+    <Section id="setupSection" hidden={ready && !optionalOff}>
+      <Banner
+        tone={ready ? "info" : "warn"}
+        actions={
+          <Button size="sm" id="setupAgain2" onClick={() => send({ type: "check_setup" })}>
+            Check again
+          </Button>
+        }
+      >
+        <p className={cx("setup-line", ready && "optional")} id="setupLine">
+          {ready ? "Optional, not turned on:" : "The home computer needs a fix:"}
+        </p>
+        <ul className="checks" id="setupList">
+          {missingChecks(setup, optionalOff).map((c) => (
+            <li key={c.id} className={c.ok ? "ok" : c.optional ? "opt" : "bad"}>
+              <span aria-hidden="true">{c.ok ? "✓" : c.optional ? "–" : "✕"}</span>
+              <span>
+                <b>{c.name}</b>
+                {` · ${c.detail}`}
+                {c.fix ? (
+                  <span className="fix">
+                    {fixParts(c.fix).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : p.text))}
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Banner>
+    </Section>
   );
 }
 
@@ -62,27 +69,20 @@ function NotifySection() {
   const { send } = useApp();
   const settings = useSel((s) => s.connection.settings);
   return (
-    <section id="notifySection">
-      <h3>Notifications</h3>
-      <label className="check">
-        <input
-          type="checkbox"
-          id="usageAlerts"
-          checked={!!settings && settings.usage_alerts !== false}
-          disabled={!!settings && !settings.farm}
-          onChange={(e) => send({ type: "set_usage_alerts", on: e.target.checked })}
-        />{" "}
+    <Section id="notifySection" title="Notifications">
+      <Switch
+        id="usageAlerts"
+        checked={!!settings && settings.usage_alerts !== false}
+        disabled={!!settings && !settings.farm}
+        onChange={(e) => send({ type: "set_usage_alerts", on: e.target.checked })}
+      >
         Tell me when AI use passes 50% and 80% of a limit
-      </label>
-      <p className="hint" id="notifyHint">
-        {/* A bot waiting for an OK or a sign-in while oxbot is hidden always notifies. */}
-        {!settings
-          ? ""
-          : settings.farm
-            ? "oxbot also tells you when a bot is waiting for you while its window is hidden. Mac notifications need permission in System Settings → Notifications."
-            : "Set on the home computer."}
-      </p>
-    </section>
+      </Switch>
+      {/* A bot waiting for an OK or a sign-in while oxbot is hidden always notifies. */}
+      <Hint id="notifyHint">
+        {!settings ? "" : settings.farm ? "Mac notifications need permission in System Settings → Notifications." : "Set on the home computer."}
+      </Hint>
+    </Section>
   );
 }
 
@@ -119,7 +119,7 @@ function AiSection() {
   const key = or?.key ?? null;
   const cap = (prefs?.paid_monthly_cents ?? 0) / 100;
   const spent = or?.spent_this_month_usd ?? 0;
-  const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+  const used = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
   const parts = [key?.is_free_tier ? "No credit bought: free models only" : `${money(spent)} of ${money(cap)} paid AI this month`];
   if (key?.free_limit) parts.push(`${key.free_used ?? 0} of ${key.free_limit} free questions today`);
   const capShown = signed && farm && !key?.is_free_tier;
@@ -131,8 +131,8 @@ function AiSection() {
   }, [signed, cap]);
 
   // The AI helper on the home computer: only when something's wrong.
-  const cx = engines?.codex ?? null;
-  const cxBad = !!(cx && settings && !settings.codex_ready && signed);
+  const helper = engines?.codex ?? null;
+  const cxBad = !!(helper && settings && !settings.codex_ready && signed);
 
   const saveCap = (ev: FormEvent) => {
     ev.preventDefault();
@@ -144,47 +144,41 @@ function AiSection() {
   };
 
   return (
-    <section id="aiSection">
-      <h3>AI</h3>
+    <Section id="aiSection" title="AI">
       <div className="ai-line">
-        <i className={`gate-dot${signed && ready ? " on" : ""}`} id="orDot" aria-hidden="true" />
+        <i className={cx("dot", signed && ready && "on")} id="orDot" aria-hidden="true" />
         <span id="orStatus">{status}</span>
-        <span style={{ flex: 1 }} />
-        <button className="primary" type="button" id="orSignIn" hidden={!farm || signed || waiting || !or} onClick={() => send({ type: "open_router_sign_in" })}>
+        <span className="spacer" />
+        <Button kind="primary" id="orSignIn" hidden={!farm || signed || waiting || !or} onClick={() => send({ type: "open_router_sign_in" })}>
           Connect OpenRouter
-        </button>
-        <button className="ghost" type="button" id="orSignOut" hidden={!farm || !signed} onClick={() => send({ type: "open_router_sign_out" })}>
+        </Button>
+        <Button size="sm" id="orSignOut" hidden={!farm || !signed} onClick={() => send({ type: "open_router_sign_out" })}>
           Sign out
-        </button>
+        </Button>
       </div>
-      <p className="hint" id="orLink" hidden={signed || !orAuthUrl}>
+      <Hint id="orLink" hidden={signed || !orAuthUrl}>
         If no window opened,{" "}
         <a id="orLinkA" href={orAuthUrl ?? "#"} target="_blank" rel="noopener noreferrer">
           open this link
         </a>
         .
-      </p>
+      </Hint>
       <div className="ai-month" id="orMonth" hidden={!signed}>
         <div className="meter-bar">
-          <i id="orMonthBar" className={pct >= 80 ? "high" : undefined} style={{ width: `${pct}%` }} />
+          <i id="orMonthBar" className={used >= 80 ? "high" : undefined} style={vars({ fill: pct(used, 100) })} />
         </div>
-        <span className="hint" id="orMonthText">
-          {signed ? parts.join(" · ") : ""}
-        </span>
+        <small id="orMonthText">{signed ? parts.join(" · ") : ""}</small>
       </div>
-      <form className="add-site" id="orCapForm" hidden={!capShown} ref={capFormRef} onSubmit={saveCap}>
-        <label className="cap-label" htmlFor="orPaidCap">
-          Monthly limit for paid AI ($)
-        </label>
-        <input type="number" id="orPaidCap" min="0" max="500" step="1" inputMode="decimal" ref={capRef} />
-        <button className="ghost" type="submit">
-          Save
-        </button>
+      <form className="cap-form" id="orCapForm" hidden={!capShown} ref={capFormRef} onSubmit={saveCap}>
+        <Field label="Monthly limit for paid AI ($)">
+          <Input type="number" id="orPaidCap" min="0" max="500" step="1" inputMode="decimal" ref={capRef} />
+        </Field>
+        <Button type="submit">Save</Button>
       </form>
-      <p className="hint" id="cxStatus" hidden={!cxBad}>
-        {cxBad ? cx?.problem || "The AI helper isn't ready on the home computer." : ""}
-      </p>
-    </section>
+      <Banner tone="warn" id="cxStatus" hidden={!cxBad}>
+        {cxBad ? helper?.problem || "The AI helper isn't ready on the home computer." : ""}
+      </Banner>
+    </Section>
   );
 }
 
@@ -192,39 +186,44 @@ function LoginSection() {
   const { send } = useApp();
   const at = useSel((s) => s.connection.settings?.launch_at_login);
   return (
-    <section id="loginSection" hidden={at === null || at === undefined}>
-      <h3>Startup</h3>
-      <label className="check">
-        <input type="checkbox" id="launchAtLogin" checked={!!at} onChange={(e) => send({ type: "set_launch_at_login", on: e.target.checked })} />
-        {" Open oxbot when I log in to my Mac"}
-      </label>
-    </section>
+    <Section id="loginSection" title="Startup" hidden={at === null || at === undefined}>
+      <Switch id="launchAtLogin" checked={!!at} onChange={(e) => send({ type: "set_launch_at_login", on: e.target.checked })}>
+        Open oxbot when I log in to my Mac
+      </Switch>
+    </Section>
   );
 }
 
 function AboutSection() {
+  const { dispatch } = useApp();
   const mac = useSel((s) => s.connection.serverName);
   const settings = useSel((s) => s.connection.settings);
   const people = useSel((s) => s.home.people);
   const you = settings?.you;
-  const color = people.find((p) => p.name === you)?.color || "var(--muted)";
+  const color = people.find((p) => p.name === you)?.color;
   return (
-    <section>
-      <h3>About</h3>
+    <Section title="About">
       <p className="about-line">
         <span id="aboutMac">{mac || "…"}</span> · version <span id="aboutVersion">{settings ? settings.version : "…"}</span> ·{" "}
         <span id="aboutYou">
           {you ? (
             <>
-              <i className="you-dot" style={{ background: color }} />
+              <i className="person-dot" style={vars({ person: color })} />
               {you}
             </>
           ) : null}
         </span>
       </p>
-      <p className="hint mono" id="aboutData">
+      <p className="field-hint mono" id="aboutData">
         {settings ? settings.data_dir : "…"}
       </p>
-    </section>
+      {isOwner(settings) ? (
+        <div className="btn-row">
+          <Button size="sm" kind="quiet" id="openPieces" onClick={() => dispatch(local("ui/open", { dialog: "pieces" }))}>
+            Design pieces
+          </Button>
+        </div>
+      ) : null}
+    </Section>
   );
 }

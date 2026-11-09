@@ -1,6 +1,6 @@
 name = "A CSV, a Word file and a pasted file"
 about = "A CSV goes to the bot as text, a Word file is turned into text on the Mac first, and a file pasted into the box is attached too; the bot quotes a line from each."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/attach/**", "crates/oxbot-core/src/hub/uploads.rs", "crates/oxbot-core/src/hub/turns.rs", "crates/oxbot-protocol/**", "crates/oxbot-e2e/**", "e2e/fixtures/**"]
 
 [[step]]
 click = "Recipes"

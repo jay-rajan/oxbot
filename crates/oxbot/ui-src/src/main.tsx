@@ -10,8 +10,9 @@ import { createStore, local } from "./state/store";
 import { sessionStore, takeKey } from "./web/address";
 import { LOGO } from "./components/brand";
 import { expose, exposeFn } from "./web/testBridge";
-import "./tokens.css";
-import "./legacy.css";
+import "./theme/tokens.css";
+import "./theme/base.css";
+import "./components/ui/index";
 
 const key = takeKey(location, sessionStore(), (url) => history.replaceState(null, "", url));
 // Test mode only: ?as=Name connects as that person (the server ignores it otherwise).

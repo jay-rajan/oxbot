@@ -1,6 +1,6 @@
 name = "Settings → General → AI and a new bot"
 about = "The owner sees the home's AI account in Settings → General (connected, free models first; the AI helper line shows only when it's broken), then makes a bot: it uses free models (the header says so), nothing to pick when making it, and its settings keep the kind of job under Advanced. Neither Codex nor the relay is named anywhere."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/setup.rs", "crates/oxbot-core/src/hub/engine_prefs.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/setup.rs", "crates/oxbot-core/src/hub/engine_prefs.rs", "crates/oxbot-core/src/hub/codex.rs", "crates/oxbot-protocol/**"]
 needs = ["codex"]
 
 [[step]]

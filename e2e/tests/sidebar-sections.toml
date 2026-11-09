@@ -1,6 +1,6 @@
 name = "Sidebar sections, search and group by"
 about = "Make a section, move a bot into it (from its right-click menu, and by dragging), find a bot by search, switch to grouping by person, and rename and delete a section. Sections are kept by the server for each person: they survive a reload, and someone else doesn't see them."
-covers = ["crates/oxbot/ui/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot-protocol/**"]
+covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-core/src/store/**", "crates/oxbot-protocol/**"]
 
 [[step]]
 click = "+ New section"
