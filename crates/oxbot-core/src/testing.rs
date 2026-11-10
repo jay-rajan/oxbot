@@ -164,6 +164,15 @@ pub struct FakeBots {
     /// Each person's message as the bots got it, in order (see
     /// [`FakeBots::told`]).
     pub messages: Calls,
+    /// Each tool result the bots read, in order (see [`FakeBots::heard`]).
+    pub results: Calls,
+    /// What a bot with no tool ([`Tool::None`]) answers, instead of `ok`.
+    pub answer: Option<String>,
+    /// What it answers when oxbot sends its answer back to be checked,
+    /// instead of the same answer.
+    pub checked: Option<String>,
+    /// oxbot's notes the bots got (a check, say), in order.
+    pub notes: Calls,
     /// The plan each (bot, message) got, so every request of a turn
     /// follows the same one (made as they're needed; leave it default).
     pub plans: Plans,
@@ -238,6 +247,16 @@ impl FakeBots {
             Some(at) => text[..at].to_owned(),
             None => text,
         })
+    }
+
+    /// Every tool result the bots read so far, in order (each once).
+    #[must_use]
+    pub fn heard(&self) -> Vec<String> {
+        self.results
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// The helpers' model (a page question), answering from this fake.
@@ -413,18 +432,35 @@ impl FakeBots {
                 told.push(text.clone());
             }
         }
-        // oxbot sent an answer back to be checked: the same answer.
-        if conv
+        {
+            let mut heard = self
+                .results
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            for m in conv.messages.iter().filter(|m| m.role == Role::Tool) {
+                if !heard.contains(&m.text) {
+                    heard.push(m.text.clone());
+                }
+            }
+        }
+        // oxbot sent an answer back to be checked: the same answer (or
+        // `checked`).
+        if let Some(note) = conv
             .messages
             .last()
-            .is_some_and(|m| m.role == Role::User && m.text.trim_start().starts_with(NOTE))
+            .filter(|m| m.role == Role::User && m.text.trim_start().starts_with(NOTE))
             && let Some(said) = conv.messages[last..]
                 .iter()
                 .rev()
                 .find(|m| m.role == Role::Assistant && m.calls == 0 && !m.text.is_empty())
         {
+            let mut notes = self.notes.0.lock().unwrap_or_else(PoisonError::into_inner);
+            if notes.last() != Some(&note.text) {
+                notes.push(note.text.clone());
+            }
             return Answer {
-                text: said.text.clone(),
+                text: self.checked.clone().unwrap_or_else(|| said.text.clone()),
                 call: None,
             };
         }
@@ -447,10 +483,21 @@ impl FakeBots {
             .find(|m| m.role == Role::Tool)
             .map(|m| m.text.clone())
             .unwrap_or_default();
-        Answer {
-            text: finish(&plan.tool, &result),
-            call: None,
-        }
+        let text = match (&plan.tool, &self.answer) {
+            (Tool::None, Some(answer)) => answer.clone(),
+            _ => finish(&plan.tool, &result),
+        };
+        Answer { text, call: None }
+    }
+
+    /// oxbot's notes the bots got so far (a check, say), in order.
+    #[must_use]
+    pub fn noted(&self) -> Vec<String> {
+        self.notes
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 

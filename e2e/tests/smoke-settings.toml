@@ -1,5 +1,5 @@
 name = "Settings opens on each tab"
-about = "The gear opens Settings; General, Websites, People and Activity each show their content."
+about = "The gear opens Settings; General, Websites, People, Schedules and Activity each show their content."
 smoke = true
 covers = []
 
@@ -17,6 +17,11 @@ note = "The home sign-in from the seed"
 click = "People"
 [[step]]
 expect = "Add a device"
+[[step]]
+click = "Schedules"
+[[step]]
+expect = "No schedules yet. Ask a bot"
+note = "The seed has no schedules"
 [[step]]
 click = "Activity"
 [[step]]

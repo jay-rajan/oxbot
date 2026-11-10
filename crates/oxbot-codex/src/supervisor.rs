@@ -129,7 +129,9 @@ impl Supervisor {
         slot.last_used = Some(Instant::now());
         if let Some(running) = &slot.running {
             if !running.process.is_gone() {
-                running.relay.update(info.choice.clone(), info.privacy);
+                running
+                    .relay
+                    .update(info.choice.clone(), info.privacy, info.tools.clone());
                 return Ok(running.clone());
             }
             // It crashed: wait longer each time it does so soon.
@@ -262,6 +264,7 @@ mod tests {
             context_dir: PathBuf::from(ctx),
             knowledge_dir: None,
             system_prompt: String::new(),
+            keeps_files: false,
             resume: oxbot_engine::Resume::New("s".into()),
             model: oxbot_engine::ModelChoice::Auto,
             browser: None,

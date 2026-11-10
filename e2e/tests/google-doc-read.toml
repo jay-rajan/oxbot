@@ -1,0 +1,46 @@
+name = "A bot reads a whole Google Slides deck, not just what the editor shows"
+about = "A bot opens a Google Slides deck (the test site stands in for docs.google.com): the editor shows only slides 1 and 2, and oxbot's result says so and names read_document. The bot calls read_document: oxbot reads the deck's export from the tab on the Docs site (the person's sign-in applies) and the model gets all nine slides, numbered, with their speaker notes, so it can answer from slide 7, which the editor never showed."
+covers = ["crates/oxbot-loop/src/tools/gdocs.rs", "crates/oxbot-loop/src/tools/drive.rs", "crates/oxbot-loop/src/tools/mod.rs", "crates/oxbot-loop/src/service.rs", "crates/oxbot-browser/src/docfetch.rs", "crates/oxbot-browser/src/guard.rs", "crates/oxbot-browser/src/browser.rs", "crates/oxbot-core/src/hub/scripts.rs", "crates/oxbot-core/src/policy.rs", "crates/oxbot-engine/src/sealed.rs", "crates/oxbot-e2e/src/serve.rs"]
+script = "scripts.toml"
+
+[[step]]
+click = "New bot"
+[[step]]
+type = { into = "Name", text = "Divit Learning" }
+[[step]]
+click = "Create"
+[[step]]
+expect_js = "document.getElementById('botStatus').dataset.bot === 'divit-learning'"
+timeout_ms = 5000
+[[step]]
+send = "read the Divit Learning deck"
+[[step]]
+wait_for = "Read the whole deck."
+timeout_ms = 90000
+[[step]]
+expect = "browser navigate_page http://docs.example.test/presentation/d/e2e-deck-000001/edit"
+note = "The bot opened the deck's editor, a line in the chat"
+[[step]]
+expect = "whole Google file"
+note = "read_document is a line in the chat"
+[[step]]
+expect_openrouter_body = "This is a Google Slides editor: the page shows only part of it. Use read_document to read all of it."
+note = "Opening the editor told the model the page shows only part of the deck"
+[[step]]
+expect_openrouter_body = "9 slides, all read"
+note = "read_document read every slide"
+[[step]]
+expect_openrouter_body = "Slide 7 of 9:"
+[[step]]
+expect = "Fractions quiz: 9 of 10"
+note = "The answer has slide 7's content, which the editor never showed"
+[[step]]
+expect = "Edited yesterday: winter concert song"
+note = "And the last slide, the newest entry"
+[[step]]
+expect = "Ask about halves"
+note = "Speaker notes come too"
+shot = "read"
+[[step]]
+expect_site_writes = 0
+note = "Reading changed nothing on the site"

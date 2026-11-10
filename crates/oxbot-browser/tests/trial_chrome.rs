@@ -70,20 +70,20 @@ async fn server() -> (u16, Arc<Mutex<Vec<String>>>) {
     (port, seen)
 }
 
-/// Opens a new tab at `url` through Chrome's control port, as the browser
-/// tool does.
-async fn new_tab(port: u16, url: &str) {
-    let mut tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+/// Opens a new tab at `url` through the browser's endpoint, as the
+/// browser tool does.
+async fn new_tab(endpoint: &str, url: &str) {
+    use futures_util::{SinkExt as _, StreamExt as _};
+    let (mut socket, _) = tokio_tungstenite::connect_async(endpoint).await.unwrap();
+    let open =
+        serde_json::json!({"id": 1, "method": "Target.createTarget", "params": {"url": url}});
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            open.to_string().into(),
+        ))
         .await
         .unwrap();
-    tcp.write_all(
-        format!("PUT /json/new?{url} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .as_bytes(),
-    )
-    .await
-    .unwrap();
-    let mut out = vec![0u8; 4096];
-    let _ = tokio::time::timeout(Duration::from_secs(3), tcp.read(&mut out)).await;
+    let _ = tokio::time::timeout(Duration::from_secs(3), socket.next()).await;
 }
 
 async fn trial_browser(dir: &std::path::Path, mode: NetMode) -> Option<Arc<Browser>> {
@@ -113,7 +113,7 @@ async fn trial_browser(dir: &std::path::Path, mode: NetMode) -> Option<Arc<Brows
 }
 
 async fn visit(browser: &Browser, site: u16) {
-    new_tab(browser.port(), &format!("http://127.0.0.1:{site}/page")).await;
+    new_tab(browser.endpoint(), &format!("http://127.0.0.1:{site}/page")).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
 }
 

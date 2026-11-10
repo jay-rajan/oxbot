@@ -39,3 +39,13 @@
 .sched-edit .row { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: end; }
 .sched-edit .row > .field { flex: 1 1 140px; }
 .sched-edit .days { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); }
+
+/* Other bots waiting for an answer: one compact line above the cards and the
+   box; each bot's name with Open. */
+.waiting { flex: none; margin: var(--s-2) max(var(--s-5), env(safe-area-inset-right)) 0 var(--s-5); padding: var(--s-1) var(--s-3); }
+.waiting .banner-text { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-4); }
+.waiting-bot { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; max-width: 100%; }
+.waiting-bot .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-mid); }
+.waiting-bot .btn { flex: none; color: var(--warn-ink); text-decoration: underline; }
+.waiting-more { color: var(--warn-ink); white-space: nowrap; }
+@media (max-width: 720px) { .waiting { margin-left: var(--s-3); margin-right: var(--s-3); } }

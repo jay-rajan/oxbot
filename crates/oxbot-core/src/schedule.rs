@@ -12,6 +12,11 @@
 //!   once, the first time.
 //!
 //! A monthly day past a month's end (the 31st in April) is its last day.
+//!
+//! Catching up ([`Rule::catch_up`]): when the Mac slept or oxbot was
+//! closed through some runs, the most recent one runs once (late), as long
+//! as the run after it isn't due yet; older ones are noted missed. A run
+//! that starts more than [`LATE_MS`] after it was due says it was late.
 
 use std::fmt::Write as _;
 
@@ -22,9 +27,11 @@ use chrono::{
 use oxbot_protocol::{Day, ScheduleRule};
 use serde_json::Value;
 
-/// A run missed by more than this (the Mac asleep, oxbot closed) is
-/// skipped and noted as missed; one missed by less runs once.
-pub const CATCH_UP_MS: i64 = 2 * 3_600_000;
+/// A run that starts more than this after it was due (the Mac asleep,
+/// oxbot closed) is late, and says so.
+pub const LATE_MS: i64 = 5 * 60_000;
+/// The most missed runs one check notes for a schedule.
+pub const MAX_MISSED: usize = 60;
 /// The least time between two scheduled runs of one bot.
 pub const MIN_GAP_MS: i64 = 15 * 60_000;
 /// The most schedules one person may have.
@@ -402,6 +409,82 @@ impl Rule {
         }
         out
     }
+}
+
+/// What a check does with a schedule whose run is due.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatchUp {
+    /// The run that runs now, if any: the most recent one due.
+    pub run: Option<i64>,
+    /// Older runs due meanwhile, noted as missed (oldest first, at most
+    /// [`MAX_MISSED`]).
+    pub missed: Vec<i64>,
+    /// The run after them all, if the rule has one.
+    pub next: Option<i64>,
+}
+
+impl Rule {
+    /// What to do at `now_ms` with a schedule due at `first_ms` (at or
+    /// before `now_ms`): its most recent due run runs once, if the run
+    /// after it isn't due yet; older ones are missed.
+    #[must_use]
+    pub fn catch_up(&self, first_ms: i64, now_ms: i64, zone: &dyn Zone) -> CatchUp {
+        let mut latest = first_ms;
+        let mut missed = Vec::new();
+        // A year of minutes is far more than any rule here has; this only
+        // keeps a broken zone from looping for ever.
+        for _ in 0..400_000 {
+            match self.next_after(latest, zone) {
+                Some(at) if at <= now_ms => {
+                    if missed.len() < MAX_MISSED {
+                        missed.push(latest);
+                    }
+                    latest = at;
+                }
+                _ => break,
+            }
+        }
+        let next = self.next_after(now_ms.max(latest), zone);
+        // The run after the latest isn't due yet: the latest runs.
+        let runs = latest <= now_ms && self.next_after(latest, zone).is_none_or(|n| n > now_ms);
+        if !runs {
+            missed.push(latest);
+            missed.truncate(MAX_MISSED);
+        }
+        CatchUp {
+            run: runs.then_some(latest),
+            missed,
+            next,
+        }
+    }
+}
+
+/// Whether a run due at `due_ms` that starts at `started_ms` is late.
+#[must_use]
+pub fn is_late(due_ms: i64, started_ms: i64) -> bool {
+    started_ms - due_ms > LATE_MS
+}
+
+/// What a late run says, e.g. `Ran at 11:04 AM; the home computer was
+/// asleep or oxbot was closed at 8 AM.` (with the day when it differs).
+#[must_use]
+pub fn late_line(due_ms: i64, started_ms: i64, zone: &dyn Zone) -> String {
+    let at = |ms: i64| {
+        let local = ms + i64::from(zone.offset_at(ms)) * 1000;
+        DateTime::from_timestamp_millis(local).map(|t| t.naive_utc())
+    };
+    let (Some(due), Some(started)) = (at(due_ms), at(started_ms)) else {
+        return String::new();
+    };
+    let was = if due.date() == started.date() {
+        format!("at {}", clock(due.time()))
+    } else {
+        format!("on {}", when(due_ms, zone))
+    };
+    format!(
+        "Ran at {}; the home computer was asleep or oxbot was closed {was}.",
+        clock(started.time())
+    )
 }
 
 /// The date the wall shows at `utc_ms` in `zone`.
@@ -945,6 +1028,81 @@ mod tests {
             Some(ms("2026-10-30T12:15:00Z"))
         );
         assert_eq!(zone.name(), "America/Toronto");
+    }
+
+    #[test]
+    fn a_run_three_hours_late_runs_once() {
+        let utc = Fixed("UTC", 0);
+        let r = rule(ScheduleRule::Daily {
+            time: "08:00".into(),
+        });
+        let due = ms("2026-11-07T08:00:00Z");
+        let c = r.catch_up(due, ms("2026-11-07T11:04:00Z"), &utc);
+        assert_eq!(c.run, Some(due));
+        assert_eq!(c.missed, Vec::<i64>::new());
+        assert_eq!(c.next, Some(ms("2026-11-08T08:00:00Z")));
+    }
+
+    #[test]
+    fn days_of_missed_daily_runs_run_the_newest_once() {
+        let utc = Fixed("UTC", 0);
+        let r = rule(ScheduleRule::Daily {
+            time: "08:00".into(),
+        });
+        let c = r.catch_up(ms("2026-11-05T08:00:00Z"), ms("2026-11-07T11:00:00Z"), &utc);
+        assert_eq!(c.run, Some(ms("2026-11-07T08:00:00Z")));
+        assert_eq!(
+            c.missed,
+            [ms("2026-11-05T08:00:00Z"), ms("2026-11-06T08:00:00Z")]
+        );
+        assert_eq!(c.next, Some(ms("2026-11-08T08:00:00Z")));
+    }
+
+    #[test]
+    fn a_weekly_run_a_day_late_still_runs() {
+        let utc = Fixed("UTC", 0);
+        let r = weekly(&[Day::Sat], "08:00");
+        let due = ms("2026-11-07T08:00:00Z");
+        let c = r.catch_up(due, ms("2026-11-08T09:30:00Z"), &utc);
+        assert_eq!(c.run, Some(due));
+        assert_eq!(c.missed, Vec::<i64>::new());
+        assert_eq!(c.next, Some(ms("2026-11-14T08:00:00Z")));
+    }
+
+    #[test]
+    fn an_on_time_run_is_unchanged() {
+        let utc = Fixed("UTC", 0);
+        let r = rule(ScheduleRule::Daily {
+            time: "08:15".into(),
+        });
+        let due = ms("2026-11-07T08:15:00Z");
+        let now = due + 50;
+        let c = r.catch_up(due, now, &utc);
+        assert_eq!(c.run, Some(due));
+        assert_eq!(c.missed, Vec::<i64>::new());
+        assert!(!is_late(due, now));
+        // A one-time schedule runs late too, then has no next run.
+        let once = rule(ScheduleRule::Once {
+            at: "2026-11-07T08:00".into(),
+        });
+        let c = once.catch_up(ms("2026-11-07T08:00:00Z"), ms("2026-11-09T08:00:00Z"), &utc);
+        assert_eq!((c.run.is_some(), c.next), (true, None));
+    }
+
+    #[test]
+    fn a_late_run_says_when_it_ran_and_when_it_was_due() {
+        let utc = Fixed("UTC", 0);
+        let due = ms("2026-11-07T08:00:00Z");
+        assert!(!is_late(due, due + LATE_MS));
+        assert!(is_late(due, due + LATE_MS + 1));
+        assert_eq!(
+            late_line(due, ms("2026-11-07T11:04:00Z"), &utc),
+            "Ran at 11:04 AM; the home computer was asleep or oxbot was closed at 8 AM."
+        );
+        assert_eq!(
+            late_line(due, ms("2026-11-08T09:30:00Z"), &utc),
+            "Ran at 9:30 AM; the home computer was asleep or oxbot was closed on Sat, Nov 7 at 8 AM."
+        );
     }
 
     #[test]

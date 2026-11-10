@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use oxbot_browser::{BuiltInTool, Tools, ToolsConfig};
+use oxbot_core::engine::dev::{dev_env, dev_env_string};
 use oxbot_core::{Home, Hub, HubConfig, Store, bot};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -53,7 +54,7 @@ impl ServerOptions {
             home: None,
             browser: true,
             logs: None,
-            ui_dir: std::env::var_os("OXBOT_UI_DIR").map(PathBuf::from),
+            ui_dir: dev_env("OXBOT_UI_DIR").map(PathBuf::from),
             app: None,
             notifier: None,
             device_port: device_port(device_port_setting().as_deref()),
@@ -137,6 +138,11 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         Some(home) => home,
         None => Home::from_env().context("no data folder on this system; set OXBOT_HOME")?,
     };
+    // Everything oxbot makes from here on is this Mac account's only, and
+    // the data folder (made looser by an older oxbot) is tightened.
+    private_by_default();
+    home.make_private()
+        .with_context(|| format!("couldn't make {} private", home.root().display()))?;
     bot::ensure_default(&home.bots_dir())?;
     let bots = bot::load_all(&home.bots_dir())?;
     // A database a newer oxbot upgraded is refused here, with what to do.
@@ -147,8 +153,9 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     let path = setup::search_path();
     let path_env = vec![("PATH".to_owned(), path.clone())];
     // End-to-end test mode (`/pr_test`): sign-in windows stay hidden, the
-    // person can be set, and test connections may say who they are.
-    let e2e = std::env::var_os("OXBOT_E2E").is_some_and(|v| v == "1");
+    // person can be set, and test connections may say who they are. Debug
+    // builds only, like every test setting (see `oxbot_engine::dev`).
+    let e2e = oxbot_core::engine::dev::e2e();
     let built_in = built_in_tool();
     let browser = options.browser.then(|| {
         Tools::new(ToolsConfig {
@@ -157,8 +164,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             hidden_windows: e2e,
             mcp_override: fake_devtools(e2e),
             // Test mode: `*.example.test` reaches the test site.
-            chrome_args: std::env::var("OXBOT_E2E_HOST_RULES")
-                .ok()
+            chrome_args: dev_env_string("OXBOT_E2E_HOST_RULES")
                 .filter(|_| e2e)
                 .map(|rules| vec![format!("--host-resolver-rules={rules}")])
                 .unwrap_or_default(),
@@ -210,7 +216,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         // through oxbot's relay, on the same client and key.
         codex: Some(oxbot_core::CodexParts {
             upstream: Arc::new(openrouter.client().clone()),
-            program: std::env::var_os("OXBOT_CODEX").map(PathBuf::from),
+            program: dev_env("OXBOT_CODEX").map(PathBuf::from),
             // The Codex inside the app runs, not one installed elsewhere.
             built_in: built_in_codex(),
         }),
@@ -243,8 +249,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         )
     });
     // Tests name the home computer's person outright, as an account would.
-    let (local_person, from_account) = std::env::var("OXBOT_PERSON")
-        .ok()
+    let (local_person, from_account) = dev_env_string("OXBOT_PERSON")
         .filter(|p| e2e && !p.trim().is_empty())
         .map_or_else(|| setup::local_person_from(&computer_name), |p| (p, true));
     // Chosen once (the first run), then found by id; renamed only to the
@@ -273,6 +278,9 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         port: addr.port(),
         openrouter: Some(openrouter),
         dev_tools: std::env::var_os(DEV_TOOLS_ENV).is_some_and(|v| v == "1"),
+        // Schedules run on time: the Mac stays awake on power while the
+        // setting is on (test mode: a stand-in, never the real one).
+        awake: crate::awake::KeepAwake::for_this_mac(hub.keep_awake_on(), e2e).map(Arc::new),
     };
     state.refresh_setup().await;
     load_key(&state);
@@ -297,6 +305,12 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         stop,
         task,
     })
+}
+
+/// Files and folders this process makes are its account's alone (umask
+/// 077), whatever the umask it was started with.
+fn private_by_default() {
+    rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
 }
 
 /// Reads the kept `OpenRouter` key without holding anything up: a newly
@@ -357,18 +371,13 @@ fn fake_devtools(e2e: bool) -> Option<oxbot_browser::McpCommand> {
     if !e2e {
         return None;
     }
-    let program = std::env::var_os("OXBOT_FAKE_DEVTOOLS")?;
-    let script = std::env::var("OXBOT_FAKE_DT_SCRIPT")
-        .or_else(|_| std::env::var("OXBOT_FAKE_SCRIPT"))
-        .ok();
+    let program = dev_env("OXBOT_FAKE_DEVTOOLS")?;
+    let script =
+        dev_env_string("OXBOT_FAKE_DT_SCRIPT").or_else(|| dev_env_string("OXBOT_FAKE_SCRIPT"));
     let env = script
         .map(|s| ("OXBOT_FAKE_SCRIPT".to_owned(), s))
         .into_iter()
-        .chain(
-            std::env::var("OXBOT_FAKE_DT_LOG")
-                .ok()
-                .map(|l| ("OXBOT_FAKE_DT_LOG".to_owned(), l)),
-        )
+        .chain(dev_env_string("OXBOT_FAKE_DT_LOG").map(|l| ("OXBOT_FAKE_DT_LOG".to_owned(), l)))
         .collect();
     Some(oxbot_browser::McpCommand {
         program: PathBuf::from(program),
@@ -390,9 +399,9 @@ fn built_in_tool() -> Option<BuiltInTool> {
 
 /// oxbot's built-in tools folder: `Contents/Resources/tools` in
 /// oxbot.app (next to the program), or `OXBOT_BUILT_IN_TOOLS` for
-/// testing. `oxbot serve` from a source checkout has none.
+/// testing (debug builds). `oxbot serve` from a source checkout has none.
 fn built_in_tools_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("OXBOT_BUILT_IN_TOOLS") {
+    if let Some(dir) = dev_env("OXBOT_BUILT_IN_TOOLS") {
         return Some(PathBuf::from(dir));
     }
     let exe = std::env::current_exe().ok()?;
@@ -420,9 +429,9 @@ fn built_in_codex() -> Option<PathBuf> {
 /// oxbot's Mac helper (`oxbot-mac`: video frames and dictation): next to
 /// the program in oxbot.app, or built by `scripts/build-mac-helper.sh`
 /// for `oxbot serve` from a checkout. `OXBOT_MAC_HELPER` names another
-/// (tests), and `OXBOT_MAC_HELPER=off` none.
+/// (tests, debug builds), and `OXBOT_MAC_HELPER=off` none.
 fn mac_helper() -> Option<PathBuf> {
-    let found = std::env::var_os("OXBOT_MAC_HELPER").map_or_else(
+    let found = dev_env("OXBOT_MAC_HELPER").map_or_else(
         || {
             let exe = std::env::current_exe().ok()?;
             let dir = exe.parent()?;
@@ -509,11 +518,25 @@ mod tests {
             tmp.path().join("bots/assistant").is_dir(),
             "default bot created"
         );
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode =
+                |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(tmp.path()), 0o700, "the data folder is private");
+            assert_eq!(mode(&tmp.path().join("bots")), 0o700);
+            assert_eq!(mode(&tmp.path().join("oxbot.db")), 0o600);
+        }
 
         let mut tcp = tokio::net::TcpStream::connect(server.addr).await.unwrap();
-        tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-            .await
-            .unwrap();
+        tcp.write_all(
+            format!(
+                "GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                server.addr
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
         let mut page = String::new();
         tcp.read_to_string(&mut page).await.unwrap();
         assert!(page.contains("<title>oxbot</title>"));

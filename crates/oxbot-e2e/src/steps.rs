@@ -9,8 +9,6 @@ use anyhow::{Context, anyhow, bail};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use futures_util::SinkExt;
-
 use crate::driver::Driver;
 use crate::serve::Server;
 use crate::spec::Step;
@@ -451,52 +449,52 @@ async fn wait_until(driver: &mut Driver, expression: &str, timeout_ms: u64) -> a
 /// Closes oxbot's sign-in window in this home, as a person would after
 /// signing in, once it's open (waiting up to `timeout_ms` for it: Chrome
 /// can take a while to start on a busy Mac). The window is the Chrome for
-/// this home that was started on a web page (hidden Chrome starts on a
-/// blank one); its `DevTools` port is read from its command line.
+/// this home started on a web page (hidden Chrome starts on a blank one);
+/// it's plain Chrome, with no `DevTools` port, so it's asked to quit as a
+/// person quitting it would, saving its cookies: SIGINT (headless Chrome
+/// quits on SIGTERM without writing the cookies it just got, so a sign-in
+/// would be lost).
 async fn close_sign_in_window(home: &Path, timeout_ms: u64) -> anyhow::Result<()> {
     let start = Instant::now();
-    let version = loop {
-        if let Some(port) = sign_in_window_port(home).await?
-            && let Ok((200, version)) =
-                crate::http::request(port, "GET", "/json/version", None).await
-        {
-            break version;
+    let pid = loop {
+        if let Some(pid) = sign_in_window_pid(home).await? {
+            break pid;
         }
         if start.elapsed() > Duration::from_millis(timeout_ms) {
             bail!("no sign-in window opened within {} s", timeout_ms / 1000);
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
     };
-    let v: Value = serde_json::from_str(&version)?;
-    let ws = v["webSocketDebuggerUrl"]
-        .as_str()
-        .ok_or_else(|| anyhow!("no browser link"))?;
-    let (mut socket, _) = tokio_tungstenite::connect_async(ws).await?;
-    socket
-        .send(tokio_tungstenite::tungstenite::Message::Text(
-            json!({"id": 1, "method": "Browser.close"})
-                .to_string()
-                .into(),
-        ))
+    // Let it load before it goes, as a person would.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let status = tokio::process::Command::new("kill")
+        .args(["-INT", &pid.to_string()])
+        .status()
         .await?;
+    if !status.success() {
+        bail!("couldn't close the sign-in window");
+    }
     Ok(())
 }
 
-/// The `DevTools` port of this home's sign-in window, if one runs.
-async fn sign_in_window_port(home: &Path) -> anyhow::Result<Option<u16>> {
+/// The process id of this home's sign-in window, if one runs: a main
+/// Chrome (not a helper) on this home's profile, without oxbot's
+/// `DevTools` pipe.
+async fn sign_in_window_pid(home: &Path) -> anyhow::Result<Option<u32>> {
     let out = tokio::process::Command::new("ps")
-        .args(["-axo", "args"])
+        .args(["-axo", "pid=,args="])
         .output()
         .await?;
     let marker = format!("--user-data-dir={}", home.display());
     Ok(String::from_utf8_lossy(&out.stdout)
         .lines()
-        .filter(|l| l.contains(&marker) && !l.contains("Helper") && !l.contains("about:blank"))
-        .find_map(|l| {
-            l.split_whitespace()
-                .find_map(|a| a.strip_prefix("--remote-debugging-port="))
-                .and_then(|p| p.parse::<u16>().ok())
-        }))
+        .filter(|l| {
+            l.contains(&marker)
+                && !l.contains("Helper")
+                && !l.contains(" --type=")
+                && !l.contains("--remote-debugging-pipe")
+        })
+        .find_map(|l| l.split_whitespace().next()?.parse().ok()))
 }
 
 /// Runs `steps`, saving a screenshot after each into `shots_dir`. Stops at

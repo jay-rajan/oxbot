@@ -9,8 +9,10 @@ use oxbot_protocol::{EventKind, ServerMsg, SignInOutcome, SignInRequest, SiteInf
 use tokio::sync::oneshot;
 
 use super::{Hub, HubError, Shared, lock};
-use crate::bot::Viewer;
+use crate::bot::{Bot, Viewer};
+use crate::engine::Decision;
 use crate::id::{BotId, BrowserOwner};
+use crate::policy::AccountAction;
 use crate::store::Role;
 
 /// A site being signed in to from Settings, and the browser's cookies
@@ -394,6 +396,49 @@ impl Hub {
                 "request_sign_in needs a web address on the internet (https://…), not one on the home computer or the home network.".to_owned(),
             );
         };
+        let minutes = self.config.sign_in_timeout.as_secs() / 60;
+        match self
+            .sign_in_card(bot, &shared, url, site.clone(), why, None)
+            .await
+        {
+            SignInOutcome::Done => (
+                true,
+                format!(
+                    "The user finished with the sign-in window for {site} (they pressed I'm \
+                     signed in, or closed the window). Chrome restarted, so list or open pages \
+                     again, then check you're really signed in. If you're still signed out, say \
+                     so plainly and don't ask to sign in again until the user asks you to."
+                ),
+            ),
+            SignInOutcome::Cancelled => (
+                false,
+                "The sign-in was cancelled: the user pressed Cancel, or oxbot restarted. Tell \
+                 them you stopped because the site needs signing in, and that they can ask you \
+                 to try again."
+                    .to_owned(),
+            ),
+            SignInOutcome::TimedOut => (
+                false,
+                format!("The user didn't sign in within {minutes} minutes. Tell them you stopped."),
+            ),
+        }
+    }
+
+    /// Shows `bot`'s people a sign-in card for `site` (opening the window
+    /// on `url` right away; the card's button is the fallback), waits until
+    /// they're done, give up, or don't answer in time, then closes the
+    /// window, settles the site's place on the list and notes it in the
+    /// chat. `before` is what oxbot held back until they sign in (see
+    /// [`Hub::sign_in_before`]).
+    async fn sign_in_card(
+        &self,
+        bot: &BotId,
+        shared: &Arc<Shared>,
+        url: &str,
+        site: String,
+        why: &str,
+        before: Option<String>,
+    ) -> SignInOutcome {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let request = SignInRequest {
             id,
@@ -401,6 +446,7 @@ impl Hub {
             url: url.to_owned(),
             site: site.clone(),
             why: why.trim().to_owned(),
+            before,
             window_open: false,
             // A person's own browser: only they sign it in, even when
             // others may use the bot (shared with picked people).
@@ -418,58 +464,104 @@ impl Hub {
         });
         tracing::info!(%bot, browser = %shared.owner, "asking the user to sign in");
         self.scheduled_run_waiting(bot, "needs you to sign in");
-        let before = self.cookies_before_sign_in(&shared).await;
+        let cookies_before = self.cookies_before_sign_in(shared).await;
         // Open the sign-in window right away; the card's button is the fallback.
         if let Err(err) = self.open_sign_in(id).await {
             tracing::warn!(%bot, %err, "couldn't open the sign-in window");
         }
 
-        let minutes = self.config.sign_in_timeout.as_secs() / 60;
-        let answer = tokio::time::timeout(self.config.sign_in_timeout, rx).await;
-        let (outcome, result) = match answer {
-            Ok(Ok(true)) => (
-                SignInOutcome::Done,
-                (
-                    true,
-                    format!(
-                        "The user finished with the sign-in window for {site} (they pressed I'm \
-                         signed in, or closed the window). Chrome restarted, so list or open pages \
-                         again, then check you're really signed in. If you're still signed out, say \
-                         so plainly and don't ask to sign in again until the user asks you to."
-                    ),
-                ),
-            ),
-            Ok(Ok(false) | Err(_)) => (
-                SignInOutcome::Cancelled,
-                (
-                    false,
-                    "The sign-in was cancelled: the user pressed Cancel, or oxbot restarted. Tell \
-                     them you stopped because the site needs signing in, and that they can ask you \
-                     to try again."
-                        .to_owned(),
-                ),
-            ),
+        let outcome = match tokio::time::timeout(self.config.sign_in_timeout, rx).await {
+            Ok(Ok(true)) => SignInOutcome::Done,
+            Ok(Ok(false) | Err(_)) => SignInOutcome::Cancelled,
             Err(_) => {
                 self.resolve_sign_in(id, false);
-                (
-                    SignInOutcome::TimedOut,
-                    (
-                        false,
-                        format!(
-                            "The user didn't sign in within {minutes} minutes. Tell them you stopped."
-                        ),
-                    ),
-                )
+                SignInOutcome::TimedOut
             }
         };
         shared.browser.close_window().await;
         if outcome == SignInOutcome::Done {
-            self.settle_sign_in(&shared, &site, before).await;
+            self.settle_sign_in(shared, &site, cookies_before).await;
         }
         if let Err(err) = self.record(bot, EventKind::SignIn { site, outcome }) {
             tracing::warn!(%err, "couldn't record the sign-in");
         }
-        result
+        outcome
+    }
+
+    /// Whether `shared`'s browser is signed in to `site` (a main domain):
+    /// it's on the browser's list (what Settings → Websites shows), and,
+    /// as the list is only checked against the cookies now and then, the
+    /// browser still holds cookies for it. If the cookies can't be read,
+    /// the list decides.
+    async fn signed_in_to(&self, shared: &Shared, site: &str) -> bool {
+        let listed = self
+            .store
+            .sites(&shared.owner)
+            .unwrap_or_default()
+            .iter()
+            .any(|s| s.site == site);
+        if !listed {
+            return false;
+        }
+        match shared.browser.cookie_sites().await {
+            Ok(held) => held.iter().any(|s| s == site),
+            Err(err) => {
+                tracing::debug!(%err, "couldn't check the browser's cookies; the list decides");
+                true
+            }
+        }
+    }
+
+    /// Before `action` (adding to a cart, checking out, booking…) on the
+    /// page at `page_url`, makes sure `bot`'s browser (the one it drives:
+    /// the home browser, or its maker's own) is signed in to the page's
+    /// site, so nothing lands in a guest cart or a guest order only oxbot's
+    /// Chrome sees. Signed in: `None`, and the usual approval follows. Not:
+    /// the person is asked to sign in first (one step of a batch only says
+    /// it would ask); `None` once they have, else the refusal for the bot.
+    /// A page off the web, or no browser, has nothing to check.
+    pub(super) async fn sign_in_before(
+        &self,
+        bot: &Bot,
+        action: AccountAction,
+        page_url: Option<&str>,
+        quiet: bool,
+    ) -> Option<Decision> {
+        let url = page_url.filter(|u| !is_home_network(u))?;
+        let host = web_host(url)?;
+        let shared = self.browser_of(bot)?;
+        let site = site_of(&host);
+        if self.signed_in_to(&shared, &site).await {
+            return None;
+        }
+        let doing = action.doing();
+        if quiet {
+            return Some(Decision::WouldAsk(format!(
+                "sign in to {site} before {doing}"
+            )));
+        }
+        let scheme = url.split_once("://").map_or("https", |(s, _)| s);
+        let start = format!("{scheme}://{host}/");
+        let outcome = self
+            .sign_in_card(&bot.id, &shared, &start, site.clone(), "", Some(doing))
+            .await;
+        if outcome == SignInOutcome::Done && self.signed_in_to(&shared, &site).await {
+            return None;
+        }
+        let no = format!(
+            "Not signed in to {site}, so {}. Tell the person they need to sign in \
+             (Settings → Websites) and stop.",
+            action.nothing()
+        );
+        if let Err(err) = self.record(
+            &bot.id,
+            EventKind::Blocked {
+                message: format!("oxbot refused: {no}"),
+            },
+        ) {
+            tracing::warn!(%err, "couldn't record the refusal");
+        }
+        Some(Decision::Deny(no))
     }
 
     /// Opens the sign-in window for request `id`, in its bot's browser.

@@ -1,10 +1,11 @@
 // Cards: sign-ins, changes (red), uploads (amber), new bots, tasks for
 // private bots, scripts and schedules. Nothing happens until the user
-// answers. Every open card shows, whichever bot is open, each titled with
-// its bot; oldest first, so the newest sits right above the message box.
+// answers. A bot's cards show in its own chat, oldest first, so the newest
+// sits right above the message box; other bots waiting for an answer get one
+// line above them (Waiting), with Open to go there.
 import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
+import { Banner, Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
 import type { Answer, ScheduleEdit } from "../../net/protocol";
 import {
   type CardApproval,
@@ -15,6 +16,7 @@ import {
   ruleOf,
   SCHED_KINDS,
   type SchedEdit,
+  splitCards,
 } from "../../state/cards";
 import { local } from "../../state/store";
 import { expose, exposeFn } from "../../web/testBridge";
@@ -41,7 +43,9 @@ export function Cards() {
   const { store, send } = useApp();
   const cards = useSel((s) => s.cards);
   const byId = useSel((s) => s.bots.byId);
-  const list = cardList(cards);
+  const current = useSel((s) => s.ui.current);
+  const all = cardList(cards);
+  const list = splitCards(all, current, (id) => id in byId).here;
   const botName = (id: string) => byId[id]?.name || id;
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -68,10 +72,9 @@ export function Cards() {
       box.scrollTop = newestTop(box);
       follow.current = true;
     } else if (follow.current) box.scrollTop = Math.max(box.scrollTop, newestTop(box));
-    const open = now.length;
-    document.title = open ? `⚠ (${open}) oxbot` : "oxbot";
-    document.body.classList.toggle("has-cards", open > 0);
-  }, [keys]);
+    document.title = all.length ? `⚠ (${all.length}) oxbot` : "oxbot";
+    document.body.classList.toggle("has-cards", now.length > 0);
+  }, [keys, all.length]);
 
   const onScroll = () => {
     const box = boxRef.current;
@@ -88,10 +91,10 @@ export function Cards() {
 
   function signInCard(s: CardSignIn) {
     return (
-      <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}`}>
+      <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}${s.before ? ` before ${s.before}` : ""}`}>
         <div className="where">
           {s.window_open
-            ? "Sign in in the Chrome window that opened. Then press I'm signed in, or just close the window."
+            ? `Sign in to ${s.site} in the window that opened, then close it.`
             : `${s.why ? `${s.why}. ` : ""}You type your password yourself, in a normal Chrome window. Every bot then stays signed in there.`}
         </div>
         <div className="btn-row btns">
@@ -254,6 +257,37 @@ export function Cards() {
     <div className="cards" id="cards" aria-live="assertive" ref={boxRef} onScroll={onScroll}>
       {list.map((c) => (c.kind === "sign_in" ? signInCard(c.m) : approvalCard(c.m, c.key)))}
     </div>
+  );
+}
+
+/** Shown on each bot waiting elsewhere; past this many, "+N more". */
+const WAITING_SHOWN = 3;
+
+/** One line above the box: the other bots waiting for an answer, each with
+ *  Open to go to its chat (where its request is). */
+export function Waiting() {
+  const { dispatch } = useApp();
+  const cards = useSel((s) => s.cards);
+  const byId = useSel((s) => s.bots.byId);
+  const current = useSel((s) => s.ui.current);
+  const { others } = splitCards(cardList(cards), current, (id) => id in byId);
+  if (!others.length) return null;
+  const more = others.length - WAITING_SHOWN;
+  return (
+    <Banner tone="warn" className="waiting" id="waiting" role="status">
+      {others.slice(0, WAITING_SHOWN).map((o) => {
+        const name = byId[o.bot]?.name || o.bot;
+        return (
+          <span className="waiting-bot" key={o.bot} data-bot={o.bot}>
+            <span className="nm">{`${name} ${o.signIn ? "needs you to sign in" : "needs your OK"}`}</span>
+            <Button kind="quiet" size="sm" aria-label={`Open ${name}`} onClick={() => dispatch(local("ui/select", { bot: o.bot }))}>
+              Open
+            </Button>
+          </span>
+        );
+      })}
+      {more > 0 ? <span className="waiting-more">{`+${more} more`}</span> : null}
+    </Banner>
   );
 }
 

@@ -37,10 +37,9 @@ pub fn secret_store(data_dir: &Path, e2e: bool) -> Arc<dyn SecretStore> {
         return Arc::new(MemorySecrets::new());
     }
     if e2e {
-        return match std::env::var_os(E2E_KEY_FILE) {
+        return match oxbot_core::engine::dev::dev_env(E2E_KEY_FILE) {
             Some(path) => {
-                let delay = std::env::var(E2E_KEYCHAIN_DELAY)
-                    .ok()
+                let delay = oxbot_core::engine::dev::dev_env_string(E2E_KEYCHAIN_DELAY)
                     .and_then(|ms| ms.parse().ok())
                     .map_or(std::time::Duration::ZERO, std::time::Duration::from_millis);
                 Arc::new(TestKeyFile::new(PathBuf::from(path)).with_delay(delay))

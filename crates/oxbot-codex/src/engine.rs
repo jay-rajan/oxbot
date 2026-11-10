@@ -19,6 +19,16 @@
 //!   bot's daily requests (the relay stops the request); at a limit the
 //!   turn is stopped (`turn/interrupt`) and the chat says why.
 //!
+//! A message the person sends while the turn runs goes into it
+//! (`turn/steer`, see [`CodexSession`]'s [`Session::steer`]): the model reads
+//! it before its next step, and the answer comes at the end of the same
+//! turn.
+//!
+//! An answer that gives information from web pages the turn read but
+//! links none of them goes back once too (with the pages it read), and if
+//! it still has no link oxbot adds a Sources list of those pages (see
+//! `oxbot_loop::check`).
+//!
 //! A final answer after two or more tool calls is sent back once to be
 //! checked, as the loop does (a follow-up turn with oxbot's note), and the
 //! check is recorded. Anything Codex itself asks to approve (commands,
@@ -46,11 +56,12 @@ use oxbot_loop::tools::control::{ASKED, UPDATE_TODO};
 use oxbot_loop::tools::page::ASK_PAGE;
 use oxbot_loop::{
     CHECK_AFTER_CALLS, CallCtx, Dispatched, Failures, LoopEngine, MAX_NAMED, OwnTools, RepeatGuard,
-    Stop, ToolService, TurnHooks, answer_after_check, check_note, wrap_up_note,
+    SourcePage, Stop, ToolService, TurnHooks, add_source, answer_after_check, check_note,
+    link_line, needs_links, pages_in_result, with_sources, wrap_up_note,
 };
 use oxbot_relay::{ClientInfo, Relay, TurnStart};
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -58,7 +69,7 @@ use tokio_util::sync::CancellationToken;
 use crate::binary::Found;
 use crate::guard::RefuseProxy;
 use crate::names::ToolNames;
-use crate::rpc::{Incoming, RpcError};
+use crate::rpc::{Incoming, Process, RpcError};
 use crate::store::{CodexStore, ThreadRow};
 use crate::supervisor::{ProcessKey, Running, Supervisor, process_key};
 
@@ -263,10 +274,26 @@ struct Core {
     todo: Mutex<Vec<TodoItem>>,
 }
 
+/// A message for the running turn ([`Session::steer`]), and who to tell
+/// whether it went in.
+struct Steer {
+    text: String,
+    taken: oneshot::Sender<Result<(), String>>,
+}
+
+/// The turn a session is running.
+struct RunningTurn {
+    /// Stops it.
+    cancel: CancellationToken,
+    task: JoinHandle<()>,
+    /// Messages for it while it runs.
+    steer: mpsc::UnboundedSender<Steer>,
+}
+
 /// A running Codex session.
 pub struct CodexSession {
     core: Arc<Core>,
-    turn: Option<(CancellationToken, JoinHandle<()>)>,
+    turn: Option<RunningTurn>,
 }
 
 impl CodexSession {
@@ -309,25 +336,51 @@ impl Session for CodexSession {
 
     fn send(&mut self, turn: TurnInput) -> BoxFuture<'_, Result<(), EngineError>> {
         Box::pin(async move {
-            if self
-                .turn
-                .as_ref()
-                .is_some_and(|(_, task)| !task.is_finished())
-            {
+            if self.turn.as_ref().is_some_and(|t| !t.task.is_finished()) {
                 return Err(EngineError::Other(
                     "The bot is still working on the last message.".to_owned(),
                 ));
             }
             let cancel = CancellationToken::new();
-            let task = tokio::spawn(run_turn(Arc::clone(&self.core), turn, cancel.clone()));
-            self.turn = Some((cancel, task));
+            let (steer, steer_rx) = mpsc::unbounded_channel();
+            let task = tokio::spawn(run_turn(
+                Arc::clone(&self.core),
+                turn,
+                cancel.clone(),
+                steer_rx,
+            ));
+            self.turn = Some(RunningTurn {
+                cancel,
+                task,
+                steer,
+            });
             Ok(())
         })
     }
 
+    fn steer(&mut self, text: String) -> BoxFuture<'static, Result<(), EngineError>> {
+        let (taken, answer) = oneshot::channel();
+        let sent = self
+            .turn
+            .as_ref()
+            .filter(|t| !t.task.is_finished())
+            .is_some_and(|t| t.steer.send(Steer { text, taken }).is_ok());
+        Box::pin(async move {
+            if !sent {
+                return Err(EngineError::Other("No task is running.".to_owned()));
+            }
+            match answer.await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(why)) => Err(EngineError::Other(why)),
+                // The turn ended before it read the message.
+                Err(_) => Err(EngineError::Other("The task had ended.".to_owned())),
+            }
+        })
+    }
+
     fn interrupt(&mut self) -> BoxFuture<'_, Result<(), EngineError>> {
-        if let Some((cancel, _)) = &self.turn {
-            cancel.cancel();
+        if let Some(turn) = &self.turn {
+            turn.cancel.cancel();
         }
         Box::pin(async { Ok(()) })
     }
@@ -336,7 +389,7 @@ impl Session for CodexSession {
         let turn = self.turn.take();
         let core = Arc::clone(&self.core);
         Box::pin(async move {
-            if let Some((cancel, task)) = turn {
+            if let Some(RunningTurn { cancel, task, .. }) = turn {
                 cancel.cancel();
                 if tokio::time::timeout(GRACE, task).await.is_err() {
                     tracing::warn!(bot = %core.spec.bot, "a Codex turn didn't stop in time");
@@ -350,8 +403,8 @@ impl Session for CodexSession {
 
 impl Drop for CodexSession {
     fn drop(&mut self) {
-        if let Some((cancel, _)) = self.turn.take() {
-            cancel.cancel();
+        if let Some(turn) = self.turn.take() {
+            turn.cancel.cancel();
         }
     }
 }
@@ -365,9 +418,19 @@ enum End {
 }
 
 /// Runs one turn and tells the hub how it ended.
-async fn run_turn(core: Arc<Core>, input: TurnInput, cancel: CancellationToken) {
+async fn run_turn(
+    core: Arc<Core>,
+    input: TurnInput,
+    cancel: CancellationToken,
+    mut steer: mpsc::UnboundedReceiver<Steer>,
+) {
     let started = Instant::now();
-    let end = Turn::run(&core, &input, &cancel).await;
+    let end = Turn::run(&core, &input, &cancel, &mut steer).await;
+    // Messages that came as it ended didn't go in: their senders hear so.
+    steer.close();
+    while let Ok(late) = steer.try_recv() {
+        let _ = late.taken.send(Err("The task had ended.".to_owned()));
+    }
     let (ok, text) = match end {
         End::Done(text) | End::Waiting(text) => (true, text),
         End::Failed(message) => (false, message),
@@ -399,6 +462,8 @@ struct CallState {
     read: Vec<String>,
     /// Stored results it read, by handle.
     handles: BTreeSet<String>,
+    /// The web pages it read, in order (see [`pages_in_result`]).
+    pages: Vec<SourcePage>,
     bad_calls: u32,
     nudged: bool,
 }
@@ -439,10 +504,17 @@ struct Turn {
     first_answer: Option<String>,
     bounced_at: Option<Instant>,
     writing: bool,
+    /// What the person asked: their message, then each one steered in.
+    goal: String,
 }
 
 impl Turn {
-    async fn run(core: &Arc<Core>, input: &TurnInput, cancel: &CancellationToken) -> End {
+    async fn run(
+        core: &Arc<Core>,
+        input: &TurnInput,
+        cancel: &CancellationToken,
+        steer: &mut mpsc::UnboundedReceiver<Steer>,
+    ) -> End {
         let supervisor = &core.supervisor;
         let info = ClientInfo {
             bot: core.spec.bot.clone(),
@@ -450,6 +522,14 @@ impl Turn {
             privacy: core.spec.privacy,
             choice: core.spec.model.clone(),
             central: core.spec.host_tools.central,
+            // Only oxbot's tools reach the model, and only calls to them
+            // come back (never Codex's own, such as apply_patch).
+            tools: core
+                .tools
+                .specs()
+                .iter()
+                .filter_map(|s| core.names.codex(&s.name).map(str::to_owned))
+                .collect(),
         };
         let running = match supervisor.get(&core.key, info).await {
             Ok(r) => r,
@@ -506,12 +586,17 @@ impl Turn {
             first_answer: None,
             bounced_at: None,
             writing: false,
+            goal: input.text.clone(),
         };
         let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
         let end = match turn.start_codex(&running, &first).await {
             Ok(()) => {
-                turn.drive(core, &running, input, cancel, &mut rx, &mut meter_rx)
-                    .await
+                let channels = Channels {
+                    rx: &mut rx,
+                    meter_rx: &mut meter_rx,
+                    steer,
+                };
+                turn.drive(core, &running, input, cancel, channels).await
             }
             Err(why) => End::Failed(why),
         };
@@ -547,6 +632,20 @@ impl Turn {
         Ok(())
     }
 
+    /// Adds a person's message to the running Codex turn, if it can take
+    /// one now: not before Codex named the turn, nor once oxbot is
+    /// stopping it or checking its answer (the message would be answered
+    /// as part of the check).
+    async fn steer(&mut self, running: &Running, text: &str) -> Result<(), String> {
+        if self.codex_id.is_empty() || self.stopped_for.is_some() || self.bounced {
+            return Err("The task can't take a message right now.".to_owned());
+        }
+        steer_turn(&running.process, &self.thread, &self.codex_id, text).await?;
+        self.goal.push_str("\n\n");
+        self.goal.push_str(text);
+        Ok(())
+    }
+
     #[allow(clippy::too_many_lines)]
     async fn drive(
         &mut self,
@@ -554,9 +653,13 @@ impl Turn {
         running: &Running,
         input: &TurnInput,
         cancel: &CancellationToken,
-        rx: &mut mpsc::UnboundedReceiver<Incoming>,
-        meter_rx: &mut mpsc::UnboundedReceiver<CallRecord>,
+        channels: Channels<'_>,
     ) -> End {
+        let Channels {
+            rx,
+            meter_rx,
+            steer,
+        } = channels;
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<CallDone>();
         let mut worked = Duration::ZERO;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -572,6 +675,13 @@ impl Turn {
                 }
                 Some(record) = meter_rx.recv() => {
                     let _ = core.events.send(EngineEvent::ModelCall(record)).await;
+                }
+                Some(message) = steer.recv() => {
+                    let taken = self.steer(running, &message.text).await;
+                    if let Err(why) = &taken {
+                        tracing::debug!(bot = %core.spec.bot, why, "a message couldn't go into the running task");
+                    }
+                    let _ = message.taken.send(taken);
                 }
                 Some(done) = done_rx.recv() => {
                     self.in_calls = self.in_calls.saturating_sub(1);
@@ -628,7 +738,7 @@ impl Turn {
                             {
                                 continue;
                             }
-                            if let Some(end) = self.note(core, running, input, &method, &params).await {
+                            if let Some(end) = self.note(core, running, &method, &params).await {
                                 return end;
                             }
                         }
@@ -662,7 +772,6 @@ impl Turn {
         &mut self,
         core: &Arc<Core>,
         running: &Running,
-        input: &TurnInput,
         method: &str,
         params: &Value,
     ) -> Option<End> {
@@ -719,7 +828,7 @@ impl Turn {
                 if params["turn"]["id"].as_str() != Some(self.codex_id.as_str()) {
                     return None;
                 }
-                self.completed(core, running, input, &params["turn"]).await
+                self.completed(core, running, &params["turn"]).await
             }
             _ => None,
         }
@@ -730,7 +839,6 @@ impl Turn {
         &mut self,
         core: &Arc<Core>,
         running: &Running,
-        input: &TurnInput,
         turn: &Value,
     ) -> Option<End> {
         if let Some(end) = self.stopped_for.take() {
@@ -759,17 +867,24 @@ impl Turn {
         let calls = self.calls.lock().await;
         let check = calls.ran >= CHECK_AFTER_CALLS && !calls.refused;
         let missing = if check {
-            ungrounded(&calls, core, &input.text, &text)
+            ungrounded(&calls, core, &self.goal, &text)
         } else {
             Vec::new()
         };
+        // Web pages it read: an answer from them must link them.
+        let pages = calls.pages.clone();
         drop(calls);
-        if check && !self.bounced {
+        let unlinked = needs_links(&text, &pages);
+        if (check || unlinked) && !self.bounced {
             let steps = running.relay.summary().requests;
             if steps < self.max_steps {
                 self.bounced = true;
                 self.bounced_at = Some(Instant::now());
-                let note = check_note(&input.text, &missing, core.tools.has_browser());
+                let mut note = check_note(&self.goal, &missing, core.tools.has_browser());
+                if unlinked {
+                    note.push(' ');
+                    note.push_str(&link_line(&pages));
+                }
                 self.ungrounded_before = Some(missing);
                 self.first_answer = Some(text);
                 let _ = core
@@ -791,6 +906,8 @@ impl Turn {
             Some(first) => answer_after_check(&first, &text),
             None => text,
         };
+        // Still no link: oxbot lists the pages it read itself.
+        let text = with_sources(&text, &pages);
         let _ = core
             .events
             .send(EngineEvent::Assistant {
@@ -884,6 +1001,8 @@ impl Turn {
                     budget: self.budget,
                     person: input.person.clone(),
                     stopped: self.stopped_for.is_some(),
+                    files_asked: core.spec.keeps_files
+                        || oxbot_loop::tools::files::asks_for_file(&self.goal),
                     cancel: self.cancel.child_token(),
                 };
                 let done = done.clone();
@@ -899,6 +1018,37 @@ impl Turn {
             _ => decline(core, process, &id, method).await,
         }
     }
+}
+
+/// What a turn's loop listens to besides its stop token: Codex, the
+/// relay's meter, and messages steered in.
+struct Channels<'a> {
+    rx: &'a mut mpsc::UnboundedReceiver<Incoming>,
+    meter_rx: &'a mut mpsc::UnboundedReceiver<CallRecord>,
+    steer: &'a mut mpsc::UnboundedReceiver<Steer>,
+}
+
+/// Adds `text` to Codex turn `turn_id` of `thread` while it runs
+/// (`turn/steer`; Codex 0.148's `TurnSteerParams`). `expectedTurnId` makes
+/// Codex refuse it if that turn already ended, rather than start another.
+async fn steer_turn(
+    process: &Process,
+    thread: &str,
+    turn_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    process
+        .request(
+            "turn/steer",
+            json!({
+                "threadId": thread,
+                "input": [{"type": "text", "text": text, "text_elements": []}],
+                "expectedTurnId": turn_id,
+            }),
+        )
+        .await
+        .map(drop)
+        .map_err(|e| format!("The AI helper didn't take the message: {e}"))
 }
 
 /// The date line at the end of each turn's message (after the person's
@@ -984,6 +1134,8 @@ struct CallJob {
     budget: TokenBudget,
     person: Option<String>,
     stopped: bool,
+    /// The person asked for a file (or the bot keeps files): Write and Edit may run.
+    files_asked: bool,
     /// Fires when the person stops the turn.
     cancel: CancellationToken,
 }
@@ -1003,6 +1155,11 @@ impl CallJob {
             (ToolOutcome::note("Stopped.", true), CallDone::Stopped)
         } else if calls.refused_step == Some(self.step) {
             (ToolOutcome::note(SKIPPED, false), CallDone::Ran)
+        } else if !self.files_asked && oxbot_loop::tools::files::changes_files(&self.call.name) {
+            (
+                ToolOutcome::note(oxbot_loop::tools::files::NO_FILE_ASKED, false),
+                CallDone::Ran,
+            )
         } else {
             self.dispatch(&mut calls, &cancel).await
         };
@@ -1073,6 +1230,14 @@ impl CallJob {
                 if !outcome.error {
                     if self.call.name != ASK_PAGE {
                         calls.read.push(outcome.text_for_hub.clone());
+                    }
+                    for page in pages_in_result(
+                        &self.call.name,
+                        outcome.meta.page_url.as_deref(),
+                        outcome.meta.page_title.as_deref(),
+                        &outcome.text_for_hub,
+                    ) {
+                        add_source(&mut calls.pages, page);
                     }
                     if let Some(h) = outcome.handle.clone() {
                         calls.handles.insert(h);
@@ -1312,6 +1477,55 @@ async fn start_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in `codex app-server` that writes each line it's sent to
+    /// `log` and answers every request with `{"turnId": "turn-1"}`.
+    fn fake_codex(dir: &std::path::Path, log: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let program = dir.join("codex");
+        let script = format!(
+            "#!/bin/sh\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> '{}'\n  \
+             id=$(printf '%s' \"$line\" | sed -n 's/.*\"id\":\\([0-9][0-9]*\\).*/\\1/p')\n  \
+             [ -n \"$id\" ] && printf '{{\"id\":%s,\"result\":{{\"turnId\":\"turn-1\"}}}}\\n' \"$id\"\n\
+             done\n",
+            log.display()
+        );
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        program
+    }
+
+    #[tokio::test]
+    async fn a_steered_message_goes_to_the_running_turn() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = tmp.path().join("sent.jsonl");
+        let launch = crate::rpc::Launch {
+            program: fake_codex(tmp.path(), &log),
+            home: tmp.path().join("home"),
+            token: zeroize::Zeroizing::new("t".repeat(64)),
+            refuse_proxy: "http://127.0.0.1:9".to_owned(),
+        };
+        let process = Process::start(&launch, "scout").await.unwrap();
+        steer_turn(&process, "thread-1", "turn-1", "[Jay] skip the second site")
+            .await
+            .unwrap();
+        process.stop().await;
+        let sent: Vec<Value> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let steer = sent.iter().find(|m| m["method"] == "turn/steer").unwrap();
+        assert_eq!(
+            steer["params"],
+            json!({
+                "threadId": "thread-1",
+                "input": [{"type": "text", "text": "[Jay] skip the second site", "text_elements": []}],
+                "expectedTurnId": "turn-1",
+            })
+        );
+        assert!(steer["id"].is_i64(), "a request, answered");
+    }
 
     #[test]
     fn each_turn_starts_with_the_local_date() {

@@ -19,7 +19,6 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::element::{ELEMENT_FACTS_FN, ElementFacts};
-use crate::http;
 use crate::sealed::{self, SealedTab};
 use crate::visits::{self, NetEvent, Visits, Watch};
 
@@ -102,23 +101,16 @@ enum Command {
 }
 
 impl Guard {
-    /// Connects to the Chrome on `port`; downloads go to `downloads`.
+    /// Connects to the Chrome at `endpoint` (see [`crate::Browser::endpoint`]); downloads go to `downloads`.
     ///
     /// # Errors
     /// Fails if Chrome's `DevTools` connection can't be opened.
     pub(crate) async fn start(
-        port: u16,
+        endpoint: &str,
         downloads: PathBuf,
         watch: Option<Watch>,
     ) -> Result<Self, String> {
-        let version = http::get(port, "/json/version")
-            .await
-            .ok_or("Chrome's control port didn't answer")?;
-        let ws_url = serde_json::from_str::<Value>(&version)
-            .ok()
-            .and_then(|v| v.get("webSocketDebuggerUrl")?.as_str().map(str::to_owned))
-            .ok_or("Chrome gave no DevTools address")?;
-        let (socket, _) = tokio_tungstenite::connect_async(ws_url.as_str())
+        let (socket, _) = tokio_tungstenite::connect_async(endpoint)
             .await
             .map_err(|e| e.to_string())?;
         let (commands, rx) = mpsc::channel(8);
@@ -177,6 +169,47 @@ impl Guard {
         .flatten()
     }
 
+    /// Runs `expression` (whose value may be a promise, awaited) in oxbot's
+    /// isolated world of the page at `page_url` (or the page used last),
+    /// for up to `limit`, and returns its value.
+    pub(crate) async fn evaluate_awaited(
+        &self,
+        page_url: Option<&str>,
+        expression: &str,
+        limit: Duration,
+    ) -> Result<Value, String> {
+        let session = self
+            .pick_page(page_url)
+            .await
+            .ok_or("no tab to read from")?;
+        let ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+        let params = |context: u64| {
+            json!({
+                "expression": expression,
+                "contextId": context,
+                "returnByValue": true,
+                "awaitPromise": true,
+                "userGesture": false,
+                "timeout": ms,
+            })
+        };
+        let (reply, _) = self
+            .in_world(&session, |context| {
+                self.send_call_within(
+                    "Runtime.evaluate",
+                    params(context),
+                    Target::Session(session.clone()),
+                    limit + Duration::from_secs(5),
+                )
+            })
+            .await
+            .ok_or("Chrome couldn't run oxbot's read in the tab")?;
+        reply
+            .pointer("/result/value")
+            .cloned()
+            .ok_or_else(|| "Chrome gave nothing back".to_owned())
+    }
+
     /// What the elements with accessibility `role` and `name` on the page
     /// at `page_url` (or the page used last) are: one entry per match, at
     /// most [`MAX_HITS`]. Empty if there are none or Chrome can't tell
@@ -198,6 +231,60 @@ impl Guard {
         .ok()
         .flatten()
         .unwrap_or_default();
+        let _ = self
+            .call_on(
+                &session,
+                "Runtime.releaseObjectGroup",
+                json!({ "objectGroup": OBJECT_GROUP }),
+            )
+            .await;
+        found
+    }
+
+    /// How many elements with accessibility `role` and `name` the tab
+    /// showing exactly `page_url` has (not hidden from the accessibility
+    /// tree). `None` if no tab shows that address, or Chrome can't tell
+    /// within 1.5 seconds: oxbot couldn't look.
+    pub(crate) async fn count_named(
+        &self,
+        page_url: &str,
+        role: &str,
+        name: &str,
+    ) -> Option<usize> {
+        if self.page_url(Some(page_url)).await.as_deref() != Some(page_url) {
+            return None;
+        }
+        let session = self.pick_page(Some(page_url)).await?;
+        let found = tokio::time::timeout(Duration::from_millis(1500), async {
+            let (document, _) = self
+                .in_world(&session, |context| {
+                    self.call_on(
+                        &session,
+                        "Runtime.evaluate",
+                        json!({ "expression": "document", "contextId": context, "objectGroup": OBJECT_GROUP }),
+                    )
+                })
+                .await?;
+            let document = document.pointer("/result/objectId")?.as_str()?.to_owned();
+            let mut query = json!({ "objectId": document, "accessibleName": name });
+            if !role.is_empty() {
+                query["role"] = json!(role);
+            }
+            let tree = self
+                .call_on(&session, "Accessibility.queryAXTree", query)
+                .await
+                .ok()?;
+            let nodes = tree.get("nodes").and_then(Value::as_array)?;
+            Some(
+                nodes
+                    .iter()
+                    .filter(|n| n.get("ignored").and_then(Value::as_bool) != Some(true))
+                    .count(),
+            )
+        })
+        .await
+        .ok()
+        .flatten();
         let _ = self
             .call_on(
                 &session,
@@ -398,6 +485,18 @@ impl Guard {
         params: Value,
         target: Target,
     ) -> Result<Value, String> {
+        self.send_call_within(method, params, target, Duration::from_secs(10))
+            .await
+    }
+
+    /// [`Self::send_call`], waiting up to `wait` for Chrome's answer.
+    async fn send_call_within(
+        &self,
+        method: &str,
+        params: Value,
+        target: Target,
+        wait: Duration,
+    ) -> Result<Value, String> {
         let (reply, rx) = oneshot::channel();
         self.commands
             .send(Command::Call {
@@ -408,7 +507,7 @@ impl Guard {
             })
             .await
             .map_err(|_| "the browser guard stopped".to_owned())?;
-        tokio::time::timeout(Duration::from_secs(10), rx)
+        tokio::time::timeout(wait, rx)
             .await
             .map_err(|_| format!("Chrome didn't answer {method}"))?
             .map_err(|_| "the browser guard stopped".to_owned())?
@@ -930,26 +1029,22 @@ mod tests {
     #[ignore = "starts Chrome"]
     async fn real_chrome_reads_forms_in_an_isolated_world() {
         let dir = tempfile::tempdir().unwrap();
-        let port = 9400 + u16::try_from(std::process::id() % 400).unwrap();
         let page = "<html><body>\
             <form method=get action=/s><input type=search name=q value=x><button>Go now</button></form>\
             <form method=post action=/p><input name=method value=get><input name=t value=hi><button type=submit>Send it</button></form>\
             <script>Object.defineProperty(HTMLButtonElement.prototype, 'form', {get(){return null}});</script>\
             </body></html>";
-        let mut chrome = std::process::Command::new(crate::DEFAULT_CHROME)
-            .args([
-                "--headless=new",
-                &format!("--remote-debugging-port={port}"),
-                &format!("--user-data-dir={}", dir.path().display()),
-                "--no-first-run",
-                &format!("data:text/html,{}", crate::http::encode_url(page)),
-            ])
-            .spawn()
-            .unwrap();
+        let (mut chrome, proxy) = crate::pipe::test_chrome(&[
+            "--headless=new".to_owned(),
+            format!("--user-data-dir={}", dir.path().display()),
+            "--no-first-run".to_owned(),
+            format!("data:text/html,{}", crate::http::encode_url(page)),
+        ])
+        .await;
         let mut guard = None;
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(200)).await;
-            if let Ok(g) = Guard::start(port, dir.path().to_owned(), None).await {
+            if let Ok(g) = Guard::start(proxy.endpoint(), dir.path().to_owned(), None).await {
                 guard = Some(g);
                 break;
             }
@@ -964,8 +1059,7 @@ mod tests {
                 "String(Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype, 'form').get).includes('native code')",
             )
             .await;
-        let _ = chrome.kill();
-        let _ = chrome.wait();
+        let _ = chrome.kill().await;
         assert_eq!(go.len(), 1, "{go:?}");
         assert!(go[0].submits && go[0].in_search);
         assert_eq!(go[0].form_method.as_deref(), Some("get"));
@@ -1007,26 +1101,22 @@ mod tests {
             }
         });
         let dir = tempfile::tempdir().unwrap();
-        let port = 9800 + u16::try_from(std::process::id() % 150).unwrap();
         let page = "<html><head><title>Lamps</title></head><body>\
             <ul><li class=p><b>Brass lamp</b> <i>$10</i></li><li class=p><b>Tin lamp</b> <i>$7</i></li></ul>\
             <a href=/list?page=2>Next &rsaquo;</a>\
             <script>document.body.dataset.ran = 'yes';</script></body></html>";
-        let mut chrome = std::process::Command::new(crate::DEFAULT_CHROME)
-            .args([
-                "--headless=new",
-                &format!("--remote-debugging-port={port}"),
-                &format!("--user-data-dir={}", dir.path().display()),
-                "--no-first-run",
-                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-                &format!("data:text/html,{}", crate::http::encode_url(page)),
-            ])
-            .spawn()
-            .unwrap();
+        let (mut chrome, proxy) = crate::pipe::test_chrome(&[
+            "--headless=new".to_owned(),
+            format!("--user-data-dir={}", dir.path().display()),
+            "--no-first-run".to_owned(),
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned(),
+            format!("data:text/html,{}", crate::http::encode_url(page)),
+        ])
+        .await;
         let mut guard = None;
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(200)).await;
-            if let Ok(g) = Guard::start(port, dir.path().to_owned(), None).await {
+            if let Ok(g) = Guard::start(proxy.endpoint(), dir.path().to_owned(), None).await {
                 guard = Some(g);
                 break;
             }
@@ -1096,8 +1186,7 @@ mod tests {
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
         guard.close_sealed(&tab).await;
-        let _ = chrome.kill();
-        let _ = chrome.wait();
+        let _ = chrome.kill().await;
         let ran = ran.unwrap();
         assert_eq!(
             ran.value["rows"],
@@ -1163,18 +1252,14 @@ mod tests {
             }
         });
         let dir = tempfile::tempdir().unwrap();
-        let port = 9950 + u16::try_from(std::process::id() % 40).unwrap();
-        let mut chrome = std::process::Command::new(crate::DEFAULT_CHROME)
-            .args([
-                "--headless=new",
-                &format!("--remote-debugging-port={port}"),
-                &format!("--user-data-dir={}", dir.path().display()),
-                "--no-first-run",
-                "--host-resolver-rules=MAP *.test 127.0.0.1",
-                "about:blank",
-            ])
-            .spawn()
-            .unwrap();
+        let (mut chrome, proxy) = crate::pipe::test_chrome(&[
+            "--headless=new".to_owned(),
+            format!("--user-data-dir={}", dir.path().display()),
+            "--no-first-run".to_owned(),
+            "--host-resolver-rules=MAP *.test 127.0.0.1".to_owned(),
+            "about:blank".to_owned(),
+        ])
+        .await;
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let kept = std::sync::Arc::clone(&seen);
         let watch = Watch {
@@ -1184,7 +1269,9 @@ mod tests {
         let mut guard = None;
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(200)).await;
-            if let Ok(g) = Guard::start(port, dir.path().to_owned(), Some(watch.clone())).await {
+            if let Ok(g) =
+                Guard::start(proxy.endpoint(), dir.path().to_owned(), Some(watch.clone())).await
+            {
                 guard = Some(g);
                 break;
             }
@@ -1199,8 +1286,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(2)).await;
         guard.close_browser().await;
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let _ = chrome.kill();
-        let _ = chrome.wait();
+        let _ = chrome.kill().await;
         let seen = seen.lock().unwrap().clone();
         assert_eq!(seen.len(), 1, "{seen:?}");
         let v = &seen[0];

@@ -1,5 +1,5 @@
-name = "Several approval requests stack above the box"
-about = "Cards from several bots stack right above the message box, newest nearest it; the area has a max height and scrolls on its own, so the box stays on screen, and toasts move out of the way."
+name = "Approval requests stay in their own bot's chat"
+about = "With approval requests waiting in several bots, the open chat shows only its own bot's, right above the message box (the area has a max height and scrolls on its own, so the box stays on screen, and toasts move out of the way). The other bots get one line above it, \"Recipes needs your OK · Open\", oldest first, and a \"needs you\" mark in the sidebar; Open goes to that bot and its request. (Before, every bot's requests showed in whichever chat was open.)"
 covers = ["crates/oxbot/ui-src/**"]
 
 [[step]]
@@ -19,21 +19,26 @@ click = "Journal"
 [[step]]
 send = "post it"
 [[step]]
-expect_js = "document.querySelectorAll('#cards .card').length === 3"
-note = "All three open approval requests show, whichever bot is open"
+wait_for = "Allow once"
 [[step]]
-expect_js = "(() => { const h = [...document.querySelectorAll('#cards .card h3')].map((x) => x.innerText); return h[0].includes('Recipes') && h[1].includes('Assistant') && h[2].includes('Journal'); })()"
-note = "Oldest first: the newest (Journal's) is nearest the box"
+expect_js = "(() => { const c = document.querySelectorAll('#cards .card'); return c.length === 1 && c[0].querySelector('h3').innerText.includes('Journal'); })()"
+note = "Only the open bot's (Journal's) approval request shows above the box"
 [[step]]
-expect_js = "(() => { const c = document.getElementById('cards'), f = document.getElementById('composer').getBoundingClientRect(); return c.clientHeight <= 0.45 * innerHeight + 1 && c.scrollHeight > c.clientHeight && f.top >= 0 && f.bottom <= innerHeight; })()"
-note = "The area has a max height and scrolls; the message box is fully on screen"
+expect_js = "(() => { const w = [...document.querySelectorAll('#waiting .waiting-bot')]; return w.length === 2 && w[0].dataset.bot === 'recipes' && w[0].innerText.includes('Recipes needs your OK') && w[1].dataset.bot === 'assistant' && w[1].innerText.includes('Assistant needs your OK'); })()"
+note = "One line names the other bots waiting, oldest first, each with Open"
+[[step]]
+expect_js = "['recipes', 'assistant', 'journal'].every((b) => document.querySelector(`.bot-item[data-bot=${b}] .needs-you`)) && !document.querySelector('.bot-item[data-bot=bank] .needs-you')"
+note = "The sidebar marks each bot that needs you"
+[[step]]
+expect_js = "(() => { const c = document.getElementById('cards'), f = document.getElementById('composer').getBoundingClientRect(), w = document.getElementById('waiting').getBoundingClientRect(); return c.clientHeight <= 0.45 * innerHeight + 1 && c.nextElementSibling.id === 'composer' && w.bottom <= c.getBoundingClientRect().top + 1 && f.top >= 0 && f.bottom <= innerHeight; })()"
+note = "The line sits above the approval request, which sits right above the box; the area has a max height and the box is fully on screen"
 [[step]]
 expect_js = "(() => { const c = document.getElementById('cards'); return c.scrollHeight - c.scrollTop - c.clientHeight < 2; })()"
 note = "It's scrolled to the newest approval request"
-shot = "three-cards"
+shot = "own-card-and-waiting-line"
 [[step]]
 expect_js = "(() => { document.getElementById('cards').scrollTop = 0; return true; })()"
-note = "Scroll the approval requests up to the oldest"
+note = "Scroll the approval requests to the top"
 [[step]]
 wait_ms = 200
 [[step]]
@@ -41,7 +46,7 @@ expect_js = "(() => { renderCards(); return document.getElementById('cards').scr
 note = "A redraw keeps where the approval requests were scrolled to"
 [[step]]
 expect_js = "(() => { const img = [...document.querySelectorAll('#cards .card img')].pop(); if (!img) return false; if (!img.classList.contains('big')) img.click(); return img.classList.contains('big'); })()"
-note = "Click the newest screenshot to enlarge it (an approval request whose page wasn't drawn yet has none)"
+note = "Click the screenshot to enlarge it"
 [[step]]
 wait_ms = 200
 [[step]]
@@ -52,3 +57,14 @@ shot = "screenshot-enlarged"
 expect_js = "(() => { toast('Saved.'); const t = document.getElementById('toast').getBoundingClientRect(), c = document.getElementById('cards').getBoundingClientRect(); return t.bottom < c.top; })()"
 note = "With approval requests open, a toast shows at the top, off the approval request buttons"
 shot = "toast-at-top"
+[[step]]
+click = "Open Recipes"
+note = "Open on Recipes' line"
+[[step]]
+expect_js = "(() => { const c = document.querySelectorAll('#cards .card'); return document.getElementById('botName').innerText === 'Recipes' && c.length === 1 && c[0].querySelector('h3').innerText.includes('Recipes'); })()"
+timeout_ms = 3000
+note = "Recipes opens with its own approval request"
+[[step]]
+expect_js = "[...document.querySelectorAll('#waiting .waiting-bot')].map((w) => w.dataset.bot).join() === 'assistant,journal'"
+note = "The line now names the Assistant and Journal"
+shot = "opened-from-line"

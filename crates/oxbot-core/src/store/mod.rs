@@ -161,6 +161,9 @@ pub enum StoreError {
         /// What went wrong.
         why: String,
     },
+    /// The database file couldn't be made private to this account.
+    #[error("couldn't make the database private: {0}")]
+    Private(#[from] std::io::Error),
 }
 
 /// The history database. Calls are short and synchronous; one connection is
@@ -176,14 +179,42 @@ pub(crate) fn now_ms() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
+/// Makes the database file at `path` 0600 (new and empty if it isn't
+/// there: SQLite fills it in), and its journal files too if they're there.
+fn make_private_file(path: &Path) -> std::io::Result<()> {
+    use crate::home::{PRIVATE_FILE, restrict};
+    use std::os::unix::fs::OpenOptionsExt as _;
+    if !path.exists() {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(PRIVATE_FILE)
+            .open(path)
+        {
+            Err(err) if err.kind() != std::io::ErrorKind::AlreadyExists => return Err(err),
+            _ => {}
+        }
+    }
+    restrict(path, PRIVATE_FILE)?;
+    for journal in ["-wal", "-shm", "-journal"] {
+        let mut name = path.as_os_str().to_owned();
+        name.push(journal);
+        restrict(Path::new(&name), PRIVATE_FILE)?;
+    }
+    Ok(())
+}
+
 impl Store {
-    /// Opens (and if needed creates) the database at `path`.
+    /// Opens (and if needed creates) the database at `path`, readable
+    /// only by this Mac account (0600; SQLite gives its journal files the
+    /// same).
     ///
     /// # Errors
     /// Fails if SQLite can't open or set up the file.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         // A file made just now has nothing worth a copy before upgrading.
         let existed = path.exists();
+        make_private_file(path)?;
         Self::setup(Connection::open(path)?, existed)
     }
 

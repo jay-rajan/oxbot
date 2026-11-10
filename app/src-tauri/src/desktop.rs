@@ -225,10 +225,14 @@ async fn start_or_attach(
     notifier: Arc<dyn Notifier>,
 ) -> anyhow::Result<(Option<RunningServer>, String)> {
     if client::server_running(port).await {
+        // Its window needs the home computer secret from the data folder to
+        // be the home computer: shown only once the server proved it's
+        // this oxbot, never to another program on the port.
+        let url = client::local_page_url(port)
+            .await
+            .inspect_err(show_start_error)?;
         tracing::info!("using the oxbot server that's already running on port {port}");
-        // Its window needs the home computer secret from the data folder to be the home computer.
-        let key = oxbot::secret::local_home_computer_key().unwrap_or_default();
-        return Ok((None, format!("http://127.0.0.1:{port}/#k={key}")));
+        return Ok((None, url));
     }
     let options = ServerOptions {
         logs: Some(relay),
@@ -287,6 +291,23 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+/// Tells the person at the Mac why oxbot didn't start (another program on
+/// its port), in a window of its own: the app has none yet.
+fn show_start_error(err: &anyhow::Error) {
+    // The message goes as an argument, never inside the script.
+    let _ = std::process::Command::new("/usr/bin/osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "display alert \"oxbot couldn't start\" message (item 1 of argv) as critical",
+            "-e",
+            "end run",
+            &err.to_string(),
+        ])
+        .status();
 }
 
 fn show_main(app: &AppHandle) {

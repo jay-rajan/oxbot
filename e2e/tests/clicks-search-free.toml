@@ -1,5 +1,5 @@
 name = "Searching and filtering need no OK"
-about = "A bot clicks search, filters and an element oxbot can't name without an approval request; a booking still asks."
+about = "A bot clicks search and filters without an approval request; an element oxbot can't name asks; a booking still stops, and on a site the browser isn't signed in to it asks for a sign-in first."
 covers = ["crates/oxbot-core/src/policy.rs", "crates/oxbot-core/src/hub/**", "crates/oxbot-browser/src/**"]
 
 [[step]]
@@ -21,20 +21,25 @@ expect_not = "Allow once"
 [[step]]
 send = "click unknown"
 [[step]]
-wait_for = "Opened the result."
-note = "An element missing from the snapshot is allowed (and logged)"
-shot = "unnamed-click-allowed"
+wait_for = "Allow once"
+note = "An element missing from the snapshot asks: oxbot can't tell what it does"
+shot = "unnamed-click-asks"
 [[step]]
-expect_not = "couldn't see what it is"
+expect = "element 9_999"
+[[step]]
+click = "Allow once"
+[[step]]
+wait_for = "Opened the result."
 [[step]]
 send = "book it"
 [[step]]
-wait_for = "Allow once"
-note = "Book now still asks"
+wait_for = "Recipes needs you to sign in to example.test before booking"
+timeout_ms = 20000
+note = "Book now still stops: not signed in to the site, it asks for a sign-in first"
 shot = "booking-asks"
 [[step]]
-expect = "Book now"
-[[step]]
-click = "Don't allow"
+click = "Cancel"
 [[step]]
 wait_for = "didn't book it"
+[[step]]
+expect = "Not signed in to example.test, so nothing was booked."

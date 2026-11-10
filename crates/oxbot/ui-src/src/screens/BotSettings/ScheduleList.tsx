@@ -1,46 +1,43 @@
-// A list of schedules (a bot's, in its ··· settings): what, when, how the
-// last run went, with Pause/Resume and Delete for those who may change it.
+// A list of schedules (a bot's, in its ··· settings, or every one the
+// viewer may see, in Settings → Schedules): what, when, how the last run
+// went, with Pause/Resume and Delete for those who may change it.
 import { useState } from "react";
 import { useApp } from "../../app/context";
-import { Button, cx, List, ListRow } from "../../components/ui";
+import { Button, cx, List, ListRow, Note, Pill } from "../../components/ui";
 import type { ScheduleInfo } from "../../net/protocol";
+import { lastResult, scheduleMeta, schedWhen } from "./schedules";
 
-const OUTCOMES: Record<string, string> = {
-  ok: "done",
-  failed: "didn't finish",
-  running: "running now",
-  busy: "skipped: the bot was busy",
-  limit: "skipped: an AI limit was reached",
-  missed: "missed: the home computer was off or asleep",
-  too_soon: "skipped: too soon after the last run",
-  no_access: "paused: no longer allowed to use this bot",
-};
-
-function schedWhen(ms: number, tz: string): string {
-  const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
-  try {
-    return new Date(ms).toLocaleString([], { ...opts, timeZone: tz });
-  } catch {
-    return new Date(ms).toLocaleString([], opts);
-  }
+/** The last run: a pill (ran, late, missed, failed…), when, and why if it didn't run. */
+function LastRun({ sc }: { sc: ScheduleInfo }) {
+  const last = lastResult(sc);
+  if (!last || !sc.last_run_ms) return null;
+  return (
+    <>
+      {" · last "}
+      <Pill tone={last.tone} className="sched-last">
+        {last.word}
+      </Pill>{" "}
+      {schedWhen(sc.last_run_ms, sc.tz)}
+      {last.why ? `: ${last.why}` : ""}
+    </>
+  );
 }
 
-/** The line under a schedule: where, as whom, next and last run. */
-export function scheduleMeta(sc: ScheduleInfo, withBot: boolean): string {
-  const parts: string[] = [];
-  if (withBot) parts.push(`in ${sc.bot_name}`);
-  if (!sc.mine && sc.person) parts.push(`as ${sc.person}`);
-  parts.push(sc.paused ? "paused" : sc.next_run_ms ? `next ${schedWhen(sc.next_run_ms, sc.tz)}` : "done: it ran once");
-  if (sc.last_run_ms)
-    parts.push(
-      `last ${schedWhen(sc.last_run_ms, sc.tz)}${sc.last_outcome ? `, ${OUTCOMES[sc.last_outcome] || sc.last_outcome}` : ""}`,
-    );
-  return parts.join(" · ");
-}
-
-export function ScheduleList({ id, list, withBot }: { id: string; list: ScheduleInfo[] | null; withBot: boolean }) {
+export function ScheduleList({
+  id,
+  list,
+  withBot,
+  empty,
+}: {
+  id: string;
+  list: ScheduleInfo[] | null;
+  withBot: boolean;
+  /** With none: this line instead of the list. */
+  empty?: { id: string; text: string };
+}) {
   const { send } = useApp();
   const [armed, setArmed] = useState<number | null>(null);
+  if (empty && list && !list.length) return <Note id={empty.id}>{empty.text}</Note>;
   return (
     <List id={id}>
       {!list ? (
@@ -53,16 +50,23 @@ export function ScheduleList({ id, list, withBot }: { id: string; list: Schedule
             className={cx("sched-row", sc.paused && "paused")}
             key={sc.id}
             title={sc.text}
-            sub={scheduleMeta(sc, withBot)}
+            data-id={sc.id}
+            sub={
+              <>
+                {scheduleMeta(sc, withBot)}
+                <LastRun sc={sc} />
+              </>
+            }
             trail={
               sc.can_change ? (
                 <>
-                  <Button kind="quiet" size="sm" onClick={() => send({ type: "pause_schedule", id: sc.id, paused: !sc.paused })}>
+                  <Button kind="quiet" size="sm" className="sched-pause" onClick={() => send({ type: "pause_schedule", id: sc.id, paused: !sc.paused })}>
                     {sc.paused ? "Resume" : "Pause"}
                   </Button>
                   <Button
                     kind="quiet"
                     size="sm"
+                    className="sched-delete"
                     onClick={() => {
                       if (armed !== sc.id) {
                         setArmed(sc.id);

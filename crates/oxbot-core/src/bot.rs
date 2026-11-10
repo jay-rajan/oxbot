@@ -680,7 +680,7 @@ impl Bot {
     /// # Errors
     /// Fails if the folder can't be moved.
     pub fn move_to(&self, trash: &Path, when_ms: i64) -> Result<PathBuf, BotError> {
-        fs::create_dir_all(trash).map_err(io_err(trash))?;
+        crate::home::private_dir(trash).map_err(io_err(trash))?;
         let to = trash.join(format!("{}-{when_ms}", self.id));
         fs::rename(&self.dir, &to).map_err(io_err(&self.dir))?;
         Ok(to)
@@ -749,12 +749,13 @@ pub fn load_all(bots_dir: &Path) -> Result<Vec<Bot>, BotError> {
     Ok(bots)
 }
 
-/// Creates `bots_dir` and the default `assistant` bot if there are no bots yet.
+/// Creates `bots_dir` (this account's only: 0700) and the default `assistant`
+/// bot if there are no bots yet.
 ///
 /// # Errors
 /// Fails if the folders or files can't be written.
 pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
-    fs::create_dir_all(bots_dir).map_err(io_err(bots_dir))?;
+    crate::home::private_dir(bots_dir).map_err(io_err(bots_dir))?;
     if !load_all(bots_dir)?.iter().any(Bot::is_main_assistant) {
         let id = BotId::new(DEFAULT_BOT).map_err(|source| BotError::BadId {
             path: bots_dir.join(DEFAULT_BOT),

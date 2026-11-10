@@ -85,7 +85,13 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .lock { width: 11px; height: 11px; flex: none; color: var(--muted); display: inline-block; }
-.bot-item .unread { margin-right: var(--s-1); }
+/* Right of the name: "needs you" (a request waits for an answer) and the
+   new-messages dot, both until the bot is opened or answered. */
+.bot-item .marks { justify-self: end; display: flex; align-items: center; gap: var(--s-2); margin-right: var(--s-1); }
+.bot-item .unread {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent);
+}
 
 /* A bot's avatar. A working bot's piece moves: an O rocks like a rolling
    ring, an X ticks (tic… tac). (The chat's header avatar is in chat.css.) */

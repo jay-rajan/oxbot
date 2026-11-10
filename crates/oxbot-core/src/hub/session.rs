@@ -120,6 +120,7 @@ impl Hub {
                 .unwrap_or_else(|| bot.dir.join("context")),
             knowledge_dir: overrides.knowledge_dir,
             system_prompt: prompt.clone(),
+            keeps_files: oxbot_loop::tools::files::asks_for_file(&bot.instructions),
             resume: resume.clone(),
             model: overrides.model.unwrap_or_else(|| model_of(bot)),
             browser: browser_spec,
@@ -199,7 +200,7 @@ impl Hub {
             });
         }
         Some(BrowserSpec {
-            mcp: tools.mcp_command(shared.browser.port(), work_dir),
+            mcp: tools.mcp_command(shared.browser.endpoint(), work_dir),
         })
     }
 
@@ -267,6 +268,7 @@ impl Hub {
         if was_busy {
             let _ = self.turn_failed(&bot, "The bot's AI helper stopped unexpectedly.");
         }
+        self.run_queued(&bot);
     }
 
     async fn handle(
@@ -343,6 +345,8 @@ impl Hub {
                 }
                 self.cue_data_policy();
                 self.announce_bots().await;
+                // A message sent while it worked that didn't go in goes now.
+                self.run_queued(bot);
             }
             EngineEvent::Activity(activity) => {
                 let _ = self.updates.send(ServerMsg::Activity {
@@ -385,7 +389,7 @@ impl Hub {
                 .and_then(|n| n.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")))
             {
                 visit = learn_from_result(r, action, text);
-                files = elements::files_in(text);
+                files = elements::files_in(action, text);
             }
             untrusted = match &name {
                 Some(name) => untrusted_tool(name, r.page.as_ref()),
@@ -486,7 +490,8 @@ fn new_runtime(
 }
 
 /// Reads what the browser tool's `action` reported: the selected page, and
-/// the element names from a page snapshot (added to what it knew). Returns
+/// the element names from a page snapshot (added to what it knew), only
+/// from the tools that take one (see [`elements::SNAPSHOT_TOOLS`]). Returns
 /// a web page this session hadn't opened before, (address, title), to keep
 /// with the session.
 fn learn_from_result(runtime: &mut Runtime, action: &str, text: &str) -> Option<(String, String)> {
@@ -500,7 +505,14 @@ fn learn_from_result(runtime: &mut Runtime, action: &str, text: &str) -> Option<
         }
         runtime.page = Some((title, url));
     }
-    runtime.elements.learn(text);
+    // The browser tool restarted: its uids start over, so what the book
+    // knew may name other elements now (forgetting only ever asks more).
+    if text.lines().any(|l| l.starts_with(elements::RECONNECTED)) {
+        runtime.elements.clear();
+    }
+    if elements::SNAPSHOT_TOOLS.contains(&action) {
+        runtime.elements.learn(text);
+    }
     visit
 }
 
@@ -631,6 +643,7 @@ fn loop_label(name: &str) -> Option<(&'static str, &'static str)> {
         "extract_rows" => ("page tables", "Reading the page's tables…"),
         "query_rows" => ("table query", "Sorting and counting rows…"),
         "read_pages" => ("pages read with a script", "Reading pages with a script…"),
+        "read_document" => ("whole Google file", "Reading the whole Google file…"),
         "page_steps" => ("several steps at once", "Doing several steps on the page…"),
         "run_program" => ("small script", "Running a small script…"),
         "read_result" => ("saved result", "Reading a saved result…"),

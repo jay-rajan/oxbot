@@ -10,7 +10,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Extension, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
@@ -81,6 +81,9 @@ pub struct AppState {
     /// Developer tools (comparing AI models): on only when the app started
     /// with `OXBOT_DEV_TOOLS=1`. Homes never see them.
     pub dev_tools: bool,
+    /// Keeps the Mac awake while plugged in (see [`crate::awake`]); `None`
+    /// where that doesn't apply (not a Mac, or tests that don't need it).
+    pub awake: Option<Arc<crate::awake::KeepAwake>>,
 }
 
 /// Settings only the desktop app can change, such as "Launch at login".
@@ -126,6 +129,12 @@ impl AppState {
                 .openrouter
                 .as_ref()
                 .is_some_and(|a| a.waiting_for_keychain()),
+            // The Mac's own sleep: the home computer's alone.
+            keep_awake: self
+                .awake
+                .as_ref()
+                .filter(|_| viewer.home_computer)
+                .map(|_| self.hub.keep_awake_on()),
         }
     }
 
@@ -256,6 +265,17 @@ impl AppState {
     pub fn home_computer_viewer(&self) -> Viewer {
         self.hub.home_computer_viewer(&self.local_person)
     }
+
+    /// The hello each connection gets first. It says test mode only in a
+    /// debug build started for tests, so the page gives the tests their
+    /// names (`window.send`…) there and nowhere else.
+    #[must_use]
+    pub fn hello(&self) -> ServerHello {
+        ServerHello {
+            test: self.e2e && cfg!(debug_assertions),
+            ..ServerHello::new(&self.server_name, self.started_ms)
+        }
+    }
 }
 
 impl AppState {
@@ -318,6 +338,7 @@ impl AppState {
             port: 0,
             openrouter: None,
             dev_tools: false,
+            awake: None,
         }
     }
 }
@@ -330,22 +351,34 @@ mod page {
     pub const APP_CSS: &str = include_str!("../ui-dist/app.css");
 }
 
-/// The page's Content-Security-Policy: its own script and stylesheet
-/// only, no inline scripts, and connections back to this server only. The
-/// report frame (`srcdoc`, which inherits this policy) may use exactly the
-/// reports' own stylesheet, allowed by its hash; nothing else inline.
-fn page_csp() -> &'static str {
-    static CSP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    CSP.get_or_init(|| {
-        let style =
-            ring::digest::digest(&ring::digest::SHA256, oxbot_core::report::STYLE.as_bytes());
-        format!(
-            "default-src 'self'; script-src 'self'; style-src 'self' 'sha256-{}'; \
-             img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'none'; \
-             object-src 'none'; base-uri 'none'",
-            base64(style.as_ref())
-        )
-    })
+/// The page's Content-Security-Policy on this Mac (`port`: this server's):
+/// its own script and stylesheet only, no inline scripts, connections back
+/// to this server only (its WebSocket named outright, as older Safari
+/// doesn't count `ws:` as `'self'`), and no other page may frame it or
+/// take its forms. The report frame (`srcdoc`, which inherits this policy)
+/// may use exactly the reports' own stylesheet, allowed by its hash;
+/// nothing else inline.
+fn page_csp(port: u16) -> String {
+    format!(
+        "default-src 'self'; script-src 'self'; style-src 'self' {report}; \
+         img-src 'self' data: blob:; \
+         connect-src 'self' ws://127.0.0.1:{port} ws://localhost:{port}; \
+         frame-src 'none'; frame-ancestors 'none'; form-action 'none'; \
+         object-src 'none'; base-uri 'none'",
+        report = report_style_hash()
+    )
+}
+
+/// `'sha256-…'` of the reports' own stylesheet (see [`page_csp`]).
+fn report_style_hash() -> &'static str {
+    static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HASH.get_or_init(|| csp_hash(oxbot_core::report::STYLE))
+}
+
+/// `'sha256-…'` of `text`, as a CSP source.
+fn csp_hash(text: &str) -> String {
+    let digest = ring::digest::digest(&ring::digest::SHA256, text.as_bytes());
+    format!("'sha256-{}'", base64(digest.as_ref()))
 }
 
 /// Standard base64 with padding, for CSP hashes.
@@ -403,35 +436,48 @@ async fn page_file(
 ) -> Response {
     if let Some(dir) = &state.ui_dir {
         match tokio::fs::read_to_string(dir.join(name)).await {
-            Ok(body) => return with_page_headers(content_type, body),
+            Ok(body) => return with_page_headers(content_type, state.port, body),
             Err(err) => {
                 tracing::warn!(%err, name, "dev page file not readable; serving the built-in one");
             }
         }
     }
-    with_page_headers(content_type, built_in)
+    with_page_headers(content_type, state.port, built_in)
 }
 
-/// A page file's response: its type and the strict policy.
+/// A page file's response: its type and the strict policy for a server on
+/// `port`.
 fn with_page_headers(
     content_type: &'static str,
+    port: u16,
     body: impl axum::response::IntoResponse,
 ) -> Response {
+    let csp = HeaderValue::from_str(&page_csp(port))
+        .unwrap_or_else(|_| HeaderValue::from_static("default-src 'none'"));
     (
         [
-            (header::CONTENT_TYPE, content_type),
-            (header::CONTENT_SECURITY_POLICY, page_csp()),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::REFERRER_POLICY, "no-referrer"),
-            (header::CACHE_CONTROL, "no-cache"),
+            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+            (header::CONTENT_SECURITY_POLICY, csp),
+            (header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY")),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+            (
+                header::REFERRER_POLICY,
+                HeaderValue::from_static("no-referrer"),
+            ),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
         ],
         body,
     )
         .into_response()
 }
 
-/// The HTTP routes: the page at `/`, the WebSocket at `/ws`, and `POST /upload` for files sent with messages (this Mac only: not on the
-/// device door).
+/// The HTTP routes: the page at `/`, the WebSocket at `/ws`, `POST /upload`
+/// for files sent with messages, and `GET /hello` for oxbot's own programs
+/// to check it's really oxbot (this Mac only: not on the device door).
+/// Every one answers only on oxbot's own address ([`require_own_host`]).
 pub fn router(state: AppState) -> Router {
     with_page_files(Router::new())
         .route(
@@ -457,7 +503,54 @@ pub fn router(state: AppState) -> Router {
             // The upload streams to disk with its own limit.
             post(upload).layer(axum::extract::DefaultBodyLimit::disable()),
         )
+        .route(crate::secret::HELLO_PATH, get(hello))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_own_host,
+        ))
         .with_state(state)
+}
+
+/// Every request on this Mac must name oxbot's own address in `Host`
+/// (`127.0.0.1:{port}` or `localhost:{port}`). A web page that points a
+/// name of its own at `127.0.0.1` (DNS rebinding) sends that name instead,
+/// and is refused before anything is read.
+async fn require_own_host(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    if !crate::openrouter_auth::own_host(host, state.port) {
+        tracing::warn!("refused a request for another address");
+        return (StatusCode::FORBIDDEN, "This isn't oxbot's own address.").into_response();
+    }
+    next.run(request).await
+}
+
+/// `GET /hello?n=<nonce>`: proves this is the oxbot with this data
+/// folder's home computer secret, without showing it (see
+/// [`crate::secret::hello_proof`]). oxbot's own programs ask before they
+/// send the secret, so a stranger on oxbot's port never gets it.
+async fn hello(
+    State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(nonce) = query.get("n").filter(|n| crate::secret::hello_nonce_ok(n)) else {
+        return (StatusCode::BAD_REQUEST, "Say hello with a nonce.").into_response();
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        crate::secret::hello_proof(&state.home_computer_key, nonce),
+    )
+        .into_response()
 }
 
 /// The most one WebSocket message may be: it carries only JSON (files go
@@ -469,7 +562,8 @@ const MAX_WS_MESSAGE: usize = 4 * 1024 * 1024;
 pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
     with_page_files(Router::new())
         // The phone app fetches `/` once and puts it in its own window, so
-        // it gets the page with its script and styles inside.
+        // it gets the page with its script and styles inside (and their
+        // hashes in its own policy: see `inline_into`).
         .route("/", get(|| async { Html(inline_page()) }))
         .route("/ws", get(ws_upgrade))
         .layer(axum::middleware::from_fn_with_state(
@@ -493,6 +587,11 @@ pub async fn serve(
     state: AppState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
+    let mut state = state;
+    // The address checks need the port: the listener's, if not given.
+    if state.port == 0 {
+        state.port = listener.local_addr()?.port();
+    }
     axum::serve(listener, router(state))
         .with_graceful_shutdown(shutdown)
         .await
@@ -508,13 +607,21 @@ fn inline_page() -> &'static str {
 
 /// `html` with its `app.js` script and `app.css` link replaced by their
 /// contents. A `</script` inside the script is escaped so it can't end it.
+/// Right after `<head>` comes the page's own policy ([`inline_csp`]),
+/// before anything it covers.
 fn inline_into(html: &str, js: &str, css: &str) -> String {
     let script = js.replace("</script", "<\\/script");
     let style = css.replace("</style", "<\\/style");
-    let mut page = String::with_capacity(html.len() + js.len() + css.len());
+    let csp = inline_csp(&script, &style);
+    let mut page = String::with_capacity(html.len() + js.len() + css.len() + csp.len());
     for line in html.split_inclusive('\n') {
         let t = line.trim();
-        if t.starts_with("<script") && t.contains("app.js") {
+        if t.starts_with("<head") {
+            page.push_str(line);
+            page.push_str("<meta http-equiv=\"Content-Security-Policy\" content=\"");
+            page.push_str(&csp);
+            page.push_str("\">\n");
+        } else if t.starts_with("<script") && t.contains("app.js") {
             page.push_str("<script type=\"module\">");
             page.push_str(&script);
             page.push_str("</script>\n");
@@ -527,6 +634,22 @@ fn inline_into(html: &str, js: &str, css: &str) -> String {
         }
     }
     page
+}
+
+/// The policy of the page the phone app shows (in a `<meta>`: it isn't
+/// fetched by address, so no header reaches it): exactly the inlined
+/// `script` and `style` (by their hashes) and the reports' stylesheet,
+/// pictures from the page itself, and connections only to the phone app's
+/// own bridge (Tauri's `ipc:`, `http://ipc.localhost` on Android).
+fn inline_csp(script: &str, style: &str) -> String {
+    format!(
+        "default-src 'none'; script-src {script}; style-src {style} {report}; \
+         img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost; \
+         frame-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'",
+        script = csp_hash(script),
+        style = csp_hash(style),
+        report = report_style_hash(),
+    )
 }
 
 async fn ws_upgrade(
@@ -557,7 +680,13 @@ async fn ws_upgrade(
 
 /// Who a request from this Mac (not the device door) is: the home computer if it
 /// shows the home computer secret `key`; in test mode, the person it names with
-/// `as`. Refused from another website's page, or without either.
+/// `as` (never the home computer's own person). Refused from another website's
+/// page, or without either.
+///
+/// A browser always sends `Origin`, and it must be oxbot's own page at this
+/// server's port. A request without one isn't from a page: a program on this
+/// Mac (`oxbot chat`), which must show the key (or, in test mode, name a
+/// test person).
 #[allow(
     clippy::result_large_err,
     reason = "the refusal is the response to send"
@@ -571,7 +700,7 @@ fn local_viewer(
     // Browsers send an Origin header and let any web page reach localhost.
     // Only the oxbot page itself may connect.
     if let Some(origin) = headers.get(header::ORIGIN)
-        && !is_local_origin(origin.to_str().unwrap_or(""))
+        && !is_local_origin(origin.to_str().unwrap_or(""), state.port)
     {
         tracing::warn!(?origin, "refused a request from another website");
         return Err((StatusCode::FORBIDDEN, "oxbot only accepts its own page").into_response());
@@ -582,9 +711,18 @@ fn local_viewer(
         key.is_some_and(|k| crate::secret::same(k.trim(), &state.home_computer_key));
     match as_name.map(str::trim) {
         _ if home_computer => Ok(state.home_computer_viewer()),
-        // Test mode only: the page names its person, made on purpose here
-        // (as pairing would) so the connection carries their id.
+        // Test mode only (debug builds): the page names its person, made on
+        // purpose here (as pairing would) so the connection carries their
+        // id. Never the home computer's own person: that takes the key.
         Some(name) if state.e2e && !name.is_empty() => match state.hub.person_named(name) {
+            Ok(person) if state.hub.is_owner_person(person.id.as_str()) => {
+                tracing::warn!("refused a test connection naming the home computer's person");
+                Err((
+                    StatusCode::FORBIDDEN,
+                    "That person needs the home computer secret.",
+                )
+                    .into_response())
+            }
             Ok(person) => Ok(Viewer::person(person.id, person.name, false)),
             Err(err) => {
                 tracing::warn!(%err, "couldn't make a test connection's person");
@@ -768,13 +906,12 @@ fn upload_error(status: StatusCode, message: &str) -> Response {
     (status, axum::Json(serde_json::json!({ "error": message }))).into_response()
 }
 
-/// Whether a browser Origin is the oxbot page on this Mac.
-fn is_local_origin(origin: &str) -> bool {
-    let Some(rest) = origin.strip_prefix("http://") else {
-        return false;
-    };
-    let host = rest.split(':').next().unwrap_or("");
-    matches!(host, "127.0.0.1" | "localhost") && !rest.contains('/')
+/// Whether a browser Origin is the oxbot page on this Mac at `port`:
+/// exactly `http://127.0.0.1:{port}` or `http://localhost:{port}`.
+fn is_local_origin(origin: &str, port: u16) -> bool {
+    origin
+        .strip_prefix("http://")
+        .is_some_and(|host| crate::openrouter_auth::own_host(host, port))
 }
 
 /// What one connection may see and has subscribed to.
@@ -794,7 +931,15 @@ struct Client {
     /// The home computer owner (the home computer, or the home computer's person on their device): gets
     /// comparisons of engines and models.
     owner: bool,
+    /// When this connection last ran the setup check (see
+    /// [`SETUP_CHECK_EVERY`]).
+    setup_checked: Option<std::time::Instant>,
 }
+
+/// How often a device's connection may run the Mac's setup check (it
+/// starts programs on the Mac); in between it gets the last result. The
+/// home computer may check whenever it likes.
+const SETUP_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Client {
     #[cfg(test)]
@@ -822,6 +967,7 @@ impl Client {
             subs: HashMap::new(),
             conn: 0,
             owner: false,
+            setup_checked: None,
         }
     }
 
@@ -1172,7 +1318,7 @@ async fn serve_client(
 
     let mut logs = state.logs.as_ref().map(|l| l.subscribe());
     let mut first = vec![
-        ServerMsg::Hello(ServerHello::new(&state.server_name, state.started_ms)),
+        ServerMsg::Hello(state.hello()),
         ServerMsg::Settings(state.settings_for(&client.viewer)),
     ];
     first.push(ServerMsg::Setup(state.setup_report()));
@@ -1403,13 +1549,7 @@ async fn handle(
             Ok(_) => reply(state.hub.cancel(&bot).await),
             Err(e) => error(&e),
         },
-        ClientMsg::CreateBot {
-            name,
-            instructions,
-            private,
-            engine,
-            models,
-        } => create_bot(state, client, &name, &instructions, private, engine, models).await,
+        msg @ ClientMsg::CreateBot { .. } => create_bot(state, client, out, msg).await,
         ClientMsg::SetPrivate { .. }
         | ClientMsg::SetSharing { .. }
         | ClientMsg::RenameBot { .. }
@@ -1545,9 +1685,26 @@ fn handle_net_log(
 async fn handle_messages(
     msg: ClientMsg,
     state: &AppState,
-    client: &Client,
+    client: &mut Client,
     out: &mpsc::Sender<ServerMsg>,
 ) -> Result<Vec<ServerMsg>, ClientMsg> {
+    if matches!(msg, ClientMsg::CheckSetup) {
+        let report = if client.viewer.home_computer
+            || client
+                .setup_checked
+                .is_none_or(|at| at.elapsed() >= SETUP_CHECK_EVERY)
+        {
+            client.setup_checked = Some(std::time::Instant::now());
+            state.refresh_setup().await
+        } else {
+            state.setup_report()
+        };
+        return Ok(vec![
+            ServerMsg::Setup(report),
+            // Whether the mic shows may have changed.
+            ServerMsg::Settings(state.settings_for(&client.viewer)),
+        ]);
+    }
     let viewer = &client.viewer;
     Ok(match msg {
         ClientMsg::Send { bot, text, files } => {
@@ -1574,11 +1731,6 @@ async fn handle_messages(
             Vec::new()
         }
         ClientMsg::ListEngines => vec![ServerMsg::Engines(state.engines_for(viewer))],
-        ClientMsg::CheckSetup => vec![
-            ServerMsg::Setup(state.refresh_setup().await),
-            // Whether the mic shows may have changed.
-            ServerMsg::Settings(state.settings_for(viewer)),
-        ],
         other => return Err(other),
     })
 }
@@ -1732,6 +1884,20 @@ async fn handle_home_computer(
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
         },
+        ClientMsg::SetKeepAwake { on } => {
+            let Some(awake) = &state.awake else {
+                return Ok(error(
+                    &"Keeping the Mac awake is only in the oxbot app on a Mac.",
+                ));
+            };
+            match state.hub.set_keep_awake(on) {
+                Ok(()) => {
+                    awake.set(on);
+                    vec![ServerMsg::Settings(state.settings())]
+                }
+                Err(e) => error(&e),
+            }
+        }
         ClientMsg::OpenRouterSignIn
         | ClientMsg::OpenRouterSignOut
         | ClientMsg::RefreshModels
@@ -1855,6 +2021,8 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetDoorName { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
+            // The Mac's own sleep.
+            | ClientMsg::SetKeepAwake { .. }
             // The household's OpenRouter account and settings.
             | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut
@@ -1870,6 +2038,36 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
     )
 }
 
+/// How `/usr/bin/open` shows a file sent in a chat (`kind`, saved at
+/// `path`), so it never runs as a program, a script or a page: text in the
+/// text editor (`-t`, whatever its name says); a picture, PDF, document,
+/// spreadsheet, slides or video whose name ends as its kind's do, in the
+/// app macOS picks; anything else only shown in Finder (`-R`).
+fn open_how(kind: oxbot_protocol::AttachmentKind, path: &std::path::Path) -> Option<&'static str> {
+    use oxbot_protocol::AttachmentKind as Kind;
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let known: &[&str] = match kind {
+        Kind::Text => return Some("-t"),
+        Kind::Image => &[
+            "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "avif", "tif", "tiff", "bmp",
+        ],
+        Kind::Pdf => &["pdf"],
+        Kind::Document => &["docx", "doc", "rtf", "odt"],
+        Kind::Sheet => &["xlsx", "xls", "ods"],
+        Kind::Slides => &["pptx", "ppt"],
+        Kind::Video => &["mov", "mp4", "m4v"],
+    };
+    if known.contains(&ext.as_str()) {
+        None
+    } else {
+        Some("-R")
+    }
+}
+
 /// Opens a file sent in a chat on this Mac's screen, in the app macOS
 /// picks for it. Found from the stored message, never from a path the
 /// page sends.
@@ -1878,17 +2076,11 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
         Ok((file, path)) => {
             // Tests never open windows on the Mac they run on.
             if !state.e2e {
-                // Text (whatever its name says) opens in the text editor, and a
-                // web archive only shows in Finder: a file someone sent never
-                // runs as a script or a page.
-                let how = match file.kind {
-                    oxbot_protocol::AttachmentKind::Text => Some("-t"),
-                    _ if path.extension().is_some_and(|e| e == "webarchive") => Some("-R"),
-                    _ => None,
-                };
+                let how = open_how(file.kind, &path);
                 tokio::spawn(async move {
                     let status = tokio::process::Command::new("/usr/bin/open")
                         .args(how)
+                        .arg("--")
                         .arg(&path)
                         .stdin(std::process::Stdio::null())
                         .status()
@@ -1910,17 +2102,26 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
     }
 }
 
-/// Makes a bot for the client on `engine` (Codex if `None`), once that
-/// engine can run. Checked before anything is made.
+/// The New bot form: makes a bot for the client on `engine` (Codex if
+/// `None`), once that engine can run (checked before anything is made), and
+/// starts it if it was given a description.
 async fn create_bot(
     state: &AppState,
     client: &mut Client,
-    name: &str,
-    instructions: &str,
-    private: bool,
-    engine: Option<oxbot_protocol::EngineKind>,
-    models: Vec<String>,
+    out_tx: &mpsc::Sender<ServerMsg>,
+    msg: ClientMsg,
 ) -> Vec<ServerMsg> {
+    let ClientMsg::CreateBot {
+        name,
+        instructions,
+        private,
+        engine,
+        models,
+    } = msg
+    else {
+        return Vec::new();
+    };
+    let (name, instructions) = (name.as_str(), instructions.as_str());
     let viewer = client.viewer.clone();
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
@@ -1976,6 +2177,19 @@ async fn create_bot(
         Ok(list) => list.into_iter().find(|b| b.id == info.id).unwrap_or(info),
         Err(_) => info,
     };
+    // A bot made with a description starts right away, as its maker.
+    if !instructions.trim().is_empty() {
+        tokio::spawn(send_as(
+            Arc::clone(&state.hub),
+            Outgoing {
+                bot: info.id.clone(),
+                text: FIRST_TASK.to_owned(),
+                files: Vec::new(),
+            },
+            viewer.clone(),
+            out_tx.clone(),
+        ));
+    }
     out.splice(
         0..0,
         viewer
@@ -1985,6 +2199,11 @@ async fn create_bot(
     );
     out
 }
+
+/// The first message a new bot gets from its maker, so it starts working
+/// instead of waiting to be asked.
+const FIRST_TASK: &str = "Get started: do your job once now if you can. If you need something \
+from me first, ask. If it should repeat (like every morning), offer a schedule.";
 
 /// A message on its way: to `bot`, `text` with the uploaded `files`.
 struct Outgoing {
@@ -2240,6 +2459,29 @@ mod tests {
     use oxbot_protocol::{BotEvent, EventKind};
 
     #[test]
+    fn a_sent_file_opens_as_a_document_or_only_shows_in_finder() {
+        use oxbot_protocol::AttachmentKind as Kind;
+        let p = std::path::Path::new;
+        assert_eq!(open_how(Kind::Pdf, p("/w/inbox/d/1-bill.pdf")), None);
+        assert_eq!(open_how(Kind::Image, p("/w/inbox/d/1-photo.JPG")), None);
+        assert_eq!(open_how(Kind::Document, p("/w/inbox/d/1-memo.docx")), None);
+        assert_eq!(
+            open_how(Kind::Text, p("/w/inbox/d/1-run.command")),
+            Some("-t")
+        );
+        // Anything else is only shown: never run.
+        for (kind, path) in [
+            (Kind::Pdf, "/w/inbox/d/1-bill.app"),
+            (Kind::Image, "/w/inbox/d/1-photo.command"),
+            (Kind::Video, "/w/inbox/d/1-clip"),
+            (Kind::Sheet, "/w/inbox/d/1-a.webarchive"),
+            (Kind::Slides, "/w/inbox/d/1-a.terminal"),
+        ] {
+            assert_eq!(open_how(kind, p(path)), Some("-R"), "{path}");
+        }
+    }
+
+    #[test]
     fn base64_matches_the_standard_examples() {
         assert_eq!(super::base64(b""), "");
         assert_eq!(super::base64(b"f"), "Zg==");
@@ -2247,7 +2489,66 @@ mod tests {
         assert_eq!(super::base64(b"foo"), "Zm9v");
         assert_eq!(super::base64(b"foobar"), "Zm9vYmFy");
         // The page's policy allows the reports' stylesheet by its hash.
-        assert!(super::page_csp().contains("style-src 'self' 'sha256-"));
+        assert!(super::page_csp(7878).contains("style-src 'self' 'sha256-"));
+    }
+
+    #[test]
+    fn the_page_connects_only_home_and_is_never_framed() {
+        let csp = super::page_csp(7878);
+        assert!(
+            csp.contains("connect-src 'self' ws://127.0.0.1:7878 ws://localhost:7878;"),
+            "{csp}"
+        );
+        assert!(!csp.contains("ws: ") && !csp.contains("wss:"), "{csp}");
+        for part in [
+            "frame-ancestors 'none'",
+            "form-action 'none'",
+            "object-src 'none'",
+        ] {
+            assert!(csp.contains(part), "{csp}");
+        }
+    }
+
+    /// The `'sha256-…'` sources in `csp`'s `directive`.
+    fn hashes_in<'a>(csp: &'a str, directive: &str) -> Vec<&'a str> {
+        csp.split(';')
+            .map(str::trim)
+            .find_map(|d| d.strip_prefix(directive))
+            .unwrap_or("")
+            .split_whitespace()
+            .filter(|s| s.starts_with("'sha256-"))
+            .collect()
+    }
+
+    #[test]
+    fn the_phones_page_allows_exactly_its_own_script_and_styles() {
+        let page = super::inline_page();
+        let start = page
+            .find("<meta http-equiv=\"Content-Security-Policy\" content=\"")
+            .expect("the policy is in the page");
+        let csp = &page[start..].split('"').nth(3).unwrap();
+        // Before anything it covers.
+        assert!(start < page.find("<script").unwrap() && start < page.find("<style").unwrap());
+        let between = |open: &str, close: &str| {
+            let from = page.find(open).unwrap() + open.len();
+            &page[from..from + page[from..].find(close).unwrap()]
+        };
+        let script = between("<script type=\"module\">", "</script>");
+        let style = between("<style>", "</style>");
+        // HTML turns \r\n into \n, which would change what the phone hashes.
+        assert!(!script.contains('\r') && !style.contains('\r'));
+        assert_eq!(hashes_in(csp, "script-src"), [csp_hash(script)]);
+        assert_eq!(
+            hashes_in(csp, "style-src"),
+            [csp_hash(style).as_str(), report_style_hash()]
+        );
+        assert!(csp.starts_with("default-src 'none';"), "{csp}");
+        assert!(
+            csp.contains("connect-src 'self' ipc: http://ipc.localhost;"),
+            "{csp}"
+        );
+        assert!(csp.contains("img-src 'self' data: blob:;"), "{csp}");
+        assert!(!csp.contains("unsafe"), "{csp}");
     }
 
     #[test]
@@ -2283,12 +2584,17 @@ mod tests {
 
     #[test]
     fn only_the_local_page_may_open_a_websocket() {
-        assert!(is_local_origin("http://127.0.0.1:7878"));
-        assert!(is_local_origin("http://localhost:7878"));
-        assert!(!is_local_origin("https://evil.example"));
-        assert!(!is_local_origin("http://127.0.0.1.evil.example"));
-        assert!(!is_local_origin("http://localhost.evil.example:80"));
-        assert!(!is_local_origin("null"));
+        assert!(is_local_origin("http://127.0.0.1:7878", 7878));
+        assert!(is_local_origin("http://localhost:7878", 7878));
+        assert!(!is_local_origin("https://evil.example", 7878));
+        assert!(!is_local_origin("http://127.0.0.1.evil.example", 7878));
+        assert!(!is_local_origin("http://localhost.evil.example:80", 7878));
+        assert!(!is_local_origin("null", 7878));
+        // Another program's page on this Mac: another port.
+        assert!(!is_local_origin("http://127.0.0.1:8080", 7878));
+        assert!(!is_local_origin("http://localhost:7879", 7878));
+        assert!(!is_local_origin("http://127.0.0.1", 7878));
+        assert!(!is_local_origin("http://127.0.0.1:7878/", 7878));
     }
 
     fn info(id: &str, created_by: Option<&str>, private: bool) -> oxbot_protocol::BotInfo {
@@ -2539,6 +2845,7 @@ mod tests {
             site: "x.example".into(),
             why: String::new(),
             window_open: false,
+            before: None,
             only: Some(jay.to_string()),
         });
         assert!(forward(sign_in.clone(), &mut j).is_some());
@@ -2708,6 +3015,223 @@ mod tests {
         assert!(forward(theirs, &mut lookalike).is_none());
     }
 
+    /// A server like [`a_test_connection_names_its_person_on_purpose`]'s,
+    /// in test mode; its state and address.
+    async fn test_mode_server(dir: &std::path::Path) -> (AppState, std::net::SocketAddr) {
+        let hub = Hub::new(
+            vec![],
+            oxbot_core::Store::open_in_memory().unwrap(),
+            oxbot_core::HubConfig {
+                enrol_named_viewers: false,
+                ..oxbot_core::HubConfig::new(dir)
+            },
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let state = AppState {
+            e2e: true,
+            port: addr.port(),
+            ..AppState::new(hub, "test-mac")
+        };
+        state.hub.owner_person_from("Jay", true).unwrap();
+        tokio::spawn(serve(listener, state.clone(), std::future::pending()));
+        (state, addr)
+    }
+
+    /// A raw request (`head` lines after the request line); the reply.
+    async fn raw(addr: std::net::SocketAddr, line: &str, head: &str) -> String {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tcp.write_all(format!("{line} HTTP/1.1\r\n{head}Connection: close\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let mut reply = String::new();
+        tcp.read_to_string(&mut reply).await.unwrap();
+        reply
+    }
+
+    #[tokio::test]
+    async fn only_test_mode_gives_the_page_its_test_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, _) = test_mode_server(tmp.path()).await;
+        assert!(state.hello().test, "a debug build in test mode");
+        let normal = AppState {
+            e2e: false,
+            ..state
+        };
+        assert!(!normal.hello().test);
+    }
+
+    #[tokio::test]
+    async fn a_test_connection_never_names_the_home_computers_person() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_state, addr) = test_mode_server(tmp.path()).await;
+        assert!(
+            tokio_tungstenite::connect_async(format!("ws://{addr}/ws?as=Jay"))
+                .await
+                .is_err(),
+            "the owner takes the key"
+        );
+        assert!(
+            tokio_tungstenite::connect_async(format!("ws://{addr}/ws?as=Ann"))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn only_oxbots_own_address_and_page_get_an_answer() {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, addr) = test_mode_server(tmp.path()).await;
+        let port = addr.port();
+        let key = state.home_computer_key.clone();
+        let upgrade = "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+        // Another name for 127.0.0.1 (DNS rebinding), or the right name on
+        // another port: refused on every route, before anything is read.
+        for host in [
+            "evil.example",
+            "evil.example:{port}",
+            "localhost:1",
+            "127.0.0.1",
+        ] {
+            let host = host.replace("{port}", &port.to_string());
+            for line in [
+                "GET /".to_owned(),
+                "GET /app.js".to_owned(),
+                format!("GET /ws?k={key}"),
+                format!("GET /hello?n={}", "a".repeat(32)),
+                "POST /upload?bot=assistant&name=a.txt".to_owned(),
+            ] {
+                let reply = raw(addr, &line, &format!("Host: {host}\r\n{upgrade}")).await;
+                assert!(reply.starts_with("HTTP/1.1 403"), "{host} {line}: {reply}");
+            }
+        }
+        for host in [format!("127.0.0.1:{port}"), format!("localhost:{port}")] {
+            let reply = raw(addr, "GET /", &format!("Host: {host}\r\n")).await;
+            assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            let headers = reply.to_ascii_lowercase();
+            assert!(headers.contains("x-frame-options: deny"), "{reply}");
+            assert!(headers.contains("frame-ancestors 'none'"), "{reply}");
+        }
+
+        // The page at another port (another program's page) can't connect,
+        // even with the key; its own can.
+        let with_origin = |origin: &str| {
+            let mut req = format!("ws://{addr}/ws?k={key}")
+                .into_client_request()
+                .unwrap();
+            req.headers_mut().insert("Origin", origin.parse().unwrap());
+            req
+        };
+        for origin in [
+            format!("http://127.0.0.1:{}", port + 1),
+            format!("http://localhost:{}", port + 1),
+            "http://127.0.0.1".to_owned(),
+            format!("https://127.0.0.1:{port}"),
+            format!("http://127.0.0.1.evil.example:{port}"),
+            "null".to_owned(),
+        ] {
+            assert!(
+                tokio_tungstenite::connect_async(with_origin(&origin))
+                    .await
+                    .is_err(),
+                "{origin}"
+            );
+        }
+        for origin in [
+            format!("http://127.0.0.1:{port}"),
+            format!("http://localhost:{port}"),
+        ] {
+            assert!(
+                tokio_tungstenite::connect_async(with_origin(&origin))
+                    .await
+                    .is_ok(),
+                "{origin}"
+            );
+        }
+        // No Origin (a program, not a page): only with the key.
+        assert!(
+            tokio_tungstenite::connect_async(format!("ws://{addr}/ws?k={key}"))
+                .await
+                .is_ok()
+        );
+        assert!(
+            tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
+                .await
+                .is_err()
+        );
+        // An upload from the wrong page is refused too.
+        let reply = raw(
+            addr,
+            "POST /upload?bot=assistant&name=a.txt",
+            &format!(
+                "Host: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{}\r\nX-Oxbot-Key: {key}\r\nContent-Length: 1\r\n",
+                port + 1
+            ),
+        )
+        .await;
+        assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
+    }
+
+    #[tokio::test]
+    async fn hello_proves_this_is_the_oxbot_with_the_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, addr) = test_mode_server(tmp.path()).await;
+        let host = format!("Host: 127.0.0.1:{}\r\n", addr.port());
+        let nonce = crate::secret::random_hex::<16>();
+        let reply = raw(addr, &format!("GET /hello?n={nonce}"), &host).await;
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        let body = reply.split("\r\n\r\n").nth(1).unwrap();
+        assert!(crate::secret::hello_proof_ok(
+            &state.home_computer_key,
+            &nonce,
+            body
+        ));
+        assert!(!body.contains(&state.home_computer_key));
+        for bad in [
+            "/hello",
+            "/hello?n=short",
+            "/hello?n=%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F",
+        ] {
+            let reply = raw(addr, &format!("GET {bad}"), &host).await;
+            assert!(reply.starts_with("HTTP/1.1 400"), "{bad}: {reply}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_device_runs_the_setup_check_at_most_every_ten_seconds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state(tmp.path());
+        let (out, _rx) = mpsc::channel(4);
+        let sam = Viewer::device("Sam");
+        let mut client = client_for(&state, &sam);
+        let first = handle(ClientMsg::CheckSetup, &state, &mut client, &out).await;
+        assert!(matches!(
+            &first[..],
+            [ServerMsg::Setup(_), ServerMsg::Settings(_)]
+        ));
+        let checked = client.setup_checked.unwrap();
+        let again = handle(ClientMsg::CheckSetup, &state, &mut client, &out).await;
+        assert!(matches!(
+            &again[..],
+            [ServerMsg::Setup(_), ServerMsg::Settings(_)]
+        ));
+        assert_eq!(
+            client.setup_checked,
+            Some(checked),
+            "the last result, not a new check"
+        );
+        // The home computer checks whenever it asks.
+        let home = state.home_computer_viewer();
+        let mut client = client_for(&state, &home);
+        handle(ClientMsg::CheckSetup, &state, &mut client, &out).await;
+        let first = client.setup_checked.unwrap();
+        handle(ClientMsg::CheckSetup, &state, &mut client, &out).await;
+        assert!(client.setup_checked.unwrap() > first);
+    }
+
     #[tokio::test]
     async fn a_test_connection_names_its_person_on_purpose() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2731,6 +3255,58 @@ mod tests {
             .unwrap();
         let ann = state.hub.resolve(&Viewer::device("Ann")).into_owned();
         assert!(ann.id.is_some(), "made when the page connected");
+    }
+
+    #[tokio::test]
+    async fn only_the_home_computer_keeps_the_mac_awake_and_turns_it_off() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = state(tmp.path());
+        let awake = Arc::new(crate::awake::KeepAwake::start(
+            crate::awake::Holder::Pretend,
+            base.hub.keep_awake_on(),
+            std::time::Duration::from_millis(10),
+        ));
+        let state = AppState {
+            awake: Some(Arc::clone(&awake)),
+            ..base
+        };
+        // On by default, and only the home computer sees it.
+        assert_eq!(state.settings().keep_awake, Some(true));
+        assert!(awake.is_on());
+        let sam = Viewer::device("Sam");
+        assert_eq!(state.settings_for(&sam).keep_awake, None);
+        assert!(home_computer_only(&ClientMsg::SetKeepAwake { on: false }));
+        let (out, _rx) = mpsc::channel(4);
+        let mut phone = Client::new(sam, &[]);
+        let replies = handle(
+            ClientMsg::SetKeepAwake { on: false },
+            &state,
+            &mut phone,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("home computer"))
+        );
+        assert!(state.hub.keep_awake_on());
+        // The home computer turns it off: kept, and the program stops.
+        let replies = handle_home_computer(ClientMsg::SetKeepAwake { on: false }, &state)
+            .await
+            .unwrap();
+        assert!(matches!(&replies[..], [ServerMsg::Settings(s)] if s.keep_awake == Some(false)));
+        assert!(!state.hub.keep_awake_on());
+        assert!(!awake.is_on());
+        // Not a Mac (no keep-awake here): it doesn't apply.
+        let none = AppState {
+            awake: None,
+            ..state.clone()
+        };
+        assert_eq!(none.settings().keep_awake, None);
+        assert!(
+            handle_home_computer(ClientMsg::SetKeepAwake { on: true }, &none)
+                .await
+                .is_ok_and(|r| matches!(&r[..], [ServerMsg::Error { .. }]))
+        );
     }
 
     fn state(dir: &std::path::Path) -> AppState {
@@ -3581,7 +4157,8 @@ mod tests {
                 .contains("referrer-policy: no-referrer"),
             "{page}"
         );
-        // A real sign-in's state, but used once already by a wrong guess.
+        // A real sign-in: a wrong guess leaves it waiting; its own state
+        // reaches the exchange (the stand-in refuses) and is used up.
         let url = state
             .openrouter
             .as_ref()
@@ -3595,9 +4172,18 @@ mod tests {
             .split('&')
             .next()
             .unwrap();
-        let (status, _) =
+        let (status, page) =
             get_page(state.port, "/openrouter/callback?code=c&state=wrong", &own).await;
         assert_eq!(status, 400);
+        assert!(page.contains("isn't valid any more"), "{page}");
+        let (status, page) = get_page(
+            state.port,
+            &format!("/openrouter/callback?code=c&state={live}"),
+            &own,
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert!(page.contains("didn't accept this sign-in"), "{page}");
         let (status, page) = get_page(
             state.port,
             &format!("/openrouter/callback?code=c&state={live}"),

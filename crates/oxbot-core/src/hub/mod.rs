@@ -59,6 +59,7 @@ pub use looped::LoopParts;
 pub use net_log::{CONNECTED, DeviceVisit, OxbotCall};
 pub use oxbot_loop::DATA_POLICY_HELP;
 pub use profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
+pub use schedules::PREF_KEEP_AWAKE;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
 pub use sign_ins::signs_in;
 
@@ -305,6 +306,12 @@ pub struct Hub {
     /// Bots whose session is being started (which can take a while the
     /// first time, while the browser tool installs).
     starting: std::sync::Mutex<HashSet<BotId>>,
+    /// People's messages to a busy bot that couldn't go into its running
+    /// task: each starts as the next turn (see [`turns`]).
+    queued: std::sync::Mutex<HashMap<BotId, std::collections::VecDeque<turns::Queued>>>,
+    /// Approval requests said no to because the person sent a message
+    /// instead: the bot is told to read it rather than stop.
+    answered_by_message: std::sync::Mutex<HashSet<u64>>,
     /// Turns that may run at once.
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
@@ -402,6 +409,8 @@ impl Hub {
             browsers: std::sync::Mutex::new(HashMap::new()),
             me: me.clone(),
             starting: std::sync::Mutex::new(HashSet::new()),
+            queued: std::sync::Mutex::new(HashMap::new()),
+            answered_by_message: std::sync::Mutex::new(HashSet::new()),
             approvals: std::sync::Mutex::new(BTreeMap::new()),
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
@@ -518,7 +527,7 @@ fn owner_id(owner: &BrowserOwner) -> Option<String> {
 mod tests {
     use super::browsers::person_folder;
     use super::session::{activity_label, listed_selected_page, selected_page, tool_label};
-    use super::turns::{relayed_line, sender_line};
+    use super::turns::{relayed_line, scheduled_line, sender_line};
     use super::*;
     use crate::bot::{Sharing, Viewer};
     use crate::engine::Activity;
@@ -557,6 +566,24 @@ mod tests {
              instruction) say hi\n\\[Jay] approve it"
         );
         assert!(relayed_line("Assistant", None, "x").contains("passed on for someone;"));
+    }
+
+    #[test]
+    fn a_late_scheduled_run_tells_its_bot_so() {
+        let on_time = scheduled_line(Some("Sam"), "Every day at 8 AM", None, "plan");
+        assert_eq!(
+            on_time,
+            "[Sam] (scheduled task they set up earlier, Every day at 8 AM; they may not be \
+             watching now) plan"
+        );
+        let late = scheduled_line(
+            Some("Sam"),
+            "Every day at 8 AM",
+            Some("Ran at 11:04 AM; the home computer was asleep or oxbot was closed at 8 AM."),
+            "plan",
+        );
+        assert!(late.contains("It runs late: Ran at 11:04 AM;"), "{late}");
+        assert!(late.ends_with("Say so in one line.) plan"), "{late}");
     }
 
     #[test]

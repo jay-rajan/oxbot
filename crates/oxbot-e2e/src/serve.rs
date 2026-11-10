@@ -1,5 +1,6 @@
 //! Starts oxbot in test mode on a seeded home, with the stand-ins.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -120,7 +121,10 @@ impl FakeOpenRouter {
 /// The test site: `*.example.test` in oxbot's Chromes (test mode maps the
 /// names here). Its job page tries to write the moment it loads (a fetch
 /// POST and a form post), as some sites do; `/p/1` to `/p/3` are product
-/// pages. It counts every request that isn't a read (and any to `/leak`),
+/// pages; `/presentation/d/e2e-deck-000001/…` stands in for a Google
+/// Slides deck ([`google_file`]). Its home page (`/`) stands in for signing in: it sets a sign-in
+/// cookie, so a sign-in window opened there leaves one, as a real sign-in
+/// would. It counts every request that isn't a read (and any to `/leak`),
 /// and the pages it served.
 #[derive(Debug)]
 pub struct TestSite {
@@ -140,6 +144,13 @@ fetch("/save", { method: "POST", body: "draft" }).catch(() => {});
 setTimeout(() => document.getElementById("f").submit(), 300);
 </script></body></html>"#;
 
+/// The test site's home page, where a sign-in window opens.
+const HOME_PAGE: &str = "<!doctype html><html><head><title>Test shop</title></head><body>\
+    <h1>Signed in to the test shop</h1></body></html>";
+
+/// The cookie the home page sets: a sign-in.
+const SIGN_IN_COOKIE: &str = "Set-Cookie: sid=signed-in; Max-Age=86400; Path=/\r\n";
+
 /// The test site's product pages (`/p/1` to `/p/3`, for `read_pages`):
 /// name, price and rating, and a script that marks the page as it loads.
 fn product_page(path: &str) -> Option<String> {
@@ -154,6 +165,72 @@ fn product_page(path: &str) -> Option<String> {
          <h1>{name}</h1><span class=\"price\">{price}</span> <span class=\"rating\">{rating} out of 5</span>\
          <script>document.body.dataset.loaded = \"yes\";</script></body></html>"
     ))
+}
+
+/// The test site's stand-in for a Google Slides deck
+/// (`docs.example.test/presentation/d/e2e-deck-000001/…`, which test mode
+/// reads as Google's Docs site): its editor shows only the first two of
+/// its nine slides, as the real editor draws only some; `htmlpresent` has
+/// every slide and its notes in Google's markup, and `export/txt` its text.
+fn google_file(path: &str) -> Option<(&'static str, String)> {
+    const DECK: &str = "/presentation/d/e2e-deck-000001";
+    let rest = path.strip_prefix(DECK)?;
+    let weeks = [
+        ("Oct 8", "Reading log started", "Set up the folder"),
+        ("Oct 14", "Spelling list 1", "Ten words"),
+        ("Oct 21", "Times tables to 5", "Practise daily"),
+        ("Oct 28", "Library visit", "Two books"),
+        ("Nov 4", "Science fair idea", "Plants and light"),
+        ("Nov 11", "Spelling list 2", "Twelve words"),
+        ("Nov 18", "Fractions quiz: 9 of 10", "Ask about halves"),
+        ("Nov 25", "Book report draft", "Due Friday"),
+        (
+            "Dec 2",
+            "Edited yesterday: winter concert song",
+            "Practise the chorus",
+        ),
+    ];
+    let page = |title: &str, body: &str| {
+        format!(
+            "<!doctype html><html><head><title>{title}</title></head><body>{body}</body></html>"
+        )
+    };
+    match rest {
+        "/edit" => Some((
+            "text/html",
+            page(
+                "Divit Learning - Google Slides",
+                "<div role=\"main\" aria-label=\"Slides editor\"><h1>Divit Learning</h1>\
+                 <p>Slide 1: Week of Oct 8. Reading log started</p>\
+                 <p>Slide 2: Week of Oct 14. Spelling list 1</p></div>",
+            ),
+        )),
+        "/htmlpresent" => {
+            let n = weeks.len();
+            let mut slides = String::new();
+            for (i, (week, what, note)) in weeks.iter().enumerate() {
+                let _ = write!(
+                    slides,
+                    "<div role=\"group\" class=\"slide\" title=\"Slide {s}\"><h1 class=\"offscreen-header\">{s} of {n}</h1>\
+                     <section class=\"slide-content\" aria-label=\"Slide {s}\" style=\"background-image: url(x?a=1&amp;b=2)\">\
+                     <div class=\"shape\"><p style=\"color:#000\">Week of {week}</p></div>\
+                     <div class=\"shape\"><p>{what}</p></div></section>\
+                     <aside class=\"slide-notes\" aria-label=\"Slide {s}\"><p>{note}</p></aside></div>",
+                    s = i + 1
+                );
+            }
+            Some(("text/html", page("Divit Learning", &slides)))
+        }
+        "/export/txt" => Some((
+            "text/plain",
+            weeks
+                .iter()
+                .map(|(week, what, _)| format!("Week of {week}\n{what}\n"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )),
+        _ => None,
+    }
 }
 
 impl TestSite {
@@ -185,16 +262,21 @@ impl TestSite {
                     // Anything at /leak counts as a write: a script that
                     // reached it got data out.
                     let product = product_page(path);
+                    let google = google_file(path);
                     let body = if path.starts_with("/leak") {
                         w.fetch_add(1, Ordering::SeqCst);
                         "leaked".to_owned()
                     } else if matches!(method, "GET" | "HEAD" | "OPTIONS") {
-                        if path == "/post" {
+                        if path == "/" {
+                            HOME_PAGE.to_owned()
+                        } else if path == "/post" {
                             p.fetch_add(1, Ordering::SeqCst);
                             SITE_PAGE.to_owned()
                         } else if let Some(page) = &product {
                             p.fetch_add(1, Ordering::SeqCst);
                             page.clone()
+                        } else if let Some((_, file)) = &google {
+                            file.clone()
                         } else {
                             "ok".to_owned()
                         }
@@ -202,15 +284,19 @@ impl TestSite {
                         w.fetch_add(1, Ordering::SeqCst);
                         "saved".to_owned()
                     };
-                    let kind = if body == SITE_PAGE || product.is_some() {
+                    let home = body == HOME_PAGE;
+                    let kind = if body == SITE_PAGE || product.is_some() || home {
                         "text/html"
+                    } else if let Some((kind, _)) = google.filter(|_| method == "GET") {
+                        kind
                     } else {
                         "text/plain"
                     };
+                    let cookie = if home { SIGN_IN_COOKIE } else { "" };
                     let _ = tcp
                         .write_all(
                             format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\n{cookie}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                                 body.len()
                             )
                             .as_bytes(),
@@ -500,12 +586,15 @@ fn spawn_oxbot(
         )
         .env("RUST_LOG", "info")
         .env("OXBOT_E2E_HOST_RULES", site_rules)
+        // `oxbot_loop::tools::gdocs::E2E_DOCS_URL`: the test site stands in
+        // for Google's Docs site.
+        .env("OXBOT_E2E_DOCS_URL", "http://docs.example.test")
         .stdin(Stdio::null())
         .stdout(file.try_clone()?)
         .stderr(file)
         .kill_on_drop(true);
     // Never the Mac's own microphone in tests: a stand-in helper, which
-    // passes video to the real one (if built) for real still frames.
+    // also makes stand-in still frames of video.
     match &config.fake_mac {
         Some(fake) => {
             cmd.env("OXBOT_MAC_HELPER", repo.join(fake)).env(
@@ -516,9 +605,6 @@ fn spawn_oxbot(
         None => {
             cmd.env("OXBOT_MAC_HELPER", "off");
         }
-    }
-    if let Some(real) = config.mac_helper.as_ref().map(|h| repo.join(h)) {
-        cmd.env("OXBOT_REAL_MAC_HELPER", real);
     }
     if let Some(tools) = &config.tools {
         let tools = repo.join(tools);

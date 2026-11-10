@@ -327,6 +327,7 @@ pub fn profile(work: &Path, interp: &Interpreter) -> String {
          (allow file-read-metadata)\n\
          (allow file-read* {})\n\
          (allow file-write* (subpath {}) (literal \"/dev/null\"))\n\
+         (deny file-write-create (vnode-type SYMLINK))\n\
          (allow process-exec {})\n",
         read.join(" "),
         sbpl(work),
@@ -731,6 +732,9 @@ mod tests {
                 w.display()
             )
         );
+        // No links: oxbot reads and uploads files in the folder, and a
+        // link there could point anywhere.
+        assert!(p.contains("\n(deny file-write-create (vnode-type SYMLINK))\n"));
         // Running: the system's tools and the interpreter only.
         let exec = p
             .lines()
@@ -871,6 +875,23 @@ mod tests {
             "{ran:?}"
         );
         assert!(!Path::new(&format!("{home}/oxbot-sandbox-test")).exists());
+        // No links (a hard link out is a write outside, so refused too).
+        let ran = go(
+            Language::Sh,
+            &format!(
+                "ln -s {0}/secret.txt l1; ln {0}/secret.txt l2; ln -s in.txt l3; ls",
+                sibling.display()
+            ),
+            &[],
+        )
+        .await;
+        assert_eq!(
+            ran.output.matches("Operation not permitted").count(),
+            3,
+            "{ran:?}"
+        );
+        assert!(std::fs::symlink_metadata(w.join("l1")).is_err());
+        assert!(std::fs::symlink_metadata(w.join("l3")).is_err());
         // No network, loopback included.
         let ran = go(
             Language::Sh,

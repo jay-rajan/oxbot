@@ -386,6 +386,8 @@ impl ToolService {
             debug_assert_eq!(permit.tool_use_id(), call.id);
             let outcome = if call.name == crate::tools::read_pages::READ_PAGES {
                 crate::tools::drive::read_pages(call, &self.gate, &env).await
+            } else if call.name == crate::tools::gdocs::READ_DOCUMENT {
+                crate::tools::drive::read_document(call, &self.gate, &env).await
             } else {
                 crate::tools::drive::page_steps(call, &self.gate, &env).await
             };

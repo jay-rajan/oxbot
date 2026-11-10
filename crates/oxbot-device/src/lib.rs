@@ -410,12 +410,23 @@ impl ServerCertVerifier for Pinned {
 /// Moves a file or folder saved under the name it had before the rename
 /// (Farm, Gate) to its new name, once: only when `new` isn't there yet.
 /// Nothing is ever deleted: if both are there, both stay and `new` is used.
+/// A link under the old name is never moved: it could put a file from
+/// anywhere in the place of a secret.
 ///
 /// # Errors
-/// Fails if `old` is there and can't be moved.
+/// Fails if `old` is there and can't be moved, or is a link.
 pub fn move_old_name(old: &std::path::Path, new: &std::path::Path) -> std::io::Result<()> {
-    if new.exists() || !old.exists() {
+    let Ok(found) = std::fs::symlink_metadata(old) else {
         return Ok(());
+    };
+    if std::fs::symlink_metadata(new).is_ok() {
+        return Ok(());
+    }
+    if found.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{} is a link; not moved", old.display()),
+        ));
     }
     std::fs::rename(old, new)
 }
@@ -462,6 +473,27 @@ mod tests {
         std::fs::write(old_dir.join("x"), "c").unwrap();
         move_old_name(&old_dir, &new_dir).unwrap();
         assert_eq!(std::fs::read_to_string(new_dir.join("x")).unwrap(), "c");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_under_the_old_name_is_never_moved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let elsewhere = tmp.path().join("elsewhere");
+        std::fs::write(&elsewhere, "not oxbot's").unwrap();
+        let (old, new) = (
+            tmp.path().join("farm-key"),
+            tmp.path().join("home-computer-key"),
+        );
+        std::os::unix::fs::symlink(&elsewhere, &old).unwrap();
+        assert!(move_old_name(&old, &new).is_err());
+        assert!(std::fs::symlink_metadata(&new).is_err(), "nothing moved");
+        // A dangling link already under the new name counts as there.
+        let (old, new) = (tmp.path().join("gate"), tmp.path().join("door"));
+        std::fs::create_dir(&old).unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("gone"), &new).unwrap();
+        move_old_name(&old, &new).unwrap();
+        assert!(old.is_dir(), "left where it was");
     }
 
     const FP: &str = "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12";

@@ -13,10 +13,9 @@ safari_when = ["crates/oxbot/ui-src/**"]
 app_when = ["app/**", "scripts/make-dmg.sh", "docs/brand/**"]
 app = "target/universal-apple-darwin/release/bundle/macos/oxbot.app"
 app_build = ["./scripts/make-dmg.sh"]
-# The stand-in for oxbot's Mac helper (dictation), and the real one (still
-# frames from video; built by scripts/build-mac-helper.sh).
+# The stand-in for oxbot's Mac helper (dictation, and stand-in still frames
+# from video: the real helper's sandbox lets it start no other program).
 fake_mac = "target/debug/oxbot-fake-mac"
-mac_helper = "target/mac-helper/oxbot-mac"
 # Stand-ins for bots on either engine: OpenRouter (started for every test,
 # with a canary key; Codex reaches it through oxbot's relay) and the browser
 # tool (oxbot starts it, test mode only).

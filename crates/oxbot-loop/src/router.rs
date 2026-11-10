@@ -213,8 +213,8 @@ impl Router {
             return vec![named(id)];
         }
         let own: &[String] = match choice {
-            ModelChoice::List(ids) if !central => ids,
-            _ => &[],
+            ModelChoice::List(ids) if !central && !ids.is_empty() => ids,
+            _ => &prefs.default_models,
         };
         let mut list = Vec::new();
         let pinned = match choice {
@@ -679,5 +679,23 @@ mod tests {
             Vec::<String>::new(),
             "nothing optional for an unknown model"
         );
+    }
+
+    #[test]
+    fn a_bot_with_no_list_starts_with_the_default_list_not_the_fastest_free() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let r = router(
+            LoopPrefs {
+                default_models: vec!["a:free".into(), "paid".into()],
+                ..LoopPrefs::default()
+            },
+            Arc::clone(&store),
+        );
+        // Auto and the Assistant: the default list's free ones first.
+        assert_eq!(ids(&r.candidates(&ModelChoice::Auto, false))[0], "a:free");
+        assert_eq!(ids(&r.candidates(&ModelChoice::Auto, true))[0], "a:free");
+        // A bot's own list still wins.
+        let own = ModelChoice::List(vec!["b:free".into()]);
+        assert_eq!(ids(&r.candidates(&own, false))[0], "b:free");
     }
 }

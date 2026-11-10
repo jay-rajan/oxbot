@@ -35,10 +35,8 @@ pub struct Config {
     #[serde(default)]
     pub app_build: Vec<String>,
     /// The stand-in for oxbot's Mac helper (relative path): it "can
-    /// dictate" when a test asks, and passes video to the real helper.
+    /// dictate" when a test asks, and makes stand-in still frames.
     pub fake_mac: Option<PathBuf>,
-    /// The real Mac helper, if built (relative path), for still frames.
-    pub mac_helper: Option<PathBuf>,
     /// The stand-in `OpenRouter` (relative path): started for every test,
     /// so no bot reaches the real one.
     pub fake_openrouter: Option<PathBuf>,

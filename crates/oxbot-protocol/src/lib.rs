@@ -43,6 +43,10 @@ pub struct ServerHello {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub started_ms: i64,
+    /// End-to-end test mode (a debug build started for tests): only then
+    /// does the page give the tests their names (`window.send`…).
+    #[serde(default)]
+    pub test: bool,
 }
 
 impl ServerHello {
@@ -55,6 +59,7 @@ impl ServerHello {
             server_name: server_name.into(),
             server_version: env!("CARGO_PKG_VERSION").to_owned(),
             started_ms,
+            test: false,
         }
     }
 
@@ -379,6 +384,13 @@ pub enum ClientMsg {
     /// `OpenRouter` limits on or off. The asker gets the new
     /// [`ServerMsg::Settings`].
     SetUsageAlerts {
+        /// On or off.
+        on: bool,
+    },
+    /// Home computer only: turn "Keep the Mac awake while plugged in" on or
+    /// off ([`AppSettings::keep_awake`]). The asker gets the new
+    /// [`ServerMsg::Settings`].
+    SetKeepAwake {
         /// On or off.
         on: bool,
     },
@@ -1289,6 +1301,11 @@ pub struct AppSettings {
     /// asking the person to allow oxbot.
     #[serde(default)]
     pub keychain_waiting: bool,
+    /// Whether oxbot keeps the Mac awake while it's plugged in, so
+    /// schedules run on time (the screen still sleeps); `None` when it
+    /// doesn't apply: not the home computer, or not a Mac.
+    #[serde(default)]
+    pub keep_awake: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -1310,6 +1327,12 @@ pub struct SignInRequest {
     pub site: String,
     /// Why the bot needs it, in its words.
     pub why: String,
+    /// What oxbot stopped the bot doing until the site is signed in to,
+    /// e.g. `adding to your cart` (the card says "… needs you to sign in
+    /// to walmart.ca before adding to your cart"). `None` when the bot
+    /// asked by itself.
+    #[serde(default)]
+    pub before: Option<String>,
     /// Whether the sign-in window is open now.
     pub window_open: bool,
     /// Server only, never sent: the one person (besides the home computer) who may
@@ -2676,6 +2699,7 @@ mod tests {
             owner_name: "Jay".into(),
             openrouter_ready: false,
             keychain_waiting: false,
+            keep_awake: None,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));

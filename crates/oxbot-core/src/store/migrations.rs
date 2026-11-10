@@ -1001,6 +1001,8 @@ fn back_up(conn: &Connection, version: usize) -> Result<(), StoreError> {
         .ok_or_else(|| failed("the path isn't valid UTF-8".to_owned()))?;
     conn.execute("VACUUM INTO ?1", [target])
         .map_err(|e| failed(e.to_string()))?;
+    // As private as the database it copies.
+    crate::home::restrict(&to, crate::home::PRIVATE_FILE).map_err(|e| failed(e.to_string()))?;
     tracing::info!(copy = %to.display(), "copied the database before upgrading it");
     Ok(())
 }

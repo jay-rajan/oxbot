@@ -6,10 +6,14 @@
 #
 # Usage: make-dmg.sh [arm64] [x64]  (default: both)
 # Output: target/<triple>/release/bundle/dmg/oxbot_<version>_{apple-chip,intel}.dmg
+#         and its SHA-256 next to it (…dmg.sha256), for friends to check.
 #
 # No Apple account: the app gets a local (ad-hoc) signature, and friends allow
-# it once in System Settings → Privacy & Security → Open Anyway. Codex and
-# Node.js keep their makers' signatures inside it.
+# it once in System Settings → Privacy & Security → Open Anyway. The app and
+# the Mac helper run with the hardened runtime (no injected libraries or
+# debuggers), allowed only the microphone (scripts/mac/entitlements.plist).
+# Codex and Node.js keep their makers' signatures inside it: they sit in
+# Resources, which signing seals but never re-signs.
 # The .dmg is made with hdiutil, not Tauri's packer, which needs to control
 # Finder.
 set -e
@@ -17,6 +21,9 @@ cd "$(dirname "$0")/.."
 # The Mac helper, where Swift is here (see build-mac-helper.sh): universal,
 # thinned to each chip below.
 sh scripts/build-mac-helper.sh
+# Never ship oxbot-core's test-only features.
+sh scripts/check-release-features.sh
+entitlements=scripts/mac/entitlements.plist
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 
 build_one() { # arm64|x64
@@ -27,7 +34,7 @@ build_one() { # arm64|x64
   esac
   # The browser tool, Node.js and Codex for this chip (see fetch-tools.sh).
   sh scripts/fetch-tools.sh "$1"
-  (cd app && cargo tauri build --target "$triple" --bundles app)
+  (cd app && cargo tauri build --target "$triple" --bundles app -- --locked)
   bundle=target/$triple/release/bundle
   app=$bundle/macos/oxbot.app
   rm -rf "$app/Contents/Resources/tools"
@@ -35,14 +42,23 @@ build_one() { # arm64|x64
   rm -f "$app/Contents/MacOS/oxbot-mac"
   if [ -f target/mac-helper/oxbot-mac ]; then
     lipo -thin "$lipo_arch" target/mac-helper/oxbot-mac -output "$app/Contents/MacOS/oxbot-mac"
-    # Signed on its own first (its own identifier), then with the app.
-    codesign --force --sign - --identifier dev.oxbot.mac-helper "$app/Contents/MacOS/oxbot-mac"
+    # Signed on its own first (its own identifier), then the app around it.
+    codesign --force --sign - --options runtime --entitlements "$entitlements" \
+      --identifier dev.oxbot.mac-helper "$app/Contents/MacOS/oxbot-mac"
   else
     echo "make-dmg: no Mac helper; this app takes no video frames and has no microphone" >&2
   fi
-  codesign --force --deep --sign - "$app"
-  codesign --verify --deep --strict "$app"
-  make_dmg "$app" "$bundle/dmg/oxbot_${version}_$label.dmg"
+  sign_app "$app"
+  dmg="$bundle/dmg/oxbot_${version}_$label.dmg"
+  make_dmg "$app" "$dmg"
+  (cd "$(dirname "$dmg")" && shasum -a 256 "$(basename "$dmg")" >"$(basename "$dmg").sha256")
+  echo "SHA-256: $(cut -d' ' -f1 "$dmg.sha256")"
+}
+
+sign_app() { # app (its helper already signed)
+  # No --deep: that would re-sign what's inside with the app's settings.
+  codesign --force --sign - --options runtime --entitlements "$entitlements" "$1"
+  codesign --verify --deep --strict "$1"
 }
 
 make_dmg() { # app out

@@ -105,6 +105,22 @@ impl Hub {
             .collect()
     }
 
+    /// Says no to every open card for `bot` because its person sent a
+    /// message instead (see [`Hub::send_for`]): the bot is told to read it.
+    pub(super) fn deny_for_message(&self, bot: &BotId) {
+        let ids: Vec<u64> = lock(&self.approvals)
+            .iter()
+            .filter(|(_, (a, _, _))| a.bot == bot.as_str())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            lock(&self.answered_by_message).insert(id);
+            if !self.answer(id, Answer::Deny) {
+                lock(&self.answered_by_message).remove(&id);
+            }
+        }
+    }
+
     /// Denies every open card for `bot` (its turn ended or was cancelled).
     pub(super) fn deny_open_approvals(&self, bot: &BotId) {
         let ids: Vec<u64> = lock(&self.approvals)
@@ -172,27 +188,16 @@ impl Hub {
             ));
         }
 
-        // The labels of the elements this request names (the uid it clicks,
-        // the fields it fills).
-        let (page, labels) = {
-            let runtimes = self.runtimes.lock().await;
-            let r = runtimes.get(bot_id);
-            let labels: HashMap<String, String> = r
-                .map(|r| {
-                    request_uids(&request.input)
-                        .filter_map(|uid| {
-                            Some((uid.to_owned(), r.elements.describe(uid)?.to_owned()))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            (r.and_then(|r| r.page.clone()), labels)
-        };
+        let (page, mut labels) = self.labels_of(bot_id, &request.input).await;
         let page_url = page.as_ref().map(|(_, url)| url.as_str());
         if let Some(no) = self.steps_gate(bot_id, request, mode, page_url)? {
             return Ok(no);
         }
         let browser = self.browser_of(&bot);
+        if let Some(shared) = &browser {
+            self.check_label_live(&shared.browser, request, page_url, &mut labels)
+                .await;
+        }
         let facts = match &browser {
             Some(shared) if policy::needs_facts(&request.tool) => shared
                 .browser
@@ -222,23 +227,17 @@ impl Hub {
         let verdict = policy::decide(&request.tool, &request.input, ctx, |uid| {
             labels.get(uid).cloned()
         });
+        let account = policy::call_account_action(&request.tool, &request.input, ctx, |uid| {
+            labels.get(uid).cloned()
+        });
         if mode == GateMode::DryRun {
             let label = click_label(&request.tool, &request.input, &labels);
             return self.trial_gate(&bot, request, &verdict, page_url, label, element.as_ref());
         }
         match verdict {
-            Verdict::Allow => Ok(Decision::Allow),
-            Verdict::AllowUnnamed(what) => {
-                // A missing label never blocks browsing; the log shows how
-                // often it happens.
-                let site = page_url.and_then(oxbot_browser::web_host);
-                tracing::info!(
-                    bot = %bot_id,
-                    target = %what,
-                    site = site.as_deref().unwrap_or("unknown"),
-                    "click on an element oxbot couldn't name: allowed"
-                );
-                Ok(Decision::Allow)
+            Verdict::Allow => {
+                self.run_allowed(&bot, account, page_url, request.quiet)
+                    .await
             }
             Verdict::Deny(message) => {
                 self.record(
@@ -252,6 +251,84 @@ impl Hub {
             Verdict::Ask(ask) => {
                 self.ask_verdict(&bot, ask, request, tab.as_deref(), page)
                     .await
+            }
+        }
+    }
+
+    /// The page `bot_id` is on, and the labels of the elements `input`
+    /// names (the uid it clicks, the fields it fills), from its element
+    /// book.
+    async fn labels_of(
+        &self,
+        bot_id: &BotId,
+        input: &Value,
+    ) -> (Option<(String, String)>, HashMap<String, String>) {
+        let runtimes = self.runtimes.lock().await;
+        let r = runtimes.get(bot_id);
+        let labels: HashMap<String, String> = r
+            .map(|r| {
+                request_uids(input)
+                    .filter_map(|uid| Some((uid.to_owned(), r.elements.describe(uid)?.to_owned())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        (r.and_then(|r| r.page.clone()), labels)
+    }
+
+    /// A call the policy lets run. One that acts for the account (adding
+    /// to a cart) runs only once the browser is signed in to the site, or
+    /// it lands in a guest cart only oxbot's Chrome sees (a card checks the
+    /// same in [`Hub::ask_verdict`]).
+    async fn run_allowed(
+        &self,
+        bot: &Bot,
+        account: Option<policy::AccountAction>,
+        page_url: Option<&str>,
+        quiet: bool,
+    ) -> Result<Decision, HubError> {
+        if let Some(action) = account
+            && let Some(no) = self.sign_in_before(bot, action, page_url, quiet).await
+        {
+            return Ok(no);
+        }
+        Ok(Decision::Allow)
+    }
+
+    /// A click whose learned label would let it run: the label came from
+    /// text the browser tool returned, which a page (or the bot's own
+    /// typing) can shape, so oxbot asks Chrome whether the page really
+    /// shows an element with that role and name. If it doesn't, the label
+    /// is dropped and the click asks as one oxbot can't name. If oxbot
+    /// can't look (no tab at that address), the label stands. Not in the
+    /// end-to-end test mode, whose stand-in browser tool makes up its
+    /// snapshots.
+    async fn check_label_live(
+        &self,
+        browser: &oxbot_browser::Browser,
+        request: &PermissionRequest,
+        page_url: Option<&str>,
+        labels: &mut HashMap<String, String>,
+    ) {
+        let (tool, input) = (request.tool.as_str(), &request.input);
+        if self.config.e2e {
+            return;
+        }
+        let (Some(label), Some(url)) = (click_label(tool, input, labels), page_url) else {
+            return;
+        };
+        if !matches!(
+            policy::classify_at(Some(label), None, page_url),
+            policy::Click::Plain | policy::Click::Query
+        ) && !policy::wants_element_facts(label)
+        {
+            return;
+        }
+        let (role, name) = policy::role_and_name(label);
+        let (role, name) = (role.to_owned(), name.to_owned());
+        if browser.count_named(url, &role, &name).await == Some(0) {
+            tracing::info!(target = %label, "the page doesn't show what the snapshot named: asking");
+            if let Some(uid) = input.get("uid").and_then(Value::as_str) {
+                labels.remove(uid);
             }
         }
     }
@@ -282,9 +359,11 @@ impl Hub {
         Ok(Some(Decision::Deny(no)))
     }
 
-    /// A call the policy says needs the person's OK: a program's card, an
-    /// Always rule, or (asked quietly, one step of a batch) what would be
-    /// asked; else the card.
+    /// A call the policy says needs the person's OK: a program's card; for
+    /// an account action on a site the browser isn't signed in to, the
+    /// sign-in card first (see [`Hub::sign_in_before`]); an Always rule, or
+    /// (asked quietly, one step of a batch) what would be asked; else the
+    /// card.
     async fn ask_verdict(
         &self,
         bot: &Bot,
@@ -305,7 +384,27 @@ impl Hub {
             let program = oxbot_loop::tools::program::card_text(&request.input);
             return self.script_permission(bot, &program).await;
         }
-        if self.allowed_by_rule(bot, &ask, tab, page_url).await? {
+        // Acting for the person's account (a cart, an order, a booking):
+        // signed in to the site first, even before an Always rule, or it
+        // lands in a guest cart only oxbot's Chrome sees.
+        if let Some(action) = ask.account
+            && let Some(no) = self
+                .sign_in_before(bot, action, page_url, request.quiet)
+                .await
+        {
+            return Ok(no);
+        }
+        let mut ask = ask;
+        if let Some(read) = self.rule_held_back(bot, &ask).await? {
+            // The card says why an Always rule didn't apply.
+            let note = format!(
+                "It has read {read} in this conversation, so oxbot asks even if you said Always."
+            );
+            ask.detail = Some(match ask.detail.take() {
+                Some(detail) => format!("{detail}\n\n({note})"),
+                None => note,
+            });
+        } else if self.allowed_by_rule(bot, &ask, tab, page_url).await? {
             return Ok(Decision::Allow);
         }
         // One step of a batch: it stops here, and the bot asks for this
@@ -327,7 +426,14 @@ impl Hub {
         page: Option<(String, String)>,
     ) -> Result<Decision, HubError> {
         let ask = self.with_maker(bot, ask).await;
-        let outcome = self.confirm(bot, &ask, page).await?;
+        let (outcome, id) = self.confirm_card(bot, &ask, page).await?;
+        if lock(&self.answered_by_message).remove(&id) {
+            return Ok(Decision::Deny(format!(
+                "The user didn't allow {} {}: they sent a new message instead. Read it and do \
+                 what it says.",
+                ask.action, ask.target
+            )));
+        }
         Ok(match outcome {
             Outcome::Allowed | Outcome::AllowedAlways => Decision::Allow,
             Outcome::TimedOut => Decision::Deny(format!(

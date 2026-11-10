@@ -84,6 +84,33 @@ impl Hub {
         Ok(self.store.allow_rule_matches(&bot.id, &key)?.then_some(key))
     }
 
+    /// What `bot`'s session has read that oxbot doesn't trust, when one of
+    /// its rules matches `ask` but sends a message, posts, shares or
+    /// changes a setting (see [`policy::rule_needs_trust`]): such a rule
+    /// doesn't apply after untrusted text, which may be what asked for it
+    /// (an email saying "click Send"), so the card shows instead. As with
+    /// small scripts.
+    ///
+    /// # Errors
+    /// Fails if the database fails.
+    pub(super) async fn rule_held_back(
+        &self,
+        bot: &Bot,
+        ask: &policy::Ask,
+    ) -> Result<Option<String>, HubError> {
+        let Some(rule) = self.matching_rule(bot, ask)? else {
+            return Ok(None);
+        };
+        if !policy::rule_needs_trust(&rule.label) {
+            return Ok(None);
+        }
+        let read = self.untrusted(&bot.id).await;
+        if read.is_some() {
+            tracing::info!(bot = %bot.id, site = rule.site, label = rule.label, "a rule matched after untrusted text: asking");
+        }
+        Ok(read)
+    }
+
     /// Whether one of `bot`'s rules lets `ask` through without a card. If
     /// so, its chat gets a quiet line. The site must be the one Chrome itself
     /// says the tab at `page_url` shows (`browser`, oxbot's own

@@ -59,6 +59,7 @@ fn order_is_fixed_and_side_effects_known() {
             "mcp__oxbot__query_rows",
             "mcp__oxbot__read_pages",
             "mcp__oxbot__page_steps",
+            "mcp__oxbot__read_document",
         ]
     );
     // The tools that drive the browser themselves: page_steps changes
@@ -69,6 +70,7 @@ fn order_is_fixed_and_side_effects_known() {
     );
     assert!(!r.get("mcp__oxbot__read_pages").unwrap().side_effect);
     assert!(r.get("mcp__oxbot__page_steps").unwrap().side_effect);
+    assert!(!r.get("mcp__oxbot__read_document").unwrap().side_effect);
     // Small scripts, for every bot: oxbot runs them, after the person's yes.
     assert_eq!(
         r.get("mcp__oxbot__run_program").unwrap().kind,
@@ -425,4 +427,31 @@ async fn another_bots_reply_is_outside_text() {
     assert_eq!(out.meta.trust_why.as_deref(), Some("another bot's reply"));
     drop(tx);
     hub.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_google_editor_says_to_read_the_whole_file() {
+    let p = Parts::new();
+    let editor = "## Pages\n1: Divit Learning - Google Slides (https://docs.google.com/presentation/d/1EAYk18WDjIG-zp_0vLm3CsfQh_i8eXc67Jo2O9C6Vuc/edit) [selected]\n## Latest page snapshot\nuid=1_0 RootWebArea \"Divit Learning - Google Slides\"\n  uid=1_1 StaticText \"Week of Oct 8\"\n";
+    let browser: Arc<dyn BrowserTools> = ScriptedBrowser::with_snapshot(editor);
+    let call = ToolCall::new("c1", "mcp__chrome-devtools__take_snapshot", json!({}));
+    let out = p.run(&browser, &call, &[]).await;
+    let Part::Text(text) = out.for_model[0].clone() else {
+        panic!()
+    };
+    assert!(
+        text.starts_with(
+            "[oxbot: This is a Google Slides editor: the page shows only part of it. Use \
+             read_document to read all of it.]\n[stored as r1"
+        ),
+        "{text}"
+    );
+    // Any other page: no hint.
+    let p = Parts::new();
+    let browser: Arc<dyn BrowserTools> = ScriptedBrowser::with_snapshot(big_page(3, false));
+    let out = p.run(&browser, &call, &[]).await;
+    let Part::Text(text) = out.for_model[0].clone() else {
+        panic!()
+    };
+    assert!(!text.contains("read_document"), "{text}");
 }

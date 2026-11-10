@@ -20,4 +20,9 @@ server_version: string,
  * When this server process started (ms since the Unix epoch). A client
  * that sees it change knows the server restarted (the page reloads).
  */
-started_ms: number, };
+started_ms: number, 
+/**
+ * End-to-end test mode (a debug build started for tests): only then
+ * does the page give the tests their names (`window.send`…).
+ */
+test: boolean, };

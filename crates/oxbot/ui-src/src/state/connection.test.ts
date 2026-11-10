@@ -18,6 +18,7 @@ const settings: AppSettings = {
   openrouter_ready: false,
   codex_ready: false,
   keychain_waiting: false,
+  keep_awake: null,
 };
 
 describe("connection reducer", () => {
@@ -35,6 +36,7 @@ describe("connection reducer", () => {
         server_name: "jays-mac",
         server_version: "0.1.0",
         started_ms: 42,
+        test: false,
       }),
     );
     expect(next.serverName).toBe("jays-mac");

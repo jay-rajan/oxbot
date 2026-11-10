@@ -223,7 +223,11 @@ impl View {
                     "   {}",
                     red(&format!(
                         "⚠ {} needs you to sign in to {} ({}). Open the oxbot app to sign in.",
-                        s.bot, s.site, s.why
+                        s.bot,
+                        s.site,
+                        s.before
+                            .as_deref()
+                            .map_or_else(|| s.why.clone(), |b| format!("before {b}"))
                     ))
                 );
             }

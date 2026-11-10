@@ -36,6 +36,35 @@ pub fn changes_files(name: &str) -> bool {
     matches!(name, "Write" | "Edit")
 }
 
+/// Whether `text` (the person's message, or the bot's instructions) asks
+/// for a file: bots write files only then, and otherwise reply in chat.
+#[must_use]
+pub fn asks_for_file(text: &str) -> bool {
+    const WORDS: [&str; 14] = [
+        "file",
+        "save",
+        "document",
+        "download",
+        "export",
+        "spreadsheet",
+        "keep a copy",
+        "keep a list",
+        "write it down",
+        "write down",
+        "note it",
+        "notes",
+        "folder",
+        "to-do list",
+    ];
+    const EXTENSIONS: [&str; 6] = [".md", ".txt", ".csv", ".json", ".html", ".pdf"];
+    let t = text.to_lowercase();
+    WORDS.iter().any(|w| t.contains(w)) || EXTENSIONS.iter().any(|e| t.contains(e))
+}
+
+/// What a bot is told when it writes a file nobody asked for.
+pub const NO_FILE_ASKED: &str = "[oxbot] Not written: write a file only when the person asks for one. \
+     Put this in your reply instead.";
+
 /// The file tools as the model sees them.
 #[must_use]
 pub fn specs() -> Vec<ToolSpec> {
@@ -680,5 +709,14 @@ mod tests {
         assert_eq!(r.text, "b.txt:1: Beta here\nnotes/a.md:2: beta\n");
         let r = run("Grep", &json!({"pattern": "beta", "glob": "*.md"}), &work).unwrap();
         assert_eq!(r.text, "notes/a.md:2: beta\n");
+    }
+
+    #[test]
+    fn a_file_is_written_only_when_someone_asked() {
+        assert!(asks_for_file("[Jay] save the plan to a file"));
+        assert!(asks_for_file("Keep a running home to-do list."));
+        assert!(asks_for_file("export it as plan.csv"));
+        assert!(!asks_for_file("[Jay] can you suggest for this week?"));
+        assert!(!asks_for_file("I plan healthy meals for two adults."));
     }
 }

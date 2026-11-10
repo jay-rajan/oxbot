@@ -1,14 +1,25 @@
-//! One-time pairing codes: shown on the home computer for one person, good once, for
-//! ten minutes and five tries. Pure logic with the time passed in, so every
-//! rule can be tested without waiting.
+//! One-time pairing codes: shown on the home computer for one person, good
+//! once, for ten minutes. Each device (by its address) gets five tries, then
+//! waits ten minutes; the code keeps working for everyone else until
+//! [`CODE_TRIES_TOTAL`] wrong tries in all stop it. Pure logic with the time
+//! passed in, so every rule can be tested without waiting.
+
+use std::collections::HashMap;
+use std::net::IpAddr;
 
 use anyhow::Context as _;
 use oxbot_core::id::PersonId;
 
 /// How long a pairing code works.
 pub const CODE_LIFE_MS: i64 = 10 * 60 * 1000;
-/// Wrong guesses allowed before a code stops working.
+/// Wrong guesses one address may make before it has to wait.
 pub const CODE_TRIES: u8 = 5;
+/// How long an address that guessed wrong [`CODE_TRIES`] times waits.
+pub const BLOCKED_MS: i64 = 10 * 60 * 1000;
+/// Wrong guesses from everyone together before a code stops working.
+pub const CODE_TRIES_TOTAL: u8 = 30;
+/// The most addresses remembered (a home network has far fewer).
+const MAX_REMEMBERED: usize = 1024;
 /// Letters for codes: no 0/O, 1/I/L, so they're easy to read and type.
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -20,7 +31,16 @@ struct Showing {
     person_id: Option<PersonId>,
     code: String,
     expires_ms: i64,
+    /// Wrong guesses still allowed, from everyone together.
     tries_left: u8,
+}
+
+/// One address's wrong guesses.
+#[derive(Debug, Clone, Copy, Default)]
+struct Guesses {
+    wrong: u8,
+    /// Blocked until then (ms), after [`CODE_TRIES`] wrong guesses.
+    blocked_until_ms: i64,
 }
 
 /// What a typed code turned out to be.
@@ -35,12 +55,18 @@ pub enum Check {
         /// The code stopped working.
         closed: bool,
     },
+    /// This address guessed wrong too often: it waits ([`BLOCKED_MS`]),
+    /// right code or not.
+    Blocked,
 }
 
 /// The pairing code on the home computer's screen, if any. At most one at a time.
 #[derive(Debug, Default)]
 pub struct PairingCodes {
     showing: Option<Showing>,
+    /// Wrong guesses by address. Kept across codes, so waiting for a new
+    /// code doesn't end a block.
+    guesses: HashMap<IpAddr, Guesses>,
 }
 
 impl PairingCodes {
@@ -66,8 +92,10 @@ impl PairingCodes {
             person_id,
             code: code.clone(),
             expires_ms,
-            tries_left: CODE_TRIES,
+            tries_left: CODE_TRIES_TOTAL,
         });
+        // A new code starts everyone's count again; blocks stay.
+        self.guesses.retain(|_, g| g.blocked_until_ms > now_ms);
         (code, expires_ms)
     }
 
@@ -84,14 +112,19 @@ impl PairingCodes {
             .is_some_and(|s| s.expires_ms >= now_ms)
     }
 
-    /// Checks a typed code at `now_ms`.
-    pub fn check(&mut self, typed: &str, now_ms: i64) -> Check {
-        self.check_for(typed, now_ms).0
+    /// Checks a code typed on the device at `from`, at `now_ms`.
+    pub fn check(&mut self, typed: &str, from: IpAddr, now_ms: i64) -> Check {
+        self.check_for(typed, from, now_ms).0
     }
 
     /// Like [`PairingCodes::check`], with the person's id when the code was
     /// shown for someone oxbot knew (see [`PairingCodes::show_for`]).
-    pub fn check_for(&mut self, typed: &str, now_ms: i64) -> (Check, Option<PersonId>) {
+    pub fn check_for(
+        &mut self,
+        typed: &str,
+        from: IpAddr,
+        now_ms: i64,
+    ) -> (Check, Option<PersonId>) {
         let Some(showing) = self.showing.as_mut() else {
             return (Check::NoCode, None);
         };
@@ -99,11 +132,31 @@ impl PairingCodes {
             self.showing = None;
             return (Check::NoCode, None);
         }
+        if self
+            .guesses
+            .get(&from)
+            .is_some_and(|g| g.blocked_until_ms > now_ms)
+        {
+            return (Check::Blocked, None);
+        }
         if !crate::secret::same(&normalize_code(typed), &showing.code) {
             showing.tries_left = showing.tries_left.saturating_sub(1);
             let closed = showing.tries_left == 0;
             if closed {
                 self.showing = None;
+            }
+            if self.guesses.len() >= MAX_REMEMBERED && !self.guesses.contains_key(&from) {
+                self.guesses.retain(|_, g| g.blocked_until_ms > now_ms);
+            }
+            if self.guesses.len() < MAX_REMEMBERED || self.guesses.contains_key(&from) {
+                let guesses = self.guesses.entry(from).or_default();
+                guesses.wrong += 1;
+                if guesses.wrong >= CODE_TRIES {
+                    *guesses = Guesses {
+                        wrong: 0,
+                        blocked_until_ms: now_ms + BLOCKED_MS,
+                    };
+                }
             }
             return (Check::Wrong { closed }, None);
         }
@@ -163,6 +216,8 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_000_000;
+    const PHONE: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 20));
+    const OTHER: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 21));
 
     #[test]
     fn codes_are_easy_to_type_and_compare_loosely() {
@@ -178,8 +233,11 @@ mod tests {
         let mut codes = PairingCodes::default();
         let (code, _) = codes.show("Ann", NOW);
         let typed = display_code(&code).to_lowercase();
-        assert_eq!(codes.check(&typed, NOW + 1), Check::Paired("Ann".into()));
-        assert_eq!(codes.check(&code, NOW + 2), Check::NoCode);
+        assert_eq!(
+            codes.check(&typed, PHONE, NOW + 1),
+            Check::Paired("Ann".into())
+        );
+        assert_eq!(codes.check(&code, PHONE, NOW + 2), Check::NoCode);
     }
 
     #[test]
@@ -188,12 +246,12 @@ mod tests {
         let sam = PersonId::random();
         let (code, _) = codes.show_for("Sam", Some(sam.clone()), NOW);
         assert_eq!(
-            codes.check_for(&code, NOW + 1),
+            codes.check_for(&code, PHONE, NOW + 1),
             (Check::Paired("Sam".into()), Some(sam))
         );
         let (code, _) = codes.show("Ann", NOW);
         assert_eq!(
-            codes.check_for(&code, NOW + 1),
+            codes.check_for(&code, PHONE, NOW + 1),
             (Check::Paired("Ann".into()), None),
             "someone new is made when the device pairs"
         );
@@ -206,21 +264,55 @@ mod tests {
         assert_eq!(expires, NOW + CODE_LIFE_MS);
         assert!(codes.is_showing(expires));
         assert!(!codes.is_showing(expires + 1));
-        assert_eq!(codes.check(&code, expires + 1), Check::NoCode);
+        assert_eq!(codes.check(&code, PHONE, expires + 1), Check::NoCode);
     }
 
     #[test]
-    fn five_wrong_tries_stop_the_code() {
+    fn five_wrong_tries_block_that_device_but_not_the_code() {
         let mut codes = PairingCodes::default();
         let (code, _) = codes.show("Ann", NOW);
-        for _ in 1..CODE_TRIES {
+        for _ in 0..CODE_TRIES {
             assert_eq!(
-                codes.check("AAAA-AAAA", NOW),
+                codes.check("AAAA-AAAA", PHONE, NOW),
                 Check::Wrong { closed: false }
             );
         }
-        assert_eq!(codes.check("AAAA-AAAA", NOW), Check::Wrong { closed: true });
-        assert_eq!(codes.check(&code, NOW), Check::NoCode, "even the right one");
+        assert_eq!(
+            codes.check(&code, PHONE, NOW),
+            Check::Blocked,
+            "even the right one"
+        );
+        // A new code doesn't end the wait.
+        let (code, _) = codes.show("Ann", NOW);
+        assert_eq!(codes.check(&code, PHONE, NOW + 1), Check::Blocked);
+        // Another device still pairs with it.
+        assert_eq!(
+            codes.check(&code, OTHER, NOW + 1),
+            Check::Paired("Ann".into())
+        );
+        // Ten minutes on, the device may try again.
+        let (code, _) = codes.show("Ann", NOW + BLOCKED_MS);
+        assert_eq!(
+            codes.check(&code, PHONE, NOW + BLOCKED_MS + 1),
+            Check::Paired("Ann".into())
+        );
+    }
+
+    #[test]
+    fn thirty_wrong_tries_in_all_stop_the_code() {
+        let mut codes = PairingCodes::default();
+        let (code, _) = codes.show("Ann", NOW);
+        let mut last = Check::NoCode;
+        for i in 0..CODE_TRIES_TOTAL {
+            let from = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, i));
+            last = codes.check("AAAA-AAAA", from, NOW);
+        }
+        assert_eq!(last, Check::Wrong { closed: true });
+        assert_eq!(
+            codes.check(&code, OTHER, NOW),
+            Check::NoCode,
+            "even the right one"
+        );
     }
 
     #[test]
@@ -229,11 +321,14 @@ mod tests {
         let (old, _) = codes.show("Ann", NOW);
         let (new, _) = codes.show("Sam", NOW);
         if old != new {
-            assert_eq!(codes.check(&old, NOW), Check::Wrong { closed: false });
+            assert_eq!(
+                codes.check(&old, PHONE, NOW),
+                Check::Wrong { closed: false }
+            );
         }
         assert!(codes.cancel());
         assert!(!codes.cancel());
-        assert_eq!(codes.check(&new, NOW), Check::NoCode);
+        assert_eq!(codes.check(&new, PHONE, NOW), Check::NoCode);
     }
 
     #[test]

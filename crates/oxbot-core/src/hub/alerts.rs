@@ -215,7 +215,8 @@ impl Hub {
             .collect()
     }
 
-    fn pref_on(&self, key: &str) -> bool {
+    /// Whether the preference `key` is on (on unless set to `0`).
+    pub(super) fn pref_on(&self, key: &str) -> bool {
         match self.store.pref(key) {
             Ok(value) => value.as_deref() != Some("0"),
             Err(err) => {

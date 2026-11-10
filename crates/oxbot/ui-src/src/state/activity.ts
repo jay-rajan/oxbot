@@ -5,8 +5,8 @@
 import type { NetKind, NetRow, NetTotals } from "../net/protocol";
 import type { Action } from "./store";
 
-export type SettingsTab = "setGeneral" | "setSignins" | "setPeople" | "setActivity";
-export const SETTINGS_TABS: readonly SettingsTab[] = ["setGeneral", "setSignins", "setPeople", "setActivity"];
+export type SettingsTab = "setGeneral" | "setSignins" | "setPeople" | "setSchedules" | "setActivity";
+export const SETTINGS_TABS: readonly SettingsTab[] = ["setGeneral", "setSignins", "setPeople", "setSchedules", "setActivity"];
 
 /** `ui/open {dialog:"settings", arg}`: a tab id, or this to open People with Add a device. */
 export const ADD_DEVICE = "addDevice";

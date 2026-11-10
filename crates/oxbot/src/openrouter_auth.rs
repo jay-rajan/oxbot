@@ -88,7 +88,7 @@ impl std::fmt::Debug for OpenRouter {
 /// # Errors
 /// The stand-in's address isn't a local one.
 pub fn endpoint(e2e: bool) -> Result<Endpoint, oxbot_llm::LlmError> {
-    match std::env::var(E2E_URL).ok().filter(|_| e2e) {
+    match oxbot_core::engine::dev::dev_env_string(E2E_URL).filter(|_| e2e) {
         Some(url) => Endpoint::loopback(&url, Provider::OpenRouter),
         None => Ok(Endpoint::openrouter()),
     }
@@ -222,7 +222,8 @@ impl OpenRouter {
 
     /// Finishes the sign-in `state` belongs to, with `code`: trades it for
     /// a key, keeps it, and reads its limits. The waiting sign-in is used
-    /// up either way.
+    /// up only by its own `state` (or once it's too old): a callback with
+    /// another one (a page guessing) leaves it waiting.
     ///
     /// # Errors
     /// See [`CallbackError`].
@@ -231,19 +232,23 @@ impl OpenRouter {
         code: Option<&str>,
         state: Option<&str>,
     ) -> Result<(), CallbackError> {
-        let pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let pending = {
+            let mut waiting = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(found) = waiting.as_ref() else {
+                return Err(CallbackError::Stale);
+            };
+            if found.made.elapsed() > SIGN_IN_LIFE {
+                *waiting = None;
+                return Err(CallbackError::Stale);
+            }
+            if !state.is_some_and(|s| crate::secret::same(s, &found.state)) {
+                return Err(CallbackError::Stale);
+            }
+            waiting.take()
+        };
         let Some(pending) = pending else {
             return Err(CallbackError::Stale);
         };
-        let fresh = pending.made.elapsed() <= SIGN_IN_LIFE;
-        let same = state.is_some_and(|s| crate::secret::same(s, &pending.state));
-        if !fresh || !same {
-            return Err(CallbackError::Stale);
-        }
         let Some(code) = code.filter(|c| !c.is_empty() && c.len() <= 1024) else {
             return Err(CallbackError::NoCode);
         };
@@ -369,7 +374,7 @@ fn open_in_browser(url: &str) {
 
 /// Whether `host` (a `Host` header) is oxbot's own address on `port`: a
 /// page on any other name may not finish a sign-in (DNS rebinding).
-fn own_host(host: &str, port: u16) -> bool {
+pub(crate) fn own_host(host: &str, port: u16) -> bool {
     port != 0 && (host == format!("localhost:{port}") || host == format!("127.0.0.1:{port}"))
 }
 
@@ -518,10 +523,20 @@ pub(crate) mod tests {
             .unwrap()
             .to_owned();
         assert_eq!(state.len(), 64);
-        // The wrong state uses it up.
+        // A wrong state is refused and leaves the sign-in waiting: a page
+        // guessing can't spoil the person's own.
+        for _ in 0..3 {
+            assert_eq!(
+                or.finish(Some("c"), Some("nope")).await,
+                Err(CallbackError::Stale)
+            );
+        }
+        assert_eq!(or.finish(Some("c"), None).await, Err(CallbackError::Stale));
+        // Its own state goes on to the exchange (the stand-in refuses), and
+        // uses it up.
         assert_eq!(
-            or.finish(Some("c"), Some("nope")).await,
-            Err(CallbackError::Stale)
+            or.finish(Some("c"), Some(&state)).await,
+            Err(CallbackError::Exchange)
         );
         assert_eq!(
             or.finish(Some("c"), Some(&state)).await,

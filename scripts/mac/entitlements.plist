@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- What the hardened app and its Mac helper may still do (make-dmg.sh):
+     only the microphone, for dictation. Everything else the hardened
+     runtime blocks (injected libraries, debuggers, unsigned code) stays
+     blocked. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

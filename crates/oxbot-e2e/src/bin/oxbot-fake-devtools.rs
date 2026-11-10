@@ -2,7 +2,7 @@
 //! tests: an MCP server over stdio answering
 //! from the reply script in `OXBOT_FAKE_SCRIPT`. See
 //! [`oxbot_e2e::fake_devtools`]. Of the real tool's flags it reads only
-//! `--browserUrl`.
+//! `--wsEndpoint`.
 
 use std::io::{BufRead as _, Write as _};
 
@@ -14,9 +14,9 @@ fn main() {
     let log = std::env::var_os("OXBOT_FAKE_DT_LOG").map(Into::into);
     let mut devtools = Devtools::new(Script::from_env(), log);
     if let Some(url) =
-        std::env::args().find_map(|a| a.strip_prefix("--browserUrl=").map(str::to_owned))
+        std::env::args().find_map(|a| a.strip_prefix("--wsEndpoint=").map(str::to_owned))
     {
-        devtools = devtools.with_browser_url(&url);
+        devtools = devtools.with_ws_endpoint(&url);
     }
     let stdout = std::io::stdout();
     for line in std::io::stdin().lock().lines() {

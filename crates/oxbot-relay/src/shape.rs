@@ -2,7 +2,8 @@
 //! allow list, never the request as Codex sent it.
 //!
 //! - Kept: the conversation (`input`), the instructions (oxbot's own
-//!   prompt), function tools, and `stream`.
+//!   prompt), the function tools oxbot gave the bot (never Codex's own,
+//!   such as `apply_patch`: see [`offered`]), and `stream`.
 //! - Set by oxbot: the model and its fallbacks, the provider's privacy
 //!   rules, and the longest answer.
 //! - Kept only when the model takes them: `tool_choice`,
@@ -40,9 +41,31 @@ const OPTIONAL: [(&str, &str); 6] = [
 /// Input item types whose `id` Codex wrote itself.
 const OWN_IDS: [&str; 2] = ["message", "function_call_output"];
 
-/// The body to send for `request` on `attempt`.
+/// The function tools in `request` that are oxbot's (named in `tools`, as
+/// Codex knows them), in order: the only ones offered to the model, and
+/// the only ones its answer may call (see [`crate::calls`]).
 #[must_use]
-pub fn outgoing(request: &Map<String, Value>, attempt: &Attempt) -> Map<String, Value> {
+pub fn offered(request: &Map<String, Value>, tools: &[String]) -> Vec<String> {
+    request
+        .get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|t| t.get("type").and_then(Value::as_str) == Some("function"))
+        .filter_map(|t| t.get("name").and_then(Value::as_str))
+        .filter(|name| tools.iter().any(|t| t == name))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The body to send for `request` on `attempt`, offering only oxbot's
+/// `tools` (see [`offered`]).
+#[must_use]
+pub fn outgoing(
+    request: &Map<String, Value>,
+    attempt: &Attempt,
+    tools: &[String],
+) -> Map<String, Value> {
     let takes = |param: &str| {
         attempt
             .supported
@@ -74,14 +97,20 @@ pub fn outgoing(request: &Map<String, Value>, attempt: &Attempt) -> Map<String, 
             }
         }
     }
-    if let Some(Value::Array(tools)) = request.get("tools") {
-        let tools: Vec<Value> = tools
+    if let Some(Value::Array(sent)) = request.get("tools") {
+        let ours = offered(request, tools);
+        let kept: Vec<Value> = sent
             .iter()
             .filter(|t| t.get("type").and_then(Value::as_str) == Some("function"))
+            .filter(|t| {
+                t.get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| ours.iter().any(|o| o == name))
+            })
             .cloned()
             .collect();
-        if !tools.is_empty() {
-            out.insert("tools".into(), Value::Array(tools));
+        if !kept.is_empty() {
+            out.insert("tools".into(), Value::Array(kept));
         }
     }
     let has_tools = out.contains_key("tools");
@@ -127,7 +156,10 @@ mod tests {
             "tools": [
                 {"type": "function", "name": "mcp__chrome-devtools__navigate_page",
                  "description": "Go", "strict": false, "parameters": {"type": "object"}},
-                {"type": "web_search"}
+                {"type": "web_search"},
+                {"type": "custom", "name": "apply_patch", "description": "Edit files"},
+                {"type": "function", "name": "exec_command", "description": "Run",
+                 "parameters": {"type": "object"}}
             ],
             "tool_choice": "auto",
             "parallel_tool_calls": true,
@@ -149,6 +181,11 @@ mod tests {
         v.as_object().unwrap().clone()
     }
 
+    /// oxbot's tools in [`codex_request`].
+    fn ours() -> Vec<String> {
+        vec!["mcp__chrome-devtools__navigate_page".to_owned()]
+    }
+
     fn attempt(supported: Option<&[&str]>) -> Attempt {
         Attempt {
             model: "e2e/tool-model:free".into(),
@@ -165,6 +202,7 @@ mod tests {
         let out = outgoing(
             &codex_request(),
             &attempt(Some(&["tools", "tool_choice", "max_tokens"])),
+            &ours(),
         );
         let text = Value::Object(out.clone()).to_string();
         for gone in [
@@ -186,6 +224,8 @@ mod tests {
             "reasoning",
             "parallel_tool_calls",
             "e2e/model:free",
+            "apply_patch",
+            "exec_command",
         ] {
             assert!(!text.contains(gone), "{gone} left: {text}");
         }
@@ -222,10 +262,22 @@ mod tests {
 
     #[test]
     fn an_unknown_model_gets_the_optional_fields_but_never_the_ids() {
-        let out = outgoing(&codex_request(), &attempt(None));
+        let out = outgoing(&codex_request(), &attempt(None), &ours());
         assert_eq!(out["reasoning"], json!({"summary": "auto"}));
         assert_eq!(out["parallel_tool_calls"], true);
         assert!(!out.contains_key("prompt_cache_key"));
         assert!(!out.contains_key("client_metadata"));
+    }
+
+    #[test]
+    fn only_oxbots_own_tools_are_offered() {
+        let request = codex_request();
+        assert_eq!(offered(&request, &ours()), ours());
+        // Codex's own tools never, even as functions.
+        let wanted = vec!["exec_command".to_owned(), "apply_patch".to_owned()];
+        assert_eq!(offered(&request, &wanted), ["exec_command"]);
+        let out = outgoing(&request, &attempt(None), &[]);
+        assert!(!out.contains_key("tools"), "no tools of oxbot's: none");
+        assert!(!out.contains_key("tool_choice") && !out.contains_key("parallel_tool_calls"));
     }
 }

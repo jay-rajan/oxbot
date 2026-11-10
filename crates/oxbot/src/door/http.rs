@@ -1,6 +1,7 @@
 //! The door's own HTTP routes: `POST /pair`, and the key check in front of
 //! the page and WebSocket.
 
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,9 +24,17 @@ pub struct DeviceAuth {
     pub viewer: Viewer,
 }
 
-/// `POST /pair`: a device pairs with a code.
-pub async fn pair(State(door): State<Arc<Door>>, Json(req): Json<PairRequest>) -> Response {
-    match door.pair(&req) {
+/// `POST /pair`: a device pairs with a code. Wrong codes are counted by
+/// the device's address.
+pub async fn pair(
+    State(door): State<Arc<Door>>,
+    conn: Option<axum::Extension<axum::extract::ConnectInfo<super::listener::ConnBytes>>>,
+    Json(req): Json<PairRequest>,
+) -> Response {
+    let from = conn
+        .and_then(|axum::Extension(c)| c.0.peer())
+        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    match door.pair(&req, from) {
         Ok(reply) => Json(reply).into_response(),
         Err(err) => {
             // Slow down guessing.
@@ -33,6 +42,7 @@ pub async fn pair(State(door): State<Arc<Door>>, Json(req): Json<PairRequest>) -
             let status = match err {
                 PairError::HomeComputer(_) => StatusCode::SERVICE_UNAVAILABLE,
                 PairError::NoCode | PairError::WrongCode => StatusCode::FORBIDDEN,
+                PairError::TooManyTries => StatusCode::TOO_MANY_REQUESTS,
             };
             (status, err.to_string()).into_response()
         }

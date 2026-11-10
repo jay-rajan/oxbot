@@ -8,20 +8,25 @@ services, no analytics, and nothing goes to Anthropic.
 
 Status: the desktop app on the home computer plus the Android app for devices (milestone
 Foundations, issue #1). Shared bots share one hidden home Chrome that keeps the websites you're
-signed in to: a bot that needs an account asks, a Chrome window opens, you sign in once, and
+signed in to: a bot that needs an account asks, a plain Chrome window opens (no remote control, so
+sites don't take it for a robot), you sign in once and close it, and
 every bot on that Chrome stays signed in (a sign-in counts only if the window left a new cookie).
 Settings → Sign-ins lists the websites you're signed in to (the sidebar's Signed in link opens
 it); open one, or sign out of it alone. Bots take turns on the browser. oxbot checks every
 browser step: links, tabs, search, filters, sorting and paging run at once; an approval request
-comes before anything that changes something (Send, Post, Save, Apply…, or a filled-in POST
-form's button), and before paying, booking or deleting; one comes before an upload from the home
-computer; and it refuses passwords, page scripts, non-web pages and files outside the bot's
-folder. oxbot names what a click aims at from every page snapshot the bot has read, and for an
-unclear button it reads the button's form itself, in its own isolated world the page's scripts
-can't touch. A click oxbot still can't name runs, and is logged. An approval request for a change
-can offer **Always allow** (to the bot's maker or the owner at the home computer): the same bot
-may then click the same button on the same exact site without asking, with a quiet line in the
-chat. Paying, booking, deleting, Enter in a text box, uploads and the Assistant's requests never
+comes before anything that changes something (Send, Post, Save, Apply, Allow, Enable, Block,
+Leave, Add…, a POST form's button, or a privacy or settings switch), and before paying, booking or
+deleting; one comes before Enter in a text box (a line break typed, or a shortcut such as
+Control+Enter, counts as Enter), and before an upload from the home computer; and it refuses
+passwords, page scripts, non-web pages and files outside the bot's folder (a link out of it
+doesn't count as inside). oxbot names what a click aims at from the page snapshots the browser tool
+took, checks with Chrome that the page really shows that button, and for an unclear button it
+reads the button's form itself, in its own isolated world the page's scripts can't touch. A click
+oxbot can't name asks. An approval request for a change can offer **Always allow** (to the bot's
+maker or the owner at the home computer): the same bot may then click the same button on the same
+exact site without asking, with a quiet line in the chat; one that sends, posts or changes a
+setting doesn't apply once the bot has read a web page or a file in that conversation. Paying,
+booking, deleting, granting access, Enter in a text box, uploads and the Assistant's requests never
 offer it. The bot's ··· settings list what it may always do, each with Remove. Open approval
 requests sit right above the message box, newest nearest it, whichever bot is open; that area
 scrolls on its own so the box stays on screen, on a phone too.
@@ -72,7 +77,12 @@ available. macOS asks for the microphone and speech recognition the first time.
 The Assistant leads your bots: it can list them, make one (after you press Create on its
 approval request), give a bot a task and bring back its reply. Other bots can't. Messages show
 who sent them, each person in their own color; a working bot's icon moves, and a green dot marks
-unread replies.
+unread replies. A message sent while a bot works goes into its task (the
+bot reads it before its next step and answers both at the end); if the task waits on you for a
+sign-in or an approval request, the message ends that wait instead (the sign-in is cancelled, the
+request answered Don't allow), and "stop" alone stops the task. Someone else's message waits and
+runs right after. Answers taken from web pages link them; one that doesn't is sent back once,
+then oxbot adds a Sources list of the pages the bot really read.
 
 Private bots: every bot records who made it, and its maker can make it private. A private bot is
 listed for everyone (name, maker, a lock), but only its maker and the owner can open it, and it
@@ -100,10 +110,15 @@ a typed one, as the person who made it: their bots, websites and AI spending, ev
 request. Its answer lands in the bot's chat and its first line goes to their devices; a run that
 waits for an OK or a sign-in says it needs them. One run at a time per bot, at least 15 minutes
 apart, up to 30 schedules per person; a run over the day's limits is skipped and says so. Missed
-while the home computer was asleep or oxbot closed: it runs once if that's within 2 hours, else
-it's noted as missed. The bot's ··· settings and Settings → Schedules list them (next run, last
-run and how it went, Pause, Delete): the owner sees all, everyone else their own and those in bots
-they may open.
+while the home computer was asleep or oxbot closed: when it's back, each schedule's most recent
+missed run runs once (as long as its next run isn't due yet), and the chat and the bot say so
+("Ran at 11:04 AM; the home computer was asleep or oxbot was closed at 8 AM."); older ones are
+noted as missed. **Keep the Mac awake while plugged in** (Settings → General and the owner's
+welcome screen; on by default) keeps a `caffeinate -s` tied to oxbot running, so on power the Mac
+doesn't sleep and runs happen on time (the screen still sleeps; on battery or with the lid closed
+it sleeps as usual). The bot's ··· settings and Settings → Schedules list them (bot, next run,
+last run: ran, late, missed or failed, Pause/Resume, Delete): the owner sees all, everyone else
+their own and those in bots they may open.
 
 Welcome: the owner's first start, and each newly paired device, show a welcome screen: name,
 colour and photo, role (the first person is the owner, who confirms they're 18 or older and accept
@@ -130,7 +145,7 @@ Mac can't act as the home computer.
 
 Setup: the browser tool and Node.js ship inside the app; you need Google Chrome and Codex CLI
 0.148.x (installed separately for now: oxbot looks in `PATH`, `/opt/homebrew/bin` and
-`/usr/local/bin`, or where `OXBOT_CODEX` or Settings says), and the owner signs in to OpenRouter
+`/usr/local/bin`, or where Settings says, or `OXBOT_CODEX` in a debug build), and the owner signs in to OpenRouter
 once. Settings (the gear) shows setup, AI spending and oxbot's activity log.
 
 Usage alerts: when the home nears or reaches one of its OpenRouter limits (free questions for the
@@ -325,7 +340,8 @@ test picks one with `script = …`), files to attach (`e2e/fixtures/`), and appr
 (`e2e/baselines/`). A step can `attach = ["e2e/fixtures/bill.pdf"]`; a test with
 `dictation = true` gets a stand-in Mac helper that "hears" a sentence (no test uses the real
 microphone), and video goes to the real helper for real still frames. The runner,
-`crates/oxbot-e2e`, starts a throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in
+`crates/oxbot-e2e`, starts a throwaway oxbot in test mode (`OXBOT_E2E=1`; like every `OXBOT_E2E*`, `OXBOT_FAKE_*`
+and other test setting, it works only in a debug build, never in the app people install), drives its page in
 hidden Chrome (and Safari, the app's engine, when "Allow Remote Automation" is on), screenshots
 every step, and checks the built Mac app. Bots run on the real Codex (0.148.x must be installed:
 `needs = ["codex"]` in `e2e/pr_test.toml`; without it every test is skipped, saying why),

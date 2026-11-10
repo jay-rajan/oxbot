@@ -275,6 +275,10 @@ on: boolean, } | { "type": "set_usage_alerts",
 /**
  * On or off.
  */
+on: boolean, } | { "type": "set_keep_awake", 
+/**
+ * On or off.
+ */
 on: boolean, } | { "type": "open_sign_in", 
 /**
  * The request's id.

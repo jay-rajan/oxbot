@@ -91,6 +91,7 @@ fn loop_prefs(p: &EnginePrefs) -> LoopPrefs {
         paid_fallback: p.paid_fallback,
         paid_models: p.paid_models.clone(),
         assistant_model: p.assistant_model.clone(),
+        default_models: crate::model_lists::default_models(),
         ..LoopPrefs::default()
     }
 }

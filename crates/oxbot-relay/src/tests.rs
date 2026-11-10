@@ -136,6 +136,7 @@ fn info(dir: &Path) -> ClientInfo {
         privacy: Privacy::Standard,
         choice: ModelChoice::Auto,
         central: false,
+        tools: vec!["t".into(), "type_text".into()],
     }
 }
 
@@ -351,7 +352,8 @@ const PERSONAL: &str = r#"{"model":"m","stream":true,"instructions":"You help An
       "text":"[Ann Lee] email ann.lee@example.com or call 416-555-0100"}]},
      {"type":"function_call","call_id":"c1","name":"type_text",
       "arguments":"{\"text\":\"ann.lee@example.com\"}"},
-     {"type":"function_call_output","call_id":"c1","output":"Typed it for Ann."}]}"#;
+     {"type":"function_call_output","call_id":"c1","output":"Typed it for Ann."}],
+    "tools":[{"type":"function","name":"type_text","parameters":{}}]}"#;
 
 /// A streamed answer that uses the stand-ins, split mid-way through one.
 fn answer_with_stand_ins() -> String {
@@ -457,7 +459,7 @@ async fn a_whole_answer_comes_back_real() {
     let h = harness_knowing(vec![personal::Known::person("Ann Lee")]).await;
     let whole = json!({"id": "g", "model": "e2e/a:free", "output": [
         {"type": "message", "content": [{"type": "output_text", "text": "Done, [person 1]."}]},
-        {"type": "function_call", "arguments": "{\"to\":\"[email 1]\"}"}],
+        {"type": "function_call", "name": "type_text", "arguments": "{\"to\":\"[email 1]\"}"}],
         "usage": {"input_tokens": 3, "output_tokens": 1}});
     *h.upstream.answer.lock().unwrap() = Some((whole.to_string(), true));
     let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
@@ -584,4 +586,40 @@ async fn a_request_with_nothing_personal_swaps_nothing_and_a_refused_one_is_note
     assert_eq!(rows[1].bytes_down, 0);
     assert_eq!(rows[1].outcome, "This conversation is too long.");
     let _ = client.end_turn();
+}
+
+#[tokio::test]
+async fn codexs_own_tools_are_neither_offered_nor_run() {
+    let h = harness().await;
+    let patch = json!({"type": "custom_tool_call", "id": "p", "call_id": "c9",
+        "name": "apply_patch", "input": "*** Begin Patch\n*** Add File: /tmp/x"});
+    let events = [
+        json!({"type": "response.output_item.added", "output_index": 0, "item": patch}),
+        json!({"type": "response.output_item.done", "output_index": 0, "item": patch}),
+        json!({"type": "response.completed", "response": {"id": "g", "model": "e2e/a:free",
+            "output": [patch], "usage": {"input_tokens": 9, "output_tokens": 3}}}),
+    ];
+    let answer = events.iter().fold(String::new(), |mut out, e| {
+        use std::fmt::Write as _;
+        let _ = write!(out, "event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap());
+        out
+    });
+    *h.upstream.answer.lock().unwrap() = Some((answer, false));
+    let (client, token) = h.relay.register(info(h.dir.path())).unwrap();
+    client.begin_turn(start(None));
+    let request = REQUEST.replace(
+        r#""tools":[{"type":"function","name":"t","parameters":{}}]"#,
+        r#""tools":[{"type":"function","name":"t","parameters":{}},
+            {"type":"custom","name":"apply_patch"},{"type":"function","name":"shell","parameters":{}}]"#,
+    );
+    let (status, body) = post(h.relay.addr(), "/v1/responses", Some(&token), &request).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("response.completed"), "{body}");
+    assert!(!body.contains("\"apply_patch\""), "{body}");
+    assert!(body.contains("unavailable_tool_apply_patch"), "{body}");
+    let sent = h.upstream.bodies.lock().unwrap()[0].clone();
+    assert_eq!(
+        sent["tools"],
+        json!([{"type":"function","name":"t","parameters":{}}])
+    );
 }

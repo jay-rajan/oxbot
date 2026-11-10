@@ -33,7 +33,7 @@ impl Identity {
         let (cert, key) = if cert_path.exists() && key_path.exists() {
             (std::fs::read(&cert_path)?, std::fs::read(&key_path)?)
         } else {
-            std::fs::create_dir_all(dir)?;
+            oxbot_core::home::private_dir(dir)?;
             let made = rcgen::generate_simple_self_signed(vec![oxbot_device::CERT_NAME.to_owned()])
                 .context("couldn't make the home computer's certificate")?;
             let cert = made.cert.der().to_vec();

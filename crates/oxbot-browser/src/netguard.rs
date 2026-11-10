@@ -30,8 +30,6 @@ use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::http;
-
 /// How much a practice run's pages may send.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum NetMode {
@@ -133,19 +131,12 @@ impl Drop for NetGuard {
 }
 
 impl NetGuard {
-    /// Connects to the Chrome on `port` and starts guarding every tab.
+    /// Connects to the Chrome at `endpoint` (see [`crate::Browser::endpoint`]) and starts guarding every tab.
     ///
     /// # Errors
     /// Fails if Chrome's `DevTools` connection can't be opened.
-    pub(crate) async fn start(port: u16, mode: NetMode) -> Result<Self, String> {
-        let version = http::get(port, "/json/version")
-            .await
-            .ok_or("Chrome's control port didn't answer")?;
-        let ws_url = serde_json::from_str::<Value>(&version)
-            .ok()
-            .and_then(|v| v.get("webSocketDebuggerUrl")?.as_str().map(str::to_owned))
-            .ok_or("Chrome gave no DevTools address")?;
-        let (socket, _) = tokio_tungstenite::connect_async(ws_url.as_str())
+    pub(crate) async fn start(endpoint: &str, mode: NetMode) -> Result<Self, String> {
+        let (socket, _) = tokio_tungstenite::connect_async(endpoint)
             .await
             .map_err(|e| e.to_string())?;
         let shared = Arc::new(Mutex::new(Shared {

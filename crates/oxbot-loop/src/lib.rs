@@ -43,7 +43,9 @@ use oxbot_llm::{ChatModel, KeyCell};
 
 pub use budget::TokenBudget;
 pub use check::{
-    CHECK_AFTER_CALLS, MAX_NAMED, answer_after_check, note as check_note, wrap_up_note,
+    CHECK_AFTER_CALLS, MAX_NAMED, MAX_SOURCES, SourcePage, add_source, answer_after_check,
+    has_link, link_line, needs_links, note as check_note, pages_in_result, with_sources,
+    wrap_up_note,
 };
 pub use meter::{GuardQuery, LimitHit, NoLimits, UsageGuard};
 pub use pacer::{Account, Lane, Pacer};
@@ -67,6 +69,9 @@ pub struct LoopPrefs {
     /// The model every person's Assistant tries first (`None`: the router
     /// picks).
     pub assistant_model: Option<String>,
+    /// The list a bot with none of its own (and the Assistant) tries first,
+    /// strongest first, so Auto never means the smallest model that's up.
+    pub default_models: Vec<String>,
     /// Longest answer to ask for, in tokens.
     pub max_tokens: u32,
     /// Most model requests in one turn.
@@ -80,6 +85,7 @@ impl Default for LoopPrefs {
             paid_fallback: false,
             paid_models: Vec::new(),
             assistant_model: None,
+            default_models: Vec::new(),
             max_tokens: 4096,
             max_steps: 50,
         }

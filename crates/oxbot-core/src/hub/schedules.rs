@@ -11,9 +11,19 @@
 //!   path as a typed task, as the schedule's person ([`Entry::Schedule`]):
 //!   their bots, their Chrome, their limits, every approval request. One
 //!   run at a time per bot (else `busy`), at least [`MIN_GAP_MS`] apart
-//!   (else `too_soon`), and only under the home's limits (else `limit`). A
-//!   run missed by at most [`CATCH_UP_MS`] (the Mac asleep, oxbot closed)
-//!   runs once; older ones are noted `missed`.
+//!   (else `too_soon`), and only under the home's limits (else `limit`).
+//! - Catching up after the Mac slept or oxbot was closed
+//!   ([`Rule::catch_up`]): a schedule's most recent missed run runs once,
+//!   as long as its next run isn't due yet; older ones are noted `missed`.
+//!   A run more than [`LATE_MS`] late says so in the bot's chat and to the
+//!   bot ("Ran at 11:04 AM; the home computer was asleep or oxbot was
+//!   closed at 8 AM."), and its run shows as late (its start against its
+//!   due time in `schedule_runs`).
+//! - While "Keep the Mac awake while plugged in" is on (the default; see
+//!   [`Hub::keep_awake_on`]), the oxbot app keeps the Mac from sleeping on
+//!   power, so runs happen on time.
+//!
+//! [`LATE_MS`]: crate::schedule::LATE_MS
 //! - A run's answer lands in the bot's chat, and a line goes to its
 //!   person's devices; so does "needs you" when it waits for an OK or a
 //!   sign-in.
@@ -37,9 +47,13 @@ use crate::bot::{Bot, Viewer};
 use crate::engine::text::data_block;
 use crate::id::{BotId, PersonId};
 use crate::policy;
-use crate::schedule::{self, CATCH_UP_MS, MAX_PER_PERSON, MIN_GAP_MS, Rule};
+use crate::schedule::{self, MAX_PER_PERSON, MIN_GAP_MS, Rule};
 use crate::store::{NewSchedule, ScheduleRecord, now_ms};
 use crate::tools;
+
+/// The preference for "Keep the Mac awake while plugged in" (on unless
+/// `0`).
+pub const PREF_KEEP_AWAKE: &str = "keep_awake";
 
 /// How long a schedule's past runs are kept.
 const KEEP_RUNS_MS: i64 = 90 * 86_400_000;
@@ -148,6 +162,23 @@ impl Hub {
         Ok(())
     }
 
+    /// Whether "Keep the Mac awake while plugged in" is on (the default),
+    /// so schedules run on time.
+    #[must_use]
+    pub fn keep_awake_on(&self) -> bool {
+        self.pref_on(PREF_KEEP_AWAKE)
+    }
+
+    /// Turns "Keep the Mac awake while plugged in" on or off.
+    ///
+    /// # Errors
+    /// Fails if the database fails.
+    pub fn set_keep_awake(&self, on: bool) -> Result<(), HubError> {
+        self.store
+            .set_pref(PREF_KEEP_AWAKE, if on { "1" } else { "0" })?;
+        Ok(())
+    }
+
     /// Schedule `id`'s rule in words, e.g. `Every weekday at 8:15 AM`.
     pub(super) fn schedule_label(&self, id: i64) -> Option<String> {
         let s = self.store.schedule(id).ok()??;
@@ -203,38 +234,28 @@ impl Hub {
                 let _ = self.store.set_schedule_paused(s.id, true, s.next_run_ms);
                 continue;
             };
-            let mut dues = vec![first];
-            dues.extend(rule.runs_between(first, now, &*zone, 60));
-            let latest = dues.last().copied().unwrap_or(first);
-            // Late by at most two hours: it runs once now.
-            let catch_up = now - latest <= CATCH_UP_MS;
-            let missed = if catch_up {
-                &dues[..dues.len() - 1]
-            } else {
-                &dues[..]
-            };
-            for at in missed {
+            let catch_up = rule.catch_up(first, now, &*zone);
+            for at in &catch_up.missed {
                 if let Err(err) = self.store.add_schedule_run(s.id, *at, None, "missed", None) {
                     tracing::warn!(schedule = s.id, %err, "couldn't note a missed run");
                 }
             }
-            if !missed.is_empty() {
+            if !catch_up.missed.is_empty() {
                 tracing::info!(
                     schedule = s.id,
-                    missed = missed.len(),
+                    missed = catch_up.missed.len(),
                     "scheduled runs were missed"
                 );
             }
-            let next = rule.next_after(now.max(latest), &*zone);
-            if let Err(err) = self
-                .store
-                .set_schedule_runs(s.id, next, catch_up.then_some(now))
+            if let Err(err) =
+                self.store
+                    .set_schedule_runs(s.id, catch_up.next, catch_up.run.map(|_| now))
             {
                 tracing::warn!(schedule = s.id, %err, "couldn't move a schedule on");
                 continue;
             }
-            if catch_up {
-                self.start_run(&s, &rule, latest, now);
+            if let Some(due) = catch_up.run {
+                self.start_run(&s, &rule, due, now);
             }
         }
         drop(one);
@@ -340,7 +361,15 @@ impl Hub {
     /// Gives `bot` schedule `s`'s task, as its person, and notes the run.
     async fn run_scheduled(self: Arc<Self>, bot: Bot, s: ScheduleRecord, due: i64, started: i64) {
         let name = self.person_name(&s.person);
-        let origin = ChainOrigin::scheduled(s.person.clone(), s.id);
+        let mut origin = ChainOrigin::scheduled(s.person.clone(), s.id);
+        if schedule::is_late(due, started) {
+            origin.late = Some(schedule::late_line(due, started, &*self.config.zone));
+            tracing::info!(
+                schedule = s.id,
+                late_ms = started - due,
+                "a scheduled run starts late"
+            );
+        }
         let sent = self
             .send_for(
                 bot.id.as_str(),
@@ -384,7 +413,7 @@ impl Hub {
             Err(HubError::Busy(_)) => "busy",
             Err(HubError::EngineNotReady(why)) => {
                 // Not set up yet (oxbot just started, say): tried again
-                // at the next check, while it's still within the catch-up.
+                // at the next check, while its next run isn't due yet.
                 tracing::info!(schedule = s.id, %why, "a scheduled run waits for the AI model");
                 lock(&self.scheduler.active).remove(&bot.id);
                 lock(&self.scheduler.last_start).remove(&bot.id);
@@ -890,6 +919,10 @@ impl Hub {
                     person: names.get(&s.person).cloned().unwrap_or_default(),
                     last_outcome: last.get(&s.id).map(|r| r.outcome.clone()),
                     last_run_ms: last.get(&s.id).map(|r| r.started_ms.unwrap_or(r.due_ms)),
+                    last_late: last.get(&s.id).is_some_and(|r| {
+                        r.started_ms
+                            .is_some_and(|started| schedule::is_late(r.due_ms, started))
+                    }),
                     id: s.id,
                     bot: s.bot.to_string(),
                     task: s.task,
@@ -1049,56 +1082,113 @@ mod tests {
             .collect()
     }
 
-    #[tokio::test]
-    async fn a_run_missed_by_more_than_two_hours_is_noted_and_the_next_one_set() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (hub, jay, _) = hub(tmp.path()).await;
-        let now = hub.schedule_now();
-        let late = add(&hub, "recipes", &jay, now - 3 * 3_600_000);
-        hub.check_schedules().await;
-        assert_eq!(outcomes(&hub, late.id), ["missed"]);
-        let after = hub.store.schedule(late.id).unwrap().unwrap();
-        assert!(after.next_run_ms.unwrap() > now, "on to the next 8:15");
-        // Days off: each missed run is noted once.
-        // Due Sunday 9:00; then Monday's, Tuesday's and today's 8:15 (all
-        // over two hours ago at noon).
-        let days = add(&hub, "recipes", &jay, now - 3 * 86_400_000 - 3 * 3_600_000);
-        hub.check_schedules().await;
-        assert_eq!(outcomes(&hub, days.id), ["missed"; 4]);
-        let next = hub
-            .store
-            .schedule(days.id)
-            .unwrap()
-            .unwrap()
-            .next_run_ms
-            .unwrap();
-        assert_eq!(
-            crate::schedule::when(next, &Fixed("UTC", 0)),
-            "Thu, Nov 5 at 8:15 AM"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_run_missed_by_less_waits_for_the_ai_model_and_runs_once() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (hub, jay, _) = hub(tmp.path()).await;
-        let now = hub.schedule_now();
-        let due = now - 3_600_000;
-        let s = add(&hub, "recipes", &jay, due);
-        hub.check_schedules().await;
-        // No AI model here: it waits, still due, and nothing is noted yet.
+    /// Waits until schedule `id`'s run, which waits for an AI model (none
+    /// here), puts its next run back to `due`.
+    async fn waits_for_the_model(hub: &Hub, id: i64, due: i64) {
         for _ in 0..50 {
-            if hub.store.schedule(s.id).unwrap().unwrap().next_run_ms == Some(due) {
+            if hub.store.schedule(id).unwrap().unwrap().next_run_ms == Some(due) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert_eq!(
-            hub.store.schedule(s.id).unwrap().unwrap().next_run_ms,
+            hub.store.schedule(id).unwrap().unwrap().next_run_ms,
             Some(due)
         );
+    }
+
+    #[tokio::test]
+    async fn a_run_three_hours_late_still_runs_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, _) = hub(tmp.path()).await;
+        let now = hub.schedule_now();
+        // Due at 9:00, the Mac asleep until noon: today's 8:15 is past,
+        // tomorrow's isn't due, so it runs (it waits for an AI model here).
+        let due = now - 3 * 3_600_000;
+        let s = add(&hub, "recipes", &jay, due);
+        hub.check_schedules().await;
+        waits_for_the_model(&hub, s.id, due).await;
+        assert_eq!(outcomes(&hub, s.id), Vec::<String>::new(), "nothing missed");
+    }
+
+    #[tokio::test]
+    async fn days_of_missed_runs_run_the_newest_once_and_note_the_rest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, _) = hub(tmp.path()).await;
+        let now = hub.schedule_now();
+        // Due Sunday 9:00; then Monday's, Tuesday's and today's 8:15. The
+        // first three are missed; today's runs.
+        let days = add(&hub, "recipes", &jay, now - 3 * 86_400_000 - 3 * 3_600_000);
+        hub.check_schedules().await;
+        assert_eq!(outcomes(&hub, days.id), ["missed"; 3]);
+        let today = chrono::DateTime::parse_from_rfc3339("2026-11-04T08:15:00Z")
+            .unwrap()
+            .timestamp_millis();
+        // Today's waits for an AI model (none here), so it stays due.
+        waits_for_the_model(&hub, days.id, today).await;
+    }
+
+    #[tokio::test]
+    async fn a_run_due_now_waits_for_the_ai_model_and_runs_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, _) = hub(tmp.path()).await;
+        let now = hub.schedule_now();
+        let due = now - 60_000;
+        let s = add(&hub, "recipes", &jay, due);
+        hub.check_schedules().await;
+        // No AI model here: it waits, still due, and nothing is noted yet.
+        waits_for_the_model(&hub, s.id, due).await;
         assert_eq!(outcomes(&hub, s.id), Vec::<String>::new());
         assert!(!lock(&hub.scheduler.active).contains_key(&s.bot));
+    }
+
+    #[tokio::test]
+    async fn a_late_run_says_so_in_the_chat_and_its_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, jay, _) = hub(tmp.path()).await;
+        let bot = hub.bot("recipes").unwrap();
+        let s = add(&hub, "recipes", &jay, hub.schedule_now() + 3_600_000);
+        let mut origin = ChainOrigin::scheduled(jay.clone(), s.id);
+        let due = chrono::DateTime::parse_from_rfc3339("2026-11-04T08:15:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let started = due + 3 * 3_600_000 + 4 * 60_000;
+        origin.late = Some(schedule::late_line(due, started, &Fixed("UTC", 0)));
+        hub.note_scheduled(&bot, &origin, false).unwrap();
+        let events = hub.store.history(&bot.id, 0).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(&e.kind, EventKind::Note { text }
+            if text == "Scheduled: Every day at 8:15 AM. Ran at 11:19 AM; the home computer was \
+                        asleep or oxbot was closed at 8:15 AM."))
+        );
+        // Its run, as Settings lists it: late.
+        hub.store
+            .add_schedule_run(s.id, due, Some(started), "ok", Some(1))
+            .unwrap();
+        let home = hub.home_computer_viewer("Jay");
+        let list = hub.schedules_for(&home, None).unwrap();
+        let info = list.iter().find(|i| i.id == s.id).unwrap();
+        assert_eq!(info.last_outcome.as_deref(), Some("ok"));
+        assert!(info.last_late);
+        // On time: not late.
+        hub.store
+            .add_schedule_run(s.id, due, Some(due + 1000), "ok", Some(2))
+            .unwrap();
+        let list = hub.schedules_for(&home, None).unwrap();
+        assert!(!list.iter().find(|i| i.id == s.id).unwrap().last_late);
+    }
+
+    #[tokio::test]
+    async fn keep_awake_is_on_until_turned_off() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (hub, _, _) = hub(tmp.path()).await;
+        assert!(hub.keep_awake_on());
+        hub.set_keep_awake(false).unwrap();
+        assert!(!hub.keep_awake_on());
+        hub.set_keep_awake(true).unwrap();
+        assert!(hub.keep_awake_on());
     }
 
     #[tokio::test]

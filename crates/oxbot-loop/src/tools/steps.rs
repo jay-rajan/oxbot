@@ -32,7 +32,7 @@ pub fn spec() -> ToolSpec {
             to 15 in a row, with uids from your latest snapshot. Not on websites the person set \
             to fine-grained control in Settings → Websites: there, do the steps one at a time. \
             oxbot checks each step as usual and stops at the first one that needs the person's \
-            OK (Add to cart, Submit, Post, Sign in…) or that leaves the site, and tells you what \
+            OK (Buy, Place order, Submit, Post, Sign in…) or that leaves the site, and tells you what \
             ran and where it stopped: call that step on its own so the person is asked. Take a \
             snapshot afterwards to see the page. Example: steps: [{\"action\": \"fill\", \"uid\": \
             \"4_2\", \"value\": \"Toronto\"}, {\"action\": \"check\", \"uid\": \"4_5\"}, \

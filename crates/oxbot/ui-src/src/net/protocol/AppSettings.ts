@@ -63,4 +63,10 @@ codex_ready: boolean,
  * The `OpenRouter` key is still being read: the Mac's Keychain may be
  * asking the person to allow oxbot.
  */
-keychain_waiting: boolean, };
+keychain_waiting: boolean, 
+/**
+ * Whether oxbot keeps the Mac awake while it's plugged in, so
+ * schedules run on time (the screen still sleeps); `None` when it
+ * doesn't apply: not the home computer, or not a Mac.
+ */
+keep_awake: boolean | null, };

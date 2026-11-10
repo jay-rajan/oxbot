@@ -962,6 +962,7 @@ mod tests {
             site: "x.example".into(),
             why: String::new(),
             window_open: false,
+            before: None,
             only: bot.owner.as_ref().map(ToString::to_string),
         };
         assert!(super::super::signs_in(&sign_in, &jay));

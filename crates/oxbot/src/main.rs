@@ -104,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
             open,
             no_browser,
         } => serve(port, open, !no_browser, relay).await,
-        Command::Chat { bot, port } => chat::run(&oxbot::secret::local_ws_url(port), &bot).await,
+        Command::Chat { bot, port } => chat::run(&client::local_ws_url(port).await?, &bot).await,
         Command::Bots { action } => bots(action).await,
         Command::Pair | Command::Devices => not_yet(3),
         Command::Doctor => not_yet(5),

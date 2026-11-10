@@ -1,8 +1,11 @@
 // The welcome screen: shown while the server says this person hasn't filled
 // in their details yet (profile.welcome), and it stays until they're saved.
+// The owner at the home computer also gets "Keep this Mac awake while
+// plugged in" (on by default; it changes at once, as in Settings).
 import { type FormEvent, useEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Button, Dialog, DialogForm, ErrorText } from "../../components/ui";
+import { KeepAwakeSwitch } from "../Settings/GeneralTab";
 import { ProfileFields, useProfileDraft } from "./ProfileFields";
 import { profileEdit } from "./profile";
 import { Board } from "../../components/Board";
@@ -70,6 +73,8 @@ function WelcomeForm() {
         <p className="muted">Tell oxbot who you are. It stays on the home computer.</p>
       </div>
       {profile && draft ? <ProfileFields boxId="welcomeFields" view={profile} draft={draft} onChange={setDraft} /> : <div id="welcomeFields" />}
+      {/* The owner at the home computer: the same switch as Settings → General. */}
+      <KeepAwakeSwitch id="welcomeAwake">Keep this Mac awake while plugged in, so bots can run schedules. The screen still sleeps.</KeepAwakeSwitch>
       <ErrorText id="welcomeErr" hidden={!err}>
         {err}
       </ErrorText>

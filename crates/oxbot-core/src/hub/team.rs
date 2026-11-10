@@ -122,15 +122,17 @@ impl Hub {
                         format!(
                             "Created \"{}\" (id {}). It's shared with everyone in the home: only the \
                              owner of the home computer can have private bots, so tell the user that. \
-                             It's in their sidebar. Give it tasks with give_task.",
-                            info.name, info.id
+                             It's in their sidebar. Now start it: give it the user's request with \
+                             give_task (id {}), unless they only asked to set it up.",
+                            info.name, info.id, info.id
                         ),
                     ),
                     Ok(info) => (
                         true,
                         format!(
-                            "Created \"{}\" (id {}). It's in the user's sidebar. Give it tasks with give_task.",
-                            info.name, info.id
+                            "Created \"{}\" (id {}). It's in the user's sidebar. Now start it: give it the \
+                             user's request with give_task (id {}), unless they only asked to set it up.",
+                            info.name, info.id, info.id
                         ),
                     ),
                     Err(err) => (false, format!("Couldn't create the bot: {err}")),
@@ -268,7 +270,9 @@ impl Hub {
         let Ok(to) = self.bot_for(target, asker) else {
             return (
                 false,
-                format!("There's no bot with id {target}. Use list_bots."),
+                format!(
+                    "There's no bot with id {target}: it may have been deleted. Use list_bots, and make it again with create_bot if the user wants it. Don't say it worked."
+                ),
             );
         };
         if &to.id == from {
@@ -438,7 +442,9 @@ impl Hub {
         let Ok(bot) = self.bot_for(target, asker) else {
             return (
                 false,
-                format!("There's no bot with id {target}. Use list_bots."),
+                format!(
+                    "There's no bot with id {target}: it may have been deleted. Use list_bots, and make it again with create_bot if the user wants it. Don't say it worked."
+                ),
             );
         };
         if bot.is_central() {

@@ -10,12 +10,19 @@
 //! | reading, opening web pages, scrolling, hovering, typing | run |
 //! | clicking links, tabs, search, filters, sorting, paging, "Show more" | run |
 //! | clicking a search form's or a GET form's button | run |
-//! | clicking an element oxbot can't name, even after looking it up | run, logged |
-//! | clicking something that changes things (Send, Post, Save, Apply…) | red card |
-//! | clicking a POST form's unclear button when the form has something filled in | red card |
-//! | clicking pay, buy, book, delete or another can't-undo button | red card, Allow once only |
+//! | clicking an element oxbot can't name, or whose name the live page doesn't show | red card |
+//! | clicking something that changes things (Send, Post, Save, Apply, Allow, Enable, Block, Leave, Add…) | red card |
+//! | clicking a POST form's button that doesn't only look things up | red card |
+//! | a switch, checkbox or radio on a settings, privacy or account page, a privacy one ("Private account", "Show my email"), or a switch outside search results | red card |
+//! | ticking another checkbox or radio (a filter, a product's options) | run |
+//! | granting access (Authorize, Grant, Allow) | red card, Allow once only |
+//! | filling or tidying a cart (Add to cart, Remove from cart, Save for later, quantity) | run: nothing is spent until the order |
+//! | clicking pay, buy, order, checkout, book, start a trial, delete or another can't-undo button | red card, Allow once only |
 //! | a change click the user chose "Always allow" for (same bot, exact host, same button) | run, with a quiet line |
-//! | pressing Enter in a text box (not a search box) | red card |
+//! | adding to a cart, checking out, ordering, buying, booking, reserving, subscribing or donating ([`account_action`]) on a site the bot's browser isn't signed in to | the sign-in card first (the hub), then as above (a cart runs, the rest ask); cancelled: refuse |
+//! | pressing Enter in a text box (not a search box), or a key other than plain typing, arrows, Tab, Escape, Backspace, Delete, Home, End or Page Up/Down (a shortcut may send) | red card |
+//! | typing a line break (it presses Enter) | as Enter |
+//! | pressing Enter or Space on a focused button, link or switch | as clicking it |
 //! | uploading a file from the Mac | card |
 //! | typing into a password or code field | refuse: the user signs in |
 //! | running scripts in a page | refuse |
@@ -28,6 +35,7 @@
 //! | The Assistant's `create_bot` | card with the name and instructions |
 //! | `schedule_task`, `list_schedules`, `pause_schedule`, `delete_schedule` | run: the tool itself shows the schedule card (to create one, delete one, or resume one after untrusted text) |
 //! | `read_pages` | run: each page it opens is checked as a visit, and its script only reads a sealed copy |
+//! | `read_document` | run: opening the file (if the tab isn't on Google's Docs site) is checked as a visit; oxbot then reads only that file's export addresses, read-only |
 //! | `page_steps` | run on any website without fine-grained control (the hub checks), each step checked as itself; it stops at the first that would ask |
 //! | `run_program`: a small script oxbot runs in the bot's folder, sandboxed | card (Yes · Always for this bot · No); an Always rule doesn't apply after untrusted text |
 //!
@@ -60,9 +68,6 @@ pub enum Verdict {
     Deny(String),
     /// Ask the user.
     Ask(Ask),
-    /// Run it, though oxbot couldn't tell what it clicks (a missing label
-    /// never blocks browsing); the hub logs what.
-    AllowUnnamed(String),
 }
 
 /// What a click would do, as far as oxbot can tell.
@@ -78,7 +83,9 @@ pub enum Click {
     /// Money or something that can't be undone (pay, book, delete): a card,
     /// and never one to remember.
     Final,
-    /// oxbot couldn't name it: runs, logged.
+    /// oxbot couldn't name it, or the live page doesn't show what it was
+    /// told: a card, never one to remember (a practice run's strict guard
+    /// lets it run).
     Unknown,
 }
 
@@ -137,6 +144,11 @@ pub struct Ask {
     /// Who answers it instead of the person the turn acts for (a kid's
     /// schedule goes to a parent).
     pub answerer: Option<crate::id::PersonId>,
+    /// For a click or Enter that acts for the person's account on the site
+    /// (adding to a cart, checking out, booking…): what it does. The hub
+    /// makes sure the browser is signed in to the site first (see
+    /// [`account_action`]).
+    pub account: Option<AccountAction>,
 }
 
 impl Ask {
@@ -159,6 +171,7 @@ impl Ask {
             rule: None,
             schedule: None,
             answerer: None,
+            account: None,
         }
     }
 }
@@ -199,6 +212,8 @@ pub struct Field {
     pub kind: FieldKind,
     /// Its label, placeholder or name.
     pub label: String,
+    /// Its accessibility role (`button`, `link`, `switch`…), or empty.
+    pub role: String,
 }
 
 /// Kinds of form field that matter to the rules.
@@ -255,7 +270,7 @@ pub fn facts_script(input: &Value) -> String {
     if (type === 'password') kind = 'password';
     else if (type === 'search' || role === 'searchbox' || role === 'combobox' || /search/i.test(label + ' ' + (a.name || '') + ' ' + (a.id || ''))) kind = 'search';
     else if (tag === 'textarea' || a.isContentEditable || (tag === 'input' && !['button','submit','checkbox','radio','reset','image','file'].includes(type))) kind = 'text';
-    active = {{ kind, label }};
+    active = {{ kind, label, role: roleOf(a) }};
   }}
   const passwords = [...document.querySelectorAll('input[type=password]')].map(name);
   let at = null;
@@ -281,6 +296,7 @@ impl PageFacts {
                 _ => FieldKind::Other,
             },
             label: str_of(a, "label").to_owned(),
+            role: str_of(a, "role").to_owned(),
         });
         let password_fields = v
             .get("passwords")
@@ -324,7 +340,7 @@ pub const ASK_USER_TOOL: &str = "ask_user";
 /// to-do list and progress notes, stored results read back, and the page
 /// tools over stored snapshots. They change nothing outside oxbot, so they
 /// run; the gate still sees every call.
-pub const LOOP_CONTEXT_TOOLS: [&str; 10] = [
+pub const LOOP_CONTEXT_TOOLS: [&str; 11] = [
     "update_todo",
     "note_progress",
     "read_result",
@@ -335,11 +351,16 @@ pub const LOOP_CONTEXT_TOOLS: [&str; 10] = [
     "query_rows",
     READ_PAGES_TOOL,
     PAGE_STEPS_TOOL,
+    READ_DOCUMENT_TOOL,
 ];
 
 /// `read_pages`: several pages read with the bot's script, on sealed
 /// copies. Each page it opens asks the gate as a visit.
 pub const READ_PAGES_TOOL: &str = "read_pages";
+/// `read_document`: a whole Google Doc, Slides or Sheet, read by oxbot
+/// from Google's export addresses in the bot's browser. Opening the file,
+/// if needed, asks the gate as a visit; reading never asks.
+pub const READ_DOCUMENT_TOOL: &str = "read_document";
 /// `page_steps`: several steps on the page at once, each asked of the gate
 /// as itself. Not on websites with fine-grained control (the hub checks).
 pub const PAGE_STEPS_TOOL: &str = "page_steps";
@@ -428,9 +449,7 @@ pub fn file_call_inside(tool: &str, input: &Value, work_dir: &Path) -> bool {
         } else {
             work_dir.join(path)
         };
-        let written = lexical(&path);
-        (written.starts_with(lexical(work_dir)) || written.starts_with(real(work_dir)))
-            && real(&written).starts_with(real(work_dir))
+        is_inside(&path, work_dir)
     };
     ["file_path", "path"]
         .iter()
@@ -582,6 +601,14 @@ pub fn decide(
             }
         }
         "upload_file" => {
+            if let Some(path) = file_paths(input)
+                .into_iter()
+                .find(|p| has_link_below(Path::new(p), ctx.work_dir))
+            {
+                return Verdict::Deny(format!(
+                    "oxbot doesn't upload files through a link ({path}). Upload the file itself."
+                ));
+            }
             let uid = str_of(input, "uid");
             Verdict::Ask(Ask {
                 detail: Some(file_paths(input).join("\n")),
@@ -609,19 +636,18 @@ fn decide_input(
     change: &dyn Fn(&str, String) -> Verdict,
 ) -> Verdict {
     let facts = ctx.facts;
-    let on_web = ctx.page_url.and_then(web_host).is_some();
     match action {
         "click" => {
             let uid = str_of(input, "uid");
             let label = describe(uid);
-            click_verdict(label.as_deref(), ctx.element, on_web, change, || {
+            click_verdict(label.as_deref(), ctx.element, ctx.page_url, change, || {
                 format!("element {uid}")
             })
         }
         "click_at" => {
             let label = facts.and_then(|f| f.at_point.as_deref());
             let element = facts.and_then(|f| f.at_element.as_ref());
-            click_verdict(label, element, on_web, change, || {
+            click_verdict(label, element, ctx.page_url, change, || {
                 let at = |key| input.get(key).and_then(Value::as_f64).unwrap_or(-1.0);
                 format!("the spot at ({}, {})", at("x"), at("y"))
             })
@@ -650,34 +676,163 @@ fn decide_input(
             if active.is_some_and(|a| a.kind == FieldKind::Password || is_secret(&a.label, None)) {
                 return Verdict::Deny(NO_SECRETS.to_owned());
             }
-            if is_enter(str_of(input, "submitKey")) {
-                enter_rule(facts, change)
-            } else {
-                Verdict::Allow
-            }
+            press_verdict(press_of(action, input), ctx, change)
         }
-        "press_key" => {
-            if is_enter(str_of(input, "key")) {
-                enter_rule(facts, change)
-            } else {
-                Verdict::Allow
-            }
-        }
+        "press_key" => press_verdict(press_of(action, input), ctx, change),
         _ => Verdict::Allow,
     }
 }
 
-/// A click on `label` (with what oxbot read about it): free, a card, or
-/// free and logged when oxbot couldn't name it (`unnamed` says what). A
-/// change card on a web page (`on_web`) may be remembered.
+/// What a key press may do, mildest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Press {
+    /// Typing a character, or moving around (arrows, Tab, Escape…).
+    Plain,
+    /// A new line (Shift+Enter): Enter outside a text box.
+    NewLine,
+    /// Space: types a space in a text box, clicks a focused button.
+    Space,
+    /// Enter, or any key oxbot doesn't know to be harmless (a shortcut
+    /// such as Control+Enter or Meta+S may send).
+    Enter,
+}
+
+/// The strongest key `press_key` or `type_text` presses. `type_text`
+/// types key by key: a line break in its text presses Enter, and a space
+/// on a focused button clicks it; then its `submitKey`, if any.
+fn press_of(action: &str, input: &Value) -> Press {
+    if action == "press_key" {
+        return key_press(str_of(input, "key"));
+    }
+    let text = str_of(input, "text");
+    let typed = if text.contains(['\n', '\r']) {
+        Press::Enter
+    } else if text.contains(' ') {
+        Press::Space
+    } else {
+        Press::Plain
+    };
+    match str_of(input, "submitKey") {
+        "" => typed,
+        key => typed.max(key_press(key)),
+    }
+}
+
+/// Keys that only move around or edit what's typed.
+const PLAIN_KEYS: &[&str] = &[
+    "arrowup",
+    "arrowdown",
+    "arrowleft",
+    "arrowright",
+    "tab",
+    "escape",
+    "esc",
+    "backspace",
+    "delete",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
+];
+
+/// Modifier keys, as the browser tool takes them.
+const MODIFIERS: &[&str] = &[
+    "shift",
+    "control",
+    "ctrl",
+    "alt",
+    "option",
+    "meta",
+    "command",
+    "cmd",
+    "controlormeta",
+];
+
+/// What pressing `key` (e.g. `Enter`, `Control+Enter`, `a`, `Shift+Tab`)
+/// does: matched by what it produces, so `NumpadEnter`, `\r` and `\n` are
+/// Enter too, and anything not known to be harmless counts as Enter.
+fn key_press(key: &str) -> Press {
+    // "+" itself, or "Control++".
+    let (mods, last) = if key == "+" {
+        ("", "+")
+    } else if let Some(mods) = key.strip_suffix("++") {
+        (mods, "+")
+    } else {
+        key.rsplit_once('+').unwrap_or(("", key))
+    };
+    let mods: Vec<String> = mods
+        .split('+')
+        .map(|m| m.trim().to_lowercase())
+        .filter(|m| !m.is_empty())
+        .collect();
+    if mods.iter().any(|m| !MODIFIERS.contains(&m.as_str())) {
+        return Press::Enter;
+    }
+    let shift_only = mods.iter().all(|m| m == "shift");
+    let name = if last.trim().is_empty() {
+        last
+    } else {
+        last.trim()
+    };
+    let lower = name.to_lowercase();
+    if matches!(
+        lower.as_str(),
+        "enter" | "numpadenter" | "return" | "\r" | "\n"
+    ) {
+        return if shift_only && !mods.is_empty() {
+            Press::NewLine
+        } else {
+            Press::Enter
+        };
+    }
+    if matches!(lower.as_str(), " " | "space" | "spacebar") {
+        return Press::Space;
+    }
+    if PLAIN_KEYS.contains(&lower.as_str()) {
+        return Press::Plain;
+    }
+    let mut chars = name.chars();
+    let printable = chars
+        .next()
+        .is_some_and(|c| !c.is_control() && !c.is_whitespace())
+        && chars.next().is_none();
+    if printable && shift_only {
+        Press::Plain
+    } else {
+        Press::Enter
+    }
+}
+
+/// A key press's answer, given the field with the focus.
+fn press_verdict(
+    press: Press,
+    ctx: Context<'_>,
+    change: &dyn Fn(&str, String) -> Verdict,
+) -> Verdict {
+    let facts = ctx.facts;
+    let active = facts.and_then(|f| f.active.as_ref());
+    match press {
+        Press::Plain => Verdict::Allow,
+        Press::NewLine if active.is_some_and(|a| a.kind == FieldKind::Text) => Verdict::Allow,
+        Press::Space if active.is_some_and(|a| a.kind != FieldKind::Other) => Verdict::Allow,
+        Press::Space if facts.is_some_and(|f| f.active.is_none()) => Verdict::Allow,
+        Press::Space => focus_rule("press Space on", ctx, change),
+        Press::NewLine | Press::Enter => enter_account(enter_rule(ctx, change), facts),
+    }
+}
+
+/// A click on `label` (with what oxbot read about it) on `page_url`: free,
+/// or a card (`unnamed` says what it aims at when oxbot couldn't name it).
+/// A change card on a web page may be remembered, unless it grants access.
 fn click_verdict(
     label: Option<&str>,
     element: Option<&ElementFacts>,
-    on_web: bool,
+    page_url: Option<&str>,
     change: &dyn Fn(&str, String) -> Verdict,
     unnamed: impl FnOnce() -> String,
 ) -> Verdict {
-    let click = classify(label, element);
+    let on_web = page_url.and_then(web_host).is_some();
+    let click = classify_at(label, element, page_url);
     let target = || {
         let (role, name) = split_label(label.unwrap_or_default());
         let name = shown_name(name);
@@ -692,19 +847,92 @@ fn click_verdict(
     };
     match click {
         Click::Query | Click::Plain => Verdict::Allow,
-        Click::Unknown => Verdict::AllowUnnamed(unnamed()),
+        Click::Unknown => match change("click", unnamed()) {
+            Verdict::Ask(ask) => Verdict::Ask(Ask {
+                click: Some(click),
+                ..ask
+            }),
+            other => other,
+        },
         Click::Change | Click::Final => match change("click", target()) {
             Verdict::Ask(ask) => Verdict::Ask(Ask {
                 click: Some(click),
                 rule: label
-                    .filter(|_| click == Click::Change && on_web)
+                    .filter(|l| click == Click::Change && on_web && !grants(split_label(l).1))
                     .and_then(rule_label),
+                account: label.and_then(account_action),
                 ..ask
             }),
             other => other,
         },
     }
 }
+
+/// Words on a button that send a message or put something in front of
+/// other people.
+const MESSAGE_WORDS: &[&str] = &[
+    "send", "post", "publish", "reply", "comment", "share", "repost", "retweet", "tweet",
+    "forward", "invite", "submit",
+];
+
+/// Whether an "Always allow" rule for `label` (as [`rule_label`] wrote it)
+/// sends a message, posts or shares, or changes an access, privacy or
+/// account setting (a switch, checkbox or radio, or words such as Enable,
+/// Block, Leave, Make public): such a rule doesn't apply once the session
+/// has read text oxbot doesn't trust (the hub checks).
+#[must_use]
+pub fn rule_needs_trust(label: &str) -> bool {
+    let (role, name) = split_label(label);
+    if TOGGLE_ROLES.contains(&role) {
+        return true;
+    }
+    let name = name.to_lowercase();
+    let words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let text = format!(" {} ", words.join(" "));
+    words
+        .iter()
+        .any(|w| MESSAGE_WORDS.contains(w) || SETTING_WORDS.contains(w))
+        || SETTING_PHRASES
+            .iter()
+            .any(|p| text.contains(&format!(" {p} ")))
+}
+
+/// Words that change who may see or reach the person's account.
+const SETTING_WORDS: &[&str] = &[
+    "enable",
+    "disable",
+    "activate",
+    "deactivate",
+    "reactivate",
+    "revoke",
+    "block",
+    "unblock",
+    "mute",
+    "unmute",
+    "leave",
+    "agree",
+    "accept",
+    "approve",
+    "connect",
+    "add",
+    "confirm",
+    "yes",
+    "proceed",
+];
+
+/// Phrases that change a setting.
+const SETTING_PHRASES: &[&str] = &[
+    "turn on",
+    "turn off",
+    "switch on",
+    "switch off",
+    "make public",
+    "make private",
+    "i agree",
+];
 
 /// How a rule names an element: its role and name (`button "Apply
 /// filters"`), with the name trimmed and its spaces collapsed, and
@@ -726,8 +954,18 @@ pub fn rule_label(label: &str) -> Option<String> {
 /// Roles that only show or move around: clicking them changes nothing on
 /// the site unless their words say so.
 const PLAIN_ROLES: &[&str] = &[
-    "link", "tab", "menuitem", "option", "checkbox", "radio", "switch", "treeitem", "row", "cell",
-    "img", "image", "heading",
+    "link", "tab", "menuitem", "option", "treeitem", "row", "cell", "img", "image", "heading",
+];
+
+/// Roles that turn a setting on or off: in a search area or a search
+/// form they filter, anywhere else they may change a privacy or account
+/// setting.
+const TOGGLE_ROLES: &[&str] = &[
+    "checkbox",
+    "radio",
+    "switch",
+    "menuitemcheckbox",
+    "menuitemradio",
 ];
 
 /// What a click on `label` (a snapshot label, `button "Post"`) would do,
@@ -736,10 +974,24 @@ const PLAIN_ROLES: &[&str] = &[
 /// Words win over facts: a can't-undo word is [`Click::Final`] and a clear
 /// change word is [`Click::Change`] whatever the form says. Facts only
 /// settle unclear buttons ("Submit", "Go", or no telling word at all): a
-/// search or GET form's button is a query, and a POST form's is a change
-/// once the form has something filled in.
+/// search or GET form's button is a query, and a POST form's is a change.
+/// A switch, checkbox or radio is a change unless it sits in a search area
+/// or a GET form (see [`classify_at`] for search results pages).
 #[must_use]
 pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
+    classify_at(label, facts, None)
+}
+
+/// [`classify`], for a click on the page at `page_url` (if known): a
+/// switch, checkbox or radio on a settings, privacy, security or account
+/// page always asks, and a switch on a search results page filters the
+/// results (see [`toggle_click`]).
+#[must_use]
+pub fn classify_at(
+    label: Option<&str>,
+    facts: Option<&ElementFacts>,
+    page_url: Option<&str>,
+) -> Click {
     let Some(label) = label else {
         return Click::Unknown;
     };
@@ -759,10 +1011,18 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
         return Click::Plain;
     }
     let words = click_words(name);
+    // A toggle's name says what it turns on ("Show my email"), not what
+    // a click does: only a clear change word counts.
+    if TOGGLE_ROLES.contains(&role) && !matches!(words, Words::Final | Words::Hard) {
+        return toggle_click(role, name, facts, page_url);
+    }
     match words {
         Words::Final => return Click::Final,
         Words::Hard => return Click::Change,
         Words::Query => return Click::Query,
+        // A cart costs nothing until the order: it runs, whatever its form
+        // holds (a quantity, say).
+        Words::Cart => return Click::Plain,
         Words::Soft | Words::Nothing => {}
     }
     if PLAIN_ROLES.contains(&role) {
@@ -773,10 +1033,173 @@ pub fn classify(label: Option<&str>, facts: Option<&ElementFacts>) -> Click {
     match (words, submit) {
         (_, Some(f)) if f.in_search || method == Some("get") => Click::Query,
         (_, Some(_)) if method == Some("dialog") => Click::Plain,
-        (Words::Soft, _) => Click::Change,
-        (_, Some(f)) if method == Some("post") && f.filled_fields > 0 => Click::Change,
+        (Words::Soft, _) | (_, Some(_)) => Click::Change,
         _ => Click::Plain,
     }
+}
+
+/// A click on a switch, checkbox or radio (`role`, named `name`) with no
+/// clear change word, on `page_url`:
+///
+/// - on a settings, privacy, security or account page: a change;
+/// - in a search area or a GET form: a filter, it runs;
+/// - named for who sees or reaches the person ("Private account", "Show
+///   my email", "Location history", see [`PRIVACY_WORDS`]): a change;
+/// - a switch (it saves as it flips) or a menu tick: a change, except on a
+///   search results page, where it filters;
+/// - any other checkbox or radio (a product's options, a form's choices,
+///   saved only when the form is sent, and its button is judged then): runs.
+fn toggle_click(
+    role: &str,
+    name: &str,
+    facts: Option<&ElementFacts>,
+    page_url: Option<&str>,
+) -> Click {
+    if page_url.is_some_and(is_settings_page) {
+        return Click::Change;
+    }
+    if facts.is_some_and(|f| f.in_search || f.form_method.as_deref() == Some("get")) {
+        return Click::Plain;
+    }
+    let lower = name.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.iter().any(|w| PRIVACY_WORDS.contains(w)) {
+        return Click::Change;
+    }
+    if matches!(role, "checkbox" | "radio") || page_url.is_some_and(is_results_page) {
+        Click::Plain
+    } else {
+        Click::Change
+    }
+}
+
+/// Words in a toggle's name that say it changes who sees or reaches the
+/// person, or how their account is kept safe.
+const PRIVACY_WORDS: &[&str] = &[
+    "private",
+    "privacy",
+    "public",
+    "publicly",
+    "visible",
+    "visibility",
+    "hide",
+    "hidden",
+    "anyone",
+    "everyone",
+    "followers",
+    "friends",
+    "contacts",
+    "share",
+    "sharing",
+    "shared",
+    "discoverable",
+    "searchable",
+    "location",
+    "tracking",
+    "personalized",
+    "personalised",
+    "ads",
+    "history",
+    "activity",
+    "notifications",
+    "email",
+    "emails",
+    "phone",
+    "profile",
+    "messages",
+    "dms",
+    "forwarding",
+    "forward",
+    "recovery",
+    "password",
+    "passkey",
+    "security",
+    "verification",
+    "2fa",
+    "authentication",
+    "permissions",
+    "permission",
+    "access",
+    "account",
+    "data",
+    "backup",
+    "sync",
+    "cookies",
+    "consent",
+    "newsletter",
+    "marketing",
+    "subscribe",
+    "unsubscribe",
+];
+
+/// Words in an address that mark a page of settings.
+const SETTINGS_WORDS: &[&str] = &[
+    "settings",
+    "setting",
+    "preferences",
+    "prefs",
+    "privacy",
+    "security",
+    "account",
+    "accounts",
+    "profile",
+    "permissions",
+    "admin",
+    "consent",
+    "notifications",
+    "sharing",
+];
+
+/// Query keys that hold a search.
+const SEARCH_KEYS: &[&str] = &[
+    "q", "k", "query", "search", "keyword", "keywords", "term", "s", "text", "find",
+];
+
+/// Whether `url` is a settings, privacy, security or account page (see
+/// [`SETTINGS_WORDS`]).
+fn is_settings_page(url: &str) -> bool {
+    url_parts(url).is_some_and(|(host, path, _)| {
+        path.iter()
+            .chain(host.iter())
+            .any(|p| SETTINGS_WORDS.contains(&p.as_str()) || p == "myaccount")
+    })
+}
+
+/// A web address's host and path words, and its query, lower case.
+fn url_parts(url: &str) -> Option<(Vec<String>, Vec<String>, String)> {
+    let (_, rest) = url.split_once("://")?;
+    let rest = rest.split('#').next().unwrap_or_default().to_lowercase();
+    let (place, query) = rest.split_once('?').unwrap_or((&rest, ""));
+    let (host, path) = place.split_once('/').unwrap_or((place, ""));
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    Some((words(host), words(path), query.to_owned()))
+}
+
+/// Whether `url` is a page of search results (a search in its query, or a
+/// search or results path) and not a settings page.
+fn is_results_page(url: &str) -> bool {
+    if is_settings_page(url) {
+        return false;
+    }
+    let Some((_, path, query)) = url_parts(url) else {
+        return false;
+    };
+    let searched = query.split('&').any(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        SEARCH_KEYS.contains(&key) && !value.trim().is_empty()
+    });
+    searched
+        || path
+            .iter()
+            .any(|p| matches!(p.as_str(), "search" | "results" | "s" | "find" | "browse"))
 }
 
 /// A link or heading named with more words than this is a card or headline.
@@ -795,9 +1218,10 @@ fn name_words(name: &str) -> usize {
 #[must_use]
 pub fn wants_element_facts(label: &str) -> bool {
     let (role, name) = split_label(label);
-    role == "button"
-        && !name.trim().is_empty()
-        && matches!(click_words(name), Words::Soft | Words::Nothing)
+    let words = click_words(name);
+    !name.trim().is_empty()
+        && ((role == "button" && matches!(words, Words::Soft | Words::Nothing))
+            || (TOGGLE_ROLES.contains(&role) && !matches!(words, Words::Final | Words::Hard)))
 }
 
 /// The accessibility role and name in a snapshot label, for looking the
@@ -826,6 +1250,8 @@ enum Words {
     Hard,
     /// Looking things up.
     Query,
+    /// Filling or tidying a cart, bag, basket or trolley (see [`CART_PHRASES`]).
+    Cart,
     /// A change unless the words around say it's a query ("Apply filters").
     Soft,
     /// Nothing telling.
@@ -850,6 +1276,11 @@ const FINAL_PHRASES: &[&str] = &[
     "delete forever",
     "close account",
     "send money",
+    "start trial",
+    "start my trial",
+    "free trial",
+    "proceed to payment",
+    "continue to payment",
 ];
 
 /// Words on a button that clearly change something.
@@ -885,15 +1316,89 @@ const CHANGE_WORDS: &[&str] = &[
     "forward",
     "tweet",
     "react",
+    // Access and settings: these grant, take away or change who sees what.
+    "authorize",
+    "authorise",
+    "grant",
+    "allow",
+    "enable",
+    "disable",
+    "activate",
+    "deactivate",
+    "reactivate",
+    "revoke",
+    "block",
+    "unblock",
+    "mute",
+    "unmute",
+    "leave",
+    "agree",
+    "proceed",
+    "add",
+    "yes",
+    "report",
 ];
 
 /// Phrases that clearly change something.
-const CHANGE_PHRASES: &[&str] = &["sign out", "log out", "sign up", "mark as", "move to"];
+const CHANGE_PHRASES: &[&str] = &[
+    "sign out",
+    "log out",
+    "sign up",
+    "mark as",
+    "move to",
+    "turn on",
+    "turn off",
+    "switch on",
+    "switch off",
+    "make public",
+    "make private",
+    "i agree",
+];
 
-/// Putting something in a cart or list: a change (it asks), though no word
-/// alone says so; "Cart" by itself only opens the cart. Always allow is
-/// fine for these: they don't pay, book or delete ("Add to order" is
-/// already a can't-undo click, by "order").
+/// Words that give a site or an app access to the person's account: a
+/// card every time, never an "Always allow".
+const GRANT_WORDS: &[&str] = &["authorize", "authorise", "grant", "allow"];
+
+/// Whether a button named `name` grants access (see [`GRANT_WORDS`]).
+fn grants(name: &str) -> bool {
+    name.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| GRANT_WORDS.contains(&w))
+}
+
+/// Filling or tidying a cart, bag, basket or trolley: nothing is spent
+/// until the order, so these run without asking (the owner: only what
+/// costs money goes to the person). They're taken out before the other
+/// lists are checked, so a money word next to one still asks ("Add to cart
+/// and buy now"); "Add to order" isn't one ("order" asks), and neither is
+/// adding to a list, wish list or registry (others may see those: "Add to
+/// list" on X is public). "Add 2 to basket" counts too (see
+/// [`click_words`]). On a site the browser isn't signed in to, adding still
+/// waits for a sign-in (see [`account_action`]).
+const CART_PHRASES: &[&str] = &[
+    "add to cart",
+    "add to bag",
+    "add to basket",
+    "add to trolley",
+    "remove from cart",
+    "remove from bag",
+    "remove from basket",
+    "remove from trolley",
+    "save for later",
+    "move to cart",
+    "move to bag",
+    "move to basket",
+    "change quantity",
+    "update quantity",
+    "increase quantity",
+    "decrease quantity",
+    "update cart",
+    "update bag",
+    "update basket",
+];
+
+/// Putting something in a cart, an order or a list: a link that starts
+/// with one is the action, however long the product's name after it.
 const ADD_PHRASES: &[&str] = &[
     "add to cart",
     "add to bag",
@@ -918,6 +1423,224 @@ fn starts_with_add(name: &str) -> bool {
     ADD_PHRASES
         .iter()
         .any(|p| text.starts_with(&format!("{p} ")))
+}
+
+/// An action that acts for the person's account on a site: on a site the
+/// browser isn't signed in to, it would land in a guest cart or a guest
+/// order only oxbot's Chrome sees, so the hub asks the person to sign in
+/// first (see `Hub::sign_in_before`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountAction {
+    /// Adding to a cart, bag, basket or trolley (the word the button uses).
+    Add(&'static str),
+    /// Checking out.
+    Checkout,
+    /// Placing an order.
+    Order,
+    /// Buying.
+    Buy,
+    /// Booking.
+    Book,
+    /// Reserving.
+    Reserve,
+    /// Subscribing.
+    Subscribe,
+    /// Donating.
+    Donate,
+}
+
+impl AccountAction {
+    /// What it does, for "… needs you to sign in to walmart.ca before
+    /// adding to your cart".
+    #[must_use]
+    pub fn doing(self) -> String {
+        match self {
+            Self::Add(into) => format!("adding to your {into}"),
+            Self::Checkout => "checking out".to_owned(),
+            Self::Order => "placing the order".to_owned(),
+            Self::Buy => "buying".to_owned(),
+            Self::Book => "booking".to_owned(),
+            Self::Reserve => "reserving".to_owned(),
+            Self::Subscribe => "subscribing".to_owned(),
+            Self::Donate => "donating".to_owned(),
+        }
+    }
+
+    /// What didn't happen when it's refused, for "Not signed in to
+    /// walmart.ca, so nothing was added."
+    #[must_use]
+    pub fn nothing(self) -> &'static str {
+        match self {
+            Self::Add(_) => "nothing was added",
+            Self::Checkout | Self::Order | Self::Buy => "nothing was ordered",
+            Self::Book | Self::Reserve => "nothing was booked",
+            Self::Subscribe | Self::Donate => "nothing was done",
+        }
+    }
+}
+
+/// Where [`AccountAction::Add`] puts things.
+const CART_WORDS: &[&str] = &["cart", "bag", "basket", "trolley"];
+
+/// Words that open an account action when a button's name starts with
+/// them ("Buy now", "Book a table", "Checkout (3 items)").
+const ACCOUNT_VERBS: &[(&str, AccountAction)] = &[
+    ("checkout", AccountAction::Checkout),
+    ("buy", AccountAction::Buy),
+    ("purchase", AccountAction::Buy),
+    ("order", AccountAction::Order),
+    ("book", AccountAction::Book),
+    ("reserve", AccountAction::Reserve),
+    ("subscribe", AccountAction::Subscribe),
+    ("donate", AccountAction::Donate),
+];
+
+/// Words that may follow an [`ACCOUNT_VERBS`] word without changing what
+/// the button does ("Buy it now", "Book a table", "Reserve your seats");
+/// any other word makes it something else ("Book club", "Order history").
+const ACCOUNT_FILLER: &[&str] = &[
+    "now",
+    "it",
+    "this",
+    "these",
+    "a",
+    "an",
+    "the",
+    "your",
+    "my",
+    "for",
+    "with",
+    "securely",
+    "today",
+    "again",
+    "online",
+    "item",
+    "items",
+    "order",
+    "table",
+    "room",
+    "rooms",
+    "seat",
+    "seats",
+    "ticket",
+    "tickets",
+    "appointment",
+    "stay",
+    "spot",
+    "trip",
+];
+
+/// Words that lead to an order without being one alone: "Place order",
+/// "Proceed to checkout", "Complete purchase".
+const ACCOUNT_LEADS: &[&str] = &[
+    "start", "try", "place", "complete", "submit", "confirm", "proceed", "continue", "go",
+];
+
+/// What a lead in [`ACCOUNT_LEADS`] must lead to.
+const ACCOUNT_ENDS: &[(&str, AccountAction)] = &[
+    ("order", AccountAction::Order),
+    ("purchase", AccountAction::Buy),
+    ("checkout", AccountAction::Checkout),
+    ("booking", AccountAction::Book),
+    ("reservation", AccountAction::Reserve),
+    ("donation", AccountAction::Donate),
+    ("subscription", AccountAction::Subscribe),
+    ("trial", AccountAction::Subscribe),
+    ("payment", AccountAction::Checkout),
+];
+
+/// Whether a click on `label` (a snapshot label, `button "Add to cart -
+/// Milk"`, or a plain label) acts for the person's account on the site:
+/// adding to a cart, bag, basket or trolley, checking out, placing an
+/// order, buying, booking, reserving, subscribing or donating. Case
+/// doesn't count. Only the action itself counts: "Order history", "Book
+/// club", "Cart (2 items)", "Accept all" or "Continue" don't.
+#[must_use]
+pub fn account_action(label: &str) -> Option<AccountAction> {
+    let (role, name) = split_label(label);
+    if matches!(role, "textbox" | "searchbox" | "combobox") {
+        return None;
+    }
+    let name = name.to_lowercase();
+    let mut words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    // "Check out" is "checkout".
+    if let Some(at) = words.windows(2).position(|w| w == ["check", "out"]) {
+        words.splice(at..at + 2, ["checkout"]);
+    }
+    // "Add to cart", "Add to Cart, Milk Frother", "Add 2 to basket".
+    if let Some(at) = words.iter().position(|w| *w == "add") {
+        let rest = &words[at + 1..];
+        if let Some(into) = rest
+            .iter()
+            .take(4)
+            .skip_while(|w| **w != "to")
+            .nth(1)
+            .and_then(|w| CART_WORDS.iter().find(|c| *c == w))
+        {
+            return Some(AccountAction::Add(into));
+        }
+    }
+    let first = *words.first()?;
+    if let Some((_, action)) = ACCOUNT_VERBS.iter().find(|(v, _)| *v == first) {
+        let rest_fits = words[1..]
+            .iter()
+            .all(|w| ACCOUNT_FILLER.contains(w) || w.chars().all(|c| c.is_ascii_digit()));
+        return rest_fits.then_some(*action);
+    }
+    if ACCOUNT_LEADS.contains(&first) {
+        return words[1..].iter().take(4).find_map(|w| {
+            ACCOUNT_ENDS
+                .iter()
+                .find(|(end, _)| end == w)
+                .map(|(_, action)| *action)
+        });
+    }
+    None
+}
+
+/// The account action (see [`account_action`]) a browser call does, if
+/// any: a click on one, or Enter on a focused one. The hub checks it for
+/// calls that run without asking (adding to a cart), so they too wait for
+/// a sign-in on a site the browser isn't signed in to; a card's
+/// [`Ask::account`] says the same for calls that ask.
+#[must_use]
+pub fn call_account_action(
+    tool: &str,
+    input: &Value,
+    ctx: Context<'_>,
+    describe: impl Fn(&str) -> Option<String>,
+) -> Option<AccountAction> {
+    let facts = ctx.facts;
+    match browser_action(tool)? {
+        "click" => describe(str_of(input, "uid"))
+            .as_deref()
+            .and_then(account_action),
+        "click_at" => facts
+            .and_then(|f| f.at_point.as_deref())
+            .and_then(account_action),
+        action @ ("press_key" | "type_text") => (press_of(action, input) > Press::Plain)
+            .then(|| facts.and_then(|f| f.active.as_ref()))
+            .flatten()
+            .filter(|f| f.kind == FieldKind::Other)
+            .and_then(|f| account_action(&f.label)),
+        _ => None,
+    }
+}
+
+/// Pressing Enter on a focused button that acts for the account (`Place
+/// order`) says so on its card.
+fn enter_account(verdict: Verdict, facts: Option<&PageFacts>) -> Verdict {
+    let account = facts
+        .and_then(|f| f.active.as_ref())
+        .filter(|f| f.kind == FieldKind::Other)
+        .and_then(|f| account_action(&f.label));
+    match verdict {
+        Verdict::Ask(ask) if account.is_some() => Verdict::Ask(Ask { account, ..ask }),
+        other => other,
+    }
 }
 
 /// Words that are a change only when no query word is next to them:
@@ -958,12 +1681,38 @@ fn click_words(name: &str) -> Words {
             query = true;
         }
     }
+    let mut cart = false;
+    for phrase in CART_PHRASES {
+        let phrase = format!(" {phrase} ");
+        if text.contains(&phrase) {
+            text = text.replace(&phrase, " ");
+            cart = true;
+        }
+    }
+    // "Add 2 to basket", "Add item to cart": as account_action reads it.
+    let mut rest: Vec<&str> = text.split_whitespace().collect();
+    while let Some(at) = rest.iter().position(|w| *w == "add") {
+        let into = rest[at + 1..]
+            .iter()
+            .take(4)
+            .position(|w| *w == "to")
+            .map(|to| at + 1 + to + 1)
+            .filter(|&end| rest.get(end).is_some_and(|w| CART_WORDS.contains(w)));
+        let Some(end) = into else {
+            break;
+        };
+        rest.drain(at..=end);
+        cart = true;
+    }
+    let text = format!(" {} ", rest.join(" "));
     let has = |list: &[&str]| text.split_whitespace().any(|w| list.contains(&w));
     let has_phrase = |list: &[&str]| list.iter().any(|p| text.contains(&format!(" {p} ")));
     if has(FINAL_WORDS) || has_phrase(FINAL_PHRASES) {
         Words::Final
     } else if has(CHANGE_WORDS) || has_phrase(CHANGE_PHRASES) || has_phrase(ADD_PHRASES) {
         Words::Hard
+    } else if cart {
+        Words::Cart
     } else if query || has(QUERY_WORDS) {
         Words::Query
     } else if has(SOFT_CHANGE_WORDS) {
@@ -983,10 +1732,11 @@ fn shown_name(name: &str) -> String {
     }
 }
 
-/// Pressing Enter: free in a search box or outside text boxes, a card in a
-/// text box (it may send), refused in a password field.
-fn enter_rule(facts: Option<&PageFacts>, change: &dyn Fn(&str, String) -> Verdict) -> Verdict {
-    let Some(facts) = facts else {
+/// Pressing Enter: free in a search box or with nothing focused, a card in
+/// a text box (it may send), refused in a password field, and on a focused
+/// button, link or switch as clicking it (see [`focus_rule`]).
+fn enter_rule(ctx: Context<'_>, change: &dyn Fn(&str, String) -> Verdict) -> Verdict {
+    let Some(facts) = ctx.facts else {
         return change("press Enter on", "a page oxbot couldn't read".to_owned());
     };
     match &facts.active {
@@ -994,11 +1744,37 @@ fn enter_rule(facts: Option<&PageFacts>, change: &dyn Fn(&str, String) -> Verdic
         Some(field) => match field.kind {
             FieldKind::Password => Verdict::Deny(NO_SECRETS.to_owned()),
             FieldKind::Text => change("press Enter in", quoted(&field.label, "a text box")),
-            FieldKind::Other if is_change(&field.label) => {
-                change("press Enter on", quoted(&field.label, "a button"))
-            }
-            FieldKind::Search | FieldKind::Other => Verdict::Allow,
+            FieldKind::Other => focus_rule("press Enter on", ctx, change),
+            FieldKind::Search => Verdict::Allow,
         },
+    }
+}
+
+/// Enter or Space on the focused element (not a text field): a card when
+/// clicking it would ask (see [`classify_at`]), else free. Nothing read
+/// about the page: a card.
+fn focus_rule(action: &str, ctx: Context<'_>, change: &dyn Fn(&str, String) -> Verdict) -> Verdict {
+    let Some(facts) = ctx.facts else {
+        return change(action, "a page oxbot couldn't read".to_owned());
+    };
+    let Some(field) = &facts.active else {
+        return Verdict::Allow;
+    };
+    let label = focus_label(field);
+    match classify_at(Some(&label), None, ctx.page_url) {
+        Click::Change | Click::Final | Click::Unknown => {
+            change(action, quoted(&field.label, "a button"))
+        }
+        Click::Query | Click::Plain => Verdict::Allow,
+    }
+}
+
+/// The focused element as a snapshot label (`button "Send"`).
+fn focus_label(field: &Field) -> String {
+    if field.role.is_empty() {
+        field.label.clone()
+    } else {
+        format!("{} \"{}\"", field.role, field.label)
     }
 }
 
@@ -1008,24 +1784,6 @@ fn quoted(label: &str, fallback: &str) -> String {
     } else {
         format!("\"{}\"", label.trim())
     }
-}
-
-/// Whether `key` (e.g. `Enter`, `Control+Enter`) presses Enter without
-/// Shift (Shift+Enter is a new line).
-fn is_enter(key: &str) -> bool {
-    let parts: Vec<&str> = key.split('+').map(str::trim).collect();
-    parts
-        .last()
-        .is_some_and(|k| k.eq_ignore_ascii_case("enter"))
-        && !parts.iter().any(|p| p.eq_ignore_ascii_case("shift"))
-}
-
-/// Whether a snapshot label (`button "Post"`) or a plain label names a
-/// change (or a can't-undo action). Typing fields never do.
-fn is_change(label: &str) -> bool {
-    let (role, name) = split_label(label);
-    !matches!(role, "textbox" | "searchbox" | "combobox")
-        && matches!(click_words(name), Words::Final | Words::Hard | Words::Soft)
 }
 
 /// Whether a field is for a password, a code or a card number.
@@ -1095,50 +1853,79 @@ fn file_paths(input: &Value) -> Vec<String> {
     paths
 }
 
-/// Whether `path` is an absolute path inside `dir`, after resolving `..`
-/// and links (on a Mac `/var` is a link to `/private/var`, so one folder can
-/// have two names).
+/// Whether `path` is an absolute path inside `dir` once `..` and links are
+/// resolved: where it really leads, not how it's written (a link in the
+/// folder to `/etc` isn't inside). On a Mac `/var` is a link to
+/// `/private/var`, so both are resolved. A dangling link never counts:
+/// writing through it would make a file wherever it points.
 pub(crate) fn is_inside(path: &Path, dir: &Path) -> bool {
     if !path.is_absolute() {
         return false;
     }
-    let path = lexical(path);
-    path.starts_with(dir) || real(&path).starts_with(real(dir))
+    match (real(path), real(dir)) {
+        (Some(path), Some(dir)) => path.starts_with(dir),
+        _ => false,
+    }
 }
 
-/// `path` with `.` and `..` resolved, without touching the disk.
-fn lexical(path: &Path) -> std::path::PathBuf {
-    use std::path::Component;
-    let mut resolved = std::path::PathBuf::new();
-    for part in path.components() {
-        match part {
-            Component::ParentDir => {
-                resolved.pop();
+/// Whether `path` (inside `dir`) or any folder between it and `dir` is a
+/// link (or `path` climbs with `..`). Uploads never go through one: it
+/// could be pointed elsewhere after oxbot checked it.
+pub(crate) fn has_link_below(path: &Path, dir: &Path) -> bool {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return true;
+    }
+    let Some(dir) = real(dir) else {
+        return true;
+    };
+    let mut at = path;
+    loop {
+        if std::fs::symlink_metadata(at).is_ok_and(|m| m.file_type().is_symlink()) {
+            return true;
+        }
+        match at.parent() {
+            Some(parent) if real(parent).is_some_and(|p| p.starts_with(&dir) && p != dir) => {
+                at = parent;
             }
-            Component::CurDir => {}
-            other => resolved.push(other),
+            _ => return false,
         }
     }
-    resolved
 }
 
 /// `path` with links resolved, as far as it exists (a file about to be
-/// written doesn't exist yet, but its folder does).
-fn real(path: &Path) -> std::path::PathBuf {
-    let mut rest = Vec::new();
-    let mut base = path;
-    loop {
-        if let Ok(found) = std::fs::canonicalize(base) {
-            return rest.iter().rev().fold(found, |p, part| p.join(part));
+/// written doesn't exist yet, but its folder does). `None` if a part of it
+/// is a link that leads nowhere.
+/// The part that doesn't exist yet must be plain names: `..` after a
+/// missing folder is refused rather than guessed.
+fn real(path: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let parts: Vec<Component<'_>> = path.components().collect();
+    for split in (0..=parts.len()).rev() {
+        let base: std::path::PathBuf = parts[..split].iter().collect();
+        if base.as_os_str().is_empty() {
+            continue;
         }
-        match (base.parent(), base.file_name()) {
-            (Some(parent), Some(name)) => {
-                rest.push(name.to_owned());
-                base = parent;
+        if let Ok(found) = std::fs::canonicalize(&base) {
+            let mut out = found;
+            for part in &parts[split..] {
+                match part {
+                    Component::Normal(name) => out.push(name),
+                    Component::CurDir => {}
+                    _ => return None,
+                }
             }
-            _ => return path.to_owned(),
+            return Some(out);
+        }
+        if std::fs::symlink_metadata(&base).is_ok() {
+            // It's there but can't be resolved: a dangling link (or one
+            // oxbot may not follow).
+            return None;
         }
     }
+    None
 }
 
 fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -1277,18 +2064,10 @@ pub struct TrialCall<'a> {
 pub fn trial_overlay(verdict: &Verdict, call: TrialCall<'_>, mode: TrialMode) -> TrialVerdict {
     match verdict {
         Verdict::Deny(why) => TrialVerdict::Refuse(why.clone()),
+        Verdict::Ask(ask) if ask.click == Some(Click::Unknown) && mode == TrialMode::Strict => {
+            TrialVerdict::Run
+        }
         Verdict::Ask(ask) => TrialVerdict::Record(Intent::from_ask(ask)),
-        Verdict::AllowUnnamed(what) => match mode {
-            TrialMode::Strict => TrialVerdict::Run,
-            TrialMode::XhrAllowed => TrialVerdict::Record(Intent {
-                kind: ApprovalKind::Change,
-                action: "click".to_owned(),
-                target: what.clone(),
-                site: call.site.to_owned(),
-                click: Some(Click::Unknown),
-                by_rule: false,
-            }),
-        },
         Verdict::Allow => {
             let toggle = mode == TrialMode::XhrAllowed
                 && matches!(call.action, Some("click" | "click_at"))
@@ -1463,6 +2242,7 @@ mod tests {
             active: Some(Field {
                 kind,
                 label: label.into(),
+                role: String::new(),
             }),
             ..PageFacts::default()
         }
@@ -1763,11 +2543,14 @@ mod tests {
     }
 
     #[test]
-    fn unknown_uid_is_allowed() {
-        assert_eq!(
-            decide(&tool("click"), &json!({"uid":"8_242"}), ctx(), names),
-            Verdict::AllowUnnamed("element 8_242".into())
-        );
+    fn unknown_uid_asks_and_is_never_remembered() {
+        let Verdict::Ask(ask) = decide(&tool("click"), &json!({"uid":"8_242"}), ctx(), names)
+        else {
+            panic!("an element oxbot can't name asks")
+        };
+        assert_eq!(ask.target, "element 8_242");
+        assert_eq!(ask.click, Some(Click::Unknown));
+        assert_eq!(ask.rule, None);
         assert_eq!(classify(None, None), Click::Unknown);
     }
 
@@ -1800,11 +2583,193 @@ mod tests {
             "link \"Next\"",
             "link \"Senior engineer, Toronto\"",
             "tab \"Posts\"",
-            "checkbox \"Full time\"",
             "option \"Newest first\"",
             "button \"Menu\"",
         ] {
             assert_eq!(click(label, None), Verdict::Allow, "{label}");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines, reason = "one row per case")]
+    fn toggles_ask_where_they_may_change_a_setting() {
+        let at = |label: &str, url: &str, element: Option<&ElementFacts>| {
+            let ctx = Context {
+                page_url: Some(url),
+                element,
+                ..ctx()
+            };
+            decide(&tool("click"), &json!({"uid": "t"}), ctx, |_| {
+                Some(label.to_owned())
+            })
+        };
+        let search = ElementFacts {
+            in_search: true,
+            ..ElementFacts::default()
+        };
+        let get_form = submit("get", false, 0);
+        for (label, url, element) in [
+            (
+                "checkbox \"Full time\"",
+                "https://example.com/jobs?q=rust",
+                None,
+            ),
+            (
+                "checkbox \"Under $25\"",
+                "https://www.amazon.ca/s?k=lamp",
+                None,
+            ),
+            (
+                "radio \"4 stars & up\"",
+                "https://shop.example.com/search",
+                None,
+            ),
+            (
+                "switch \"Remote only\"",
+                "https://jobs.example.com/search?q=nurse",
+                None,
+            ),
+            (
+                "checkbox \"Remote\"",
+                "https://example.com/jobs",
+                Some(&search),
+            ),
+            (
+                "switch \"Open now\"",
+                "https://maps.example.com/",
+                Some(&get_form),
+            ),
+            (
+                "checkbox \"Gift wrap\"",
+                "https://shop.example.com/frother",
+                None,
+            ),
+            ("radio \"Large\"", "https://shop.example.com/shirt", None),
+        ] {
+            assert_eq!(at(label, url, element), Verdict::Allow, "{label} on {url}");
+        }
+        for (label, url, element) in [
+            (
+                "switch \"Private account\"",
+                "https://x.example.com/settings/privacy",
+                None,
+            ),
+            (
+                "checkbox \"Dark theme\"",
+                "https://mail.example.com/settings/general",
+                Some(&search),
+            ),
+            (
+                "checkbox \"Show my email\"",
+                "https://example.com/account?q=1",
+                None,
+            ),
+            (
+                "switch \"Two-step sign-in\"",
+                "https://myaccount.example.com/",
+                None,
+            ),
+            ("switch \"Dark mode\"", "https://mail.example.com/", None),
+            (
+                "menuitemcheckbox \"Pin\"",
+                "https://mail.example.com/",
+                None,
+            ),
+            (
+                "checkbox \"Make my profile public\"",
+                "https://example.com/p",
+                None,
+            ),
+            (
+                "checkbox \"Let anyone message me\"",
+                "https://example.com/p",
+                None,
+            ),
+            (
+                "radio \"Everyone can reply\"",
+                "https://example.com/compose",
+                None,
+            ),
+        ] {
+            assert_eq!(
+                asks(&at(label, url, element)),
+                Some(Click::Change),
+                "{label} on {url}"
+            );
+        }
+        assert_eq!(
+            asks(&at(
+                "checkbox \"Turn on location history\"",
+                "https://example.com/search?q=x",
+                Some(&search)
+            )),
+            Some(Click::Change),
+            "a setting's words win over the search area"
+        );
+    }
+
+    #[test]
+    fn access_and_settings_words_ask() {
+        for label in [
+            "button \"Authorize\"",
+            "button \"Allow\"",
+            "button \"Grant access\"",
+            "button \"Enable\"",
+            "button \"Disable two-step verification\"",
+            "button \"Turn off\"",
+            "button \"Turn on backups\"",
+            "button \"Deactivate\"",
+            "button \"Revoke\"",
+            "menuitem \"Block @sam\"",
+            "button \"Leave group\"",
+            "button \"Make public\"",
+            "button \"Yes\"",
+            "button \"I agree\"",
+            "button \"Proceed\"",
+            "button \"Add\"",
+            "button \"Confirm\"",
+            "link \"Add to list\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Change), "{label}");
+        }
+        // Granting access never offers Always; other settings may.
+        for label in [
+            "button \"Authorize\"",
+            "button \"Allow\"",
+            "button \"Grant access\"",
+        ] {
+            let Verdict::Ask(ask) = click(label, None) else {
+                panic!("{label} asks")
+            };
+            assert_eq!(ask.rule, None, "{label}");
+        }
+        let Verdict::Ask(ask) = click("button \"Enable\"", None) else {
+            panic!("asks")
+        };
+        assert_eq!(ask.rule.as_deref(), Some("button \"Enable\""));
+    }
+
+    #[test]
+    fn rules_that_send_or_change_settings_need_trust() {
+        for label in [
+            "button \"Send\"",
+            "button \"Post\"",
+            "button \"Reply all\"",
+            "button \"Share\"",
+            "button \"Enable\"",
+            "button \"Turn off\"",
+            "switch \"Private account\"",
+            "button \"Add\"",
+        ] {
+            assert!(rule_needs_trust(label), "{label}");
+        }
+        for label in [
+            "button \"Save\"",
+            "button \"Apply\"",
+            "button \"Like\"",
+            "button \"Archive\"",
+        ] {
+            assert!(!rule_needs_trust(label), "{label}");
         }
     }
 
@@ -1837,32 +2802,75 @@ mod tests {
     }
 
     #[test]
-    fn adding_to_a_cart_or_list_asks_and_may_be_always_allowed() {
-        // amazon.ca and walmart.ca: "Add to cart" went through with no
-        // approval request (no change word, no filled field in its form).
-        let empty_post = submit("post", false, 0);
+    fn carts_run_and_what_costs_money_asks() {
+        // The owner: only what costs money goes to the person. Filling or
+        // tidying a cart or list runs (on a site the browser is signed in
+        // to; the hub checks that), even in a POST form with a quantity.
+        let filled_post = submit("post", false, 2);
         for label in [
             "button \"Add to cart\"",
+            "button \"Add to cart - Great Value Milk 2L\"",
             "button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"",
             "link \"Add to bag\"",
             "link \"Add to Basket, Ceramic pour-over coffee dripper with filters\"",
             "button \"Add to trolley\"",
+            "button \"Add 2 to basket\"",
+            "button \"Add item to cart\"",
+            "button \"Remove from cart\"",
+            "button \"Save for later\"",
+            "button \"Move to cart\"",
+            "button \"Change quantity\"",
+            "button \"Update quantity\"",
+            "button \"Increase quantity\"",
+        ] {
+            assert_eq!(click(label, Some(&filled_post)), Verdict::Allow, "{label}");
+            assert_eq!(classify(Some(label), None), Click::Plain, "{label}");
+        }
+        // Spending money or committing the person asks, never Always.
+        for label in [
+            "button \"Place order\"",
+            "button \"Buy now\"",
+            "button \"Checkout\"",
+            "button \"Proceed to checkout\"",
+            "button \"Pay now\"",
+            "button \"Proceed to payment\"",
+            "button \"Confirm purchase\"",
+            "button \"Start free trial\"",
+            "button \"Start my trial\"",
+            "button \"Book now\"",
+            "button \"Reserve\"",
+            "button \"Donate\"",
+            "button \"Add a tip\"",
+            "button \"Add to order\"",
+            "button \"Add to cart and buy now\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+        // Subscribing asks, as a change did before.
+        assert_eq!(
+            asks(&click("button \"Subscribe\"", None)),
+            Some(Click::Change)
+        );
+        // A list, wish list or registry isn't a cart: others may see it.
+        for label in [
             "button \"Add to list\"",
             "button \"Add to Wishlist\"",
             "button \"Add to registry\"",
+            "button \"Remove from list\"",
         ] {
-            let Verdict::Ask(ask) = click(label, Some(&empty_post)) else {
-                panic!("{label}: asks first")
-            };
-            assert_eq!(ask.click, Some(Click::Change), "{label}");
-            assert!(ask.rule.is_some(), "{label}: Always allow is offered");
-            assert_eq!(classify(Some(label), None), Click::Change, "{label}");
+            assert!(
+                matches!(
+                    asks(&click(label, None)),
+                    Some(Click::Change | Click::Final)
+                ),
+                "{label}"
+            );
         }
-        // Into an order: can't undo, never Always allow.
-        assert_eq!(
-            asks(&click("button \"Add to order\"", None)),
-            Some(Click::Final)
-        );
+        // Other changes ask as before.
+        for label in ["button \"Post\"", "button \"Save\"", "button \"Send\""] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Change), "{label}");
+        }
+        assert_eq!(asks(&click("button \"Remove\"", None)), Some(Click::Final));
         // Opening the cart, or a product that merely mentions one, navigates.
         for label in [
             "link \"Cart (2 items)\"",
@@ -1872,6 +2880,105 @@ mod tests {
             "link \"Why we added a cart to every listing this year\"",
         ] {
             assert_eq!(click(label, None), Verdict::Allow, "{label}");
+        }
+    }
+
+    #[test]
+    fn account_actions_are_told_apart_from_reading_and_paging() {
+        use AccountAction::{Add, Book, Buy, Checkout, Order, Reserve, Subscribe};
+        for (label, want) in [
+            ("button \"Add to cart - Great Value Milk 2L\"", Add("cart")),
+            ("button \"ADD TO CART\"", Add("cart")),
+            (
+                "button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"",
+                Add("cart"),
+            ),
+            ("link \"Add to bag\"", Add("bag")),
+            ("button \"Add to basket\"", Add("basket")),
+            ("button \"Add to trolley\"", Add("trolley")),
+            ("button \"Checkout\"", Checkout),
+            ("button \"Check out (3 items)\"", Checkout),
+            ("button \"Proceed to checkout\"", Checkout),
+            ("button \"Place order\"", Order),
+            ("button \"Place your order\"", Order),
+            ("button \"Buy now\"", Buy),
+            ("button \"Book now\"", Book),
+            ("button \"Book a table\"", Book),
+            ("button \"Reserve\"", Reserve),
+            ("button \"Subscribe\"", Subscribe),
+            ("button \"Start free trial\"", Subscribe),
+            ("button \"Proceed to payment\"", Checkout),
+            ("Place order", Order),
+        ] {
+            assert_eq!(account_action(label), Some(want), "{label}");
+        }
+        for label in [
+            "link \"Order history\"",
+            "link \"Book club\"",
+            "button \"Accept all\"",
+            "button \"Search\"",
+            "button \"Continue\"",
+            "button \"Continue shopping\"",
+            "link \"Cart (2 items)\"",
+            "button \"Add to list\"",
+            "button \"Save\"",
+            "button \"Post\"",
+            "textbox \"Order number\"",
+        ] {
+            assert_eq!(account_action(label), None, "{label}");
+        }
+        // A card says so, for a click and for Enter on a focused button;
+        // adding to a cart runs, and the hub reads it off the call.
+        let Verdict::Ask(ask) = click("button \"Buy now\"", None) else {
+            panic!("asks")
+        };
+        assert_eq!(ask.account, Some(Buy));
+        let add = json!({"uid": "1_9"});
+        let cart_label = |_: &str| Some("button \"Add to cart - Milk\"".to_owned());
+        assert_eq!(
+            decide(&tool("click"), &add, ctx(), cart_label),
+            Verdict::Allow
+        );
+        assert_eq!(
+            call_account_action(&tool("click"), &add, ctx(), cart_label),
+            Some(Add("cart"))
+        );
+        assert_eq!(
+            call_account_action(&tool("click"), &add, ctx(), |_| Some(
+                "link \"Order history\"".to_owned()
+            )),
+            None
+        );
+        let Verdict::Ask(ask) = click("button \"Save\"", None) else {
+            panic!("asks")
+        };
+        assert_eq!(ask.account, None, "a change that isn't for the account");
+        let order = field(FieldKind::Other, "button \"Place order\"");
+        let Verdict::Ask(ask) = decide(
+            &tool("press_key"),
+            &json!({"key": "Enter"}),
+            with_facts(&order),
+            names,
+        ) else {
+            panic!("Enter on Place order asks")
+        };
+        assert_eq!(ask.account, Some(Order));
+        // Reading and paging never get as far as a card.
+        for label in [
+            "link \"Order history\"",
+            "button \"Search\"",
+            "button \"Accept all\"",
+        ] {
+            assert!(
+                !matches!(
+                    click(label, None),
+                    Verdict::Ask(Ask {
+                        account: Some(_),
+                        ..
+                    })
+                ),
+                "{label}"
+            );
         }
     }
 
@@ -1936,8 +3043,14 @@ mod tests {
         };
         assert_eq!(ask.target, "the form's \"Jobs →\" button");
         assert_eq!(
-            click("button \"Jobs →\"", Some(&empty_post)),
-            Verdict::Allow
+            asks(&click("button \"Jobs →\"", Some(&empty_post))),
+            Some(Click::Change),
+            "an empty POST form's unclear button asks too (it may still change something)"
+        );
+        assert_eq!(
+            click("button \"Show more\"", Some(&empty_post)),
+            Verdict::Allow,
+            "words that only look things up don't"
         );
         assert_eq!(click("button \"Jobs →\"", Some(&get)), Verdict::Allow);
         let not_submit = ElementFacts {
@@ -1993,18 +3106,18 @@ mod tests {
             decide(&tool("click_at"), &input, with_facts(&post), names),
             Verdict::Ask(_)
         ));
-        assert_eq!(
+        assert!(matches!(
             decide(
                 &tool("click_at"),
                 &input,
                 with_facts(&PageFacts::default()),
                 names
             ),
-            Verdict::AllowUnnamed("the spot at (5, 6)".into())
-        );
+            Verdict::Ask(ask) if ask.target == "the spot at (5, 6)" && ask.click == Some(Click::Unknown)
+        ));
         assert!(matches!(
             decide(&tool("click_at"), &input, ctx(), names),
-            Verdict::AllowUnnamed(_)
+            Verdict::Ask(_)
         ));
     }
 
@@ -2060,6 +3173,237 @@ mod tests {
         assert!(is_inside(&real_dir.join("new.pdf"), &link));
         assert!(is_inside(&link.join("sub/new.pdf"), &real_dir));
         assert!(!is_inside(&tmp.path().join("other.pdf"), &link));
+    }
+
+    #[test]
+    fn a_link_out_of_the_folder_is_outside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("work");
+        let secret = tmp.path().join("secret");
+        std::fs::create_dir_all(work.join("sub")).unwrap();
+        std::fs::create_dir_all(&secret).unwrap();
+        std::fs::write(secret.join("key.pem"), b"k").unwrap();
+        std::os::unix::fs::symlink(&secret, work.join("out")).unwrap();
+        std::os::unix::fs::symlink(secret.join("key.pem"), work.join("key.pem")).unwrap();
+        std::os::unix::fs::symlink(secret.join("new.txt"), work.join("dangling.txt")).unwrap();
+        assert!(is_inside(&work.join("sub/new.txt"), &work));
+        assert!(
+            !is_inside(&work.join("out/key.pem"), &work),
+            "through a linked folder"
+        );
+        assert!(!is_inside(&work.join("key.pem"), &work), "a linked file");
+        assert!(
+            !is_inside(&work.join("out/new.txt"), &work),
+            "a new file through a link"
+        );
+        assert!(
+            !is_inside(&work.join("dangling.txt"), &work),
+            "a link that leads nowhere yet"
+        );
+        assert!(
+            !is_inside(&work.join("out/../../secret/key.pem"), &work),
+            ".. after a link climbs from where the link leads"
+        );
+        assert!(!is_inside(&work.join("nothing/../../secret"), &work));
+        // The file tools and the browser tool's files agree.
+        let read = json!({"file_path": work.join("key.pem")});
+        assert!(!file_call_inside("Read", &read, &work));
+        let ctx = Context {
+            work_dir: &work,
+            ..ctx()
+        };
+        let shot = json!({"filePath": work.join("out/shot.png")});
+        assert!(matches!(
+            decide(&tool("take_screenshot"), &shot, ctx, no_names),
+            Verdict::Deny(_)
+        ));
+        // An upload never goes through a link, even one that stays inside.
+        std::fs::write(work.join("sub/cv.pdf"), b"%PDF").unwrap();
+        std::os::unix::fs::symlink(work.join("sub"), work.join("docs")).unwrap();
+        for path in [work.join("docs/cv.pdf"), work.join("key.pem")] {
+            let input = json!({"uid": "1", "filePath": path});
+            assert!(
+                matches!(
+                    decide(&tool("upload_file"), &input, ctx, names),
+                    Verdict::Deny(_)
+                ),
+                "{}",
+                path.display()
+            );
+        }
+        let input = json!({"uid": "1", "filePath": work.join("sub/cv.pdf")});
+        assert!(matches!(
+            decide(&tool("upload_file"), &input, ctx, names),
+            Verdict::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn keys_count_by_what_they_press() {
+        let message = field(FieldKind::Text, "Write a message");
+        let search = field(FieldKind::Search, "Search");
+        let key = |k: &str, facts: &PageFacts| {
+            decide(
+                &tool("press_key"),
+                &json!({ "key": k }),
+                with_facts(facts),
+                names,
+            )
+        };
+        for k in [
+            "Enter",
+            "NumpadEnter",
+            "\r",
+            "\n",
+            "Control+Enter",
+            "Meta+Enter",
+            "Control+Shift+Enter",
+            "Control+s",
+            "Meta+Return",
+            "F5",
+            "Insert",
+            "Hyper+a",
+        ] {
+            assert!(
+                matches!(key(k, &message), Verdict::Ask(_)),
+                "{k:?} in a text box"
+            );
+        }
+        for k in [
+            "a",
+            "Shift+A",
+            "?",
+            "+",
+            "Tab",
+            "Shift+Tab",
+            "ArrowDown",
+            "Escape",
+            "Backspace",
+            "Delete",
+            "Home",
+            "End",
+            "PageUp",
+            "PageDown",
+            "Shift+Enter",
+            " ",
+            "Space",
+        ] {
+            assert_eq!(key(k, &message), Verdict::Allow, "{k:?} in a text box");
+        }
+        assert_eq!(
+            key("Control+Enter", &search),
+            Verdict::Allow,
+            "a search box"
+        );
+        // Typing a line break presses Enter.
+        for text in ["hi\n", "line one\nline two", "ok\r"] {
+            assert!(
+                matches!(
+                    decide(
+                        &tool("type_text"),
+                        &json!({ "text": text }),
+                        with_facts(&message),
+                        names
+                    ),
+                    Verdict::Ask(_)
+                ),
+                "{text:?}"
+            );
+        }
+        assert!(matches!(
+            decide(
+                &tool("type_text"),
+                &json!({"text": "hi", "submitKey": "NumpadEnter"}),
+                with_facts(&message),
+                names
+            ),
+            Verdict::Ask(_)
+        ));
+        assert_eq!(
+            decide(
+                &tool("type_text"),
+                &json!({"text": "hello there"}),
+                with_facts(&message),
+                names
+            ),
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn space_and_enter_on_a_focused_element_count_as_clicking_it() {
+        let focus = |role: &str, label: &str| PageFacts {
+            active: Some(Field {
+                kind: FieldKind::Other,
+                label: label.into(),
+                role: role.into(),
+            }),
+            ..PageFacts::default()
+        };
+        let send = focus("button", "Send");
+        let home = focus("link", "Home");
+        let private = focus("switch", "Private account");
+        for (k, facts) in [
+            ("Space", &send),
+            (" ", &send),
+            ("Enter", &send),
+            ("Space", &private),
+            ("Enter", &private),
+        ] {
+            assert!(
+                matches!(
+                    decide(
+                        &tool("press_key"),
+                        &json!({ "key": k }),
+                        with_facts(facts),
+                        names
+                    ),
+                    Verdict::Ask(_)
+                ),
+                "{k:?}"
+            );
+        }
+        assert!(
+            matches!(
+                decide(
+                    &tool("type_text"),
+                    &json!({"text": " "}),
+                    with_facts(&send),
+                    names
+                ),
+                Verdict::Ask(_)
+            ),
+            "typing a space on a focused Send button clicks it"
+        );
+        for k in ["Space", "Enter", "Tab"] {
+            assert_eq!(
+                decide(
+                    &tool("press_key"),
+                    &json!({ "key": k }),
+                    with_facts(&home),
+                    names
+                ),
+                Verdict::Allow,
+                "{k:?}"
+            );
+        }
+        assert!(
+            matches!(
+                decide(&tool("press_key"), &json!({"key": "Space"}), ctx(), names),
+                Verdict::Ask(_)
+            ),
+            "nothing read about the page: ask"
+        );
+        assert_eq!(
+            decide(
+                &tool("press_key"),
+                &json!({"key": "Space"}),
+                with_facts(&PageFacts::default()),
+                names
+            ),
+            Verdict::Allow,
+            "nothing focused: it scrolls"
+        );
     }
 
     #[test]
@@ -2246,6 +3590,7 @@ mod trial_tests {
             active: Some(Field {
                 kind: FieldKind::Text,
                 label: "Write a message".into(),
+                role: "textbox".into(),
             }),
             ..PageFacts::default()
         };
@@ -2271,11 +3616,13 @@ mod trial_tests {
             ),
             row("search", tool("click"), json!({"uid": "search"}), Run, Run),
             row("link", tool("click"), json!({"uid": "link"}), Run, Run),
+            // Live, a switch outside a search area asks (it may change a
+            // setting), so a practice run records it in both modes.
             row(
                 "toggle",
                 tool("click"),
                 json!({"uid": "switch"}),
-                Run,
+                Record,
                 Record,
             ),
             Row {
@@ -2417,7 +3764,7 @@ mod trial_tests {
             intent.describe(),
             "click switch \"Remote only\" on jobs.example.test"
         );
-        assert!(!intent.is_change());
+        assert!(intent.is_change(), "it may change a setting");
     }
 
     #[test]
