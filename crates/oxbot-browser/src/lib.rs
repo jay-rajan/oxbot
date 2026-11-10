@@ -2,11 +2,13 @@
 //! through Google's `chrome-devtools-mcp` (behind oxbot's gate).
 //!
 //! - [`Tools`]: the Chrome program and the installed browser tool.
-//! - [`Browser`]: the Chrome every bot uses, on one control port, with a
+//! - [`Browser`]: the Chrome every bot uses, with a
 //!   kept profile: the user signs in to a site once (in a visible window)
 //!   and every bot stays signed in. Bots take turns on it (see `oxbot-core`).
 //!
-//! The control port listens on `127.0.0.1` only.
+//! Hidden Chrome opens no control port: oxbot talks to it over a pipe and
+//! shares that only through a local address with a random secret path
+//! (see `pipe`).
 
 mod browser;
 mod cookies;
@@ -15,6 +17,7 @@ mod element;
 mod guard;
 mod http;
 pub mod netguard;
+mod pipe;
 pub mod sealed;
 pub mod trial;
 pub mod visits;
@@ -37,6 +40,11 @@ pub use web::{is_home_network, normalize_web_url, web_host};
 pub const MCP_PACKAGE: &str = "chrome-devtools-mcp";
 /// Pinned version: older than two weeks when chosen (released 2026-09-23).
 pub const MCP_VERSION: &str = "1.10.1";
+/// The `package.json` and lockfile the app's built-in tool is installed
+/// from (`scripts/tools`); a checkout without the built-in tool installs
+/// from the same lockfile, so every package is the one checked in, by hash.
+const TOOL_PACKAGE_JSON: &str = include_str!("../../../scripts/tools/package.json");
+const TOOL_PACKAGE_LOCK: &str = include_str!("../../../scripts/tools/package-lock.json");
 /// The tool's server name; its actions are `mcp__chrome-devtools__*` in
 /// oxbot's own names.
 pub const MCP_SERVER_NAME: &str = "chrome-devtools";
@@ -51,7 +59,8 @@ pub const MCP_ENV: &[(&str, &str)] = &[
 ];
 
 /// Arguments for `chrome-devtools-mcp` that connect it to a bot's Chrome at
-/// `browser_url` (e.g. `http://127.0.0.1:9333`):
+/// `endpoint` (the [`Browser::endpoint`], a `ws://127.0.0.1:…` address
+/// with a secret path):
 ///
 /// - files it saves (screenshots, snapshots, network dumps) may only go in
 ///   `workspace`, the bot's folder;
@@ -60,9 +69,9 @@ pub const MCP_ENV: &[(&str, &str)] = &[
 /// - tool groups bots don't need stay off (extensions and apps are off by
 ///   default and stay that way).
 #[must_use]
-pub fn mcp_args(browser_url: &str, workspace: &Path) -> Vec<String> {
+pub fn mcp_args(endpoint: &str, workspace: &Path) -> Vec<String> {
     vec![
-        format!("--browserUrl={browser_url}"),
+        format!("--wsEndpoint={endpoint}"),
         format!("--workspace={}", workspace.display()),
         "--usageStatistics=false".to_owned(),
         "--performanceCrux=false".to_owned(),
@@ -96,7 +105,7 @@ pub enum BrowserError {
         /// Why.
         source: std::io::Error,
     },
-    /// Chrome started but never opened its control port.
+    /// Chrome started but never answered on its control pipe.
     #[error("Chrome didn't start in time")]
     NotReady,
     /// Installing the browser tool failed.
@@ -260,12 +269,21 @@ impl Tools {
         tokio::fs::create_dir_all(&self.config.tools_dir)
             .await
             .map_err(|e| BrowserError::Install(e.to_string()))?;
+        // Exactly the lockfile's packages (checked against their hashes),
+        // and no package's install scripts run.
+        for (name, text) in [
+            ("package.json", TOOL_PACKAGE_JSON),
+            ("package-lock.json", TOOL_PACKAGE_LOCK),
+        ] {
+            tokio::fs::write(self.config.tools_dir.join(name), text)
+                .await
+                .map_err(|e| BrowserError::Install(e.to_string()))?;
+        }
         let output = Command::new(&self.config.npm)
-            .arg("install")
-            .arg("--prefix")
-            .arg(&self.config.tools_dir)
-            .arg(format!("{MCP_PACKAGE}@{MCP_VERSION}"))
-            .args(["--no-audit", "--no-fund", "--loglevel=error"])
+            .arg("ci")
+            .args(["--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"])
+            .arg("--loglevel=error")
+            .current_dir(&self.config.tools_dir)
             .envs(
                 self.config
                     .env
@@ -286,32 +304,31 @@ impl Tools {
         Ok(program)
     }
 
-    /// The browser tool as a command, for the Chrome on `port`, saving
+    /// The browser tool as a command, for the Chrome at `endpoint` (see
+    /// [`Browser::endpoint`]), saving
     /// files only in `workspace`: the same program, flags and environment
     /// for every engine (or, in end-to-end tests, the stand-in set as
     /// [`ToolsConfig::mcp_override`]).
     #[must_use]
-    pub fn mcp_command(&self, port: u16, workspace: &Path) -> McpCommand {
+    pub fn mcp_command(&self, endpoint: &str, workspace: &Path) -> McpCommand {
         match &self.config.mcp_override {
             Some(stand_in) => {
                 // Which Chrome, as the real tool is told.
                 let mut stand_in = stand_in.clone();
-                stand_in
-                    .args
-                    .push(format!("--browserUrl=http://127.0.0.1:{port}"));
+                stand_in.args.push(format!("--wsEndpoint={endpoint}"));
                 stand_in
             }
-            None => self.real_mcp_command(port, workspace),
+            None => self.real_mcp_command(endpoint, workspace),
         }
     }
 
-    fn real_mcp_command(&self, port: u16, workspace: &Path) -> McpCommand {
+    fn real_mcp_command(&self, endpoint: &str, workspace: &Path) -> McpCommand {
         let env = MCP_ENV
             .iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .chain(self.config.env.iter().cloned())
             .collect();
-        let args = mcp_args(&format!("http://127.0.0.1:{port}"), workspace);
+        let args = mcp_args(endpoint, workspace);
         match &self.config.built_in {
             // The built-in Node.js runs the built-in tool.
             Some(tool) => McpCommand {
@@ -336,8 +353,14 @@ mod tests {
 
     #[test]
     fn args_keep_files_in_the_bot_folder_and_stats_off() {
-        let args = mcp_args("http://127.0.0.1:9333", Path::new("/bots/x/work"));
-        assert_eq!(args[0], "--browserUrl=http://127.0.0.1:9333");
+        let args = mcp_args(
+            "ws://127.0.0.1:9333/devtools/browser/t0k3n",
+            Path::new("/bots/x/work"),
+        );
+        assert_eq!(
+            args[0],
+            "--wsEndpoint=ws://127.0.0.1:9333/devtools/browser/t0k3n"
+        );
         for wanted in [
             "--workspace=/bots/x/work",
             "--usageStatistics=false",
@@ -347,6 +370,50 @@ mod tests {
         ] {
             assert!(args.iter().any(|a| a == wanted), "missing {wanted}");
         }
+    }
+
+    #[test]
+    fn the_lockfile_pins_the_tool_version() {
+        let lock: serde_json::Value = serde_json::from_str(TOOL_PACKAGE_LOCK).unwrap();
+        let tool = &lock["packages"][format!("node_modules/{MCP_PACKAGE}")];
+        assert_eq!(tool["version"], MCP_VERSION);
+        assert!(tool["integrity"].as_str().unwrap().starts_with("sha512-"));
+    }
+
+    /// Without the built-in tool, npm installs it from the lockfile, with
+    /// no install scripts.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_dev_install_uses_the_lockfile_and_runs_no_scripts() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let npm = tmp.path().join("npm");
+        let said = tmp.path().join("args");
+        std::fs::write(
+            &npm,
+            format!(
+                "#!/bin/sh\necho \"$@\" > '{}'\nmkdir -p node_modules/.bin node_modules/{MCP_PACKAGE}\n\
+                 touch node_modules/.bin/{MCP_PACKAGE}\n\
+                 echo '{{\"version\":\"{MCP_VERSION}\"}}' > node_modules/{MCP_PACKAGE}/package.json\n",
+                said.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&npm, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let tools = Tools::new(ToolsConfig {
+            npm,
+            ..ToolsConfig::in_home(tmp.path())
+        });
+        let program = tools.ensure_installed().await.unwrap();
+        assert_eq!(program, tools.config().mcp_program());
+        let args = std::fs::read_to_string(&said).unwrap();
+        assert!(args.starts_with("ci "), "{args}");
+        assert!(args.contains("--ignore-scripts"), "{args}");
+        let dir = &tools.config().tools_dir;
+        assert_eq!(
+            std::fs::read_to_string(dir.join("package-lock.json")).unwrap(),
+            TOOL_PACKAGE_LOCK
+        );
     }
 
     #[test]
@@ -385,10 +452,16 @@ mod tests {
             ..ToolsConfig::in_home(tmp.path())
         });
         assert!(tools.is_installed());
-        let command = tools.mcp_command(9333, Path::new("/bots/x/work"));
+        let command = tools.mcp_command(
+            "ws://127.0.0.1:9333/devtools/browser/t0k3n",
+            Path::new("/bots/x/work"),
+        );
         assert_eq!(command.program, tool.node);
         assert_eq!(command.args[0], tool.entry.display().to_string());
-        assert_eq!(command.args[1], "--browserUrl=http://127.0.0.1:9333");
+        assert_eq!(
+            command.args[1],
+            "--wsEndpoint=ws://127.0.0.1:9333/devtools/browser/t0k3n"
+        );
         assert!(
             command
                 .env
@@ -411,7 +484,14 @@ mod tests {
         });
         // The stand-in is told which Chrome, as the real tool is.
         let mut told = stand_in.clone();
-        told.args.push("--browserUrl=http://127.0.0.1:9333".into());
-        assert_eq!(tools.mcp_command(9333, Path::new("/w")), told);
+        told.args
+            .push("--wsEndpoint=ws://127.0.0.1:9333/devtools/browser/t0k3n".into());
+        assert_eq!(
+            tools.mcp_command(
+                "ws://127.0.0.1:9333/devtools/browser/t0k3n",
+                Path::new("/w")
+            ),
+            told
+        );
     }
 }

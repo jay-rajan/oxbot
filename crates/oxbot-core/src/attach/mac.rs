@@ -2,7 +2,9 @@
 //! `OpenDocument` text), `sips` (pictures) and oxbot's helper (still frames
 //! from video). Each runs as its own process with a time limit and is
 //! killed if it runs over; the system's tools get no environment but a
-//! plain `PATH`.
+//! plain `PATH`. The helper, which decodes video anyone may send, runs in
+//! macOS's sandbox: it may read only that one video (and the system), write
+//! only its frames folder, and has no network and can start no program.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -14,6 +16,8 @@ use tokio::process::Command;
 const TOOL_TIME: Duration = Duration::from_secs(20);
 /// How long taking a video's frames may take.
 const FRAMES_TIME: Duration = Duration::from_secs(60);
+/// macOS's sandbox runner.
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
 /// Where the Mac's tools are.
 #[derive(Debug, Clone)]
@@ -139,14 +143,25 @@ impl MacTools {
                 "taking still frames from video isn't available on the home computer.".to_owned(),
             );
         };
+        if !Path::new(SANDBOX_EXEC).exists() {
+            return Err("this Mac can't open video safely (its sandbox is missing).".to_owned());
+        }
+        // The sandbox matches real paths (`/private/var/…`, not `/var/…`).
+        let real =
+            |p: &Path| std::fs::canonicalize(p).map_err(|_| "it couldn't be opened.".to_owned());
+        std::fs::create_dir_all(to)
+            .map_err(|_| "the frames folder couldn't be made.".to_owned())?;
+        let (helper, from, to) = (real(helper)?, real(from)?, real(to)?);
         // oxbot's own program: it keeps oxbot's environment.
         let out = run_helper(
-            Command::new(helper).arg("frames").arg(from).arg(to).args([
-                "--max",
-                &max.to_string(),
-                "--size",
-                &size.to_string(),
-            ]),
+            Command::new(SANDBOX_EXEC)
+                .arg("-p")
+                .arg(frames_profile(&helper, &from, &to))
+                .arg(&helper)
+                .arg("frames")
+                .arg(&from)
+                .arg(&to)
+                .args(["--max", &max.to_string(), "--size", &size.to_string()]),
             FRAMES_TIME,
         )
         .await?;
@@ -165,6 +180,42 @@ impl MacTools {
             duration_ms: reply["duration_ms"].as_u64().unwrap_or(0),
         })
     }
+}
+
+/// The sandbox profile for the helper (`helper`, its real path) taking
+/// frames of `video` into `out`: it reads the system and that one video,
+/// writes only `out`, may reach only the system's video decoder, and has
+/// no network and no way to start another program.
+fn frames_profile(helper: &Path, video: &Path, out: &Path) -> String {
+    let own_folder = helper.parent().unwrap_or(helper);
+    format!(
+        "(version 1)\n\
+         (deny default)\n\
+         (allow process-exec (literal {helper}))\n\
+         (allow sysctl-read)\n\
+         (allow file-read-metadata)\n\
+         (allow file-read* (literal \"/\") (subpath \"/System\") (subpath \"/usr/lib\") \
+            (subpath \"/usr/share\") (subpath \"/Library/Apple\") (literal \"/dev/null\") \
+            (literal \"/dev/urandom\") (literal \"/private/etc/localtime\") \
+            (subpath \"/private/var/db/timezone\") (subpath {own}) (literal {video}))\n\
+         (allow file-write* (subpath {out}))\n\
+         (allow mach-lookup (global-name-prefix \"com.apple.coremedia.\") \
+            (global-name \"com.apple.cfprefsd.daemon\" \"com.apple.cfprefsd.agent\" \
+              \"com.apple.logd\" \"com.apple.system.opendirectoryd.libinfo\"))\n\
+         (allow iokit-open (iokit-user-client-class \"IOSurfaceRootUserClient\" \
+            \"AGXDeviceUserClient\" \"AppleAVDUserClient\"))\n\
+         (allow ipc-posix-shm-read*)\n",
+        helper = sbpl(helper),
+        own = sbpl(own_folder),
+        video = sbpl(video),
+        out = sbpl(out),
+    )
+}
+
+/// A path as an SBPL string.
+fn sbpl(path: &Path) -> String {
+    let text = path.display().to_string();
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// Runs a system tool with no input, a plain environment and a time limit.
@@ -188,5 +239,105 @@ async fn run_helper(cmd: &mut Command, limit: Duration) -> Result<std::process::
         Ok(Err(e)) => Err(format!("it failed: {e}")),
         // Dropping the child (kill_on_drop) stops it.
         Err(_) => Err("it took too long".to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_frames_profile_names_only_the_video_and_its_folder() {
+        let profile = frames_profile(
+            Path::new("/Applications/oxbot.app/Contents/MacOS/oxbot-mac"),
+            Path::new("/b/work/inbox/a \"b\".mov"),
+            Path::new("/b/work/inbox/a.mov.frames"),
+        );
+        assert!(profile.contains("(deny default)"));
+        assert!(profile.contains("(allow file-write* (subpath \"/b/work/inbox/a.mov.frames\"))"));
+        assert!(
+            profile.contains("(literal \"/b/work/inbox/a \\\"b\\\".mov\")"),
+            "{profile}"
+        );
+        assert!(!profile.contains("network"), "no network at all");
+        assert_eq!(
+            profile.matches("process-exec").count(),
+            1,
+            "only the helper itself"
+        );
+    }
+
+    /// The helper built by `scripts/build-mac-helper.sh`, on a Mac with
+    /// its sandbox; `None` (the test is skipped) otherwise.
+    fn helper() -> Option<PathBuf> {
+        let helper =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/mac-helper/oxbot-mac");
+        (helper.exists() && Path::new(SANDBOX_EXEC).exists())
+            .then(|| std::fs::canonicalize(helper).unwrap())
+    }
+
+    #[tokio::test]
+    async fn frames_are_taken_inside_the_sandbox() {
+        let Some(helper) = helper() else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let clip = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/clip.mov");
+        let out = tmp.path().join("clip.mov.frames");
+        let taken = MacTools::with_helper(Some(helper))
+            .frames(&clip, &out, 3, 256)
+            .await
+            .unwrap();
+        assert_eq!(taken.frames, 3);
+        assert!(out.join("01.jpg").is_file());
+    }
+
+    #[test]
+    fn the_sandboxed_helper_cannot_write_outside_its_folder() {
+        let Some(helper) = helper() else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let clip = std::fs::canonicalize(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/clip.mov"),
+        )
+        .unwrap();
+        let (allowed, elsewhere) = (root.join("frames"), root.join("elsewhere"));
+        std::fs::create_dir_all(&allowed).unwrap();
+        let run = |into: &Path| {
+            std::process::Command::new(SANDBOX_EXEC)
+                .arg("-p")
+                .arg(frames_profile(&helper, &clip, &allowed))
+                .arg(&helper)
+                .args(["frames".as_ref(), clip.as_os_str(), into.as_os_str()])
+                .args(["--max", "2", "--size", "128"])
+                .output()
+                .unwrap()
+        };
+        let ok = run(&allowed);
+        assert!(
+            String::from_utf8_lossy(&ok.stdout).contains("\"frames\":2"),
+            "{ok:?}"
+        );
+        let refused = run(&elsewhere);
+        assert!(
+            String::from_utf8_lossy(&refused.stdout).contains("error"),
+            "{refused:?}"
+        );
+        assert!(
+            !elsewhere.join("01.jpg").exists(),
+            "nothing written outside its folder"
+        );
+        // Nor may it read another file in place of the video.
+        let other = root.join("other.mov");
+        std::fs::copy(&clip, &other).unwrap();
+        let read = std::process::Command::new(SANDBOX_EXEC)
+            .arg("-p")
+            .arg(frames_profile(&helper, &clip, &allowed))
+            .arg(&helper)
+            .args(["frames".as_ref(), other.as_os_str(), allowed.as_os_str()])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&read.stdout).contains("error"),
+            "{read:?}"
+        );
     }
 }

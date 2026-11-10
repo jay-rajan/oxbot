@@ -24,6 +24,7 @@ use tokio::sync::{Mutex, watch};
 use crate::docfetch;
 use crate::guard::Guard;
 use crate::netguard::{BlockedRequest, NetGuard, NetMode};
+use crate::pipe::{self, ControlProxy};
 use crate::sealed::{self, Copied, Ran, SealedTab};
 use crate::visits::{VisitSink, Watch};
 use crate::{BrowserError, CookieMarks, ElementFacts, Tools, http};
@@ -61,17 +62,16 @@ enum State {
 /// How Chrome is started (see [`chrome_args`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Launch<'a> {
-    /// Hidden and under oxbot's control on `port`, sending `user_agent`.
-    Hidden {
-        port: u16,
-        user_agent: Option<&'a str>,
-    },
+    /// Hidden and under oxbot's control over a pipe (no port: see
+    /// [`crate::pipe`]), sending `user_agent`.
+    Hidden { user_agent: Option<&'a str> },
     /// The plain sign-in window at `url` (`headless`: end-to-end tests).
     Window { url: &'a str, headless: bool },
 }
 
 /// Chrome's command line (after the program) for `launch` on `profile`,
-/// with `extra` flags (end-to-end tests' host rules).
+/// with `extra` flags (end-to-end tests' host rules). Hidden Chrome also
+/// gets `--remote-debugging-pipe` from [`pipe::spawn_piped`].
 fn chrome_args(profile: &Path, launch: &Launch<'_>, extra: &[String]) -> Vec<String> {
     let mut args = vec![
         format!("--user-data-dir={}", profile.display()),
@@ -80,10 +80,8 @@ fn chrome_args(profile: &Path, launch: &Launch<'_>, extra: &[String]) -> Vec<Str
         "--disable-sync".to_owned(),
     ];
     match launch {
-        Launch::Hidden { port, user_agent } => {
+        Launch::Hidden { user_agent } => {
             args.extend([
-                "--remote-debugging-address=127.0.0.1".to_owned(),
-                format!("--remote-debugging-port={port}"),
                 // WebRTC only through a proxy: in a sealed tab (whose proxy
                 // goes nowhere) it can't send anything at all.
                 "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned(),
@@ -129,7 +127,9 @@ pub struct Browser {
     label: String,
     profile_dir: PathBuf,
     downloads: std::sync::Mutex<PathBuf>,
-    port: u16,
+    /// The local door to hidden Chrome's pipe, the same for the life of
+    /// this `Browser`.
+    proxy: ControlProxy,
     state: Mutex<State>,
     guard: Mutex<Option<Guard>>,
     status: watch::Sender<BrowserStatus>,
@@ -152,7 +152,6 @@ impl std::fmt::Debug for Browser {
         f.debug_struct("Browser")
             .field("label", &self.label)
             .field("profile", &self.profile_dir)
-            .field("port", &self.port)
             .finish_non_exhaustive()
     }
 }
@@ -161,7 +160,7 @@ impl Browser {
     /// A browser for `spec`. Nothing starts until it's needed.
     ///
     /// # Errors
-    /// Fails if no free local port can be found for Chrome's control port.
+    /// Fails if no free local port can be found for the control proxy.
     pub fn new(tools: Arc<Tools>, spec: BrowserSpec) -> std::io::Result<Arc<Self>> {
         Self::make(tools, spec, None)
     }
@@ -171,7 +170,7 @@ impl Browser {
     /// only what `mode` lets through. Nothing starts until it's needed.
     ///
     /// # Errors
-    /// Fails if no free local port can be found for Chrome's control port.
+    /// Fails if no free local port can be found for the control proxy.
     pub fn new_trial(
         tools: Arc<Tools>,
         spec: BrowserSpec,
@@ -185,15 +184,13 @@ impl Browser {
         spec: BrowserSpec,
         net: Option<NetMode>,
     ) -> std::io::Result<Arc<Self>> {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")?
-            .local_addr()?
-            .port();
+        let proxy = ControlProxy::new()?;
         Ok(Arc::new(Self {
             tools,
             label: spec.label,
             profile_dir: spec.profile_dir,
             downloads: std::sync::Mutex::new(spec.downloads),
-            port,
+            proxy,
             state: Mutex::new(State::Off),
             guard: Mutex::new(None),
             status: watch::channel(BrowserStatus::Off).0,
@@ -252,11 +249,14 @@ impl Browser {
         }
     }
 
-    /// Chrome's control port, the same for the life of this `Browser`, so a
-    /// restarted Chrome is found again by every bot's browser tool.
+    /// Where a `DevTools` client reaches Chrome: a `ws://127.0.0.1:…`
+    /// address whose path holds a random secret (see [`crate::pipe`]). The
+    /// same for the life of this `Browser`, so a restarted Chrome is found
+    /// again by every bot's browser tool. Keep it as secret as a password:
+    /// it lets the holder drive every signed-in site.
     #[must_use]
-    pub fn port(&self) -> u16 {
-        self.port
+    pub fn endpoint(&self) -> &str {
+        self.proxy.endpoint()
     }
 
     /// The icon Chrome saved for `site` (a main domain) when a page of it
@@ -309,13 +309,18 @@ impl Browser {
         self.kill_leftover().await;
         let chrome = self.tools.config().chrome.clone();
         let user_agent = self.user_agent.get_or_init(|| user_agent_for(&chrome));
-        let mut child = self.spawn_chrome(&Launch::Hidden {
-            port: self.port,
+        let (mut child, pipe) = self.spawn_hidden(&Launch::Hidden {
             user_agent: user_agent.as_deref(),
         })?;
-        if let Err(err) = self.wait_until_ready().await {
+        // Chrome is ready once it answers on its pipe.
+        if let Err(err) = pipe.call("Browser.getVersion", serde_json::json!({})).await {
+            tracing::warn!(browser = self.label, %err, "Chrome didn't answer on its pipe");
             let _ = child.kill().await;
-            return Err(err);
+            return Err(BrowserError::NotReady);
+        }
+        if let Err(err) = self.proxy.serve(Some(pipe)) {
+            let _ = child.kill().await;
+            return Err(BrowserError::Chrome(err.to_string()));
         }
         self.start_guard().await;
         if let Err(err) = self.start_net_guard().await {
@@ -374,7 +379,7 @@ impl Browser {
     }
 
     /// Closes the sign-in window (if open) and starts hidden Chrome again on
-    /// the same port, so a waiting bot can carry on.
+    /// the same address, so a waiting bot can carry on.
     pub async fn close_window(&self) {
         let mut state = self.state.lock().await;
         if !matches!(*state, State::Window(_)) {
@@ -407,16 +412,25 @@ impl Browser {
     /// Closes every tab and leaves one blank page, so the next bot starts
     /// fresh (it stays signed in). Does nothing if Chrome isn't running.
     pub async fn reset_tabs(&self) {
-        let Some(list) = http::get(self.port, "/json/list").await else {
+        let guard = self.guard.lock().await;
+        let Some(guard) = guard.as_ref() else {
             return;
         };
-        let old = http::page_ids(&list);
-        if !http::put(self.port, "/json/new?about:blank").await {
-            tracing::warn!("couldn't open a blank tab");
+        let Ok(list) = guard
+            .call("Target.getTargets", serde_json::json!({}), false)
+            .await
+        else {
+            return;
+        };
+        let old = http::page_ids(list.get("targetInfos").unwrap_or(&Value::Null));
+        let blank = serde_json::json!({ "url": "about:blank" });
+        if let Err(err) = guard.call("Target.createTarget", blank, false).await {
+            tracing::warn!(%err, "couldn't open a blank tab");
             return;
         }
         for id in old {
-            let _ = http::get(self.port, &format!("/json/close/{id}")).await;
+            let params = serde_json::json!({ "targetId": id });
+            let _ = guard.call("Target.closeTarget", params, false).await;
         }
     }
 
@@ -570,6 +584,16 @@ impl Browser {
             Some(guard) => guard.describe(page_url, role, name).await,
             None => Vec::new(),
         }
+    }
+
+    /// How many elements with accessibility `role` and `name` the tab
+    /// showing exactly `page_url` has, as Chrome itself reads the page (a
+    /// label learned from a snapshot is checked against it before a click
+    /// runs). `None` if oxbot couldn't look: no such tab, the guard isn't
+    /// running, or Chrome didn't answer in time.
+    pub async fn count_named(&self, page_url: &str, role: &str, name: &str) -> Option<usize> {
+        let guard = self.guard.lock().await;
+        guard.as_ref()?.count_named(page_url, role, name).await
     }
 
     /// The address Chrome reports for the tab at `page_url` (or the one
@@ -735,18 +759,24 @@ impl Browser {
     /// itself to close (`Browser.close`), and only signals it if that fails.
     async fn quit(&self, mut child: Child) {
         self.net_guard.lock().await.take();
-        if let Some(guard) = self.guard.lock().await.take() {
+        // The guard reaches Chrome through the control proxy: ask Chrome to
+        // close first, and only then turn the proxy off.
+        let guard = self.guard.lock().await.take();
+        if let Some(guard) = guard {
             guard.close_browser().await;
-            if tokio::time::timeout(Duration::from_secs(10), child.wait())
+            let closed = tokio::time::timeout(Duration::from_secs(10), child.wait())
                 .await
-                .is_ok()
-            {
+                .is_ok();
+            let _ = self.proxy.serve(None);
+            if closed {
                 return;
             }
             tracing::warn!(
                 browser = self.label,
                 "Chrome didn't close when asked; stopping it"
             );
+        } else {
+            let _ = self.proxy.serve(None);
         }
         stop_chrome(&mut child).await;
     }
@@ -775,7 +805,7 @@ impl Browser {
         let Some(mode) = self.net else {
             return Ok(());
         };
-        let guard = NetGuard::start(self.port, mode)
+        let guard = NetGuard::start(self.endpoint(), mode)
             .await
             .map_err(BrowserError::Chrome)?;
         *self.net_guard.lock().await = Some(guard);
@@ -800,7 +830,7 @@ impl Browser {
                 sink,
                 user: Arc::clone(&self.user),
             });
-        match Guard::start(self.port, downloads, watch).await {
+        match Guard::start(self.endpoint(), downloads, watch).await {
             Ok(guard) => *self.guard.lock().await = Some(guard),
             Err(err) => {
                 tracing::warn!(browser = self.label, %err, "browser guard didn't start (no screenshots or page checks)");
@@ -824,7 +854,28 @@ impl Browser {
         }
     }
 
-    /// Starts Chrome as `launch` says.
+    /// Starts hidden Chrome as `launch` says, with its control pipe.
+    fn spawn_hidden(&self, launch: &Launch<'_>) -> Result<(Child, Arc<pipe::Pipe>), BrowserError> {
+        let chrome = &self.tools.config().chrome;
+        if !chrome.exists() {
+            return Err(BrowserError::ChromeMissing(chrome.clone()));
+        }
+        let args = chrome_args(&self.profile_dir, launch, &self.tools.config().chrome_args);
+        let (child, pipe) =
+            pipe::spawn_piped(chrome, &args).map_err(|source| BrowserError::Spawn {
+                program: chrome.display().to_string(),
+                source,
+            })?;
+        tracing::info!(
+            browser = self.label,
+            window = false,
+            pid = child.id(),
+            "Chrome started"
+        );
+        Ok((child, pipe))
+    }
+
+    /// Starts the plain sign-in window as `launch` says.
     fn spawn_chrome(&self, launch: &Launch<'_>) -> Result<Child, BrowserError> {
         let chrome = &self.tools.config().chrome;
         if !chrome.exists() {
@@ -852,20 +903,10 @@ impl Browser {
         );
         Ok(child)
     }
-
-    async fn wait_until_ready(&self) -> Result<(), BrowserError> {
-        for _ in 0..50 {
-            if http::get(self.port, "/json/version").await.is_some() {
-                return Ok(());
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-        Err(BrowserError::NotReady)
-    }
 }
 
 /// Watches the sign-in window. When the user closes it, oxbot quits it
-/// and starts hidden Chrome again on the same port at once, so a bot in
+/// and starts hidden Chrome again at the same address at once, so a bot in
 /// the middle of a task carries on. Closed means Chrome quit, or (with
 /// `count_windows`: a visible window on a Mac, where Chrome stays open
 /// with no windows) its last window went, once one had shown.
@@ -1233,12 +1274,17 @@ mod tests {
         let hidden = chrome_args(
             profile,
             &Launch::Hidden {
-                port: 9222,
                 user_agent: Some("Mozilla/5.0 Chrome/156.0.0.0"),
             },
             &[],
         );
-        assert!(hidden.contains(&"--remote-debugging-port=9222".to_owned()));
+        assert!(
+            hidden
+                .iter()
+                .all(|a| !a.starts_with("--remote-debugging-port")
+                    && !a.starts_with("--remote-debugging-address")),
+            "no control port: {hidden:?}"
+        );
         assert!(hidden.contains(&"--headless=new".to_owned()));
         assert_eq!(hidden[0], "--user-data-dir=/p/profile", "the same profile");
     }

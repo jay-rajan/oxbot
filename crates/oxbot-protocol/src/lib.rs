@@ -43,6 +43,10 @@ pub struct ServerHello {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub started_ms: i64,
+    /// End-to-end test mode (a debug build started for tests): only then
+    /// does the page give the tests their names (`window.send`…).
+    #[serde(default)]
+    pub test: bool,
 }
 
 impl ServerHello {
@@ -55,6 +59,7 @@ impl ServerHello {
             server_name: server_name.into(),
             server_version: env!("CARGO_PKG_VERSION").to_owned(),
             started_ms,
+            test: false,
         }
     }
 

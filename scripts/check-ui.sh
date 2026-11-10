@@ -42,7 +42,7 @@ fi
 [ "$bad" = 0 ]
 
 echo "== install (lockfile only, no install scripts)"
-(cd "$src" && npm ci --no-audit --no-fund)
+(cd "$src" && npm ci --ignore-scripts --no-audit --no-fund)
 
 echo "== types and unit tests"
 (cd "$src" && npx tsc --noEmit && npx vitest run)

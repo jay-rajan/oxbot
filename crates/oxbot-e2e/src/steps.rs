@@ -479,7 +479,7 @@ async fn close_sign_in_window(home: &Path, timeout_ms: u64) -> anyhow::Result<()
 
 /// The process id of this home's sign-in window, if one runs: a main
 /// Chrome (not a helper) on this home's profile, without oxbot's
-/// `DevTools` port.
+/// `DevTools` pipe.
 async fn sign_in_window_pid(home: &Path) -> anyhow::Result<Option<u32>> {
     let out = tokio::process::Command::new("ps")
         .args(["-axo", "pid=,args="])
@@ -492,7 +492,7 @@ async fn sign_in_window_pid(home: &Path) -> anyhow::Result<Option<u32>> {
             l.contains(&marker)
                 && !l.contains("Helper")
                 && !l.contains(" --type=")
-                && !l.contains("--remote-debugging-port=")
+                && !l.contains("--remote-debugging-pipe")
         })
         .find_map(|l| l.split_whitespace().next()?.parse().ok()))
 }

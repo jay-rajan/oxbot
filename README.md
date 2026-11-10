@@ -14,15 +14,19 @@ every bot on that Chrome stays signed in (a sign-in counts only if the window le
 Settings → Sign-ins lists the websites you're signed in to (the sidebar's Signed in link opens
 it); open one, or sign out of it alone. Bots take turns on the browser. oxbot checks every
 browser step: links, tabs, search, filters, sorting and paging run at once; an approval request
-comes before anything that changes something (Send, Post, Save, Apply…, or a filled-in POST
-form's button), and before paying, booking or deleting; one comes before an upload from the home
-computer; and it refuses passwords, page scripts, non-web pages and files outside the bot's
-folder. oxbot names what a click aims at from every page snapshot the bot has read, and for an
-unclear button it reads the button's form itself, in its own isolated world the page's scripts
-can't touch. A click oxbot still can't name runs, and is logged. An approval request for a change
-can offer **Always allow** (to the bot's maker or the owner at the home computer): the same bot
-may then click the same button on the same exact site without asking, with a quiet line in the
-chat. Paying, booking, deleting, Enter in a text box, uploads and the Assistant's requests never
+comes before anything that changes something (Send, Post, Save, Apply, Allow, Enable, Block,
+Leave, Add…, a POST form's button, or a privacy or settings switch), and before paying, booking or
+deleting; one comes before Enter in a text box (a line break typed, or a shortcut such as
+Control+Enter, counts as Enter), and before an upload from the home computer; and it refuses
+passwords, page scripts, non-web pages and files outside the bot's folder (a link out of it
+doesn't count as inside). oxbot names what a click aims at from the page snapshots the browser tool
+took, checks with Chrome that the page really shows that button, and for an unclear button it
+reads the button's form itself, in its own isolated world the page's scripts can't touch. A click
+oxbot can't name asks. An approval request for a change can offer **Always allow** (to the bot's
+maker or the owner at the home computer): the same bot may then click the same button on the same
+exact site without asking, with a quiet line in the chat; one that sends, posts or changes a
+setting doesn't apply once the bot has read a web page or a file in that conversation. Paying,
+booking, deleting, granting access, Enter in a text box, uploads and the Assistant's requests never
 offer it. The bot's ··· settings list what it may always do, each with Remove. Open approval
 requests sit right above the message box, newest nearest it, whichever bot is open; that area
 scrolls on its own so the box stays on screen, on a phone too.
@@ -141,7 +145,7 @@ Mac can't act as the home computer.
 
 Setup: the browser tool and Node.js ship inside the app; you need Google Chrome and Codex CLI
 0.148.x (installed separately for now: oxbot looks in `PATH`, `/opt/homebrew/bin` and
-`/usr/local/bin`, or where `OXBOT_CODEX` or Settings says), and the owner signs in to OpenRouter
+`/usr/local/bin`, or where Settings says, or `OXBOT_CODEX` in a debug build), and the owner signs in to OpenRouter
 once. Settings (the gear) shows setup, AI spending and oxbot's activity log.
 
 Usage alerts: when the home nears or reaches one of its OpenRouter limits (free questions for the
@@ -336,7 +340,8 @@ test picks one with `script = …`), files to attach (`e2e/fixtures/`), and appr
 (`e2e/baselines/`). A step can `attach = ["e2e/fixtures/bill.pdf"]`; a test with
 `dictation = true` gets a stand-in Mac helper that "hears" a sentence (no test uses the real
 microphone), and video goes to the real helper for real still frames. The runner,
-`crates/oxbot-e2e`, starts a throwaway oxbot in test mode (`OXBOT_E2E=1`), drives its page in
+`crates/oxbot-e2e`, starts a throwaway oxbot in test mode (`OXBOT_E2E=1`; like every `OXBOT_E2E*`, `OXBOT_FAKE_*`
+and other test setting, it works only in a debug build, never in the app people install), drives its page in
 hidden Chrome (and Safari, the app's engine, when "Allow Remote Automation" is on), screenshots
 every step, and checks the built Mac app. Bots run on the real Codex (0.148.x must be installed:
 `needs = ["codex"]` in `e2e/pr_test.toml`; without it every test is skipped, saying why),

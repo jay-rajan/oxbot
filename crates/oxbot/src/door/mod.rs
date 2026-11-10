@@ -22,7 +22,7 @@ pub mod network;
 pub mod pairing;
 
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -45,14 +45,16 @@ use pairing::{Check, PairingCodes};
 /// The device door's usual port.
 pub const DEFAULT_DEVICE_PORT: u16 = 7879;
 
-/// The device door's folder in `data_dir` (its certificate). It was `gate`
-/// before the rename; that folder is moved here once.
+/// The device door's folder in `data_dir` (its certificate), this
+/// account's only (0700). It was `gate` before the rename; that folder is
+/// moved here once.
 ///
 /// # Errors
 /// Fails if the old folder is there and can't be moved.
 pub fn folder(data_dir: &std::path::Path) -> std::io::Result<PathBuf> {
     let dir = data_dir.join("door");
     oxbot_device::move_old_name(&data_dir.join("gate"), &dir)?;
+    oxbot_core::home::restrict(&dir, oxbot_core::home::PRIVATE_DIR)?;
     Ok(dir)
 }
 /// How often the door checks which network the Mac is on.
@@ -68,6 +70,8 @@ pub enum PairError {
     NoCode,
     /// Wrong code.
     WrongCode,
+    /// This device guessed wrong too often and has to wait.
+    TooManyTries,
     /// Something went wrong on the home computer.
     HomeComputer(String),
 }
@@ -81,6 +85,9 @@ impl std::fmt::Display for PairError {
                 "No pairing code is showing on the home computer, or it ran out. Make a new one in Settings → Devices.",
             ),
             Self::WrongCode => f.write_str("That code isn't right. Check it and try again."),
+            Self::TooManyTries => f.write_str(
+                "That code was wrong too many times from this device. Wait 10 minutes, then try again.",
+            ),
             Self::HomeComputer(why) => write!(f, "The home computer couldn't pair just now: {why}"),
         }
     }
@@ -458,15 +465,22 @@ impl Door {
         self.apply().await;
     }
 
-    /// Checks a device's code and pairs it: a new device record and its key.
+    /// Checks the code a device at `from` typed and pairs it: a new device
+    /// record and its key.
     ///
     /// # Errors
-    /// No code showing, the wrong code, or the database failing.
-    pub fn pair(&self, req: &PairRequest) -> Result<PairReply, PairError> {
-        let (check, person_id) = lock(&self.codes).check_for(&req.code, crate::runtime::now_ms());
+    /// No code showing, the wrong code, too many wrong codes from `from`,
+    /// or the database failing.
+    pub fn pair(&self, req: &PairRequest, from: IpAddr) -> Result<PairReply, PairError> {
+        let (check, person_id) =
+            lock(&self.codes).check_for(&req.code, from, crate::runtime::now_ms());
         let person = match check {
             Check::Paired(person) => person,
             Check::NoCode => return Err(PairError::NoCode),
+            Check::Blocked => {
+                tracing::warn!(%from, "a device guessed pairing codes wrong too often; it waits");
+                return Err(PairError::TooManyTries);
+            }
             Check::Wrong { closed } => {
                 if closed {
                     tracing::warn!(

@@ -797,9 +797,13 @@ async fn the_assistant_gives_a_task_and_other_bots_cant() {
         .unwrap();
     let said = reply_of(&hub, &mut updates, "assistant").await;
     // The helper (the same fake) tried to give a task too: only Assistants
-    // are given give_task, so Codex had no such tool to call.
+    // are given give_task, so oxbot's relay renamed the call and Codex had
+    // no such tool to call.
     assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
-    assert!(said.contains("unsupported call: give_task"), "{said}");
+    assert!(
+        said.contains("unsupported call: unavailable_tool_give_task"),
+        "{said}"
+    );
     assert_eq!(
         hub.history("assistant", 0)
             .unwrap()
@@ -1542,6 +1546,16 @@ async fn always_allow_is_saved_only_by_those_who_manage_the_bot() {
         .unwrap();
     let again = next_card(&mut updates).await;
     assert_eq!(again.target, "button \"Post\"");
+    // And a rule that posts never applies once the session has read a
+    // page (which may be what asked for it): the card says so.
+    assert!(
+        again
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("so oxbot asks even if you said Always")),
+        "{:?}",
+        again.detail
+    );
     hub.answer(again.id, Answer::Deny);
     let _ = ending(&hub, &mut updates).await;
 

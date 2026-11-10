@@ -13,7 +13,7 @@
 //! Real Chrome still runs hidden for leases, screenshots and page facts. A
 //! page on the test site (a `.test` host) is
 //! also opened in that Chrome, in a new tab (the real tool's
-//! `--browserUrl` says which Chrome), so its network can be checked; no
+//! `--wsEndpoint` says which Chrome), so its network can be checked; no
 //! other page is ever loaded. Each call is logged (tool and arguments) to
 //! `OXBOT_FAKE_DT_LOG` if set, so tests can check what the loop did.
 
@@ -47,8 +47,8 @@ pub struct Devtools {
     tools: Vec<Value>,
     open: Option<String>,
     log: Option<PathBuf>,
-    /// The Chrome's control port, from `--browserUrl`.
-    chrome: Option<u16>,
+    /// The Chrome's `DevTools` address, from `--wsEndpoint`.
+    chrome: Option<String>,
 }
 
 impl Devtools {
@@ -64,20 +64,17 @@ impl Devtools {
         }
     }
 
-    /// Opens test-site pages in the Chrome at `browser_url` (the real
-    /// tool's `--browserUrl`, e.g. `http://127.0.0.1:9333`).
+    /// Opens test-site pages in the Chrome at `endpoint` (the real tool's
+    /// `--wsEndpoint`, oxbot's `ws://127.0.0.1:…/devtools/browser/<token>`).
     #[must_use]
-    pub fn with_browser_url(mut self, browser_url: &str) -> Self {
-        self.chrome = browser_url
-            .rsplit(':')
-            .next()
-            .and_then(|p| p.trim_end_matches('/').parse().ok());
+    pub fn with_ws_endpoint(mut self, endpoint: &str) -> Self {
+        self.chrome = Some(endpoint.to_owned());
         self
     }
 
     /// Opens `url` in a new tab of the Chrome, if it's on the test site.
     fn load_in_chrome(&self, url: &str) {
-        let Some(port) = self.chrome else {
+        let Some(endpoint) = &self.chrome else {
             return;
         };
         let host = url
@@ -87,19 +84,22 @@ impl Devtools {
         if !host.to_ascii_lowercase().ends_with(".test") || url.contains(char::is_whitespace) {
             return;
         }
-        let request = format!(
-            "PUT /json/new?{url} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-        );
-        if let Ok(mut tcp) = std::net::TcpStream::connect(("127.0.0.1", port)) {
-            use std::io::{Read as _, Write as _};
-            let _ = tcp.set_read_timeout(Some(std::time::Duration::from_secs(3)));
-            let _ = tcp.write_all(request.as_bytes());
-            let mut answer = [0u8; 512];
-            let _ = tcp.read(&mut answer);
+        let Ok((mut socket, _)) = tokio_tungstenite::tungstenite::connect(endpoint.as_str()) else {
+            return;
+        };
+        let open = json!({ "id": 1, "method": "Target.createTarget", "params": { "url": url } });
+        if socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                open.to_string().into(),
+            ))
+            .is_ok()
+        {
+            let _ = socket.read();
             // Like the real tool, answer once the page has loaded (and run
             // its first scripts).
             std::thread::sleep(std::time::Duration::from_millis(1500));
         }
+        let _ = socket.close(None);
     }
 
     /// Answers one JSON-RPC message; `None` for notifications.

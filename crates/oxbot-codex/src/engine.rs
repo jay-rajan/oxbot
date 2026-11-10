@@ -522,6 +522,14 @@ impl Turn {
             privacy: core.spec.privacy,
             choice: core.spec.model.clone(),
             central: core.spec.host_tools.central,
+            // Only oxbot's tools reach the model, and only calls to them
+            // come back (never Codex's own, such as apply_patch).
+            tools: core
+                .tools
+                .specs()
+                .iter()
+                .filter_map(|s| core.names.codex(&s.name).map(str::to_owned))
+                .collect(),
         };
         let running = match supervisor.get(&core.key, info).await {
             Ok(r) => r,

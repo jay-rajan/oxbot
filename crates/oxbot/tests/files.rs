@@ -121,7 +121,8 @@ async fn request(addr: std::net::SocketAddr, head: &str, body: &[u8]) -> (u16, S
 /// Uploads `body` as `name` for `bot`, with `extra` headers.
 async fn upload(s: &Server, query: &str, extra: &str, body: &[u8]) -> (u16, serde_json::Value) {
     let head = format!(
-        "POST /upload?{query} HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: {}\r\n{extra}\r\n",
+        "POST /upload?{query} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n{extra}\r\n",
+        s.addr,
         body.len()
     );
     let (status, text) = request(s.addr, &head, body).await;
@@ -223,7 +224,8 @@ async fn anyone_who_may_task_a_shared_bot_sends_it_files() {
 async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     let s = start().await;
     let head = format!(
-        "POST /upload?bot=notes&name=clip.mov HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: {}\r\n{}\r\n",
+        "POST /upload?bot=notes&name=clip.mov HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n{}\r\n",
+        s.addr,
         640 * 1024 * 1024,
         home_computer(&s)
     );
@@ -251,7 +253,8 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
     }
     chunked.extend_from_slice(b"0\r\n\r\n");
     let head = format!(
-        "POST /upload?bot=notes&name=notes HTTP/1.1\r\nHost: x\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n{}\r\n",
+        "POST /upload?bot=notes&name=notes HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n{}\r\n",
+        s.addr,
         home_computer(&s)
     );
     let (status, body) = request(s.addr, &head, &chunked).await;

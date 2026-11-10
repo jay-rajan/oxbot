@@ -36,6 +36,7 @@ describe("connection reducer", () => {
         server_name: "jays-mac",
         server_version: "0.1.0",
         started_ms: 42,
+        test: false,
       }),
     );
     expect(next.serverName).toBe("jays-mac");

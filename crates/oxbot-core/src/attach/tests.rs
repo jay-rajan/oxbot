@@ -338,8 +338,27 @@ fn the_bot_is_told_where_each_file_is_and_that_its_text_is_not_an_instruction() 
 fn an_inbox_only_hands_out_its_own_files() {
     let tmp = tempfile::tempdir().unwrap();
     let inbox = Inbox::new(tmp.path().join("work"));
-    std::fs::create_dir_all(inbox.dir()).unwrap();
+    std::fs::create_dir_all(inbox.dir().join("2026-11-02")).unwrap();
+    std::fs::write(inbox.dir().join("2026-11-02/1-a.pdf"), b"%PDF").unwrap();
     assert!(inbox.resolve("inbox/2026-11-02/1-a.pdf").is_some());
+    assert!(
+        inbox.resolve("inbox/2026-11-02/2-gone.pdf").is_none(),
+        "only a file that's there"
+    );
+    // A bot's script swapped a sent file for a link (to a program, say),
+    // or linked a day's folder elsewhere: never handed out.
+    let elsewhere = tmp.path().join("Calculator.app");
+    std::fs::write(&elsewhere, b"#!/bin/sh").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, inbox.dir().join("2026-11-02/3-b.pdf")).unwrap();
+    assert!(inbox.resolve("inbox/2026-11-02/3-b.pdf").is_none());
+    let inside = inbox.dir().join("2026-11-02/1-a.pdf");
+    std::os::unix::fs::symlink(&inside, inbox.dir().join("2026-11-02/4-c.pdf")).unwrap();
+    assert!(
+        inbox.resolve("inbox/2026-11-02/4-c.pdf").is_none(),
+        "no link at all"
+    );
+    std::os::unix::fs::symlink(tmp.path(), inbox.dir().join("2026-11-03")).unwrap();
+    assert!(inbox.resolve("inbox/2026-11-03/Calculator.app").is_none());
     assert!(inbox.resolve("inbox/../instructions.md").is_none());
     assert!(
         inbox.resolve("notes.md").is_none(),
@@ -353,6 +372,22 @@ fn an_inbox_only_hands_out_its_own_files() {
     let (path, _) = inbox.incoming(&id).unwrap();
     assert!(path.starts_with(inbox.dir()));
     assert!(inbox.incoming(&id).is_err(), "never one that's there");
+}
+
+#[test]
+fn an_inbox_that_is_a_link_is_never_written_to() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let elsewhere = tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, work.join("inbox")).unwrap();
+    let inbox = Inbox::new(&work);
+    assert!(inbox.incoming(&new_upload_id()).is_err());
+    assert!(
+        std::fs::read_dir(&elsewhere).unwrap().next().is_none(),
+        "nothing was made through the link"
+    );
 }
 
 async fn accept_bytes(dir: &Path, bytes: &[u8], name: &str) -> Result<Accepted, AttachError> {

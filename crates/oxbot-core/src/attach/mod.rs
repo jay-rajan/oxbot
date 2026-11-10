@@ -107,7 +107,7 @@ impl Inbox {
             return Err(std::io::Error::other("not an upload id"));
         }
         let dir = self.dir().join(".incoming");
-        std::fs::create_dir_all(&dir)?;
+        make_dir_in(&self.work, &dir)?;
         let path = dir.join(id);
         let file = std::fs::OpenOptions::new()
             .write(true)
@@ -117,15 +117,61 @@ impl Inbox {
     }
 
     /// A saved file's path from its place relative to the work folder, if
-    /// it's in the inbox (never anywhere else, whatever the event says).
+    /// it's a regular file in the inbox (never anywhere else, whatever the
+    /// event says): not a link, nor reached through one, so a bot's script
+    /// can't point it at another file after it was sent.
     #[must_use]
     pub fn resolve(&self, relative: &str) -> Option<PathBuf> {
         let path = self.work.join(relative);
+        let regular = std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file());
+        let inbox = std::fs::canonicalize(self.dir()).ok()?;
+        let real = std::fs::canonicalize(&path).ok()?;
         (Path::new(relative).is_relative()
-            && crate::policy::is_inside(&path, &self.dir())
-            && path != self.dir())
-        .then_some(path)
+            && regular
+            && !crate::policy::has_link_below(&path, &self.work)
+            && real.starts_with(&inbox)
+            && real != inbox)
+            .then_some(real)
     }
+}
+
+/// Makes `dir` (inside `work`) and the folders above it, refusing any that
+/// is a link: a bot's script could otherwise point the inbox elsewhere and
+/// have oxbot write there.
+///
+/// # Errors
+/// Fails if a folder can't be made, or one is a link.
+fn make_dir_in(work: &Path, dir: &Path) -> std::io::Result<()> {
+    let link = || std::io::Error::other("a folder in the inbox is a link");
+    let below = dir.strip_prefix(work).map_err(|_| link())?;
+    // The bot's folder itself is oxbot's: made if it isn't there yet.
+    std::fs::create_dir_all(work)?;
+    let mut at = work.to_path_buf();
+    for part in below.components() {
+        let std::path::Component::Normal(name) = part else {
+            return Err(link());
+        };
+        at.push(name);
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.file_type().is_dir() => {}
+            Ok(_) => return Err(link()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Another upload may make it at the same moment: fine, if
+                // it's a folder.
+                match std::fs::create_dir(&at) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        if !std::fs::symlink_metadata(&at)?.file_type().is_dir() {
+                            return Err(link());
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 /// A new upload id: 32 random hex digits.
@@ -201,7 +247,9 @@ async fn take(
 
     // Its own name, with the extension the Read tool goes by.
     let stored = stored_name(&shown, found.extension());
-    let final_path = reserve(&inbox.dir().join(today()), &stored)?;
+    let day = inbox.dir().join(today());
+    make_dir_in(inbox.work_dir(), &day)?;
+    let final_path = reserve(&day, &stored)?;
     saved.push(final_path.clone());
     std::fs::rename(incoming, &final_path)?;
 

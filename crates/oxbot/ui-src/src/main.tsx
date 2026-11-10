@@ -9,7 +9,7 @@ import { connect, socketUrl } from "./net/socket";
 import { createStore, local } from "./state/store";
 import { deviceBridge, sessionStore, takeKey } from "./web/address";
 import { LOGO } from "./components/brand";
-import { expose, exposeFn } from "./web/testBridge";
+import { enableTestBridge, expose, exposeFn } from "./web/testBridge";
 import "./theme/tokens.css";
 import "./theme/base.css";
 import "./components/ui/index";
@@ -46,6 +46,8 @@ socket.onMessage((msg) => {
     location.reload();
     return;
   }
+  // Test mode only (a debug build started for tests): the tests' names.
+  if (msg.type === "hello" && msg.test) enableTestBridge();
   store.dispatch({ kind: "server", msg });
 });
 

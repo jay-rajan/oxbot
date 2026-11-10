@@ -15,6 +15,7 @@ clap.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
 if-addrs.workspace = true
+rustix.workspace = true
 mdns-sd.workspace = true
 oxbot-browser.workspace = true
 oxbot-codex.workspace = true

@@ -12,9 +12,10 @@
 //!   through [`EngineEvent::HostTool`]. Both carry a [`Reply`]: dropping it
 //!   unanswered means "no", so a lost answer can never let a tool run.
 //!
-//! No I/O here: only types, traits, [`text`] helpers and the [`trust`]
-//! lists.
+//! No I/O here: only types, traits, [`text`] helpers, the [`trust`]
+//! lists, and [`dev`]: the test settings, read in debug builds only.
 
+pub mod dev;
 mod event;
 mod reply;
 pub mod sealed;

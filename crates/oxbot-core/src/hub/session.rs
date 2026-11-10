@@ -200,7 +200,7 @@ impl Hub {
             });
         }
         Some(BrowserSpec {
-            mcp: tools.mcp_command(shared.browser.port(), work_dir),
+            mcp: tools.mcp_command(shared.browser.endpoint(), work_dir),
         })
     }
 
@@ -389,7 +389,7 @@ impl Hub {
                 .and_then(|n| n.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")))
             {
                 visit = learn_from_result(r, action, text);
-                files = elements::files_in(text);
+                files = elements::files_in(action, text);
             }
             untrusted = match &name {
                 Some(name) => untrusted_tool(name, r.page.as_ref()),
@@ -490,7 +490,8 @@ fn new_runtime(
 }
 
 /// Reads what the browser tool's `action` reported: the selected page, and
-/// the element names from a page snapshot (added to what it knew). Returns
+/// the element names from a page snapshot (added to what it knew), only
+/// from the tools that take one (see [`elements::SNAPSHOT_TOOLS`]). Returns
 /// a web page this session hadn't opened before, (address, title), to keep
 /// with the session.
 fn learn_from_result(runtime: &mut Runtime, action: &str, text: &str) -> Option<(String, String)> {
@@ -504,7 +505,14 @@ fn learn_from_result(runtime: &mut Runtime, action: &str, text: &str) -> Option<
         }
         runtime.page = Some((title, url));
     }
-    runtime.elements.learn(text);
+    // The browser tool restarted: its uids start over, so what the book
+    // knew may name other elements now (forgetting only ever asks more).
+    if text.lines().any(|l| l.starts_with(elements::RECONNECTED)) {
+        runtime.elements.clear();
+    }
+    if elements::SNAPSHOT_TOOLS.contains(&action) {
+        runtime.elements.learn(text);
+    }
     visit
 }
 

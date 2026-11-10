@@ -594,7 +594,7 @@ fn spawn_oxbot(
         .stderr(file)
         .kill_on_drop(true);
     // Never the Mac's own microphone in tests: a stand-in helper, which
-    // passes video to the real one (if built) for real still frames.
+    // also makes stand-in still frames of video.
     match &config.fake_mac {
         Some(fake) => {
             cmd.env("OXBOT_MAC_HELPER", repo.join(fake)).env(
@@ -605,9 +605,6 @@ fn spawn_oxbot(
         None => {
             cmd.env("OXBOT_MAC_HELPER", "off");
         }
-    }
-    if let Some(real) = config.mac_helper.as_ref().map(|h| repo.join(h)) {
-        cmd.env("OXBOT_REAL_MAC_HELPER", real);
     }
     if let Some(tools) = &config.tools {
         let tools = repo.join(tools);

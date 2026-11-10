@@ -30,6 +30,7 @@
 // Product names (OpenRouter, Codex) read better in docs without backticks.
 #![allow(clippy::doc_markdown)]
 
+pub mod calls;
 pub mod personal;
 pub mod shape;
 pub mod tap;
@@ -205,6 +206,10 @@ pub struct ClientInfo {
     pub choice: ModelChoice,
     /// An Assistant (its own model setting).
     pub central: bool,
+    /// The names (as Codex knows them) of the tools oxbot gave the bot:
+    /// the only tools a request may offer the model, and the only ones an
+    /// answer may call (Codex's own, such as `apply_patch`, never).
+    pub tools: Vec<String>,
 }
 
 /// The bot's current turn, as oxbot records it.
@@ -368,8 +373,9 @@ impl RelayClient {
             .unwrap_or_default()
     }
 
-    /// The bot's model or privacy changed (its next turn uses them).
-    pub fn update(&self, choice: ModelChoice, privacy: Privacy) {
+    /// The bot's model, privacy or tools changed (its next turn uses
+    /// them).
+    pub fn update(&self, choice: ModelChoice, privacy: Privacy, tools: Vec<String>) {
         let mut info = self
             .client
             .info
@@ -377,6 +383,7 @@ impl RelayClient {
             .unwrap_or_else(PoisonError::into_inner);
         info.choice = choice;
         info.privacy = privacy;
+        info.tools = tools;
     }
 }
 
@@ -643,11 +650,12 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
     let cancel = CancellationToken::new();
     let stop_with_codex = cancel.clone().drop_guard();
     let upstream = Arc::clone(&relay.setup.upstream);
+    let calls = calls::CallFilter::new(shape::offered(&request, &info.tools));
     let opened = relay
         .setup
         .gateway
         .request(&asker, &mut routing, &cancel, |attempt| {
-            let out = shape::outgoing(&request, &attempt);
+            let out = shape::outgoing(&request, &attempt, &info.tools);
             let bytes = serde_json::to_vec(&Value::Object(out)).unwrap_or_default();
             note_sent(&relay, &info, &asker, &attempt.model, &bytes);
             net.row.bytes_up += bytes.len() as u64;
@@ -665,9 +673,17 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
         Ok(opened) => {
             let (answer, ticket) = (opened.value, opened.ticket);
             if stream {
-                streamed(answer, ticket, meter, stop_with_codex, stand_ins, net)
+                streamed(
+                    answer,
+                    ticket,
+                    meter,
+                    stop_with_codex,
+                    stand_ins,
+                    calls,
+                    net,
+                )
             } else {
-                whole(answer, ticket, meter, stand_ins, net).await
+                whole(answer, ticket, meter, stand_ins, calls, net).await
             }
         }
         Err(GatewayStop::Fail(why)) => {
@@ -893,6 +909,8 @@ impl Drop for Metered {
 struct Streaming {
     body: futures_util::stream::BoxStream<'static, Result<Bytes, LlmError>>,
     metered: Metered,
+    /// Calls to tools the request didn't offer are left out.
+    calls: calls::CallFilter,
     /// Stand-ins turned back, when the request had them.
     restorer: Option<SseRestorer>,
     _guard: tokio_util::sync::DropGuard,
@@ -906,10 +924,11 @@ impl Streaming {
                 Some(Ok(bytes)) => {
                     self.metered.down += bytes.len() as u64;
                     self.metered.tap.push(&bytes);
-                    let Some(restorer) = &mut self.restorer else {
-                        return Some(Ok(bytes));
+                    let kept = self.calls.push(&bytes);
+                    let out = match &mut self.restorer {
+                        Some(restorer) => restorer.push(&kept),
+                        None => kept,
                     };
-                    let out = restorer.push(&bytes);
                     // Only part of an event yet: wait for the rest.
                     if !out.is_empty() {
                         return Some(Ok(Bytes::from(out)));
@@ -921,8 +940,19 @@ impl Streaming {
                     return Some(Err(std::io::Error::other(err.message)));
                 }
                 None => {
+                    if self.metered.ended {
+                        return None;
+                    }
                     self.metered.ended = true;
-                    let rest = self.restorer.take().map(|mut r| r.finish())?;
+                    let kept = self.calls.finish();
+                    let rest = match self.restorer.take() {
+                        Some(mut restorer) => {
+                            let mut out = restorer.push(&kept);
+                            out.extend(restorer.finish());
+                            out
+                        }
+                        None => kept,
+                    };
                     return (!rest.is_empty()).then(|| Ok(Bytes::from(rest)));
                 }
             }
@@ -938,10 +968,12 @@ fn streamed(
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
     stop_with_codex: tokio_util::sync::DropGuard,
     stand_ins: Option<Arc<StandIns>>,
+    calls: calls::CallFilter,
     net: NetNote,
 ) -> Response {
     let state = Streaming {
         body: answer.body,
+        calls,
         metered: Metered {
             ticket: Some(ticket),
             tap: tap::Tap::default(),
@@ -977,6 +1009,7 @@ async fn whole(
     ticket: Ticket,
     meter: Option<mpsc::UnboundedSender<CallRecord>>,
     stand_ins: Option<Arc<StandIns>>,
+    mut calls: calls::CallFilter,
     net: NetNote,
 ) -> Response {
     let mut metered = Metered {
@@ -1014,6 +1047,7 @@ async fn whole(
         return error(StatusCode::BAD_GATEWAY, &err.message);
     }
     metered.tap.whole(&all);
+    let mut all = calls.whole(all);
     if let Some(stand_ins) = stand_ins {
         all = stand_ins.restore_body(&all);
     }

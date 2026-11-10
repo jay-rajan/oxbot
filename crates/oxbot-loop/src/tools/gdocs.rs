@@ -80,9 +80,8 @@ pub fn spec() -> ToolSpec {
 /// end-to-end tests the test site named by [`E2E_DOCS_URL`].
 #[must_use]
 pub fn docs_base() -> String {
-    let e2e = std::env::var_os("OXBOT_E2E").is_some_and(|v| v == "1");
-    if e2e
-        && let Ok(base) = std::env::var(E2E_DOCS_URL)
+    if oxbot_engine::dev::e2e()
+        && let Some(base) = oxbot_engine::dev::dev_env_string(E2E_DOCS_URL)
         && test_base_ok(&base)
     {
         return base;
