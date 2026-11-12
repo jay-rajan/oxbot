@@ -805,6 +805,7 @@ pub fn config_with(
         browser: Some(tools(home)),
         approval_timeout: Duration::from_secs(5),
         sign_in_timeout: Duration::from_secs(5),
+        pace: crate::Pace::NONE,
         openrouter: Some(LoopParts {
             browser: Some(Arc::new(SameBrowser(browser))),
             free_per_minute: 1000,

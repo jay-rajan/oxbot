@@ -139,6 +139,10 @@ pub struct ToolsConfig {
     /// Keep sign-in windows hidden too (end-to-end tests, so no windows pop
     /// up on the screen while they run).
     pub hidden_windows: bool,
+    /// Bots' Chrome is a real window, minimized to the Dock, instead of
+    /// headless: the person can watch it, and signs in in the same window.
+    /// Practice runs stay headless.
+    pub show_browser: bool,
     /// End-to-end tests only: the browser tool bots run instead of
     /// `chrome-devtools-mcp` (a stand-in).
     pub mcp_override: Option<McpCommand>,
@@ -187,6 +191,7 @@ impl ToolsConfig {
             env: Vec::new(),
             built_in: None,
             hidden_windows: false,
+            show_browser: false,
             mcp_override: None,
             chrome_args: Vec::new(),
         }

@@ -162,6 +162,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             env: path_env.clone(),
             built_in: built_in.clone(),
             hidden_windows: e2e,
+            show_browser: !e2e,
             mcp_override: fake_devtools(e2e),
             // Test mode: `*.example.test` reaches the test site.
             chrome_args: dev_env_string("OXBOT_E2E_HOST_RULES")
@@ -206,6 +207,12 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         extra_env: session_env,
         mac: oxbot_core::attach::MacTools::with_helper(helper.clone()),
         e2e,
+        // End-to-end tests' sites are stand-ins: no need to pace them.
+        pace: if e2e {
+            oxbot_core::Pace::NONE
+        } else {
+            oxbot_core::Pace::POLITE
+        },
         // Codex bots' tools, routing and meter (oxbot-loop), with the
         // household's key.
         openrouter: Some(oxbot_core::LoopParts::openrouter(

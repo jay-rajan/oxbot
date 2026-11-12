@@ -62,9 +62,13 @@ enum State {
 /// How Chrome is started (see [`chrome_args`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Launch<'a> {
-    /// Hidden and under oxbot's control over a pipe (no port: see
-    /// [`crate::pipe`]), sending `user_agent`.
-    Hidden { user_agent: Option<&'a str> },
+    /// Under oxbot's control over a pipe (no port: see [`crate::pipe`]):
+    /// headless sending `user_agent`, or (`shown`) a real window that
+    /// oxbot minimizes to the Dock.
+    Hidden {
+        user_agent: Option<&'a str>,
+        shown: bool,
+    },
     /// The plain sign-in window at `url` (`headless`: end-to-end tests).
     Window { url: &'a str, headless: bool },
 }
@@ -80,13 +84,24 @@ fn chrome_args(profile: &Path, launch: &Launch<'_>, extra: &[String]) -> Vec<Str
         "--disable-sync".to_owned(),
     ];
     match launch {
-        Launch::Hidden { user_agent } => {
+        Launch::Hidden { user_agent, shown } => {
             args.extend([
                 // WebRTC only through a proxy: in a sealed tab (whose proxy
                 // goes nowhere) it can't send anything at all.
                 "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned(),
             ]);
             args.extend(extra.iter().cloned());
+            if *shown {
+                // A minimized or covered window keeps loading and drawing
+                // pages at full speed, so bots' pages don't stall.
+                args.extend([
+                    "--disable-backgrounding-occluded-windows".to_owned(),
+                    "--disable-renderer-backgrounding".to_owned(),
+                    "--disable-background-timer-throttling".to_owned(),
+                    "about:blank".to_owned(),
+                ]);
+                return args;
+            }
             // Hidden Chrome calls itself "HeadlessChrome", which many sites
             // block. It sends the same name as the user's normal Chrome.
             if let Some(agent) = user_agent {
@@ -123,6 +138,8 @@ impl State {
 
 /// The shared Chrome. Use it as `Arc<Browser>`.
 pub struct Browser {
+    /// Itself, for the tasks it starts.
+    me: std::sync::Weak<Browser>,
     tools: Arc<Tools>,
     label: String,
     profile_dir: PathBuf,
@@ -145,6 +162,12 @@ pub struct Browser {
     visit_sink: std::sync::Mutex<Option<VisitSink>>,
     /// Who is using it now (the hub's tag), for the visits.
     user: Arc<std::sync::Mutex<Option<String>>>,
+    /// Chrome's control pipe while it runs, for oxbot's own calls (showing
+    /// and minimizing the window).
+    pipe: std::sync::Mutex<Option<Arc<pipe::Pipe>>>,
+    /// Tabs opened for the person to sign in (shown window), closed again
+    /// when they're done.
+    sign_in_tabs: std::sync::Mutex<Vec<String>>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -185,7 +208,8 @@ impl Browser {
         net: Option<NetMode>,
     ) -> std::io::Result<Arc<Self>> {
         let proxy = ControlProxy::new()?;
-        Ok(Arc::new(Self {
+        Ok(Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             tools,
             label: spec.label,
             profile_dir: spec.profile_dir,
@@ -200,6 +224,8 @@ impl Browser {
             sealed: Mutex::new(None),
             visit_sink: std::sync::Mutex::new(None),
             user: Arc::new(std::sync::Mutex::new(None)),
+            pipe: std::sync::Mutex::new(None),
+            sign_in_tabs: std::sync::Mutex::new(Vec::new()),
         }))
     }
 
@@ -302,15 +328,40 @@ impl Browser {
         if !matches!(*state, State::Off) {
             tracing::warn!(browser = self.label, "Chrome had exited; restarting it");
         }
-        self.start_hidden(&mut state).await
+        self.start_hidden(&mut state, true).await
     }
 
-    async fn start_hidden(&self, state: &mut State) -> Result<(), BrowserError> {
+    /// Whether bots' Chrome is a real window (see
+    /// [`crate::ToolsConfig::show_browser`]); never for a practice run.
+    fn shown(&self) -> bool {
+        self.tools.config().show_browser && self.net.is_none()
+    }
+
+    fn me(&self) -> std::sync::Weak<Self> {
+        self.me.clone()
+    }
+
+    fn own_pipe(&self) -> Option<Arc<pipe::Pipe>> {
+        self.pipe
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .filter(|p| !p.is_closed())
+    }
+
+    /// Starts Chrome under oxbot's control; a shown window goes to the
+    /// Dock if `minimize`.
+    async fn start_hidden(&self, state: &mut State, minimize: bool) -> Result<(), BrowserError> {
         self.kill_leftover().await;
         let chrome = self.tools.config().chrome.clone();
+        let shown = self.shown();
+        if shown {
+            name_profile(&self.profile_dir);
+        }
         let user_agent = self.user_agent.get_or_init(|| user_agent_for(&chrome));
         let (mut child, pipe) = self.spawn_hidden(&Launch::Hidden {
             user_agent: user_agent.as_deref(),
+            shown,
         })?;
         // Chrome is ready once it answers on its pipe.
         if let Err(err) = pipe.call("Browser.getVersion", serde_json::json!({})).await {
@@ -318,6 +369,16 @@ impl Browser {
             let _ = child.kill().await;
             return Err(BrowserError::NotReady);
         }
+        if shown {
+            set_windows(&pipe, "full").await;
+        }
+        if shown && minimize {
+            set_windows(&pipe, "minimized").await;
+        }
+        *self
+            .pipe
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&pipe));
         if let Err(err) = self.proxy.serve(Some(pipe)) {
             let _ = child.kill().await;
             return Err(BrowserError::Chrome(err.to_string()));
@@ -328,20 +389,33 @@ impl Browser {
             let _ = child.kill().await;
             return Err(err);
         }
+        let pid = child.id();
         *state = State::Hidden(child);
         self.status.send_replace(BrowserStatus::Ready);
+        if shown && let Some(pid) = pid {
+            tokio::spawn(watch_shown(self.me(), pid));
+        }
         Ok(())
     }
 
-    /// Shows the browser as a plain Chrome window at `url` so the user can
-    /// sign in, in place of the hidden Chrome (one Chrome per profile at a
-    /// time): no remote control, no automation flags. If the window is
-    /// already open, `url` opens in a new tab of it. When the user closes
-    /// the window, hidden Chrome starts again straight away.
+    /// Shows the browser at `url` so the user can sign in.
+    ///
+    /// Headless Chrome: a plain Chrome window in its place (one Chrome per
+    /// profile at a time), with no remote control and no automation flags.
+    /// If the window is already open, `url` opens in a new tab of it. When
+    /// the user closes the window, hidden Chrome starts again straight away.
+    ///
+    /// Shown Chrome ([`crate::ToolsConfig::show_browser`]): the same window
+    /// comes to the front with `url` in a new tab, and every connection to
+    /// it ends until [`Browser::close_window`], so no bot or guard reads the
+    /// pages while the user types.
     ///
     /// # Errors
     /// Fails if Chrome is missing or doesn't start.
     pub async fn open_window(self: &Arc<Self>, url: &str) -> Result<(), BrowserError> {
+        if self.shown() {
+            return self.show_for_sign_in(url).await;
+        }
         let headless = self.tools.config().hidden_windows;
         let window = Launch::Window { url, headless };
         let mut state = self.state.lock().await;
@@ -378,14 +452,132 @@ impl Browser {
         Ok(())
     }
 
-    /// Closes the sign-in window (if open) and starts hidden Chrome again on
-    /// the same address, so a waiting bot can carry on.
+    /// Ends signing in, so a waiting bot can carry on: headless Chrome
+    /// closes the sign-in window and starts hidden Chrome again on the same
+    /// address; a shown window goes back to the Dock and takes connections
+    /// again.
     pub async fn close_window(&self) {
         let mut state = self.state.lock().await;
+        if self.shown() {
+            if *self.status.borrow() == BrowserStatus::SigningIn {
+                self.end_sign_in(&mut state).await;
+            }
+            return;
+        }
         if !matches!(*state, State::Window(_)) {
             return;
         }
         self.back_to_hidden(&mut state).await;
+    }
+
+    /// Shown Chrome: brings the window to the front with `url` in a new
+    /// tab, cutting every connection first (see [`Browser::open_window`]).
+    async fn show_for_sign_in(&self, url: &str) -> Result<(), BrowserError> {
+        let mut state = self.state.lock().await;
+        let running = state
+            .child()
+            .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+        if !running {
+            state.take();
+            if let Err(err) = self.start_hidden(&mut state, false).await {
+                self.status.send_replace(BrowserStatus::Off);
+                return Err(err);
+            }
+        }
+        let pipe = self.own_pipe().ok_or(BrowserError::NotReady)?;
+        if *self.status.borrow() != BrowserStatus::SigningIn {
+            // Nothing reads the pages while the person types.
+            self.guard.lock().await.take();
+            pipe.pause();
+        }
+        let made = pipe
+            .call("Target.createTarget", serde_json::json!({ "url": url }))
+            .await
+            .map_err(BrowserError::Chrome)?;
+        if let Some(id) = made.get("targetId").and_then(Value::as_str) {
+            self.sign_in_tabs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(id.to_owned());
+            let _ = pipe
+                .call(
+                    "Target.activateTarget",
+                    serde_json::json!({ "targetId": id }),
+                )
+                .await;
+        }
+        // Out of the Dock, the full size of the screen.
+        set_windows(&pipe, "full").await;
+        if let Some(pid) = state.child().and_then(|c| c.id()) {
+            bring_to_front(pid).await;
+        }
+        drop(state);
+        self.status.send_replace(BrowserStatus::SigningIn);
+        tracing::info!(browser = self.label, "showing the browser to sign in");
+        Ok(())
+    }
+
+    /// Shown Chrome: the sign-in tabs close (if other tabs are left), the
+    /// window goes back to the Dock, and connections are taken again.
+    async fn end_sign_in(&self, state: &mut State) {
+        let tabs = std::mem::take(
+            &mut *self
+                .sign_in_tabs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        let running = state
+            .child()
+            .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+        let Some(pipe) = self.own_pipe().filter(|_| running) else {
+            state.take();
+            if let Err(err) = self.start_hidden(state, true).await {
+                tracing::error!(browser = self.label, %err, "couldn't restart Chrome");
+                self.status.send_replace(BrowserStatus::Off);
+            }
+            return;
+        };
+        if let Ok(list) = pipe.call("Target.getTargets", serde_json::json!({})).await {
+            let pages = http::page_ids(list.get("targetInfos").unwrap_or(&Value::Null));
+            let others = pages.iter().filter(|p| !tabs.contains(p)).count();
+            // Closing a window's last tab would close the window.
+            let keep = usize::from(others == 0);
+            for id in tabs.iter().filter(|t| pages.contains(t)).skip(keep) {
+                let _ = pipe
+                    .call("Target.closeTarget", serde_json::json!({ "targetId": id }))
+                    .await;
+            }
+        }
+        set_windows(&pipe, "minimized").await;
+        pipe.resume();
+        self.start_guard().await;
+        self.status.send_replace(BrowserStatus::Ready);
+        tracing::info!(browser = self.label, "signed in; browser back in the Dock");
+    }
+
+    /// Shown Chrome: the person closed its window (or quit it). Chrome
+    /// stops, and starts again in the Dock when a bot next uses the browser
+    /// (every browser call checks). While signing in, closing counts as
+    /// done, as closing the sign-in window always has.
+    async fn window_closed(&self) {
+        let mut state = self.state.lock().await;
+        if !matches!(*state, State::Hidden(_)) {
+            return;
+        }
+        let signing_in = *self.status.borrow() == BrowserStatus::SigningIn;
+        tracing::info!(
+            browser = self.label,
+            signing_in,
+            "the person closed the browser window"
+        );
+        if let Some(child) = state.take() {
+            self.quit(child).await;
+        }
+        self.sign_in_tabs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+        self.status.send_replace(BrowserStatus::Off);
     }
 
     /// Quits the window (Chrome saves the new sign-in to the profile) and
@@ -398,7 +590,7 @@ impl Browser {
             browser = self.label,
             "sign-in window closed; back to hidden Chrome"
         );
-        if let Err(err) = self.start_hidden(state).await {
+        if let Err(err) = self.start_hidden(state, true).await {
             tracing::error!(browser = self.label, %err, "couldn't restart hidden Chrome");
             self.status.send_replace(BrowserStatus::Off);
         }
@@ -407,6 +599,7 @@ impl Browser {
     /// Whether the sign-in window is open.
     pub async fn is_window_open(&self) -> bool {
         matches!(*self.state.lock().await, State::Window(_))
+            || *self.status.borrow() == BrowserStatus::SigningIn
     }
 
     /// Closes every tab and leaves one blank page, so the next bot starts
@@ -760,23 +953,38 @@ impl Browser {
     async fn quit(&self, mut child: Child) {
         self.net_guard.lock().await.take();
         // The guard reaches Chrome through the control proxy: ask Chrome to
-        // close first, and only then turn the proxy off.
+        // close first, and only then turn the proxy off. Without a guard
+        // (while the person signs in), oxbot asks over its own pipe.
         let guard = self.guard.lock().await.take();
-        if let Some(guard) = guard {
+        let pipe = self
+            .pipe
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .filter(|p| !p.is_closed());
+        let asked = if let Some(guard) = guard {
             guard.close_browser().await;
-            let closed = tokio::time::timeout(Duration::from_secs(10), child.wait())
+            true
+        } else if let Some(pipe) = pipe {
+            // Chrome may quit before it answers.
+            let _ = pipe.call("Browser.close", serde_json::json!({})).await;
+            true
+        } else {
+            false
+        };
+        let closed = asked
+            && tokio::time::timeout(Duration::from_secs(10), child.wait())
                 .await
                 .is_ok();
-            let _ = self.proxy.serve(None);
-            if closed {
-                return;
-            }
+        let _ = self.proxy.serve(None);
+        if closed {
+            return;
+        }
+        if asked {
             tracing::warn!(
                 browser = self.label,
                 "Chrome didn't close when asked; stopping it"
             );
-        } else {
-            let _ = self.proxy.serve(None);
         }
         stop_chrome(&mut child).await;
     }
@@ -902,6 +1110,234 @@ impl Browser {
             "Chrome started"
         );
         Ok(child)
+    }
+}
+
+/// Sets every window of shown Chrome to `window_state`: `minimized`, or
+/// `full` (a normal window filling the main screen's free area, between
+/// the menu bar and the Dock; maximized where that can't be read). Right after Chrome starts its first tab may not be there
+/// yet, so it waits up to two seconds for one.
+async fn set_windows(pipe: &pipe::Pipe, window_state: &str) {
+    let mut pages = Vec::new();
+    for _ in 0..10 {
+        if let Ok(list) = pipe.call("Target.getTargets", serde_json::json!({})).await {
+            pages = http::page_ids(list.get("targetInfos").unwrap_or(&Value::Null));
+        }
+        if !pages.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let mut done = Vec::new();
+    for id in pages {
+        let Ok(found) = pipe
+            .call(
+                "Browser.getWindowForTarget",
+                serde_json::json!({ "targetId": id }),
+            )
+            .await
+        else {
+            continue;
+        };
+        let Some(window) = found.get("windowId").and_then(Value::as_i64) else {
+            continue;
+        };
+        if done.contains(&window) {
+            continue;
+        }
+        done.push(window);
+        let (window_state, bounds) = if window_state == "full" {
+            match screen_area().await {
+                Some([left, top, width, height]) => (
+                    "normal",
+                    serde_json::json!({
+                        "windowState": "normal",
+                        "left": left, "top": top, "width": width, "height": height,
+                    }),
+                ),
+                None => (
+                    "maximized",
+                    serde_json::json!({ "windowState": "maximized" }),
+                ),
+            }
+        } else {
+            (
+                window_state,
+                serde_json::json!({ "windowState": window_state }),
+            )
+        };
+        let bounds = serde_json::json!({ "windowId": window, "bounds": bounds });
+        // A Mac ignores a change while the window is still animating (say,
+        // minimizing right after maximizing), so it checks and tries again.
+        for _ in 0..10 {
+            if let Err(err) = pipe.call("Browser.setWindowBounds", bounds.clone()).await {
+                tracing::debug!(%err, window_state, "couldn't change the browser window");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let now = pipe
+                .call(
+                    "Browser.getWindowBounds",
+                    serde_json::json!({ "windowId": window }),
+                )
+                .await
+                .ok();
+            if now
+                .as_ref()
+                .and_then(|b| b.pointer("/bounds/windowState"))
+                .and_then(Value::as_str)
+                == Some(window_state)
+            {
+                break;
+            }
+        }
+    }
+}
+
+/// The main screen's free area (without the menu bar and the Dock) as
+/// `[left, top, width, height]` from the top left, in points. Mac only;
+/// needs no permission.
+async fn screen_area() -> Option<[i64; 4]> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let script = "ObjC.import('AppKit'); const s = $.NSScreen.mainScreen; \
+         const f = s.frame, v = s.visibleFrame; \
+         JSON.stringify([v.origin.x, f.size.height - v.origin.y - v.size.height, \
+           v.size.width, v.size.height].map(Math.round))";
+    let out = tokio::time::timeout(
+        Duration::from_secs(5),
+        Command::new("/usr/bin/osascript")
+            .args(["-l", "JavaScript", "-e", script])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let area: [i64; 4] = serde_json::from_slice(&out.stdout).ok()?;
+    (area[2] >= 400 && area[3] >= 300).then_some(area)
+}
+
+/// Brings Chrome process `pid` to the front on a Mac (only that one, not
+/// the person's own Chrome). Needs no permission.
+async fn bring_to_front(pid: u32) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let script = format!(
+        "ObjC.import('AppKit'); \
+         const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}); \
+         if (app) app.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);"
+    );
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        Command::new("/usr/bin/osascript")
+            .args(["-l", "JavaScript", "-e", &script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status(),
+    )
+    .await;
+}
+
+/// The name shown Chrome's profile goes by (its profile button and the
+/// profile picker), so its window is easy to tell from the person's own
+/// Chrome.
+pub const PROFILE_NAME: &str = "oxbot";
+
+/// Names the profile in `profile` [`PROFILE_NAME`] before Chrome starts:
+/// in `Local State` (the profile list) and `Default/Preferences`. Chrome
+/// keeps whatever else is there. Failures are only logged.
+fn name_profile(profile: &Path) {
+    let edit = |path: &Path, pointer: &[&str], fields: &[(&str, Value)]| {
+        let mut root: Value = std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| serde_json::json!({}));
+        let mut at = &mut root;
+        for key in pointer {
+            if !at.get(*key).is_some_and(Value::is_object) {
+                at[*key] = serde_json::json!({});
+            }
+            at = &mut at[*key];
+        }
+        if fields.iter().all(|(k, v)| at.get(*k) == Some(v)) {
+            return Ok(());
+        }
+        for (k, v) in fields {
+            at[*k] = v.clone();
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(path, root.to_string())
+    };
+    let name = Value::from(PROFILE_NAME);
+    let results = [
+        edit(
+            &profile.join("Local State"),
+            &["profile", "info_cache", "Default"],
+            &[
+                ("name", name.clone()),
+                ("is_using_default_name", Value::Bool(false)),
+            ],
+        ),
+        edit(
+            &profile.join("Default/Preferences"),
+            &["profile"],
+            &[("name", name)],
+        ),
+    ];
+    for err in results.into_iter().filter_map(Result::err) {
+        tracing::warn!(%err, "couldn't name the browser's profile");
+    }
+}
+
+/// Watches shown Chrome (process `pid`): when the person closes its last
+/// window (Chrome stays open with none on a Mac) or quits it, see
+/// [`Browser::window_closed`].
+async fn watch_shown(browser: std::sync::Weak<Browser>, pid: u32) {
+    let mut seen_window = false;
+    let mut empty_checks = 0;
+    loop {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let Some(this) = browser.upgrade() else {
+            return;
+        };
+        let exited = {
+            let mut state = this.state.lock().await;
+            match &mut *state {
+                State::Hidden(child) => {
+                    let exited = !matches!(child.try_wait(), Ok(None));
+                    if !exited && child.id() != Some(pid) {
+                        return; // a newer Chrome has its own watcher
+                    }
+                    exited
+                }
+                _ => return,
+            }
+        };
+        if !exited {
+            match window_count(pid).await {
+                Some(0) if seen_window => empty_checks += 1,
+                Some(0) | None => continue,
+                Some(_) => {
+                    seen_window = true;
+                    empty_checks = 0;
+                }
+            }
+            if empty_checks < 2 {
+                continue;
+            }
+        }
+        this.window_closed().await;
+        return;
     }
 }
 
@@ -1275,6 +1711,7 @@ mod tests {
             profile,
             &Launch::Hidden {
                 user_agent: Some("Mozilla/5.0 Chrome/156.0.0.0"),
+                shown: false,
             },
             &[],
         );
@@ -1287,6 +1724,50 @@ mod tests {
         );
         assert!(hidden.contains(&"--headless=new".to_owned()));
         assert_eq!(hidden[0], "--user-data-dir=/p/profile", "the same profile");
+    }
+
+    #[test]
+    fn a_shown_browser_is_a_real_window_that_keeps_running_in_the_dock() {
+        let shown = chrome_args(
+            Path::new("/p/profile"),
+            &Launch::Hidden {
+                user_agent: Some("Mozilla/5.0 Chrome/156.0.0.0"),
+                shown: true,
+            },
+            &[],
+        );
+        assert!(!shown.iter().any(|a| a.starts_with("--headless")));
+        // It's real Chrome, so it sends Chrome's own user agent.
+        assert!(!shown.iter().any(|a| a.starts_with("--user-agent")));
+        assert!(shown.contains(&"--disable-backgrounding-occluded-windows".to_owned()));
+        assert!(shown.contains(&"--disable-renderer-backgrounding".to_owned()));
+        assert!(
+            shown
+                .iter()
+                .all(|a| !a.starts_with("--remote-debugging-port")),
+            "no control port: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn the_shown_profile_is_named_oxbot_and_keeps_its_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("Default/Preferences");
+        std::fs::create_dir_all(prefs.parent().unwrap()).unwrap();
+        std::fs::write(&prefs, r#"{"profile":{"exit_type":"Normal"},"other":1}"#).unwrap();
+        name_profile(dir.path());
+        let read =
+            |p: &Path| -> Value { serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap() };
+        let state = read(&dir.path().join("Local State"));
+        assert_eq!(state["profile"]["info_cache"]["Default"]["name"], "oxbot");
+        assert_eq!(
+            state["profile"]["info_cache"]["Default"]["is_using_default_name"],
+            false
+        );
+        let prefs = read(&prefs);
+        assert_eq!(prefs["profile"]["name"], "oxbot");
+        assert_eq!(prefs["profile"]["exit_type"], "Normal");
+        assert_eq!(prefs["other"], 1);
     }
 
     #[tokio::test]

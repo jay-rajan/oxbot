@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use oxbot_engine::SessionSpec;
@@ -72,11 +73,24 @@ struct Slot {
     running: Option<Running>,
     generation: u64,
     users: usize,
+    /// Turns running now: a turn can wait a long time on the person (a
+    /// sign-in or an approval card) without Codex doing anything.
+    turns: Arc<AtomicUsize>,
     last_used: Option<Instant>,
     /// Crashes in a row (reset when one lives long enough).
     crashes: u32,
     not_before: Option<Instant>,
     started: Option<Instant>,
+}
+
+/// Marks a turn running on a process (see [`Supervisor::begin_turn`]).
+#[derive(Debug)]
+pub struct TurnGuard(Arc<AtomicUsize>);
+
+impl Drop for TurnGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Starts and keeps the processes.
@@ -215,12 +229,23 @@ impl Supervisor {
         }
     }
 
+    /// A turn started on `key`'s process: it isn't idle until the
+    /// returned guard is dropped (the turn ended, or was dropped).
+    pub async fn begin_turn(&self, key: &ProcessKey) -> TurnGuard {
+        let slot = self.slot(key).await;
+        let mut slot = slot.lock().await;
+        slot.turns.fetch_add(1, Ordering::SeqCst);
+        slot.last_used = Some(Instant::now());
+        TurnGuard(Arc::clone(&slot.turns))
+    }
+
     /// `key`'s process did something now.
     pub async fn touch(&self, key: &ProcessKey) {
         self.slot(key).await.lock().await.last_used = Some(Instant::now());
     }
 
-    /// Stops processes nothing used for the idle time.
+    /// Stops processes nothing used for the idle time. One in the middle
+    /// of a turn is never idle, however long the turn waits.
     pub async fn stop_idle(&self) {
         let slots: Vec<(String, Arc<Mutex<Slot>>)> = self
             .slots
@@ -233,7 +258,8 @@ impl Supervisor {
             let Ok(mut slot) = slot.try_lock() else {
                 continue;
             };
-            let idle = slot.last_used.is_none_or(|t| t.elapsed() >= self.idle);
+            let idle = slot.turns.load(Ordering::SeqCst) == 0
+                && slot.last_used.is_none_or(|t| t.elapsed() >= self.idle);
             if idle && let Some(running) = slot.running.take() {
                 running.process.stop().await;
                 tracing::info!(key, "stopped idle Codex");
@@ -255,6 +281,17 @@ impl Supervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_turn_is_never_idle() {
+        let slot = Slot::default();
+        let turns = Arc::clone(&slot.turns);
+        turns.fetch_add(1, Ordering::SeqCst);
+        let guard = TurnGuard(Arc::clone(&turns));
+        assert_eq!(turns.load(Ordering::SeqCst), 1);
+        drop(guard);
+        assert_eq!(turns.load(Ordering::SeqCst), 0);
+    }
 
     #[test]
     fn one_process_per_bot_in_the_bots_folder() {

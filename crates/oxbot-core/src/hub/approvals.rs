@@ -236,8 +236,14 @@ impl Hub {
         }
         match verdict {
             Verdict::Allow => {
-                self.run_allowed(&bot, account, page_url, request.quiet)
-                    .await
+                let decision = self
+                    .run_allowed(&bot, account, page_url, request.quiet)
+                    .await?;
+                if matches!(decision, Decision::Allow) {
+                    self.pace_visit(&request.tool, &request.input, page_url)
+                        .await;
+                }
+                Ok(decision)
             }
             Verdict::Deny(message) => {
                 self.record(
@@ -249,10 +255,35 @@ impl Hub {
                 Ok(Decision::Deny(message))
             }
             Verdict::Ask(ask) => {
-                self.ask_verdict(&bot, ask, request, tab.as_deref(), page)
-                    .await
+                let decision = self
+                    .ask_verdict(&bot, ask, request, tab.as_deref(), page.clone())
+                    .await?;
+                if matches!(decision, Decision::Allow) {
+                    self.pace_visit(&request.tool, &request.input, page_url)
+                        .await;
+                }
+                Ok(decision)
             }
         }
+    }
+
+    /// Waits so a browser call keeps to the site's pace
+    /// ([`super::pace`]): the site is the page a load goes to, or the
+    /// page the bot is on.
+    async fn pace_visit(&self, tool: &str, input: &Value, page_url: Option<&str>) {
+        let Some(step) = super::pace::Step::of(tool) else {
+            return;
+        };
+        let target = match step {
+            super::pace::Step::Load => input.get("url").and_then(Value::as_str),
+            super::pace::Step::Act => page_url,
+        };
+        let Some(host) = target.and_then(oxbot_browser::web_host) else {
+            return;
+        };
+        self.pacer
+            .wait(&oxbot_browser::site_of(&host), step, self.config.pace)
+            .await;
     }
 
     /// The page `bot_id` is on, and the labels of the elements `input`

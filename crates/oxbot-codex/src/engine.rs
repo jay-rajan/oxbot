@@ -409,6 +409,49 @@ impl Drop for CodexSession {
     }
 }
 
+/// What the person sees when no model gave a usable answer.
+const NO_ANSWER: &str = "The AI gave no usable answer, even with another model. Try again, or pick another model in the bot's settings.";
+
+/// A finished turn's reply that's empty or garbled (replacement
+/// characters: broken output). Only counts when no tool was called.
+fn is_empty_answer(end: &End) -> bool {
+    match end {
+        End::Done(text) => text.trim().is_empty() || text.matches('\u{FFFD}').count() >= 3,
+        _ => false,
+    }
+}
+
+/// Passes on the turn's last meter rows; returns the model that answered
+/// last, if any did.
+async fn last_meter_rows(
+    core: &Core,
+    meter_rx: &mut mpsc::UnboundedReceiver<CallRecord>,
+) -> Option<String> {
+    let mut answered_by = None;
+    while let Ok(record) = meter_rx.try_recv() {
+        if !record.model.is_empty() {
+            answered_by = Some(record.model.clone());
+        }
+        let _ = core.events.send(EngineEvent::ModelCall(record)).await;
+    }
+    answered_by
+}
+
+/// Drops the thread's last turn (the person's message and the empty
+/// answer), so a garbled answer never goes back to a model.
+async fn rollback(running: &Running, thread: &str) {
+    let undone = running
+        .process
+        .request(
+            "thread/rollback",
+            json!({ "threadId": thread, "numTurns": 1 }),
+        )
+        .await;
+    if let Err(err) = undone {
+        tracing::warn!(%err, "couldn't take the empty answer out of the history");
+    }
+}
+
 /// How a turn ends.
 enum End {
     Done(String),
@@ -478,6 +521,8 @@ enum CallDone {
 }
 
 struct Turn {
+    /// Last model observed, including meter rows consumed while driving.
+    answered_by: Option<String>,
     number: u32,
     thread: String,
     codex_id: String,
@@ -550,26 +595,126 @@ impl Turn {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .max_steps;
-        let (meter_tx, mut meter_rx) = mpsc::unbounded_channel::<CallRecord>();
-        running.relay.begin_turn(TurnStart {
-            session: core.spec.resume.id().to_owned(),
-            turn: number,
-            person: input.person.clone(),
-            lane: if core.spec.gate_mode == GateMode::DryRun {
-                Lane::Trial
-            } else {
-                Lane::Live
-            },
-            min_window: Some(budget.window),
-            max_requests: max_steps,
-            meter: Some(meter_tx),
-        });
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        running.process.watch(&thread, tx);
-        let _ = core.events.send(EngineEvent::Started { model }).await;
-        let mut turn = Self {
+        // A model that answers with nothing usable (no reply, no tool call)
+        // is taken out of the history and the turn runs once more without it.
+        let mut avoid: Vec<String> = Vec::new();
+        loop {
+            let (meter_tx, mut meter_rx) = mpsc::unbounded_channel::<CallRecord>();
+            running.relay.begin_turn(TurnStart {
+                session: core.spec.resume.id().to_owned(),
+                turn: number,
+                person: input.person.clone(),
+                lane: if core.spec.gate_mode == GateMode::DryRun {
+                    Lane::Trial
+                } else {
+                    Lane::Live
+                },
+                min_window: Some(budget.window),
+                max_requests: max_steps,
+                meter: Some(meter_tx),
+                avoid: avoid.clone(),
+            });
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            running.process.watch(&thread, tx);
+            let _ = core
+                .events
+                .send(EngineEvent::Started {
+                    model: model.clone(),
+                })
+                .await;
+            let mut turn = Self::new(
+                number,
+                thread.clone(),
+                max_steps,
+                budget,
+                cancel,
+                &input.text,
+            );
+            let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
+            let busy = supervisor.begin_turn(&core.key).await;
+            let end = match turn.start_codex(&running, &first).await {
+                Ok(()) => {
+                    let channels = Channels {
+                        rx: &mut rx,
+                        meter_rx: &mut meter_rx,
+                        steer,
+                    };
+                    turn.drive(core, &running, input, cancel, channels).await
+                }
+                Err(why) => End::Failed(why),
+            };
+            running.process.unwatch(&thread);
+            let summary = running.relay.end_turn();
+            let answered_by = turn.finish_meter(core, &mut meter_rx).await;
+            drop(busy);
+            supervisor.touch(&core.key).await;
+            let did_something = turn.did_something().await;
+            let end = match end {
+                End::Failed(why) => End::Failed(summary.stop.unwrap_or(why)),
+                other => other,
+            };
+            if cancel.is_cancelled() || did_something || !is_empty_answer(&end) {
+                return end;
+            }
+            if let Some(end) =
+                Self::without_empty_answer(core, &running, &thread, answered_by, &mut avoid).await
+            {
+                return end;
+            }
+        }
+    }
+
+    /// Preserve the last model even when its meter row arrived before completion.
+    async fn finish_meter(
+        &self,
+        core: &Core,
+        meter_rx: &mut mpsc::UnboundedReceiver<CallRecord>,
+    ) -> Option<String> {
+        last_meter_rows(core, meter_rx)
+            .await
+            .or_else(|| self.answered_by.clone())
+    }
+
+    /// After an empty answer: it's taken out of the history, and the turn
+    /// goes again without that model (`None`), once; otherwise it fails.
+    async fn without_empty_answer(
+        core: &Core,
+        running: &Running,
+        thread: &str,
+        answered_by: Option<String>,
+        avoid: &mut Vec<String>,
+    ) -> Option<End> {
+        rollback(running, thread).await;
+        match answered_by {
+            Some(bad) if avoid.is_empty() => {
+                tracing::warn!(bot = %core.spec.bot, model = bad, "empty answer; trying another model");
+                let note = format!("{bad} gave no usable answer, so oxbot tried another model.");
+                let _ = core.events.send(EngineEvent::Note(note)).await;
+                avoid.push(bad);
+                None
+            }
+            _ => Some(End::Failed(NO_ANSWER.to_owned())),
+        }
+    }
+
+    /// Whether the model called any tool this turn (ran, refused or got wrong).
+    async fn did_something(&self) -> bool {
+        let calls = self.calls.lock().await;
+        calls.ran > 0 || calls.refused || calls.bad_calls > 0
+    }
+
+    fn new(
+        number: u32,
+        thread: String,
+        max_steps: u32,
+        budget: TokenBudget,
+        cancel: &CancellationToken,
+        goal: &str,
+    ) -> Self {
+        Self {
+            answered_by: None,
             number,
-            thread: thread.clone(),
+            thread,
             codex_id: String::new(),
             max_steps,
             budget,
@@ -586,30 +731,7 @@ impl Turn {
             first_answer: None,
             bounced_at: None,
             writing: false,
-            goal: input.text.clone(),
-        };
-        let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
-        let end = match turn.start_codex(&running, &first).await {
-            Ok(()) => {
-                let channels = Channels {
-                    rx: &mut rx,
-                    meter_rx: &mut meter_rx,
-                    steer,
-                };
-                turn.drive(core, &running, input, cancel, channels).await
-            }
-            Err(why) => End::Failed(why),
-        };
-        running.process.unwatch(&thread);
-        let summary = running.relay.end_turn();
-        // The last requests' meter rows.
-        while let Ok(record) = meter_rx.try_recv() {
-            let _ = core.events.send(EngineEvent::ModelCall(record)).await;
-        }
-        supervisor.touch(&core.key).await;
-        match end {
-            End::Failed(why) => End::Failed(summary.stop.unwrap_or(why)),
-            other => other,
+            goal: goal.to_owned(),
         }
     }
 
@@ -674,6 +796,9 @@ impl Turn {
                     self.stop(running, End::Stopped).await;
                 }
                 Some(record) = meter_rx.recv() => {
+                    if !record.model.is_empty() {
+                        self.answered_by = Some(record.model.clone());
+                    }
                     let _ = core.events.send(EngineEvent::ModelCall(record)).await;
                 }
                 Some(message) = steer.recv() => {
@@ -1477,6 +1602,20 @@ async fn start_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_or_garbled_reply_is_no_answer() {
+        assert!(is_empty_answer(&End::Done(String::new())));
+        assert!(is_empty_answer(&End::Done("  \n".to_owned())));
+        assert!(is_empty_answer(&End::Done(
+            "a\u{FFFD}b\u{FFFD}c\u{FFFD}".to_owned()
+        )));
+        assert!(!is_empty_answer(&End::Done(
+            "Added it to your cart.".to_owned()
+        )));
+        assert!(!is_empty_answer(&End::Waiting(String::new())));
+        assert!(!is_empty_answer(&End::Failed(String::new())));
+    }
 
     /// A stand-in `codex app-server` that writes each line it's sent to
     /// `log` and answers every request with `{"turnId": "turn-1"}`.

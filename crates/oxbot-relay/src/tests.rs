@@ -149,6 +149,7 @@ fn start(meter: Option<mpsc::UnboundedSender<CallRecord>>) -> TurnStart {
         min_window: None,
         max_requests: 3,
         meter,
+        avoid: Vec::new(),
     }
 }
 

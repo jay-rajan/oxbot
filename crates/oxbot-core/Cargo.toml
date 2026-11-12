@@ -63,6 +63,7 @@ test-bots = [
 ]
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 # This crate's own tests use the test-only feature.
 oxbot-core = { path = ".", features = ["test-bots", "test-support"] }
 # Scripted model and browser for the loop engine's hub tests.

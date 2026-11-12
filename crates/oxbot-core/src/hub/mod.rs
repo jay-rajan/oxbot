@@ -32,6 +32,7 @@ mod engine_prefs;
 mod engines;
 mod looped;
 mod net_log;
+mod pace;
 mod people;
 mod profiles;
 mod reports;
@@ -58,6 +59,7 @@ pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
 pub use net_log::{CONNECTED, DeviceVisit, OxbotCall};
 pub use oxbot_loop::DATA_POLICY_HELP;
+pub use pace::Pace;
 pub use profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
 pub use schedules::PREF_KEEP_AWAKE;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
@@ -138,6 +140,9 @@ pub struct HubConfig {
     pub trials_without_guard: bool,
     /// The home's time zone, for schedules: the Mac's own. Tests give one.
     pub zone: Arc<dyn crate::schedule::Zone>,
+    /// The least time between a bot's actions on one site
+    /// ([`Pace::POLITE`]; [`Pace::NONE`] for stand-in sites in tests).
+    pub pace: Pace,
 }
 
 impl HubConfig {
@@ -158,6 +163,7 @@ impl HubConfig {
             extra_env: Vec::new(),
             mac: crate::attach::MacTools::default(),
             keep_unsent: crate::attach::KEEP_UNSENT,
+            pace: Pace::POLITE,
             e2e: false,
             openrouter: None,
             codex: None,
@@ -331,6 +337,8 @@ pub struct Hub {
     conversions: Semaphore,
     /// Schedules' runs in progress and the scheduler's clock.
     scheduler: schedules::Scheduler,
+    /// When each site was last visited, to pace bots' actions.
+    pacer: pace::Pacer,
 }
 
 impl std::fmt::Debug for Hub {
@@ -423,6 +431,7 @@ impl Hub {
             knowledge: Arc::new(NoKnowledge),
             conversions: Semaphore::new(2),
             scheduler: schedules::Scheduler::default(),
+            pacer: pace::Pacer::default(),
         });
         // Settings → Activity keeps 30 days (then checked daily).
         hub.prune_net_log(true);

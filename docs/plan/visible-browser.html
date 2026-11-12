@@ -1,0 +1,50 @@
+<title>Visible Browser Plan</title>
+<style>
+:root{--bg:#f7f6f2;--fg:#1f2328;--muted:#5d6470;--line:#dcd8cc;--card:#fffdf8;--accent:#2f6f5e;--warn:#9a5b13}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181b;--fg:#e7e5df;--muted:#a3a8b0;--line:#33363b;--card:#1d2024;--accent:#7cc4ad;--warn:#e0a35a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#16181b;--fg:#e7e5df;--muted:#a3a8b0;--line:#33363b;--card:#1d2024;--accent:#7cc4ad;--warn:#e0a35a;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding-inline:16px;padding-block:28px}
+main{max-width:720px;margin:0 auto;display:grid;gap:22px}
+h1{font-size:26px;margin:0;text-wrap:balance}h2{font-size:17px;margin:0 0 8px}
+p,li{margin:0}.lead{color:var(--muted)}
+section{border-top:1px solid var(--line);padding-top:16px}
+ol,ul{padding-left:20px;display:grid;gap:8px}
+.note{background:var(--card);border-left:3px solid var(--warn);padding:12px 14px;border-radius:4px}
+code{font-size:13px;background:var(--card);padding:1px 4px;border-radius:3px;border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.wrap{overflow-x:auto}
+</style>
+<main>
+<header><h1>Visible browser, always</h1>
+<p class="lead">The bot's Chrome becomes a normal window you can see. Sign-in happens in that same window, and scheduled runs work while you're away. <b>Implemented (2026-11-11); verified again on 2026-11-12.</b></p></header>
+
+<section><h2>What changes</h2>
+<ol>
+<li><b>One visible Chrome, named "oxbot".</b> The bot's Chrome opens as a normal window, still driven by oxbot, and is always on. Its profile is named <i>oxbot</i> in Chrome's profile button. It's oxbot's own Chrome profile, not a profile inside your everyday Chrome: Chrome lets only one program run a profile folder at a time. Practice runs and end-to-end tests stay hidden.</li>
+<li><b>Sign in in the same window.</b> oxbot no longer swaps to a hidden Chrome after you sign in, so the session stays in one browser. While you sign in, the bot's browser tools pause: no snapshots, reads or clicks until you press Done. That way the bot never sees what you type.</li>
+<li><b>Scheduled runs while you're away.</b> A schedule you set counts as you asking for the task. The window opens on the Mac and the bot works at the gentle pace. If a site shows a robot check or a "blocked" page, the bot doesn't retry or try to get past it. It stops that part, sends a notice to your phone, and finishes what it can, for example leaving the shopping list in the chat.</li>
+<li><b>Two small fixes from the last test.</b> A bot waiting on you (a sign-in or approval card) isn't stopped as "idle". The rules also say to press Enter after typing in a search box.</li>
+</ol></section>
+
+<section><h2>Where in the code</h2>
+<div class="wrap"><table>
+<tr><th>Area</th><th>File</th></tr>
+<tr><td>Launch Chrome visible but controlled</td><td><code>oxbot-browser/src/browser.rs</code>, <code>lib.rs</code></td></tr>
+<tr><td>On always, off for e2e; profile named oxbot</td><td><code>oxbot/src/runtime.rs</code>, <code>browser.rs</code></td></tr>
+<tr><td>Sign-in in place, connections cut until Done</td><td><code>oxbot-browser/src/pipe.rs</code> (pause and resume)</td></tr>
+<tr><td>Robot check → stop, tell you, don't retry</td><td><code>oxbot-core/src/prompt.rs</code> (rule)</td></tr>
+<tr><td>Don't stop a bot that's waiting</td><td>Codex idle supervisor (<code>oxbot-codex</code>)</td></tr>
+<tr><td>Press Enter rule</td><td><code>oxbot-core/src/prompt.rs</code></td></tr>
+</table></div></section>
+
+<section><h2>Things to know</h2>
+<ul>
+<li><b>Closing the window is safe.</b> Closing it or quitting Chrome stops Chrome, and the bot's step in progress fails. The bot's next browser step opens the window again, minimized. Closing it during sign-in counts as done, as before, and the bot carries on. You stay signed in, because sign-ins live in oxbot's Chrome profile. Your own Chrome isn't touched.</li>
+<li>The Mac has to be on and logged in for scheduled runs. A locked screen is fine.</li>
+<li><b>Minimized by default.</b> The window opens and goes straight to the Dock. Click it there to watch. For sign-in it comes to the front, and it goes back to the Dock when you press Done. Chrome is launched with its standard flags for keeping background windows running (<code>--disable-backgrounding-occluded-windows</code>, <code>--disable-renderer-backgrounding</code>), because macOS slows down minimized windows. If pages still stall, the fallback is opening the window behind other windows instead.</li>
+<li class="note">A visible window may still not get past Walmart. oxbot still drives Chrome remotely, and Walmart can see that. If they keep blocking it, the bot stops and tells you. That's when the Agent Gateway or "you fill the cart" comes in.</li>
+</ul></section>
+
+<section><h2>Then</h2>
+<p>The Chrome implementation is the baseline for the Camoufox release plan. Browser migration and release packaging are separate work; they do not change the current browser configuration.</p></section>
+</main>

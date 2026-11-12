@@ -93,8 +93,8 @@ pub fn codex_rules(caps: Capabilities) -> String {
              pageId, get it from list_pages.\n\
              - Never type passwords, codes or card numbers; call request_sign_in instead.\n\
              \nBrowsing:\n\
-             - If a site's search puts the words and filters in its address, open that address \
-             instead of typing and clicking.\n\
+             - Start at a site's home page and use its own search box, as a person would; don't \
+             build search or filter addresses yourself.\n\
              - Small pages come whole; a second look shows what changed. Big pages come as a map: \
              look inside with find_in_page, read_section or ask_page.\n\
              - For tables and lists, use extract_rows then query_rows to filter, sort and count; \
@@ -153,6 +153,16 @@ pub fn system_prompt(bot: &Bot, caps: Capabilities) -> String {
              it after another bot, its tabs are gone: open your page again.\n\
              - You can't run scripts in pages: read with take_snapshot, act with click and fill. Take a \
              snapshot before clicking, and don't save snapshots to files.\n\
+             - To search a site, fill its search box and press Enter (press_key Enter); many search boxes \
+             have no button.\n\
+             - If a site shows a robot check (\"press and hold\", a puzzle, \"blocked\", \"access denied\"), \
+             stop using that site: don't retry it, reload it, or look for a way around it. Tell the user \
+             which site stopped you and finish what you can without it.\n\
+             - Browse like a considerate visitor, not a crawler: one search, then read the two or three \
+             most useful pages and reply. Prefer one page that already gathers what you need (a list, a \
+             comparison, a roundup) over visiting many sites, stay in one tab, and never open the same \
+             page twice. oxbot paces each site, so every page takes a few seconds. Reply as soon as you \
+             can answer well, with links, and say what you didn't check.\n\
              - If a browser tool says it can't connect to Chrome, wait a few seconds and try again: Chrome \
              is restarting (for example after a sign-in).\n\
              - Files the browser saves (screenshots, downloads) go in your working folder.\n",

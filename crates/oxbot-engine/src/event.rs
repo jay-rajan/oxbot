@@ -56,6 +56,9 @@ pub enum EngineEvent {
     },
     /// What it's doing right now, for a live status line.
     Activity(Activity),
+    /// A plain line from oxbot for the chat (not the bot's words), e.g.
+    /// that it tried another model.
+    Note(String),
 }
 
 /// An engine asking whether a tool may run. Nothing runs until `reply` is

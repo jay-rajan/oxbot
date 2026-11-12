@@ -99,6 +99,9 @@ struct Routes {
     clients: HashMap<u64, Client>,
     /// Chrome closed the pipe (it quit).
     closed: bool,
+    /// The person is using the window (signing in): connections were cut
+    /// and new ones are refused until [`Pipe::resume`].
+    paused: bool,
 }
 
 impl Routes {
@@ -257,6 +260,11 @@ impl Pipe {
         if routes.closed {
             return Err("Chrome has quit".to_owned());
         }
+        if routes.paused {
+            drop(routes);
+            self.detach(&session);
+            return Err("the person is using the browser".to_owned());
+        }
         routes.next_client += 1;
         let client = routes.next_client;
         routes.owners.insert(session.clone(), client);
@@ -267,18 +275,44 @@ impl Pipe {
     /// The connection `client` ended: its browser session (and with it
     /// every tab session it opened) is let go.
     pub(crate) fn close_client(&self, client: u64) {
-        let mut routes = self.routes();
-        let Some(gone) = routes.drop_client(client) else {
+        let Some(gone) = self.routes().drop_client(client) else {
             return;
         };
+        self.detach(&gone.session);
+    }
+
+    /// Lets go of browser session `session` (and its tab sessions).
+    fn detach(&self, session: &str) {
+        let mut routes = self.routes();
         let id = routes.id();
         routes.pending.insert(id, Pending::Ignore);
         let msg = json!({
             "id": id,
             "method": "Target.detachFromTarget",
-            "params": { "sessionId": gone.session },
+            "params": { "sessionId": session },
         });
         let _ = self.to_chrome.send(msg.to_string());
+    }
+
+    /// The person is about to use the window (to sign in): every
+    /// connection ends (bots and oxbot's guards alike, so nothing reads the
+    /// pages while they type) and new ones are refused until
+    /// [`Pipe::resume`]. oxbot's own calls ([`Pipe::call`]) still work.
+    pub(crate) fn pause(&self) {
+        let sessions: Vec<String> = {
+            let mut routes = self.routes();
+            routes.paused = true;
+            routes.owners.clear();
+            routes.clients.drain().map(|(_, c)| c.session).collect()
+        };
+        for session in &sessions {
+            self.detach(session);
+        }
+    }
+
+    /// Connections are accepted again.
+    pub(crate) fn resume(&self) {
+        self.routes().paused = false;
     }
 
     /// Passes `text` from connection `client` to Chrome: a message without
@@ -666,6 +700,27 @@ mod tests {
             .unwrap()
             .unwrap();
         serde_json::from_str(&text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn pausing_cuts_every_connection_until_resumed() {
+        let pipe = fake_chrome();
+        let (a, mut a_rx) = pipe.open_client().await.unwrap();
+        pipe.pause();
+        // The connection's channel ends, and what it sends is refused.
+        assert!(a_rx.recv().await.is_none());
+        assert!(
+            pipe.send_from(a, r#"{"id":1,"method":"Browser.getVersion"}"#)
+                .is_some()
+        );
+        assert!(
+            pipe.open_client().await.is_err(),
+            "no new ones while paused"
+        );
+        // oxbot's own calls still work (to show the window).
+        assert!(pipe.call("Browser.getVersion", json!({})).await.is_ok());
+        pipe.resume();
+        assert!(pipe.open_client().await.is_ok());
     }
 
     #[tokio::test]

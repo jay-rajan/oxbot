@@ -279,6 +279,9 @@ impl Hub {
     ) -> Result<(), HubError> {
         match event {
             EngineEvent::Started { .. } => *started = true,
+            EngineEvent::Note(text) => {
+                self.record(bot, EventKind::Note { text })?;
+            }
             EngineEvent::TextDelta(text) => {
                 let _ = self.updates.send(ServerMsg::Delta {
                     bot: bot.to_string(),

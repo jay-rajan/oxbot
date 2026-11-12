@@ -4,16 +4,22 @@
 # dictation) inside. Codex alone is ~260 MB per chip, so a universal app
 # would be twice the size for everyone.
 #
-# Usage: make-dmg.sh [arm64] [x64]  (default: both)
+# Usage: make-dmg.sh [--no-notarize] [arm64] [x64]  (default: both chips)
 # Output: target/<triple>/release/bundle/dmg/oxbot_<version>_{apple-chip,intel}.dmg
 #         and its SHA-256 next to it (…dmg.sha256), for friends to check.
 #
-# No Apple account: the app gets a local (ad-hoc) signature, and friends allow
-# it once in System Settings → Privacy & Security → Open Anyway. The app and
-# the Mac helper run with the hardened runtime (no injected libraries or
-# debuggers), allowed only the microphone (scripts/mac/entitlements.plist).
-# Codex and Node.js keep their makers' signatures inside it: they sit in
-# Resources, which signing seals but never re-signs.
+# Signing: with a "Developer ID Application" certificate in the Keychain (or
+# OXBOT_SIGN_ID naming one), the helper, the app and the .dmg are signed with
+# it and a secure timestamp, then the .dmg is notarized by Apple with the
+# notarytool profile OXBOT_NOTARY_PROFILE (default "oxbot") and stapled, so
+# it opens on any Mac with no warning. Without a certificate the app gets a
+# local (ad-hoc) signature, and friends allow it once in System Settings →
+# Privacy & Security → Open Anyway.
+# The app and the Mac helper run with the hardened runtime (no injected
+# libraries or debuggers), allowed only the microphone
+# (scripts/mac/entitlements.plist). Codex and Node.js keep their makers'
+# signatures inside it: they sit in Resources, which signing seals but never
+# re-signs; each must already be Developer ID, hardened and timestamped.
 # The .dmg is made with hdiutil, not Tauri's packer, which needs to control
 # Finder.
 set -e
@@ -24,6 +30,23 @@ sh scripts/build-mac-helper.sh
 # Never ship oxbot-core's test-only features.
 sh scripts/check-release-features.sh
 entitlements=scripts/mac/entitlements.plist
+notarize=yes
+chips=
+for arg in "$@"; do
+  case "$arg" in
+    --no-notarize) notarize=no ;;
+    *) chips="$chips $arg" ;;
+  esac
+done
+sign_id=${OXBOT_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null |
+  sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -1)}
+profile=${OXBOT_NOTARY_PROFILE:-oxbot}
+if [ -n "$sign_id" ]; then
+  echo "make-dmg: signing as $sign_id"
+else
+  echo "make-dmg: no Developer ID certificate; local signature, no notarizing" >&2
+  notarize=no
+fi
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 
 build_one() { # arm64|x64
@@ -43,22 +66,70 @@ build_one() { # arm64|x64
   if [ -f target/mac-helper/oxbot-mac ]; then
     lipo -thin "$lipo_arch" target/mac-helper/oxbot-mac -output "$app/Contents/MacOS/oxbot-mac"
     # Signed on its own first (its own identifier), then the app around it.
-    codesign --force --sign - --options runtime --entitlements "$entitlements" \
+    sign --options runtime --entitlements "$entitlements" \
       --identifier dev.oxbot.mac-helper "$app/Contents/MacOS/oxbot-mac"
   else
     echo "make-dmg: no Mac helper; this app takes no video frames and has no microphone" >&2
   fi
+  check_tools "$app"
   sign_app "$app"
   dmg="$bundle/dmg/oxbot_${version}_$label.dmg"
   make_dmg "$app" "$dmg"
+  [ -n "$sign_id" ] && sign "$dmg"
+  [ "$notarize" = yes ] && notarize_dmg "$dmg"
+  # Last: stapling changes the .dmg.
   (cd "$(dirname "$dmg")" && shasum -a 256 "$(basename "$dmg")" >"$(basename "$dmg").sha256")
   echo "SHA-256: $(cut -d' ' -f1 "$dmg.sha256")"
 }
 
+sign() { # codesign flags… path
+  if [ -n "$sign_id" ]; then
+    codesign --force --sign "$sign_id" --timestamp "$@"
+  else
+    codesign --force --sign - "$@"
+  fi
+}
+
 sign_app() { # app (its helper already signed)
   # No --deep: that would re-sign what's inside with the app's settings.
-  codesign --force --sign - --options runtime --entitlements "$entitlements" "$1"
+  sign --options runtime --entitlements "$entitlements" "$1"
   codesign --verify --deep --strict "$1"
+}
+
+check_tools() { # app: every program in Resources must pass notarizing as is
+  [ -n "$sign_id" ] || return 0
+  bad=0
+  for f in $(find "$1/Contents/Resources" -type f \( -perm -u+x -o -name '*.node' -o -name '*.dylib' \)); do
+    file -b "$f" | grep -q Mach-O || continue
+    info=$(codesign -dvv "$f" 2>&1 || true)
+    if ! printf %s "$info" | grep -q '^Authority=Developer ID Application' ||
+      ! printf %s "$info" | grep -q 'flags=.*runtime' ||
+      ! printf %s "$info" | grep -q '^Timestamp='; then
+      echo "make-dmg: not Developer ID, hardened and timestamped: ${f#"$1"/}" >&2
+      bad=1
+    fi
+  done
+  [ "$bad" = 0 ] || exit 1
+}
+
+notarize_dmg() { # dmg
+  echo "make-dmg: sending $(basename "$1") to Apple (profile $profile)…"
+  out=$(xcrun notarytool submit "$1" --keychain-profile "$profile" --wait 2>&1) || true
+  echo "$out" | sed -nE 's/^ *(id|status): /  \1: /p'
+  if ! echo "$out" | grep -q 'status: Accepted'; then
+    id=$(echo "$out" | sed -n 's/^ *id: //p' | head -1)
+    [ -n "$id" ] && xcrun notarytool log "$id" --keychain-profile "$profile" >&2
+    echo "make-dmg: Apple did not accept $(basename "$1")" >&2
+    exit 1
+  fi
+  xcrun stapler staple -q "$1"
+  xcrun stapler validate -q "$1"
+  spctl -a -t open --context context:primary-signature "$1"
+  mount=$(hdiutil attach "$1" -nobrowse -noautoopen -readonly | sed -n 's|.*\(/Volumes/oxbot.*\)$|\1|p' | tail -1)
+  spctl -a -t exec "$mount/oxbot.app" && ok=1 || ok=0
+  hdiutil detach "$mount" -quiet
+  [ "$ok" = 1 ] || { echo "make-dmg: Gatekeeper refused the app" >&2; exit 1; }
+  echo "make-dmg: notarized, stapled, and Gatekeeper accepts it"
 }
 
 make_dmg() { # app out
@@ -86,6 +157,6 @@ osascript -l JavaScript -e "ObjC.import('AppKit'); \$.NSWorkspace.sharedWorkspac
 echo "Built $out ($(du -h "$out" | cut -f1))"
 }
 
-for chip in ${@:-arm64 x64}; do
+for chip in ${chips:-arm64 x64}; do
   build_one "$chip"
 done
