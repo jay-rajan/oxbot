@@ -6,3 +6,5 @@
 /app/src-tauri/gen/schemas
 /e2e/.report-url
 /e2e/baselines
+
+/scripts/camoufox/node_modules/

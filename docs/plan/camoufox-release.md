@@ -1,15 +1,27 @@
 # Release Oxbot with reduced Camoufox
 
-Status: proposed implementation plan, 2026-11-12. No Camoufox backend has been implemented or released.
+Status: implementation started, 2026-11-12. The native runtime/package milestone is implemented and locally tested; the live bot adapter and signed release are not implemented.
 Baseline: `d300046` commits the existing pacing, visible Chrome, sign-in pause, model fallback, and Mac signing work.
 
 ## Decisions
 
 - Ship reduced Camoufox **inside oxbot.app**, replacing Chrome as the production browser. No Chrome installation, separate browser download, Python, pip, or user setup commands are required.
-- Reuse Oxbot's bundled Node runtime. Use the Camoufox TypeScript launcher and `playwright-core`; do not download Chromium or another stock Firefox alongside Camoufox.
+- Reuse Oxbot's bundled Node runtime. Use pinned `playwright-core` directly with the Camoufox engine and its native defaults; do not download Chromium or another stock Firefox alongside Camoufox. The general-purpose launcher/fingerprint generator is not needed for this native-only assistant.
 - Support only the host's native macOS identity and system fonts in this package. No cross-OS identities, identity rotation, proxy rotation, or automatic browser switching after a block.
 - Start a normal visible browser on a blank page, minimize it, then navigate to the requested site. Bring it forward for sign-in or explicit manual control; resume automation only after the handoff ends.
 - Optimize for a few useful actions and low site load, not throughput. A grocery task is a sequence of ordinary UI interactions, not a crawler or a direct shopping API client.
+
+## Implementation progress
+
+The first implementation is in `scripts/camoufox/`: a checksum-pinned browser builder, locked Playwright runtime, native profile lifecycle, private window-state extension/channel, and local smoke tests. Generated binaries stay in `target/`; nothing has changed the current bots' Chrome integration or release packaging yet.
+
+The direct native route avoids the TypeScript launcher's generated identities, extra GPU-probe browser, and ~213 MB expanded fingerprint model. The current generated bundle measures **about 389.7 MB (~390 MB)**: 376,239,295 browser bytes and 13,441,941 dependency bytes, plus small runtime files. It contains no Python, fingerprint generator/model, or Chrome engine. Node is reused from Oxbot's existing tools.
+
+Local tests use Oxbot's bundled Node 24: minimize before navigation, stay minimized through a local form action, capture a rendered multilingual screenshot, restore for manual control, preserve site storage/native identity through restart, and avoid reloading the previous website at startup. Unit tests cover pinned-input integrity, missing assets, native-only configuration, output preservation, reduced-font enforcement, and the private window channel. No retailer was visited by these tests.
+
+The OS `sandbox-exec` offline harness timed out with both the prototype and an unmodified upstream Camoufox baseline. It is not accepted as an offline-distribution result. A separate guarded smoke test refuses Node downloads/non-loopback Node connections, restricts fixture page requests to localhost, and checks installed bundle contents remain unchanged. A true offline clean-desktop test, signing/notarization, crash recovery, and control/isolation parity remain release gates.
+
+Next milestone: connect the lifecycle primitive to a Rust-owned browser adapter and per-bot tool sessions, preserving policy mediation before live browsing is enabled.
 
 ## Size evidence and limits
 
@@ -22,7 +34,7 @@ Measured locally on Apple Silicon with Camoufox `158.0.1-beta.41`:
 | ZIP of the reduced browser, before release signing | 157,670,427 bytes (~158 MB) |
 | Current Chrome DevTools MCP package in the tools bundle | ~15 MiB; dependency savings require a final bundle comparison |
 
-These are browser-only figures, not the final Oxbot installer size. Node, Codex, the bridge, launcher dependencies, model data, signatures, and profiles must be included in the final size report. Node and Codex already ship with Oxbot and must not be duplicated. The local Python environment is a test convenience and must not enter the release.
+These are browser-only figures, not the final Oxbot installer size. Node, Codex, the bridge, Playwright dependencies, signatures, and profiles must be included in the final size report. The native implementation deliberately excludes model data. Node and Codex already ship with Oxbot and must not be duplicated. The local Python environment is a test convenience and must not enter the release.
 
 The reduced copy passed native-Mac launch and local form interactions. Font widths and layout matched the full browser across Latin, French accents, Tamil, Hindi, Chinese, Japanese, Arabic, and emoji; final headless screenshots matched byte-for-byte. Visible-window screenshot capture was inconsistent in both copies. This experiment does **not** establish signing, minimized-window reliability, Intel support, or Walmart verification success.
 
@@ -30,9 +42,9 @@ Chrome is currently reused from the user's Mac, not bundled. Removing Chrome int
 
 ## 1. Prove the production runtime and package
 
-1. Pin a compatible browser release, TypeScript launcher, Playwright version, and all npm dependencies. Check the native Node dependencies for both supported Mac architectures. Do not infer compatibility from the Python test.
-2. Run a small Node proof using the reduced browser's explicit executable path, native macOS identity, system fonts, and a persistent test profile. Verify an existing profile stays consistent across restarts; do not draw a new identity each launch.
-3. Inventory every launch-time dependency: fingerprint model, default add-ons, GPU probe, and any metadata or update fetch. Package necessary assets at build time and configure explicit bundled paths. No runtime fetch, dependency installation, GeoIP lookup, or silent full-browser fallback.
+1. Pin a compatible browser release, Playwright version, and all npm dependencies. The current native runtime has only `playwright-core`; re-evaluate dependencies when adding the bridge. Do not infer compatibility from the Python test.
+2. Run a small Node proof using the reduced browser's explicit executable path, actual macOS browser defaults, system fonts, and a persistent test profile. Verify an existing profile stays consistent across restarts; do not generate identities.
+3. Inventory every launch-time dependency and metadata/update fetch. The native route deliberately excludes the fingerprint model and GPU probe; default add-ons come from the browser bundle. Package necessary assets at build time and configure explicit bundled paths. No runtime fetch, dependency installation, GeoIP lookup, or silent full-browser fallback.
 4. With external network blocked, launch from a fresh Mac user with empty browser/model caches, no Python, and no Chrome. Load a local fixture, render multilingual text and emoji, type, click, capture a screenshot, and restart with saved state.
 5. Measure the final dependency tree and reject duplicated engines, Node runtimes, Python environments, full-font copies, development dependencies, caches, and downloaded archives in the app.
 
@@ -79,11 +91,11 @@ A normal site can load many resources and background requests from one navigatio
 
 Extend `scripts/fetch-tools.sh` and `scripts/make-dmg.sh`:
 
-1. Fetch a pinned upstream archive in CI and verify its checksum/provenance. Make an explicit native-only derivative that omits only the tested bundled-font directory. Keep the metadata and browser fallback resources required by the paired launcher. Record upstream version, checksums, packaging recipe, and licenses/notices/source references.
+1. Fetch a pinned upstream archive in CI and verify its checksum/provenance. Make an explicit native-only derivative that omits only the tested bundled-font directory. Keep the metadata and browser fallback resources required by the native runtime. Record upstream version, checksums, packaging recipe, and licenses/notices/source references.
 2. Stage `Camoufox.app`, the Node helper, locked production dependencies, and required data under `oxbot.app/Contents/Resources/tools/`. No runtime mutation of these resources; profiles and temporary files belong in the user's Oxbot data folder.
 3. Produce separate Apple Silicon and Intel installers. Test the reduced build on each supported macOS/architecture combination; do not label untested Intel builds supported.
 4. Sign nested browser executables, frameworks, native npm modules, and helper components inside-out using appropriate browser/JIT entitlements, then sign the enclosing apps and DMG. The upstream app is ad-hoc signed; the existing mic-helper entitlements are not assumed sufficient for Firefox. Verify, notarize, staple, and test Gatekeeper on a clean Mac without bypassing warnings.
-5. Couple browser/launcher updates to a tested Oxbot release. Replace the app as a unit; keep writable profiles outside it. Test rollback using a compatible profile backup, not by assuming an upgraded Firefox profile can be downgraded.
+5. Couple browser/Playwright updates to a tested Oxbot release. Replace the app as a unit; keep writable profiles outside it. Test rollback using a compatible profile backup, not by assuming an upgraded Firefox profile can be downgraded.
 6. Create versioned Camoufox profiles for home and personal browser owners. Explain that websites need a fresh sign-in. Keep old Oxbot Chrome profiles until the user has checked migration. Never delete the regular Chrome installation, profiles, or the full experimental Camoufox installation as an incidental upgrade step.
 
 The release size report must compare old and new DMG and installed app sizes, identify the added browser and removed Chrome-only dependency tree, and confirm there is exactly one shipped engine. The ~158 MB ZIP is an experimental reference, not a final DMG estimate.
