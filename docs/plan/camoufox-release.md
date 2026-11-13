@@ -1,7 +1,6 @@
 # Release Oxbot with reduced Camoufox
 
-Status: implementation started, 2026-11-12. The native runtime/package milestone is implemented and locally tested; the live bot adapter and signed release are not implemented.
-Baseline: `d300046` commits the existing pacing, visible Chrome, sign-in pause, model fallback, and Mac signing work.
+Status, 2026-11-12: **Camoufox is the only browser.** The Chrome launcher, DevTools pipe, guard, practice-run network guard and sealed tab are deleted from `crates/oxbot-browser`; the app uses the bundled runtime (`Resources/tools/camoufox`, or `target/camoufox-bundle` in a debug checkout). `scripts/fetch-tools.sh` builds it into the app and `scripts/make-dmg.sh` signs it inside-out (`scripts/camoufox/sign.sh`, tested with a Developer ID and hardened runtime; notarization not yet run). Practice runs and sealed script reads refuse with a clear message until rebuilt on Camoufox. Known gap: element facts for approvals run in the page's main world (Chrome used an isolated world). Old Oxbot Chrome profiles are left in place; sign-ins must be redone in the new `browser/camoufox-v1` profiles.
 
 ## Decisions
 

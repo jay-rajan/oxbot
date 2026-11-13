@@ -158,8 +158,7 @@ impl Hub {
         Ok(runtime)
     }
 
-    /// Starts `shared`'s Chrome (installing the browser tool the first
-    /// time) for `bot`, saving files in `work_dir`. `None` if this oxbot
+    /// Starts `shared`'s browser for `bot`, saving files in `work_dir`. `None` if this oxbot
     /// has no browser or it couldn't start: the bot goes on without one.
     async fn start_browser(
         self: &Arc<Self>,
@@ -168,14 +167,7 @@ impl Hub {
         work_dir: &std::path::Path,
     ) -> Option<BrowserSpec> {
         let tools = self.config.browser.clone()?;
-        if !tools.is_installed() {
-            self.notice("Setting up the browser for bots (first time only)…");
-        }
-        let started = async {
-            tools.ensure_installed().await?;
-            shared.browser.ensure_running().await
-        };
-        if let Err(err) = started.await {
+        if let Err(err) = shared.browser.ensure_running().await {
             tracing::warn!(%err, "starting without the browser");
             self.notice(&format!(
                 "{} can't use the browser right now: {err}",

@@ -24,6 +24,7 @@ export function nativeOptions({
   addons,
   locale,
   headless = false,
+  proxy,
   environment = process.env,
 }) {
   // No fingerprint generator or saved synthetic identity. Firefox reports the
@@ -40,6 +41,8 @@ export function nativeOptions({
     viewport: null,
     locale,
     env,
+    // End-to-end tests only: the test site answers for every host.
+    ...(proxy ? { proxy: { server: proxy } } : {}),
     firefoxUserPrefs: {
       // Browser updates are distributed together with the signed Oxbot app.
       "app.update.auto": false,
@@ -53,11 +56,45 @@ export function nativeOptions({
   };
 }
 
+// A helper that was killed (or a Mac that lost power) leaves its lock behind.
+// The lock names its owner's process: a lock whose owner is gone is cleared
+// once; a live owner keeps the profile.
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+};
+async function takeLock(lock) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await mkdir(lock, { mode: 0o700 });
+      return;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    let pid;
+    try {
+      pid = JSON.parse(await readFile(resolve(lock, "owner.json"), "utf8")).pid;
+    } catch {}
+    if (attempt > 0 || (Number.isInteger(pid) && pid > 0 && alive(pid)))
+      throw new Error(
+        "This browser profile is already in use or has an uncleared runtime lock",
+      );
+    // No owner file at all: the owner died between taking the lock and
+    // writing it, or the lock predates owner files.
+    await rm(lock, { recursive: true, force: true });
+  }
+}
+
 export async function launchNative({
   bundle,
   profile,
   locale = Intl.DateTimeFormat().resolvedOptions().locale,
   headless = false,
+  proxy,
 }) {
   const { executable, addon } = await verifyBundle(bundle);
   const profileDir = resolve(profile),
@@ -71,15 +108,7 @@ export async function launchNative({
     );
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
   const lock = resolve(profileDir, ".oxbot-runtime-lock");
-  try {
-    await mkdir(lock, { mode: 0o700 });
-  } catch (error) {
-    if (error.code === "EEXIST")
-      throw new Error(
-        "This browser profile is already in use or has an uncleared runtime lock",
-      );
-    throw error;
-  }
+  await takeLock(lock);
   let context, bridge, addonRoot, cleanupPromise;
   const cleanup = () =>
     (cleanupPromise ??= (async () => {
@@ -138,6 +167,7 @@ export async function launchNative({
       addons,
       locale,
       headless,
+      proxy,
     });
     context = await firefox.launchPersistentContext(profileDir, options);
     context.setDefaultTimeout(10000);
@@ -154,12 +184,35 @@ export async function launchNative({
     context.on("close", () => {
       void cleanup().catch(() => {});
     });
+    // Firefox opens every Playwright page as a window of its own. oxbot keeps
+    // its startup tab as a private launcher instead: a click on its noopener
+    // link opens a blank tab in the same window. Only oxbot writes this
+    // about:blank page; no website runs in it.
+    let launcher;
+    if (bridge) {
+      launcher = context.pages()[0];
+      await launcher.setContent(
+        '<title>oxbot</title><a id="oxbot-new-tab" href="about:blank" target="_blank" rel="noopener">oxbot</a>',
+      );
+    }
     return {
       // Internal adapter primitive only. Do not expose raw Playwright context
       // methods to a model; the Rust gate must mediate browser tools first.
       context,
       async windowState() {
         return bridge ? bridge.setState("status") : [];
+      },
+      // The private launcher tab, which is never a bot's page.
+      launcher,
+      // A new page, as a tab of the browser's window when it has one.
+      async newPage() {
+        if (!launcher || launcher.isClosed()) return context.newPage();
+        const opened = context.waitForEvent("page", {
+          predicate: (page) => page !== launcher,
+          timeout: 10000,
+        });
+        await launcher.locator("#oxbot-new-tab").click();
+        return opened;
       },
       async showForUser() {
         if (bridge) await bridge.setState("normal");

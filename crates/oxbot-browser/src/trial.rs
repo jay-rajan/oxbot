@@ -102,8 +102,7 @@ pub async fn clone_profile(from: &Path, to: &Path) -> Result<(), BrowserError> {
 }
 
 /// Deletes everything in `root` (practice runs left behind by an oxbot
-/// that stopped mid-run), after stopping any Chrome still running on a
-/// profile in it. Returns how many entries went.
+/// that stopped mid-run). Returns how many entries went.
 pub async fn sweep(root: &Path) -> usize {
     let Ok(entries) = std::fs::read_dir(root) else {
         return 0;
@@ -112,7 +111,6 @@ pub async fn sweep(root: &Path) -> usize {
     if entries.is_empty() {
         return 0;
     }
-    crate::browser::stop_chromes_under(root).await;
     let mut gone = 0;
     for path in entries {
         let removed = if path.is_dir() {
@@ -135,12 +133,12 @@ pub async fn sweep(root: &Path) -> usize {
 
 fn make_private_dir(dir: &Path) -> Result<(), BrowserError> {
     std::fs::create_dir_all(dir)
-        .map_err(|e| BrowserError::Chrome(format!("couldn't make {}: {e}", dir.display())))?;
+        .map_err(|e| BrowserError::Browser(format!("couldn't make {}: {e}", dir.display())))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
-            BrowserError::Chrome(format!("couldn't protect {}: {e}", dir.display()))
+            BrowserError::Browser(format!("couldn't protect {}: {e}", dir.display()))
         })?;
     }
     Ok(())
@@ -148,7 +146,7 @@ fn make_private_dir(dir: &Path) -> Result<(), BrowserError> {
 
 fn read_dir(dir: &Path) -> Result<Vec<PathBuf>, BrowserError> {
     let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map_err(|e| BrowserError::Chrome(format!("couldn't read {}: {e}", dir.display())))?
+        .map_err(|e| BrowserError::Browser(format!("couldn't read {}: {e}", dir.display())))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .collect();
     paths.sort();
@@ -167,7 +165,7 @@ async fn copy(parts: &[PathBuf], into: &Path) -> Result<(), BrowserError> {
     if run_cp("-Rp", parts, into).await? {
         return Ok(());
     }
-    Err(BrowserError::Chrome(format!(
+    Err(BrowserError::Browser(format!(
         "couldn't copy the browser profile into {}",
         into.display()
     )))
@@ -183,10 +181,7 @@ async fn run_cp(flags: &str, parts: &[PathBuf], into: &Path) -> Result<bool, Bro
         .stderr(std::process::Stdio::null())
         .status()
         .await
-        .map_err(|source| BrowserError::Spawn {
-            program: "cp".to_owned(),
-            source,
-        })?;
+        .map_err(|e| BrowserError::Browser(format!("couldn't start cp: {e}")))?;
     Ok(status.success())
 }
 

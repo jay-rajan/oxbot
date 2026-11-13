@@ -1,0 +1,22 @@
+Page map of r12 (a big page: this is its outline, not its text)
+Page: "Corner Grocer" https://shop.example.com/
+Elements: 51 (41 lines when trimmed)
+Pages (pageId: title):
+  1: Corner Grocer (https://shop.example.com/) [selected]
+Focused: uid=4_44 textbox "Email" focused value="a@b.c"
+Headings:
+  h1 uid=4_12 "Fresh produce"
+Landmarks (what each holds):
+  banner uid=4_2: nothing else
+    navigation uid=4_3: 2 links
+    search uid=4_6: 1 button, 1 searchbox, 1 text block
+  main uid=4_11: 1 heading, 2 links, 2 buttons, 1 textbox, 1 combobox, 1 checkbox, 2 options, 1 table, 2 rows, 2 list items, 4 text blocks
+  (outside landmarks): 1 link, 1 button, 1 textbox, 1 checkbox, 1 image, 2 text blocks
+Form controls (6):
+  uid=4_9 searchbox "Search products"
+  uid=4_25 checkbox "Subscribe & save"
+  uid=4_29 combobox "Quantity"
+  uid=4_32 textbox "Delivery notes"
+  uid=4_44 textbox "Email" focused value="a@b.c"
+  uid=4_45 checkbox "Keep me" checked
+Look inside with find_in_page(page: "r12", query or role), read_section(page: "r12", uid), or ask_page(page: "r12", question).

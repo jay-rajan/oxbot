@@ -759,8 +759,11 @@ mod tests {
         let bots = tmp.path().join("bots");
         std::fs::create_dir_all(&bots).unwrap();
         let mut tools = oxbot_browser::ToolsConfig::in_home(&tmp.path().join("home"));
-        tools.tools_dir = tmp.path().join("no-tools");
-        let chrome = tools.chrome.exists();
+        tools.camoufox = oxbot_browser::CamoufoxTool::in_checkout().map(|mut t| {
+            t.headless = true;
+            t
+        });
+        let real = tools.camoufox.is_some();
         let hub = Hub::new(
             vec![],
             crate::store::Store::open_in_memory().unwrap(),
@@ -789,8 +792,8 @@ mod tests {
         let kid = Viewer::person(kim.id.clone(), "Kim", false);
         assert!(refused(hub.share_site("games.example", &kid).await).contains("grown-up"));
         assert_eq!(hub.sites(BrowserOwner::Home), Vec::new());
-        if !chrome {
-            eprintln!("Chrome isn't installed; skipping the copy");
+        if !real {
+            eprintln!("The browser isn't built; skipping the copy");
             return;
         }
         // Jay is signed in to the bank in his own browser (a temp profile).

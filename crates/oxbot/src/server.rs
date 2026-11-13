@@ -55,9 +55,8 @@ pub struct AppState {
     pub search_path: String,
     /// The latest setup check.
     pub setup: Arc<std::sync::RwLock<SetupReport>>,
-    /// Whether the browser tool (and the Node.js it needs) ships inside the
-    /// app, so the setup check doesn't ask for Node.js.
-    pub tool_built_in: bool,
+    /// Whether oxbot's own browser (shipped inside the app) is complete.
+    pub browser_ready: bool,
     /// End-to-end test mode: a connection may say who it is with `?as=Name`
     /// (always a device person, never the home computer).
     pub e2e: bool,
@@ -282,7 +281,7 @@ impl AppState {
     /// Runs the setup check again and keeps the result.
     pub async fn refresh_setup(&self) -> SetupReport {
         self.dictation.check().await;
-        let mut report = crate::setup::check(&self.search_path, self.tool_built_in);
+        let mut report = crate::setup::check(self.browser_ready);
         report
             .checks
             .insert(0, crate::setup::codex_check(&self.hub.codex_view()));
@@ -328,7 +327,7 @@ impl AppState {
             local_person: "Me".to_owned(),
             search_path: std::env::var("PATH").unwrap_or_default(),
             setup: Arc::default(),
-            tool_built_in: false,
+            browser_ready: false,
             e2e: false,
             door: None,
             home_computer_key: crate::secret::random_hex::<32>(),

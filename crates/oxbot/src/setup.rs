@@ -6,12 +6,11 @@
 //! An app opened from Finder gets a bare `PATH` (`/usr/bin:/bin:…`), so
 //! programs installed by Homebrew or nvm aren't found. [`search_path`]
 //! builds a `PATH` that includes the usual install folders; oxbot gives it
-//! to every `codex`, npm and browser-tool process. [`check`] and
+//! to every `codex` and browser-tool process. [`check`] and
 //! [`codex_check`] report what's there and what's missing, in plain words.
 
 use std::path::{Path, PathBuf};
 
-use oxbot_browser::DEFAULT_CHROME;
 use oxbot_protocol::{CodexView, SetupCheck, SetupReport};
 
 /// Folders where Codex, Node.js and npm are usually installed, after
@@ -76,33 +75,22 @@ pub fn find(program: &str, path: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Checks Google Chrome and, unless the browser tool is built into the
-/// app (`tool_built_in`), Node.js.
+/// Checks oxbot's own browser, which ships inside the app.
 #[must_use]
-pub fn check(path: &str, tool_built_in: bool) -> SetupReport {
-    let mut checks = Vec::new();
-    checks.push(if Path::new(DEFAULT_CHROME).exists() {
-        ok("chrome", "Google Chrome", "Installed.")
+pub fn check(browser_ready: bool) -> SetupReport {
+    let browser = if browser_ready {
+        ok("browser", "Browser", "Included with oxbot.")
     } else {
         missing(
-            "chrome",
-            "Google Chrome",
-            "Not installed.",
-            "Get it from google.com/chrome and drag it into Applications.",
+            "browser",
+            "Browser",
+            "Missing from this copy of oxbot, so bots can't use websites.",
+            "Install oxbot again from its .dmg.",
         )
-    });
-    if !tool_built_in {
-        checks.push(match (find("node", path), find("npm", path)) {
-            (Some(_), Some(_)) => ok("node", "Node.js", "Installed."),
-            _ => missing(
-                "node",
-                "Node.js",
-                "Not installed. oxbot uses it once to set up the browser tool.",
-                "Get the LTS installer from nodejs.org and run it.",
-            ),
-        });
+    };
+    SetupReport {
+        checks: vec![browser],
     }
-    SetupReport { checks }
 }
 
 /// Codex, as the hub found it (see `Hub::codex_view`): bots run on it.
@@ -243,15 +231,11 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_path_reports_what_is_missing() {
-        let report = check("/nowhere", false);
-        let node = report.checks.iter().find(|c| c.id == "node").unwrap();
-        assert!(!node.ok && node.fix.is_some());
-        assert!(!report.ready());
-        assert!(report.checks.iter().all(|c| !c.id.contains("claude")));
-        // With the browser tool built in, Node.js isn't asked for.
-        let built_in = check("/nowhere", true);
-        assert!(built_in.checks.iter().all(|c| c.id != "node"));
+    fn a_missing_browser_says_how_to_fix_it() {
+        let report = check(false);
+        let browser = report.checks.iter().find(|c| c.id == "browser").unwrap();
+        assert!(!browser.ok && browser.fix.is_some());
+        assert!(check(true).checks.iter().all(|c| c.ok));
     }
 
     #[test]

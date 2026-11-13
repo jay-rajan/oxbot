@@ -119,6 +119,13 @@ export async function build({
     });
     for (const name of [
       "runtime.mjs",
+      "adapter.mjs",
+      "service.mjs",
+      "mcp.mjs",
+      "tool-specs.mjs",
+      "files.mjs",
+      "snapshot.mjs",
+      "element-facts.js",
       "window-bridge.mjs",
       "assets.mjs",
       "package.json",

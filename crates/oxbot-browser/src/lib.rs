@@ -1,23 +1,22 @@
-//! Chrome for oxbot's bots: one shared, hidden Chrome, driven by the bots
-//! through Google's `chrome-devtools-mcp` (behind oxbot's gate).
+//! oxbot's browser: Camoufox (a Firefox build) shipped inside oxbot.app,
+//! driven through Playwright by a Node helper oxbot owns (see `camoufox`).
 //!
-//! - [`Tools`]: the Chrome program and the installed browser tool.
-//! - [`Browser`]: the Chrome every bot uses, with a
-//!   kept profile: the user signs in to a site once (in a visible window)
-//!   and every bot stays signed in. Bots take turns on it (see `oxbot-core`).
+//! - [`Tools`]: the bundled browser runtime and the bots' browser tool.
+//! - [`Browser`]: the browser every bot of one owner uses, with a kept
+//!   profile: the user signs in to a site once (with the window brought
+//!   forward) and every bot stays signed in. Bots take turns on it (see
+//!   `oxbot-core`).
 //!
-//! Hidden Chrome opens no control port: oxbot talks to it over a pipe and
-//! shares that only through a local address with a random secret path
-//! (see `pipe`).
+//! The browser opens no debugging port. oxbot talks to its helper over
+//! private stdio; bots' tools reach it only through a local address with a
+//! random secret path that offers the browser tools and nothing else.
 
 mod browser;
+mod camoufox;
 mod cookies;
 pub mod docfetch;
 mod element;
-mod guard;
-mod http;
 pub mod netguard;
-mod pipe;
 pub mod sealed;
 pub mod trial;
 pub mod visits;
@@ -26,69 +25,35 @@ mod web;
 use std::path::{Path, PathBuf};
 
 pub use oxbot_engine::McpCommand;
-use tokio::process::Command;
-use tokio::sync::Mutex;
 
-pub use browser::{Browser, BrowserSpec, BrowserStatus, site_of};
+pub use browser::{
+    Browser, BrowserSpec, BrowserStatus, NO_PRACTICE_RUNS, NO_SEALED_READS, site_of,
+};
+pub use camoufox::CamoufoxTool;
 pub use cookies::{CookieMarks, site_cookie_params};
 pub use element::{ELEMENT_FACTS_FN, ElementFacts};
 pub use netguard::{BlockedRequest, NetMode};
 pub use visits::{Visit, VisitSink};
 pub use web::{is_home_network, normalize_web_url, web_host};
 
-/// npm package for the browser tool.
-pub const MCP_PACKAGE: &str = "chrome-devtools-mcp";
-/// Pinned version: older than two weeks when chosen (released 2026-09-23).
-pub const MCP_VERSION: &str = "1.10.1";
-/// The `package.json` and lockfile the app's built-in tool is installed
-/// from (`scripts/tools`); a checkout without the built-in tool installs
-/// from the same lockfile, so every package is the one checked in, by hash.
-const TOOL_PACKAGE_JSON: &str = include_str!("../../../scripts/tools/package.json");
-const TOOL_PACKAGE_LOCK: &str = include_str!("../../../scripts/tools/package-lock.json");
-/// The tool's server name; its actions are `mcp__chrome-devtools__*` in
-/// oxbot's own names.
+/// The browser tool's server name; its actions are
+/// `mcp__chrome-devtools__*` in oxbot's own names. The name is kept from
+/// the Chrome tool it replaced so saved approval rules and the tool policy
+/// stay as they are.
 pub const MCP_SERVER_NAME: &str = "chrome-devtools";
-/// Chrome on macOS.
-pub const DEFAULT_CHROME: &str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-/// Environment for the `chrome-devtools-mcp` process: no update checks or
-/// usage statistics.
-pub const MCP_ENV: &[(&str, &str)] = &[
-    ("CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS", "1"),
-    ("CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS", "1"),
-];
-
-/// Arguments for `chrome-devtools-mcp` that connect it to a bot's Chrome at
-/// `endpoint` (the [`Browser::endpoint`], a `ws://127.0.0.1:…` address
-/// with a secret path):
-///
-/// - files it saves (screenshots, snapshots, network dumps) may only go in
-///   `workspace`, the bot's folder;
-/// - Google's usage statistics and performance lookups are off;
-/// - request headers (cookies, tokens) are redacted before the bot sees them;
-/// - tool groups bots don't need stay off (extensions and apps are off by
-///   default and stay that way).
-#[must_use]
-pub fn mcp_args(endpoint: &str, workspace: &Path) -> Vec<String> {
-    vec![
-        format!("--wsEndpoint={endpoint}"),
-        format!("--workspace={}", workspace.display()),
-        "--usageStatistics=false".to_owned(),
-        "--performanceCrux=false".to_owned(),
-        "--redactNetworkHeaders=true".to_owned(),
-        "--categoryPerformance=false".to_owned(),
-        "--categoryEmulation=false".to_owned(),
-        "--categoryMemory=false".to_owned(),
-        "--categoryExtensions=false".to_owned(),
-    ]
-}
+/// The version of the bots' browser tool list (`scripts/camoufox/
+/// tool-specs.mjs`). Change it with the list: cached lists are keyed by it.
+pub const TOOLS_VERSION: &str = "camoufox-1";
 
 /// Errors from the browser.
 #[derive(Debug, thiserror::Error)]
 pub enum BrowserError {
-    /// Chrome isn't installed where expected.
-    #[error("Chrome isn't installed at {0}")]
-    ChromeMissing(PathBuf),
+    /// The bundled browser isn't there (or is incomplete).
+    #[error(
+        "oxbot's browser is missing. Reinstall oxbot, or in a checkout run: node scripts/camoufox/build.mjs"
+    )]
+    Missing,
     /// The profile folder couldn't be deleted.
     #[error("couldn't delete {path}: {source}")]
     Remove {
@@ -97,119 +62,49 @@ pub enum BrowserError {
         /// Why.
         source: std::io::Error,
     },
-    /// Chrome or npm couldn't be started.
-    #[error("couldn't start {program}: {source}")]
-    Spawn {
-        /// The program.
-        program: String,
-        /// Why.
-        source: std::io::Error,
-    },
-    /// Chrome started but never answered on its control pipe.
-    #[error("Chrome didn't start in time")]
-    NotReady,
-    /// Installing the browser tool failed.
-    #[error("couldn't install {MCP_PACKAGE}@{MCP_VERSION}: {0}")]
-    Install(String),
-    /// Chrome refused or didn't answer a `DevTools` call.
-    #[error("Chrome: {0}")]
-    Chrome(String),
+    /// The browser refused, stopped or didn't answer.
+    #[error("browser: {0}")]
+    Browser(String),
 }
 
 /// Where the browser's programs and profile live.
 #[derive(Debug, Clone)]
 pub struct ToolsConfig {
-    /// The Chrome executable.
-    pub chrome: PathBuf,
-    /// Where `chrome-devtools-mcp` is installed.
-    pub tools_dir: PathBuf,
-    /// The `npm` program, used once to install the tool.
-    pub npm: PathBuf,
+    /// The bundled browser runtime. `None`: this oxbot has none, and the
+    /// browser reports [`BrowserError::Missing`].
+    pub camoufox: Option<CamoufoxTool>,
     /// The shared browser's kept profile.
     pub profile_dir: PathBuf,
     /// Where the throwaway profiles of older oxbot versions were; deleted
     /// if found.
     pub scratch_dir: PathBuf,
-    /// Extra environment for npm and the browser tool, e.g. a `PATH` that
-    /// finds Node.js when oxbot was opened from Finder.
+    /// Extra environment for the browser helper and tool.
     pub env: Vec<(String, String)>,
-    /// The browser tool and Node.js shipped inside the app. When set, oxbot
-    /// uses them and never runs npm.
-    pub built_in: Option<BuiltInTool>,
-    /// Keep sign-in windows hidden too (end-to-end tests, so no windows pop
-    /// up on the screen while they run).
-    pub hidden_windows: bool,
-    /// Bots' Chrome is a real window, minimized to the Dock, instead of
-    /// headless: the person can watch it, and signs in in the same window.
-    /// Practice runs stay headless.
-    pub show_browser: bool,
-    /// End-to-end tests only: the browser tool bots run instead of
-    /// `chrome-devtools-mcp` (a stand-in).
+    /// End-to-end tests only: the browser tool bots run instead of the real
+    /// one (a stand-in).
     pub mcp_override: Option<McpCommand>,
-    /// End-to-end tests only: more Chrome flags (the test site's host
-    /// rules, so `*.example.test` names reach it).
-    pub chrome_args: Vec<String>,
-}
-
-/// The browser tool shipped inside oxbot.app: a Node.js runtime and the
-/// pinned `chrome-devtools-mcp`, installed when the app was built.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuiltInTool {
-    /// The `node` program.
-    pub node: PathBuf,
-    /// `chrome-devtools-mcp`'s start script.
-    pub entry: PathBuf,
-}
-
-impl BuiltInTool {
-    /// The tool inside `dir` (the app's `Resources/tools`), if both parts
-    /// are there: `node/bin/node` and
-    /// `mcp/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`.
-    #[must_use]
-    pub fn find_in(dir: &Path) -> Option<Self> {
-        let tool = Self {
-            node: dir.join("node/bin/node"),
-            entry: dir
-                .join("mcp/node_modules")
-                .join(MCP_PACKAGE)
-                .join("build/src/bin/chrome-devtools-mcp.js"),
-        };
-        (tool.node.is_file() && tool.entry.is_file()).then_some(tool)
-    }
 }
 
 impl ToolsConfig {
-    /// Defaults under oxbot's data folder: `tools/` and `browser/profile`.
+    /// Defaults under oxbot's data folder: `browser/camoufox-v1/profile`.
     #[must_use]
     pub fn in_home(root: &Path) -> Self {
         Self {
-            chrome: PathBuf::from(DEFAULT_CHROME),
-            tools_dir: root.join("tools"),
-            npm: PathBuf::from("npm"),
-            profile_dir: root.join("browser").join("profile"),
+            camoufox: None,
+            profile_dir: root.join("browser").join("camoufox-v1").join("profile"),
             scratch_dir: root.join("scratch"),
             env: Vec::new(),
-            built_in: None,
-            hidden_windows: false,
-            show_browser: false,
             mcp_override: None,
-            chrome_args: Vec::new(),
         }
-    }
-
-    /// The installed `chrome-devtools-mcp` program.
-    #[must_use]
-    pub fn mcp_program(&self) -> PathBuf {
-        self.tools_dir.join("node_modules/.bin").join(MCP_PACKAGE)
     }
 }
 
-/// The Chrome program and the browser tool. Share it as `Arc<Tools>`.
+/// The browser runtime and the bots' browser tool. Share it as
+/// `Arc<Tools>`.
 #[derive(Debug)]
 pub struct Tools {
     config: ToolsConfig,
-    /// Held while installing, so two bots don't run npm at once.
-    installing: Mutex<()>,
+    courtesy: std::sync::Arc<camoufox::Courtesy>,
 }
 
 impl Tools {
@@ -225,7 +120,7 @@ impl Tools {
         }
         std::sync::Arc::new(Self {
             config,
-            installing: Mutex::new(()),
+            courtesy: std::sync::Arc::default(),
         })
     }
 
@@ -235,119 +130,45 @@ impl Tools {
         &self.config
     }
 
-    /// Whether the pinned browser tool is already installed.
+    /// Whether the bundled browser is complete.
     #[must_use]
-    pub fn is_installed(&self) -> bool {
-        self.config.built_in.is_some() || self.config.mcp_program().exists()
+    pub fn is_available(&self) -> bool {
+        self.config
+            .camoufox
+            .as_ref()
+            .is_some_and(CamoufoxTool::available)
     }
 
-    /// Installs the pinned `chrome-devtools-mcp` into the tools folder if it
-    /// isn't there yet, and returns its path.
-    ///
-    /// # Errors
-    /// Fails if npm is missing or the install fails.
-    pub async fn ensure_installed(&self) -> Result<PathBuf, BrowserError> {
-        if let Some(tool) = &self.config.built_in {
-            return Ok(tool.entry.clone());
-        }
-        let _one_at_a_time = self.installing.lock().await;
-        let program = self.config.mcp_program();
-        let package_json = self
-            .config
-            .tools_dir
-            .join("node_modules")
-            .join(MCP_PACKAGE)
-            .join("package.json");
-        let installed = tokio::fs::read_to_string(&package_json)
-            .await
-            .ok()
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .and_then(|v| {
-                v.get("version")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            });
-        if installed.as_deref() == Some(MCP_VERSION) && program.exists() {
-            return Ok(program);
-        }
-        tracing::info!("installing {MCP_PACKAGE}@{MCP_VERSION}");
-        tokio::fs::create_dir_all(&self.config.tools_dir)
-            .await
-            .map_err(|e| BrowserError::Install(e.to_string()))?;
-        // Exactly the lockfile's packages (checked against their hashes),
-        // and no package's install scripts run.
-        for (name, text) in [
-            ("package.json", TOOL_PACKAGE_JSON),
-            ("package-lock.json", TOOL_PACKAGE_LOCK),
-        ] {
-            tokio::fs::write(self.config.tools_dir.join(name), text)
-                .await
-                .map_err(|e| BrowserError::Install(e.to_string()))?;
-        }
-        let output = Command::new(&self.config.npm)
-            .arg("ci")
-            .args(["--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"])
-            .arg("--loglevel=error")
-            .current_dir(&self.config.tools_dir)
-            .envs(
-                self.config
-                    .env
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str())),
-            )
-            .output()
-            .await
-            .map_err(|source| BrowserError::Spawn {
-                program: self.config.npm.display().to_string(),
-                source,
-            })?;
-        if !output.status.success() {
-            return Err(BrowserError::Install(
-                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            ));
-        }
-        Ok(program)
-    }
-
-    /// The browser tool as a command, for the Chrome at `endpoint` (see
-    /// [`Browser::endpoint`]), saving
-    /// files only in `workspace`: the same program, flags and environment
-    /// for every engine (or, in end-to-end tests, the stand-in set as
-    /// [`ToolsConfig::mcp_override`]).
+    /// The browser tool as a command, for the browser at `endpoint` (see
+    /// [`Browser::endpoint`]), touching files only in `workspace` (or, in
+    /// end-to-end tests, the stand-in set as [`ToolsConfig::mcp_override`]).
+    /// Without a bundled browser the command can't start, and the bot is
+    /// told it has no browser.
     #[must_use]
     pub fn mcp_command(&self, endpoint: &str, workspace: &Path) -> McpCommand {
-        match &self.config.mcp_override {
-            Some(stand_in) => {
-                // Which Chrome, as the real tool is told.
-                let mut stand_in = stand_in.clone();
-                stand_in.args.push(format!("--wsEndpoint={endpoint}"));
-                stand_in
-            }
-            None => self.real_mcp_command(endpoint, workspace),
+        if let Some(stand_in) = &self.config.mcp_override {
+            // Which browser and folder, as the real tool is told.
+            let mut stand_in = stand_in.clone();
+            stand_in.args.push(format!("--endpoint={endpoint}"));
+            stand_in
+                .args
+                .push(format!("--workspace={}", workspace.display()));
+            return stand_in;
         }
-    }
-
-    fn real_mcp_command(&self, endpoint: &str, workspace: &Path) -> McpCommand {
-        let env = MCP_ENV
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .chain(self.config.env.iter().cloned())
-            .collect();
-        let args = mcp_args(endpoint, workspace);
-        match &self.config.built_in {
-            // The built-in Node.js runs the built-in tool.
-            Some(tool) => McpCommand {
-                program: tool.node.clone(),
-                args: std::iter::once(tool.entry.display().to_string())
-                    .chain(args)
-                    .collect(),
-                env,
-            },
-            None => McpCommand {
-                program: self.config.mcp_program(),
-                args,
-                env,
-            },
+        let (node, bundle) = self.config.camoufox.as_ref().map_or_else(
+            || (PathBuf::from("node"), PathBuf::new()),
+            |tool| (tool.node.clone(), tool.bundle.clone()),
+        );
+        McpCommand {
+            program: node,
+            args: vec![
+                bundle.join("mcp.mjs").display().to_string(),
+                "--endpoint".into(),
+                endpoint.into(),
+                "--workspace".into(),
+                workspace.display().to_string(),
+            ],
+            env: self.config.env.clone(),
         }
     }
 }
@@ -357,77 +178,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn args_keep_files_in_the_bot_folder_and_stats_off() {
-        let args = mcp_args(
-            "ws://127.0.0.1:9333/devtools/browser/t0k3n",
-            Path::new("/bots/x/work"),
-        );
-        assert_eq!(
-            args[0],
-            "--wsEndpoint=ws://127.0.0.1:9333/devtools/browser/t0k3n"
-        );
-        for wanted in [
-            "--workspace=/bots/x/work",
-            "--usageStatistics=false",
-            "--performanceCrux=false",
-            "--redactNetworkHeaders=true",
-            "--categoryExtensions=false",
-        ] {
-            assert!(args.iter().any(|a| a == wanted), "missing {wanted}");
-        }
-    }
-
-    #[test]
-    fn the_lockfile_pins_the_tool_version() {
-        let lock: serde_json::Value = serde_json::from_str(TOOL_PACKAGE_LOCK).unwrap();
-        let tool = &lock["packages"][format!("node_modules/{MCP_PACKAGE}")];
-        assert_eq!(tool["version"], MCP_VERSION);
-        assert!(tool["integrity"].as_str().unwrap().starts_with("sha512-"));
-    }
-
-    /// Without the built-in tool, npm installs it from the lockfile, with
-    /// no install scripts.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_dev_install_uses_the_lockfile_and_runs_no_scripts() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let tmp = tempfile::tempdir().unwrap();
-        let npm = tmp.path().join("npm");
-        let said = tmp.path().join("args");
-        std::fs::write(
-            &npm,
-            format!(
-                "#!/bin/sh\necho \"$@\" > '{}'\nmkdir -p node_modules/.bin node_modules/{MCP_PACKAGE}\n\
-                 touch node_modules/.bin/{MCP_PACKAGE}\n\
-                 echo '{{\"version\":\"{MCP_VERSION}\"}}' > node_modules/{MCP_PACKAGE}/package.json\n",
-                said.display()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&npm, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let tools = Tools::new(ToolsConfig {
-            npm,
-            ..ToolsConfig::in_home(tmp.path())
-        });
-        let program = tools.ensure_installed().await.unwrap();
-        assert_eq!(program, tools.config().mcp_program());
-        let args = std::fs::read_to_string(&said).unwrap();
-        assert!(args.starts_with("ci "), "{args}");
-        assert!(args.contains("--ignore-scripts"), "{args}");
-        let dir = &tools.config().tools_dir;
-        assert_eq!(
-            std::fs::read_to_string(dir.join("package-lock.json")).unwrap(),
-            TOOL_PACKAGE_LOCK
-        );
-    }
-
-    #[test]
     fn config_lives_in_the_oxbot_home() {
         let config = ToolsConfig::in_home(Path::new("/h"));
-        assert_eq!(config.profile_dir, Path::new("/h/browser/profile"));
         assert_eq!(
-            config.mcp_program(),
-            Path::new("/h/tools/node_modules/.bin/chrome-devtools-mcp")
+            config.profile_dir,
+            Path::new("/h/browser/camoufox-v1/profile")
         );
     }
 
@@ -441,37 +196,30 @@ mod tests {
     }
 
     #[test]
-    fn the_built_in_tool_runs_on_the_built_in_node() {
+    fn the_tool_runs_on_the_bundled_node_and_keeps_files_in_the_bot_folder() {
         let tmp = tempfile::tempdir().unwrap();
-        assert_eq!(BuiltInTool::find_in(tmp.path()), None, "nothing there yet");
-        let entry = tmp
-            .path()
-            .join("mcp/node_modules/chrome-devtools-mcp/build/src/bin");
-        std::fs::create_dir_all(&entry).unwrap();
-        std::fs::write(entry.join("chrome-devtools-mcp.js"), "").unwrap();
-        std::fs::create_dir_all(tmp.path().join("node/bin")).unwrap();
-        std::fs::write(tmp.path().join("node/bin/node"), "").unwrap();
-        let tool = BuiltInTool::find_in(tmp.path()).expect("found");
+        let tool = CamoufoxTool {
+            node: tmp.path().join("node/bin/node"),
+            bundle: tmp.path().join("camoufox"),
+            headless: false,
+            proxy: None,
+        };
         let tools = Tools::new(ToolsConfig {
-            built_in: Some(tool.clone()),
+            camoufox: Some(tool.clone()),
             ..ToolsConfig::in_home(tmp.path())
         });
-        assert!(tools.is_installed());
-        let command = tools.mcp_command(
-            "ws://127.0.0.1:9333/devtools/browser/t0k3n",
-            Path::new("/bots/x/work"),
-        );
+        assert!(!tools.is_available(), "nothing there yet");
+        let command = tools.mcp_command("http://127.0.0.1:9/t0k3n", Path::new("/bots/x/work"));
         assert_eq!(command.program, tool.node);
-        assert_eq!(command.args[0], tool.entry.display().to_string());
         assert_eq!(
-            command.args[1],
-            "--wsEndpoint=ws://127.0.0.1:9333/devtools/browser/t0k3n"
-        );
-        assert!(
-            command
-                .env
-                .iter()
-                .any(|(k, v)| k == "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS" && v == "1")
+            command.args,
+            [
+                tool.bundle.join("mcp.mjs").display().to_string(),
+                "--endpoint".into(),
+                "http://127.0.0.1:9/t0k3n".into(),
+                "--workspace".into(),
+                "/bots/x/work".into(),
+            ]
         );
     }
 
@@ -487,15 +235,12 @@ mod tests {
             mcp_override: Some(stand_in.clone()),
             ..ToolsConfig::in_home(tmp.path())
         });
-        // The stand-in is told which Chrome, as the real tool is.
+        // The stand-in is told which browser and folder, as the real tool is.
         let mut told = stand_in.clone();
-        told.args
-            .push("--wsEndpoint=ws://127.0.0.1:9333/devtools/browser/t0k3n".into());
+        told.args.push("--endpoint=http://127.0.0.1:9/t0k3n".into());
+        told.args.push("--workspace=/w".into());
         assert_eq!(
-            tools.mcp_command(
-                "ws://127.0.0.1:9333/devtools/browser/t0k3n",
-                Path::new("/w")
-            ),
+            tools.mcp_command("http://127.0.0.1:9/t0k3n", Path::new("/w")),
             told
         );
     }

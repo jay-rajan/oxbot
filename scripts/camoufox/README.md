@@ -1,10 +1,11 @@
 # Oxbot native Camoufox runtime
 
-First implementation milestone: a pinned, reduced native-Mac package and a
-Node lifecycle primitive. This is **not yet a live bot backend or a signed
-release**. Chrome remains the production integration until authorization,
-sign-in privacy, isolated reads, practice-run network isolation, and task pacing
-have been ported and tested. See `docs/plan/camoufox-release.md`.
+oxbot's browser: a pinned, reduced native-Mac Camoufox package, the Node
+helper oxbot drives it with (`service.mjs`, private stdio), and the bots'
+browser tool (`mcp.mjs`, through oxbot's capability-protected broker).
+`snapshot.mjs` turns Playwright's aria snapshot into the page text the loop
+reads; `sign.sh` signs the browser for release. Practice runs and sealed
+script reads aren't available yet. See `docs/plan/camoufox-release.md`.
 
 From the repository root:
 

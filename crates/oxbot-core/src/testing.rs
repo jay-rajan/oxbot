@@ -46,23 +46,11 @@ pub fn catalog() -> String {
     .to_string()
 }
 
-/// Browser tools that look installed, with no Chrome: the rules run as
-/// they would for real, and the scripted browser answers the calls.
-///
-/// # Panics
-/// If the folders can't be made.
+/// Browser tools with no browser behind them: the rules run as they
+/// would for real, and the scripted browser answers the calls.
 #[must_use]
 pub fn tools(home: &Path) -> Arc<Tools> {
-    let mut tools = ToolsConfig::in_home(home);
-    tools.chrome = PathBuf::from("/no/chrome");
-    let package = tools.tools_dir.join("node_modules/chrome-devtools-mcp");
-    std::fs::create_dir_all(&package).unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(package.join("package.json"), r#"{"version":"1.10.1"}"#)
-        .unwrap_or_else(|e| panic!("{e}"));
-    std::fs::create_dir_all(tools.tools_dir.join("node_modules/.bin"))
-        .unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(tools.mcp_program(), "").unwrap_or_else(|e| panic!("{e}"));
-    Tools::new(tools)
+    Tools::new(ToolsConfig::in_home(home))
 }
 
 /// What a fake bot does with one message.

@@ -130,7 +130,7 @@ pub(super) fn build_engine(
         let key = if stand_in {
             "devtools_tools:stand-in".to_owned()
         } else {
-            format!("devtools_tools:{}", oxbot_browser::MCP_VERSION)
+            format!("devtools_tools:{}", oxbot_browser::TOOLS_VERSION)
         };
         Arc::new(McpBrowserFactory::new(Arc::clone(&loop_store), key))
     });

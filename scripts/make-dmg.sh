@@ -1,8 +1,8 @@
 #!/bin/sh
-# Builds oxbot for friends: one app per chip, each in its own .dmg, with the
-# browser tool, Node.js, Codex and oxbot's Mac helper (video frames and
-# dictation) inside. Codex alone is ~260 MB per chip, so a universal app
-# would be twice the size for everyone.
+# Builds oxbot for friends: one app per chip, each in its own .dmg, with
+# oxbot's browser (Camoufox), Node.js, Codex and oxbot's Mac helper (video
+# frames and dictation) inside. Codex alone is ~260 MB and the browser
+# ~390 MB per chip, so a universal app would be twice the size for everyone.
 #
 # Usage: make-dmg.sh [--no-notarize] [arm64] [x64]  (default: both chips)
 # Output: target/<triple>/release/bundle/dmg/oxbot_<version>_{apple-chip,intel}.dmg
@@ -20,6 +20,8 @@
 # (scripts/mac/entitlements.plist). Codex and Node.js keep their makers'
 # signatures inside it: they sit in Resources, which signing seals but never
 # re-signs; each must already be Developer ID, hardened and timestamped.
+# The browser comes only ad-hoc signed, so it is signed here, inside-out,
+# with its own entitlements (scripts/camoufox/sign.sh).
 # The .dmg is made with hdiutil, not Tauri's packer, which needs to control
 # Finder.
 set -e
@@ -55,8 +57,10 @@ build_one() { # arm64|x64
     x64) triple=x86_64-apple-darwin lipo_arch=x86_64 label=intel ;;
     *) echo "make-dmg: unknown chip '$1' (arm64 or x64)" >&2; exit 2 ;;
   esac
-  # The browser tool, Node.js and Codex for this chip (see fetch-tools.sh).
+  # The browser, Node.js and Codex for this chip (see fetch-tools.sh).
   sh scripts/fetch-tools.sh "$1"
+  OXBOT_NODE=target/tools-bundle/node/bin/node \
+    sh scripts/camoufox/sign.sh target/tools-bundle/camoufox "${sign_id:--}"
   (cd app && cargo tauri build --target "$triple" --bundles app -- --locked)
   bundle=target/$triple/release/bundle
   app=$bundle/macos/oxbot.app

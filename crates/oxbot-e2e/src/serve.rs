@@ -118,8 +118,8 @@ impl FakeOpenRouter {
     }
 }
 
-/// The test site: `*.example.test` in oxbot's Chromes (test mode maps the
-/// names here). Its job page tries to write the moment it loads (a fetch
+/// The test site: `*.example.test` in oxbot's browser (test mode makes it
+/// the browser's proxy, so every page request comes here). Its job page tries to write the moment it loads (a fetch
 /// POST and a form post), as some sites do; `/p/1` to `/p/3` are product
 /// pages; `/presentation/d/e2e-deck-000001/…` stands in for a Google
 /// Slides deck ([`google_file`]). Its home page (`/`) stands in for signing in: it sets a sign-in
@@ -254,8 +254,13 @@ impl TestSite {
                     };
                     let head = String::from_utf8_lossy(&buf[..n]).into_owned();
                     let method = head.split_whitespace().next().unwrap_or("");
-                    let path = head.split_whitespace().nth(1).unwrap_or("");
-                    // Chrome opens spare connections it never sends on.
+                    let target = head.split_whitespace().nth(1).unwrap_or("");
+                    // As the browser's proxy it's sent whole addresses
+                    // (`http://shop.example.test/p/1`): the path decides.
+                    let path = target
+                        .strip_prefix("http://")
+                        .map_or(target, |rest| rest.find('/').map_or("/", |i| &rest[i..]));
+                    // Browsers open spare connections they never send on.
                     if method.is_empty() {
                         return;
                     }
@@ -325,10 +330,10 @@ impl TestSite {
         self.pages.load(Ordering::SeqCst)
     }
 
-    /// Chrome's host rules sending `*.example.test` here.
+    /// Its address as oxbot's browser's proxy (`OXBOT_E2E_PROXY`).
     #[must_use]
-    pub fn host_rules(&self) -> String {
-        format!("MAP *.example.test 127.0.0.1:{}", self.port)
+    pub fn proxy(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
     }
 }
 
@@ -378,8 +383,10 @@ pub struct Server {
     /// How it was started (for a restart).
     config: Config,
     launch: Launch,
-    /// The test site its Chromes reach as `*.example.test`.
+    /// The test site its browser reaches as `*.example.test`.
     pub site: TestSite,
+    /// Sign-ins the test has closed so far (see `steps`).
+    pub sign_ins_closed: usize,
 }
 
 /// A free local port.
@@ -450,7 +457,7 @@ impl Server {
             port,
             openrouter.as_ref(),
             &log,
-            &site.host_rules(),
+            &site.proxy(),
         )?;
         let server = Self {
             child,
@@ -462,6 +469,7 @@ impl Server {
             config: config.clone(),
             launch: launch.clone(),
             site,
+            sign_ins_closed: 0,
         };
         server.wait_until_up().await?;
         Ok(server)
@@ -494,7 +502,7 @@ impl Server {
             self.port,
             self.openrouter.as_ref(),
             &self.log,
-            &self.site.host_rules(),
+            &self.site.proxy(),
         )?;
         self.wait_until_up().await
     }
@@ -520,13 +528,13 @@ impl Server {
         all[all.len().saturating_sub(lines)..].join("\n")
     }
 
-    /// Stops oxbot and the Chromes it started.
+    /// Stops oxbot and the browser it started.
     pub async fn stop(mut self) {
         self.stop_oxbot().await;
     }
 
     async fn stop_oxbot(&mut self) {
-        // A polite stop lets oxbot quit its Chromes.
+        // A polite stop lets oxbot quit its browser.
         if let Some(pid) = self.child.id() {
             let _ = std::process::Command::new("kill")
                 .args(["-INT", &pid.to_string()])
@@ -538,8 +546,9 @@ impl Server {
         {
             let _ = self.child.kill().await;
         }
-        // Anything left using this home's Chrome profiles.
-        let pattern = format!("user-data-dir={}", self.home.display());
+        // Anything left using this home's browser profiles (the browser
+        // helper names its profile; the browser has it in its arguments).
+        let pattern = format!("{}/browser/", self.home.display());
         let _ = std::process::Command::new("pkill")
             .args(["-f", &pattern])
             .status();
@@ -548,7 +557,7 @@ impl Server {
 
 /// Starts `oxbot serve` on `home` and `port` with the stand-ins, logging
 /// to `log` (appended to, so a restart keeps the earlier lines); its
-/// Chromes reach the test site by `site_rules`.
+/// browser reaches the test site through the proxy `site_proxy`.
 #[allow(
     clippy::too_many_arguments,
     reason = "one per thing a test oxbot is started with"
@@ -561,7 +570,7 @@ fn spawn_oxbot(
     port: u16,
     openrouter: Option<&FakeOpenRouter>,
     log: &Path,
-    site_rules: &str,
+    site_proxy: &str,
 ) -> anyhow::Result<Child> {
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -585,7 +594,7 @@ fn spawn_oxbot(
             launch.keychain_delay_ms.unwrap_or(0).to_string(),
         )
         .env("RUST_LOG", "info")
-        .env("OXBOT_E2E_HOST_RULES", site_rules)
+        .env("OXBOT_E2E_PROXY", site_proxy)
         // `oxbot_loop::tools::gdocs::E2E_DOCS_URL`: the test site stands in
         // for Google's Docs site.
         .env("OXBOT_E2E_DOCS_URL", "http://docs.example.test")

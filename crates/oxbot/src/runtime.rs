@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use oxbot_browser::{BuiltInTool, Tools, ToolsConfig};
+use oxbot_browser::{CamoufoxTool, Tools, ToolsConfig};
 use oxbot_core::engine::dev::{dev_env, dev_env_string};
 use oxbot_core::{Home, Hub, HubConfig, Store, bot};
 use tokio::sync::oneshot;
@@ -156,19 +156,13 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // person can be set, and test connections may say who they are. Debug
     // builds only, like every test setting (see `oxbot_engine::dev`).
     let e2e = oxbot_core::engine::dev::e2e();
-    let built_in = built_in_tool();
+    let camoufox = browser_tool(e2e);
+    let browser_ready = camoufox.as_ref().is_some_and(CamoufoxTool::available);
     let browser = options.browser.then(|| {
         Tools::new(ToolsConfig {
             env: path_env.clone(),
-            built_in: built_in.clone(),
-            hidden_windows: e2e,
-            show_browser: !e2e,
+            camoufox: camoufox.clone(),
             mcp_override: fake_devtools(e2e),
-            // Test mode: `*.example.test` reaches the test site.
-            chrome_args: dev_env_string("OXBOT_E2E_HOST_RULES")
-                .filter(|_| e2e)
-                .map(|rules| vec![format!("--host-resolver-rules={rules}")])
-                .unwrap_or_default(),
             ..ToolsConfig::in_home(home.root())
         })
     });
@@ -195,7 +189,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // Small scripts run on oxbot's own Node.js (never one with libraries
     // elsewhere on the Mac, which their sandbox can't reach).
     let mut session_env = path_env;
-    if let Some(tool) = &built_in {
+    if let Some(tool) = &camoufox {
         session_env.push((
             // `oxbot_loop::tools::program::NODE_ENV`.
             "OXBOT_PROGRAM_NODE".to_owned(),
@@ -276,7 +270,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         e2e,
         search_path: path,
         setup: Arc::default(),
-        tool_built_in: built_in.is_some(),
+        browser_ready,
         door: door.clone(),
         home_computer_key: home_computer_key.clone(),
         notifier: crate::notify::pick(options.notifier, e2e),
@@ -393,15 +387,29 @@ fn fake_devtools(e2e: bool) -> Option<oxbot_browser::McpCommand> {
     })
 }
 
-/// The browser tool shipped inside oxbot.app, logged.
-fn built_in_tool() -> Option<BuiltInTool> {
-    let built_in = find_built_in_tool();
-    if let Some(tool) = &built_in {
-        tracing::info!(node = %tool.node.display(), "using the browser tool built into the app");
-    } else {
-        tracing::info!("no built-in browser tool; it is installed with npm on first use");
+/// oxbot's browser: the Camoufox built into oxbot.app
+/// (`Resources/tools/camoufox`, on the app's Node.js), or, in a debug build
+/// from a checkout, the one `node scripts/camoufox/build.mjs` made. There
+/// is no other browser to fall back to. End-to-end tests run it headless
+/// and reach the test site through `OXBOT_E2E_PROXY`.
+fn browser_tool(e2e: bool) -> Option<CamoufoxTool> {
+    let found = built_in_tools_dir()
+        .and_then(|dir| CamoufoxTool::find_in(&dir))
+        .or_else(|| {
+            cfg!(debug_assertions)
+                .then(CamoufoxTool::in_checkout)
+                .flatten()
+        });
+    let Some(mut tool) = found else {
+        tracing::warn!("oxbot's browser is missing; bots will go without one");
+        return None;
+    };
+    tracing::info!(bundle = %tool.bundle.display(), "using oxbot's browser");
+    if e2e {
+        tool.headless = true;
+        tool.proxy = dev_env_string("OXBOT_E2E_PROXY");
     }
-    built_in
+    Some(tool)
 }
 
 /// oxbot's built-in tools folder: `Contents/Resources/tools` in
@@ -413,12 +421,6 @@ fn built_in_tools_dir() -> Option<PathBuf> {
     }
     let exe = std::env::current_exe().ok()?;
     Some(exe.parent()?.parent()?.join("Resources/tools"))
-}
-
-/// The browser tool shipped inside oxbot.app; without it, it's
-/// installed with npm instead.
-fn find_built_in_tool() -> Option<BuiltInTool> {
-    BuiltInTool::find_in(&built_in_tools_dir()?)
 }
 
 /// The Codex shipped inside oxbot.app, logged. Without it (`oxbot serve`

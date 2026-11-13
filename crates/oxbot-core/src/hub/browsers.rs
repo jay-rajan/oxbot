@@ -85,10 +85,10 @@ impl Hub {
             profile_dir,
             downloads: self.config.bots_dir.clone(),
         };
-        let browser = match Browser::new(tools, spec) {
+        let browser = match Browser::new(&tools, spec) {
             Ok(browser) => browser,
             Err(err) => {
-                tracing::error!(%err, "no local port for Chrome; bots get no browser");
+                tracing::error!(%err, "no local port for the browser; bots get no browser");
                 return None;
             }
         };

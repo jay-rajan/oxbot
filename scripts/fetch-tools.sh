@@ -1,10 +1,12 @@
 #!/bin/sh
 # Gets the tools that ship inside oxbot.app, so friends install nothing:
-# Node.js and the pinned chrome-devtools-mcp (the browser tool, from
-# scripts/tools/package-lock.json), and Codex, which runs every bot.
+# Node.js, oxbot's browser (Camoufox, a Firefox build, with the locked
+# Playwright that drives it: scripts/camoufox), and Codex, which runs
+# every bot.
 #
 # Usage: fetch-tools.sh [arm64|x64]  (default: this Mac's chip)
-# Output: target/tools-bundle/{node/bin/node, node/LICENSE, mcp/node_modules,
+# Needs npm on this Mac (to install the browser's locked packages).
+# Output: target/tools-bundle/{node/bin/node, node/LICENSE, camoufox/…,
 #         codex/bin/codex, codex/LICENSE, codex/NOTICE, …}
 # make-dmg.sh copies it into oxbot.app/Contents/Resources/tools.
 #
@@ -68,7 +70,7 @@ check_sha256 "$CODEX_LICENSE_SHA" "codex-$CODEX_VERSION-LICENSE"
 check_sha256 "$CODEX_NOTICE_SHA" "codex-$CODEX_VERSION-NOTICE"
 
 rm -rf "$out"
-mkdir -p "$out/node" "$out/mcp" "$out/codex"
+mkdir -p "$out/node" "$out/codex"
 tar -xzf "$cache/$node_file" -C "$out/node" --strip-components=1 \
   "node-v$NODE_VERSION-darwin-$arch/bin/node" "node-v$NODE_VERSION-darwin-$arch/LICENSE"
 
@@ -78,9 +80,10 @@ tar -xzf "$cache/$codex_file" -C "$out/codex" --strip-components=3 "package/vend
 cp "$cache/codex-$CODEX_VERSION-LICENSE" "$out/codex/LICENSE"
 cp "$cache/codex-$CODEX_VERSION-NOTICE" "$out/codex/NOTICE"
 
-# The browser tool, exactly as locked. No install scripts run.
-cp scripts/tools/package.json scripts/tools/package-lock.json "$out/mcp/"
-(cd "$out/mcp" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error)
+# The browser: the pinned Camoufox (checked against browser-pin.json) and
+# its locked packages; no install scripts run. Built by this chip's Node
+# (under Rosetta for Intel on Apple silicon), so it's the chip's browser.
+"$out/node/bin/node" scripts/camoufox/build.mjs --arch "$arch" --out "$out/camoufox"
 
 # What can run here is checked; the other chip's programs only by type.
 if [ "$arch" = "$(uname -m | sed 's/x86_64/x64/')" ]; then

@@ -3173,16 +3173,20 @@ dependencies = [
 name = "oxbot-browser"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "futures-util",
  "oxbot-engine",
  "psl",
+ "reqwest",
  "ring",
  "rusqlite",
+ "rustls",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.30.0",
+ "tokio-util",
  "tracing",
  "url",
 ]

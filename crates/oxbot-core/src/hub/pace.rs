@@ -17,10 +17,10 @@ pub struct Pace {
 }
 
 impl Pace {
-    /// What bots use: a page every 5 seconds, an action every 1.5.
+    /// What bots use: a page every 8 seconds, an action every 3.
     pub const POLITE: Self = Self {
-        load: Duration::from_secs(5),
-        act: Duration::from_millis(1500),
+        load: Duration::from_secs(8),
+        act: Duration::from_secs(3),
     };
     /// No waiting (tests, and the stand-in sites of end-to-end tests).
     pub const NONE: Self = Self {
