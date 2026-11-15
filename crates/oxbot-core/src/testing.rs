@@ -141,6 +141,8 @@ pub struct FakeBots {
     pub page_once: Option<PathBuf>,
     /// Read `notes.txt` in its folder first.
     pub read_file: bool,
+    /// Call `plan_task` with these arguments before anything else.
+    pub plan_task: Option<Value>,
     /// `save_report`'s arguments (default: one source, the page it read).
     pub report: Option<Value>,
     /// Where the bots' folders are (for the file it uploads).
@@ -330,6 +332,9 @@ impl FakeBots {
             args,
             say: String::new(),
         };
+        if let Some(args) = &self.plan_task {
+            calls.push(call("mcp__oxbot__plan_task", args.clone()));
+        }
         if self.read_file {
             calls.push(call("Read", json!({"file_path": "notes.txt"})));
         }

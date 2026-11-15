@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use oxbot_browser::MCP_SERVER_NAME;
+use oxbot_browser::{MCP_SERVER_NAME, UidCheck};
 use oxbot_protocol::{Answer, Approval, ApprovalKind, EventKind, Outcome, ScheduleEdit, ServerMsg};
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -182,6 +182,9 @@ impl Hub {
         {
             return Ok(no);
         }
+        if let Some(no) = self.plan_first_refusal(bot_id, uses_browser, mode).await {
+            return Ok(no);
+        }
         if uses_browser && !self.take_browser(bot_id).await? {
             return Ok(Decision::Deny(
                 "Your turn ended while you waited for the browser.".to_owned(),
@@ -194,9 +197,12 @@ impl Hub {
             return Ok(no);
         }
         let browser = self.browser_of(&bot);
-        if let Some(shared) = &browser {
-            self.check_label_live(&shared.browser, request, page_url, &mut labels)
-                .await;
+        if let Some(shared) = &browser
+            && let Some(no) = self
+                .check_label_live(&shared.browser, request, page_url, &mut labels)
+                .await
+        {
+            return Ok(Decision::Deny(no));
         }
         let facts = match &browser {
             Some(shared) if policy::needs_facts(&request.tool) => shared
@@ -325,34 +331,58 @@ impl Hub {
         Ok(Decision::Allow)
     }
 
-    /// A click whose learned label would let it run: the label came from
-    /// text the browser tool returned, which a page (or the bot's own
-    /// typing) can shape, so oxbot asks Chrome whether the page really
-    /// shows an element with that role and name. If it doesn't, the label
-    /// is dropped and the click asks as one oxbot can't name. If oxbot
-    /// can't look (no tab at that address), the label stands. Not in the
-    /// end-to-end test mode, whose stand-in browser tool makes up its
-    /// snapshots.
+    /// Checks the element a browser call names before oxbot judges it.
+    /// Its label came from text the browser tool returned, which a page
+    /// (or the bot's own typing) can shape, so oxbot asks the browser what
+    /// the uid really is: one from an earlier snapshot of a page that has
+    /// changed is refused (the call would fail; the bot takes a fresh
+    /// snapshot), and a label that isn't the element's own role and name,
+    /// or that the live page no longer shows, is dropped, so the click asks
+    /// as one oxbot can't name. If oxbot can't ask about the uid, a click
+    /// on a label that would run is checked by name on the page instead.
+    /// Not in the end-to-end test mode, whose stand-in browser tool makes
+    /// up its snapshots.
     async fn check_label_live(
         &self,
         browser: &oxbot_browser::Browser,
         request: &PermissionRequest,
         page_url: Option<&str>,
         labels: &mut HashMap<String, String>,
-    ) {
+    ) -> Option<String> {
         let (tool, input) = (request.tool.as_str(), &request.input);
         if self.config.e2e {
-            return;
+            return None;
+        }
+        if tool.starts_with(&format!("mcp__{MCP_SERVER_NAME}__"))
+            && let Some(uid) = input.get("uid").and_then(Value::as_str)
+        {
+            match browser.uid_check(uid).await {
+                Some(UidCheck::Gone) => {
+                    tracing::info!(uid, "a uid from an earlier snapshot: refused");
+                    return Some(STALE_UID.to_owned());
+                }
+                Some(UidCheck::Live { role, name, shown }) => {
+                    if let Some(label) = labels.get(uid) {
+                        let (label_role, label_name) = policy::role_and_name(label);
+                        if !shown || label_role != role || !same_name(label_name, &name) {
+                            tracing::info!(target = %label, "the page doesn't show what the snapshot named: asking");
+                            labels.remove(uid);
+                        }
+                    }
+                    return None;
+                }
+                None => {}
+            }
         }
         let (Some(label), Some(url)) = (click_label(tool, input, labels), page_url) else {
-            return;
+            return None;
         };
         if !matches!(
             policy::classify_at(Some(label), None, page_url),
             policy::Click::Plain | policy::Click::Query
         ) && !policy::wants_element_facts(label)
         {
-            return;
+            return None;
         }
         let (role, name) = policy::role_and_name(label);
         let (role, name) = (role.to_owned(), name.to_owned());
@@ -362,6 +392,7 @@ impl Hub {
                 labels.remove(uid);
             }
         }
+        None
     }
 
     /// Several steps at once: anywhere but websites with fine-grained
@@ -540,6 +571,8 @@ impl Hub {
                     | ApprovalKind::Schedule
                     | ApprovalKind::ChangeSchedule
                     | ApprovalKind::Script
+                    | ApprovalKind::Plan
+                    | ApprovalKind::HomeArea
             ) =>
             {
                 None
@@ -645,6 +678,22 @@ fn request_uids(input: &Value) -> impl Iterator<Item = &str> {
 }
 
 /// The label of the element a `click` aims at, if oxbot knows it.
+/// What a bot is told when it uses a uid from a snapshot of a page that
+/// has changed since.
+const STALE_UID: &str = "That element is from an earlier snapshot, and the page has changed \
+     since. Take a fresh snapshot and use a uid from it.";
+
+/// Whether a label's name (as the snapshot text carried it: one line, cut
+/// to [`MAX_NAME`] characters) is the element's own name.
+fn same_name(label: &str, name: &str) -> bool {
+    let words = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (label, name) = (words(label), words(name));
+    label == name || (label.chars().count() >= MAX_NAME && name.starts_with(&label))
+}
+
+/// Names longer than this may be cut in a label.
+const MAX_NAME: usize = 900;
+
 fn click_label<'a>(
     tool: &str,
     input: &Value,

@@ -234,6 +234,33 @@ export function Cards() {
         </Card>
       );
     }
+    if (a.kind === "plan") {
+      // A bot's plan before it browses: the site, the place and what it
+      // will do. Replying in the chat instead changes the plan.
+      return (
+        <Card className="plan" key={key} title={`${who} wants to start on ${a.site}`}>
+          {a.detail ? <div className="where">{`For: ${a.detail}`}</div> : null}
+          <p className="plan-text">{a.target}</p>
+          <div className="btn-row btns">
+            <Btn label="Go" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Not now" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
+          </div>
+          <div className="hint">To change the plan, reply in the chat.</div>
+        </Card>
+      );
+    }
+    if (a.kind === "home_area") {
+      // The household's area: every bot uses it, for everyone in the home.
+      return (
+        <Card className="home-area" key={key} title={`${who} wants to save your home's area: ${a.target}`}>
+          <div className="where">Every bot will use it for everyone in the home. You can change it in Settings → People.</div>
+          <div className="btn-row btns">
+            <Btn label="Save" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Don't save" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
+          </div>
+        </Card>
+      );
+    }
     const change = a.kind === "change";
     return (
       <Card tone={change ? "danger" : "warn"} className={change ? "change" : undefined} key={key} title={`⚠ ${who} wants to ${a.action} ${a.target} on ${a.site}`}>

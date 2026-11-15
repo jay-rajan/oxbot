@@ -25,13 +25,31 @@ use crate::{BrowserError, CookieMarks, ElementFacts, Tools};
 /// Why practice runs refuse to start: their network guard was built on
 /// Chrome's `DevTools` and hasn't been rebuilt for Camoufox yet. Refusing is
 /// the safe answer; a practice run without its guard could write to sites.
-pub const NO_PRACTICE_RUNS: &str =
-    "Practice runs aren't available with oxbot's browser yet. Run the task for real, with approvals on.";
+pub const NO_PRACTICE_RUNS: &str = "Practice runs aren't available with oxbot's browser yet. Run the task for real, with approvals on.";
 
 /// Why sealed script reads refuse: they ran in a network-less Chrome tab
 /// that Camoufox has no equivalent of yet.
 pub const NO_SEALED_READS: &str =
     "Script reads aren't available with oxbot's browser yet; read the page snapshot instead.";
+
+/// An element uid as the browser knows it (see [`Browser::uid_check`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UidCheck {
+    /// Not on the page in use any more (it changed since the snapshot, or
+    /// another tab is in use): a click on it would fail.
+    Gone,
+    /// Its role and name as the browser's snapshot recorded them, and
+    /// whether the live page still shows it so.
+    Live {
+        /// e.g. `link`.
+        role: String,
+        /// e.g. `View Availability by Month`.
+        name: String,
+        /// The page still shows exactly this element with that role and
+        /// name.
+        shown: bool,
+    },
+}
 
 /// What the shared browser should be.
 #[derive(Debug, Clone)]
@@ -337,7 +355,12 @@ impl Browser {
     /// The facts of the elements named `name` with `role` in the page at
     /// `page_url` (or the one used last): what oxbot's approval checks need.
     /// At most 8. Empty if oxbot couldn't look.
-    pub async fn describe(&self, page_url: Option<&str>, role: &str, name: &str) -> Vec<ElementFacts> {
+    pub async fn describe(
+        &self,
+        page_url: Option<&str>,
+        role: &str,
+        name: &str,
+    ) -> Vec<ElementFacts> {
         self.native
             .call(
                 "describe",
@@ -355,6 +378,25 @@ impl Browser {
             .iter()
             .filter_map(ElementFacts::from_value)
             .collect()
+    }
+
+    /// What the browser's own snapshot recorded for element `uid`, and
+    /// whether the live page still shows it so. `None` if oxbot couldn't
+    /// look.
+    pub async fn uid_check(&self, uid: &str) -> Option<UidCheck> {
+        let v = self
+            .native
+            .call("uid_check", json!({ "uid": uid }))
+            .await
+            .ok()?;
+        if v["live"].as_bool() != Some(true) {
+            return Some(UidCheck::Gone);
+        }
+        Some(UidCheck::Live {
+            role: v["role"].as_str()?.to_owned(),
+            name: v["name"].as_str()?.to_owned(),
+            shown: v["shown"].as_bool() == Some(true),
+        })
     }
 
     /// How many elements in the page at `page_url` have `role` and are
@@ -516,11 +558,19 @@ mod tests {
     #[tokio::test]
     async fn a_missing_browser_is_a_clear_error() {
         let tmp = tempfile::tempdir().unwrap();
-        let browser =
-            Browser::new(&Tools::new(ToolsConfig::in_home(tmp.path())), spec(tmp.path())).unwrap();
+        let browser = Browser::new(
+            &Tools::new(ToolsConfig::in_home(tmp.path())),
+            spec(tmp.path()),
+        )
+        .unwrap();
         let err = browser.ensure_running().await.unwrap_err();
         assert!(matches!(err, BrowserError::Missing), "{err}");
-        assert!(browser.open_window("https://accounts.google.com").await.is_err());
+        assert!(
+            browser
+                .open_window("https://accounts.google.com")
+                .await
+                .is_err()
+        );
         browser.shutdown().await;
         assert_eq!(*browser.status().borrow(), BrowserStatus::Off);
     }
@@ -530,8 +580,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let profile = tmp.path().join("profile");
         std::fs::create_dir_all(profile.join("storage")).unwrap();
-        let browser =
-            Browser::new(&Tools::new(ToolsConfig::in_home(tmp.path())), spec(tmp.path())).unwrap();
+        let browser = Browser::new(
+            &Tools::new(ToolsConfig::in_home(tmp.path())),
+            spec(tmp.path()),
+        )
+        .unwrap();
         browser.shutdown().await;
         assert!(profile.exists(), "shutting down keeps sign-ins");
         browser.sign_out().await.unwrap();
@@ -542,8 +595,8 @@ mod tests {
     async fn practice_runs_and_sealed_reads_refuse() {
         let tmp = tempfile::tempdir().unwrap();
         let tools = Tools::new(ToolsConfig::in_home(tmp.path()));
-        let err = Browser::new_trial(Arc::clone(&tools), spec(tmp.path()), NetMode::Strict)
-            .unwrap_err();
+        let err =
+            Browser::new_trial(Arc::clone(&tools), spec(tmp.path()), NetMode::Strict).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
         let browser = Browser::new(&tools, spec(tmp.path())).unwrap();
         assert!(browser.copy_page("https://example.com/").await.is_err());

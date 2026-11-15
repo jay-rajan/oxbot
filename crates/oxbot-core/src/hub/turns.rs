@@ -426,6 +426,7 @@ impl Hub {
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
         runtime.origin = origin;
+        runtime.plan_ok = false;
         let question = if text.is_empty() {
             files
                 .iter()

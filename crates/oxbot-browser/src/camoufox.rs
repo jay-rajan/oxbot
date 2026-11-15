@@ -73,7 +73,8 @@ impl VisitFeed {
 }
 type Feed = Arc<StdMutex<VisitFeed>>;
 fn feed_lock(feed: &Feed) -> std::sync::MutexGuard<'_, VisitFeed> {
-    feed.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    feed.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn now_ms() -> i64 {

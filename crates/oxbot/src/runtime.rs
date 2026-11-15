@@ -207,6 +207,9 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
         } else {
             oxbot_core::Pace::POLITE
         },
+        // Bots show the person their plan before they browse. End-to-end
+        // tests' scripted bots don't plan.
+        plan_first: !e2e,
         // Codex bots' tools, routing and meter (oxbot-loop), with the
         // household's key.
         openrouter: Some(oxbot_core::LoopParts::openrouter(

@@ -85,7 +85,9 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
         .await
         .unwrap();
     assert!(
-        text["text"].as_str().is_some_and(|t| t.contains("Native local shop")),
+        text["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("Native local shop")),
         "{text}"
     );
     let snapshot = send("take_snapshot", json!({}))
@@ -99,7 +101,6 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
         text.lines()
             .find(|line| line.contains(label))
             .unwrap()
-            
             .split_whitespace()
             .next()
             .unwrap()
@@ -137,6 +138,19 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
     assert_eq!(
         browser.count_named(&origin, "button", "Add milk").await,
         Some(1)
+    );
+    // The uid the bot clicks is the element its snapshot named.
+    assert_eq!(
+        browser.uid_check(&button).await,
+        Some(oxbot_browser::UidCheck::Live {
+            role: "button".into(),
+            name: "Add milk".into(),
+            shown: true
+        })
+    );
+    assert_eq!(
+        browser.uid_check("no-such-uid").await,
+        Some(oxbot_browser::UidCheck::Gone)
     );
     assert!(
         browser

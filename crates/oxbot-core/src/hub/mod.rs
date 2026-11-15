@@ -34,6 +34,7 @@ mod looped;
 mod net_log;
 mod pace;
 mod people;
+mod plans;
 mod profiles;
 mod reports;
 mod rules;
@@ -83,6 +84,8 @@ use turns::stop_idle_bots;
 
 /// Settings for the [`Hub`].
 #[derive(Debug, Clone)]
+// Settings, each its own switch.
+#[allow(clippy::struct_excessive_bools)]
 pub struct HubConfig {
     /// Where bot folders live; new bots are created here.
     pub bots_dir: PathBuf,
@@ -143,6 +146,10 @@ pub struct HubConfig {
     /// The least time between a bot's actions on one site
     /// ([`Pace::POLITE`]; [`Pace::NONE`] for stand-in sites in tests).
     pub pace: Pace,
+    /// A bot shows the person its plan (`plan_task`) and waits for Go
+    /// before its first web visit in a task (see [`plans`]). On in the
+    /// app; off by default, for tests whose bots browse at once.
+    pub plan_first: bool,
 }
 
 impl HubConfig {
@@ -164,6 +171,7 @@ impl HubConfig {
             mac: crate::attach::MacTools::default(),
             keep_unsent: crate::attach::KEEP_UNSENT,
             pace: Pace::POLITE,
+            plan_first: false,
             e2e: false,
             openrouter: None,
             codex: None,
@@ -255,6 +263,9 @@ struct Runtime {
     /// This turn's model requests so far: count, money, and the last model
     /// that answered.
     meter: looped::TurnMeter,
+    /// The person said Go to this turn's plan (see [`plans`]): it may
+    /// browse. Cleared when a new turn starts.
+    plan_ok: bool,
 }
 
 /// Cards waiting for the user, with who to tell.

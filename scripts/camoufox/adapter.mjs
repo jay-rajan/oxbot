@@ -27,6 +27,8 @@ const interactive = new Set([
   "menuitem",
   "tab",
 ]);
+// Checked by a click: a styled one is often covered by its own drawing.
+const toggles = new Set(["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"]);
 const clean = (value) =>
   String(value ?? "")
     .replace(/[\r\n\u2028\u2029]/g, " ")
@@ -232,7 +234,10 @@ export class Adapter {
     }
     return `${await this.pagesText()}\n## Latest page snapshot\n${lines.join("\n")}`;
   }
-  async element(uid) {
+  // `anyRole`: a click or hover may aim at anything the snapshot named
+  // (sites make headings, cards and pictures clickable); typing needs a
+  // field.
+  async element(uid, { anyRole = false } = {}) {
     const entry = this.refs.get(uid);
     if (!entry || entry.page !== this.page())
       throw new Error("Stale element uid; take a fresh snapshot");
@@ -244,7 +249,7 @@ export class Adapter {
     const checked = locator.and(expected);
     if ((await checked.count()) !== 1)
       throw new Error("The element changed; take a fresh snapshot");
-    if (!entry.interactive)
+    if (!entry.interactive && !anyRole)
       throw new Error("Use an interactive element from a fresh snapshot");
     // The facts at first use; a later use must find them unchanged.
     const facts = await checked.evaluate(factsFunction);
@@ -252,6 +257,24 @@ export class Adapter {
     else if (JSON.stringify(facts) !== JSON.stringify(entry.facts))
       throw new Error("The form changed; take a fresh snapshot before acting");
     return checked;
+  }
+  // A checkbox, radio or switch. A styled one is often covered by its own
+  // drawing, which Playwright won't click through: then click where it
+  // is, as a person would, and if that didn't change it, click the
+  // element itself.
+  async toggle(locator) {
+    try {
+      await locator.click({ timeout: 4000 });
+      return;
+    } catch (error) {
+      if (!/Timeout|intercepts pointer events|not visible|outside of the viewport/.test(String(error?.message)))
+        throw error;
+    }
+    const before = await locator.isChecked().catch(() => undefined);
+    await locator.click({ force: true, timeout: 4000 }).catch(() => {});
+    const after = await locator.isChecked().catch(() => undefined);
+    if (before === undefined || before === after)
+      await locator.evaluate((element) => element.click());
   }
   async fill(uid, value) {
     const locator = await this.element(uid);
@@ -324,15 +347,17 @@ export class Adapter {
       case "take_snapshot":
         break;
       case "click": {
-        const locator = await this.element(args.uid);
-        this.focusRef = this.refs.get(args.uid);
+        const locator = await this.element(args.uid, { anyRole: true });
+        const entry = this.refs.get(args.uid);
+        this.focusRef = entry;
         this.focusUid = args.uid;
         if (args.dblClick) await locator.dblclick();
+        else if (toggles.has(entry.role)) await this.toggle(locator);
         else await locator.click();
         break;
       }
       case "hover":
-        await (await this.element(args.uid)).hover();
+        await (await this.element(args.uid, { anyRole: true })).hover();
         break;
       case "fill":
         await this.fill(args.uid, args.value);
@@ -510,6 +535,19 @@ export class Adapter {
               ),
           );
         return result;
+      }
+      case "uid_check": {
+        // The element a uid names, as the browser's own snapshot recorded
+        // it: gone (the page changed or another tab is in use), or its
+        // role and name and whether the live page still shows it so.
+        const entry = this.refs.get(params.uid);
+        if (!entry || entry.page.isClosed() || entry.page !== this.page())
+          return { live: false };
+        const shown = await entry.page
+          .locator(`aria-ref=${entry.ref}`)
+          .and(entry.page.getByRole(entry.role, { name: entry.name, exact: true }))
+          .count();
+        return { live: true, role: entry.role, name: entry.name, shown: shown === 1 };
       }
       case "count_named":
         return this.page(params.page_url)

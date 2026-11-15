@@ -18,6 +18,7 @@
 //! | granting access (Authorize, Grant, Allow) | red card, Allow once only |
 //! | filling or tidying a cart (Add to cart, Remove from cart, Save for later, quantity) | run: nothing is spent until the order |
 //! | clicking pay, buy, order, checkout, book, start a trial, delete or another can't-undo button | red card, Allow once only |
+//! | opening a booking: a "Book…"/"Reserve…" link, or a booking button that says it shows times ("View available time slots") | run |
 //! | a change click the user chose "Always allow" for (same bot, exact host, same button) | run, with a quiet line |
 //! | adding to a cart, checking out, ordering, buying, booking, reserving, subscribing or donating ([`account_action`]) on a site the bot's browser isn't signed in to | the sign-in card first (the hub), then as above (a cart runs, the rest ask); cancelled: refuse |
 //! | pressing Enter in a text box (not a search box), or a key other than plain typing, arrows, Tab, Escape, Backspace, Delete, Home, End or Page Up/Down (a shortcut may send) | red card |
@@ -55,8 +56,8 @@ use oxbot_protocol::ApprovalKind;
 use serde_json::Value;
 
 use crate::tools::{
-    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
-    SCHEDULE_TOOLS, SIGN_IN_TOOL,
+    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, PLAN_TASK_TOOL, READ_REPLY_TOOL,
+    SAVE_HOME_AREA_TOOL, SAVE_REPORT_TOOL, SCHEDULE_TOOLS, SIGN_IN_TOOL,
 };
 
 /// oxbot's answer to "may the bot run this?".
@@ -482,6 +483,9 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         GIVE_TASK_TOOL,
         READ_REPLY_TOOL,
         ASK_USER_TOOL,
+        // These two ask on their own cards (see `Hub::plan_task`).
+        PLAN_TASK_TOOL,
+        SAVE_HOME_AREA_TOOL,
     ];
     // The schedule tools ask the person themselves, on a card that shows
     // the schedule (see `Hub::schedule_task`): none is made without it.
@@ -1016,6 +1020,14 @@ pub fn classify_at(
     if TOGGLE_ROLES.contains(&role) && !matches!(words, Words::Final | Words::Hard) {
         return toggle_click(role, name, facts, page_url);
     }
+    // Opening a booking isn't booking (see [`opens_booking`]): a link
+    // only opens a page, and a button that says it shows times looks
+    // things up. The step that books still asks.
+    if words == Words::Final
+        && let Some(opens) = opens_booking(role, name)
+    {
+        return opens;
+    }
     match words {
         Words::Final => return Click::Final,
         Words::Hard => return Click::Change,
@@ -1256,6 +1268,53 @@ enum Words {
     Soft,
     /// Nothing telling.
     Nothing,
+}
+
+/// The only can't-undo words a click that opens a booking has.
+const BOOKING_WORDS: &[&str] = &["book", "reserve"];
+
+/// Words on a booking button that say it shows times, not that it books
+/// ("Book an Appointment – View available time slots").
+const SHOWS_TIMES_WORDS: &[&str] = &[
+    "view",
+    "see",
+    "check",
+    "find",
+    "available",
+    "availability",
+    "times",
+    "slots",
+];
+
+/// A click whose only can't-undo word is "book" or "reserve" and that
+/// only opens the booking: a link (a link only opens a page: "Book a free
+/// consultation"), [`Click::Plain`]; a button that says it shows times,
+/// [`Click::Query`]. `None` for anything else, including the step that
+/// books ("Book appointment", "Book now", "Confirm booking").
+fn opens_booking(role: &str, name: &str) -> Option<Click> {
+    let lower = name.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let text = format!(" {} ", words.join(" "));
+    let only_booking = words.iter().any(|w| BOOKING_WORDS.contains(w))
+        && !words
+            .iter()
+            .any(|w| FINAL_WORDS.contains(w) && !BOOKING_WORDS.contains(w))
+        && !FINAL_PHRASES
+            .iter()
+            .any(|p| text.contains(&format!(" {p} ")));
+    if !only_booking {
+        return None;
+    }
+    if role == "link" {
+        return Some(Click::Plain);
+    }
+    if role == "button" && words.iter().any(|w| SHOWS_TIMES_WORDS.contains(w)) {
+        return Some(Click::Query);
+    }
+    None
 }
 
 /// Words on a button that spend money or can't be undone.
@@ -1558,7 +1617,7 @@ const ACCOUNT_ENDS: &[(&str, AccountAction)] = &[
 #[must_use]
 pub fn account_action(label: &str) -> Option<AccountAction> {
     let (role, name) = split_label(label);
-    if matches!(role, "textbox" | "searchbox" | "combobox") {
+    if matches!(role, "textbox" | "searchbox" | "combobox") || opens_booking(role, name).is_some() {
         return None;
     }
     let name = name.to_lowercase();
@@ -2881,6 +2940,39 @@ mod tests {
         ] {
             assert_eq!(click(label, None), Verdict::Allow, "{label}");
         }
+    }
+
+    #[test]
+    fn opening_a_booking_runs_and_the_step_that_books_asks() {
+        for label in [
+            "link \"Book A Free Consultation\"",
+            "link \"Book Online\"",
+            "link \"Book now\"",
+            "link \"Reserve a table\"",
+        ] {
+            assert_eq!(click(label, None), Verdict::Allow, "{label}");
+            assert_eq!(account_action(label), None, "{label}: no sign-in card");
+        }
+        let times =
+            "button \"Book an Appointment View available time slots and book an appointment.\"";
+        assert_eq!(classify(Some(times), None), Click::Query);
+        assert_eq!(click(times, None), Verdict::Allow);
+        assert_eq!(account_action(times), None);
+        for label in [
+            "button \"Book now\"",
+            "button \"Book Appointment\"",
+            "button \"Reserve\"",
+            "button \"Book and pay\"",
+            "link \"Pay now\"",
+            "link \"Cancel booking\"",
+            "button \"Check availability and pay\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+        assert_eq!(
+            asks(&click("button \"Confirm booking\"", None)),
+            Some(Click::Change)
+        );
     }
 
     #[test]
