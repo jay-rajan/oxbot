@@ -317,7 +317,9 @@ mod tests {
         let mut lead = bot("Plan the week's dinners.");
         lead.lead = true;
         let p = system_prompt(&lead, Capabilities { browser: false });
-        assert!(p.contains("You're a lead bot") && p.contains("create_bot") && p.contains("give_task"));
+        assert!(
+            p.contains("You're a lead bot") && p.contains("create_bot") && p.contains("give_task")
+        );
         assert!(!p.contains("You're the Assistant"));
         assert!(!p.contains("(the Assistant can, or"));
         // Other leads may pass it tasks.

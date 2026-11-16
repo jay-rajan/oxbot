@@ -539,7 +539,11 @@ mod tests {
         hub.set_lead("scout", true, &jay).await.unwrap();
         assert!(hub.bot("scout").unwrap().is_lead());
         let listed = hub.bots().await.unwrap();
-        assert!(listed.iter().any(|b| b.id == "scout" && b.lead && !b.central));
+        assert!(
+            listed
+                .iter()
+                .any(|b| b.id == "scout" && b.lead && !b.central)
+        );
         hub.set_lead("scout", false, &jay).await.unwrap();
         assert!(!hub.bot("scout").unwrap().lead);
     }

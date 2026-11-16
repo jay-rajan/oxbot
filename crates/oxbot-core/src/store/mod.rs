@@ -22,6 +22,11 @@ pub use compare::{
 mod events;
 pub use events::Replay;
 mod devices;
+mod home;
+pub use home::{
+    Action as HomeAction, Actor, EventFields, Every, HomeChange, HomeEvent, KEEP_DELETED_DAYS,
+    Repeat,
+};
 mod loop_state;
 mod members;
 pub use loop_state::{CallTotals, DayUsage, KEEP_CALLS_DAYS, KEEP_CLOSED_DAYS};
@@ -139,6 +144,10 @@ pub enum StoreError {
     /// A stored event couldn't be read back.
     #[error("bad stored event: {0}")]
     Json(#[from] serde_json::Error),
+    /// What was asked can't be done (a bad time, an event that's gone):
+    /// said so it can be shown as it is.
+    #[error("{0}")]
+    Invalid(String),
     /// A newer oxbot has upgraded the database past what this one knows.
     /// Opening it anyway could undo or break that upgrade.
     #[error(

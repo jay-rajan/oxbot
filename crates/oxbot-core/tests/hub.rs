@@ -2850,7 +2850,10 @@ async fn lead_bots_pass_a_task_on_but_never_back_or_too_far() {
     let notes = task_result(&hub, "notes");
     assert!(notes.starts_with("tool_ok=false"), "{notes}");
     assert!(notes.contains("passed on as far as it can go"), "{notes}");
-    assert!(hub.history("walmart", 0).unwrap().is_empty(), "nothing reached it");
+    assert!(
+        hub.history("walmart", 0).unwrap().is_empty(),
+        "nothing reached it"
+    );
     hub.shutdown().await;
 
     // Calendar can't hand the task back to Meals, which is waiting on it.
@@ -2867,7 +2870,10 @@ async fn lead_bots_pass_a_task_on_but_never_back_or_too_far() {
     let said = reply_of(&hub, &mut updates, "meals").await;
     assert!(said.starts_with("tool_ok=true calendar replied:"), "{said}");
     let calendar = task_result(&hub, "calendar");
-    assert!(calendar.contains("meals passed you this task"), "{calendar}");
+    assert!(
+        calendar.contains("meals passed you this task"),
+        "{calendar}"
+    );
     let asked = hub
         .history("meals", 0)
         .unwrap()
@@ -2884,7 +2890,13 @@ async fn a_bot_a_lead_creates_is_its_helper() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
-    let hub = team_hub(tmp.path(), &["meals"], &["meals"], &[("meals", "createbot")]).await;
+    let hub = team_hub(
+        tmp.path(),
+        &["meals"],
+        &["meals"],
+        &[("meals", "createbot")],
+    )
+    .await;
     let mut updates = hub.subscribe();
     hub.send("meals", "make a bot that orders groceries", Some("Jay"))
         .await

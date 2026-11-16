@@ -331,7 +331,8 @@ impl Hub {
         if relayed.via.len() > MAX_CHAIN {
             return (
                 false,
-                "This task has already been passed on as far as it can go. Do it yourself.".to_owned(),
+                "This task has already been passed on as far as it can go. Do it yourself."
+                    .to_owned(),
             );
         }
         if let Err(err) = super::engines::may_task(&relayed) {
