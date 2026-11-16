@@ -383,6 +383,16 @@ impl Hub {
                     return Some(STALE_UID.to_owned());
                 }
                 Some(UidCheck::Live { role, name, shown }) => {
+                    // An element oxbot didn't learn from a snapshot: the
+                    // page names it, so the click is judged like any other.
+                    if shown && !labels.contains_key(uid) {
+                        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+                        labels.insert(
+                            uid.to_owned(),
+                            format!("{role} \"{}\"", name.replace('"', "'")),
+                        );
+                        return None;
+                    }
                     if let Some(label) = labels.get(uid) {
                         let (label_role, label_name) = policy::role_and_name(label);
                         if !shown || label_role != role || !same_name(label_name, &name) {

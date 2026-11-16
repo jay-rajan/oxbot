@@ -621,7 +621,7 @@ pub fn decide(
                 ..Ask::new(
                     ApprovalKind::Upload,
                     "upload a file to",
-                    describe(uid).unwrap_or_else(|| format!("element {uid}")),
+                    describe(uid).unwrap_or_else(|| UNNAMED.to_owned()),
                     site(),
                 )
             })
@@ -672,6 +672,10 @@ fn read_sites(input: &Value) -> Verdict {
     Verdict::Allow
 }
 
+/// What a card says about an element oxbot couldn't name (never its id,
+/// which means nothing to the person).
+const UNNAMED: &str = "an element oxbot couldn't name";
+
 /// Clicking and typing: free, unless it changes something (a card) or
 /// types a secret (refused).
 fn decide_input(
@@ -687,7 +691,7 @@ fn decide_input(
             let uid = str_of(input, "uid");
             let label = describe(uid);
             click_verdict(label.as_deref(), ctx.element, ctx.page_url, change, || {
-                format!("element {uid}")
+                UNNAMED.to_owned()
             })
         }
         "click_at" => {
@@ -883,7 +887,13 @@ fn click_verdict(
         let (role, name) = split_label(label.unwrap_or_default());
         let name = shown_name(name);
         let unclear = matches!(click_words(&name), Words::Soft | Words::Nothing);
-        if click == Click::Change && unclear && element.is_some_and(|e| e.submits) {
+        if name.is_empty() {
+            if role.is_empty() || role == "generic" {
+                UNNAMED.to_owned()
+            } else {
+                format!("an unnamed {role}")
+            }
+        } else if click == Click::Change && unclear && element.is_some_and(|e| e.submits) {
             format!("the form's \"{name}\" button")
         } else if role.is_empty() {
             format!("\"{name}\"")
@@ -2645,12 +2655,24 @@ mod tests {
     }
 
     #[test]
+    fn an_element_the_page_names_without_words_runs() {
+        // The hub fills in a label from the page for an element no
+        // snapshot named (see `Hub::check_label_live`).
+        for label in ["button \"\"", "generic \"\"", "img \"\""] {
+            let verdict = decide(&tool("click"), &json!({"uid":"8_9"}), ctx(), |_| {
+                Some(label.to_owned())
+            });
+            assert!(matches!(verdict, Verdict::Allow), "{label}: {verdict:?}");
+        }
+    }
+
+    #[test]
     fn unknown_uid_asks_and_is_never_remembered() {
         let Verdict::Ask(ask) = decide(&tool("click"), &json!({"uid":"8_242"}), ctx(), names)
         else {
             panic!("an element oxbot can't name asks")
         };
-        assert_eq!(ask.target, "element 8_242");
+        assert_eq!(ask.target, "an element oxbot couldn't name");
         assert_eq!(ask.click, Some(Click::Unknown));
         assert_eq!(ask.rule, None);
         assert_eq!(classify(None, None), Click::Unknown);
