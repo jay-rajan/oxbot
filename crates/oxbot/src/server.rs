@@ -2257,6 +2257,15 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
         ClientMsg::OpenSignIn { id } if state.hub.sign_in_visible(id, viewer) => {
             reply(state.hub.open_sign_in(id).await)
         }
+        ClientMsg::SignInFrame { id } if state.hub.sign_in_visible(id, viewer) => {
+            match state.hub.sign_in_frame(id).await {
+                Ok(frame) => vec![frame],
+                Err(e) => reply(Err(e)),
+            }
+        }
+        ClientMsg::SignInInput { id, input } if state.hub.sign_in_visible(id, viewer) => {
+            reply(state.hub.sign_in_input(id, input).await)
+        }
         ClientMsg::SignInDone { id } if state.hub.sign_in_visible(id, viewer) => {
             state.hub.resolve_sign_in(id, true);
             Vec::new()
@@ -2381,11 +2390,13 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             .then_some(msg),
         // The log names every bot, site and person; pairing is the home computer's
         // job: the home computer's only.
-        // Dictation goes straight to the connection that asked; if it were
-        // ever broadcast, only the home computer could have asked.
+        // Dictation and sign-in pictures go straight to the connection that
+        // asked; if they were ever broadcast, only the home computer sees
+        // them.
         ServerMsg::Log(_)
         | ServerMsg::OpenRouterAuth { .. }
         | ServerMsg::Dictation { .. }
+        | ServerMsg::SignInFrame { .. }
         | ServerMsg::Pairing(_)
         | ServerMsg::PairingClosed
         | ServerMsg::Devices { .. }

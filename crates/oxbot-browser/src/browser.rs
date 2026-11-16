@@ -32,6 +32,19 @@ pub const NO_PRACTICE_RUNS: &str = "Practice runs aren't available with oxbot's 
 pub const NO_SEALED_READS: &str =
     "Script reads aren't available with oxbot's browser yet; read the page snapshot instead.";
 
+/// A picture of the sign-in page (see [`Browser::sign_in_frame`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignInFrame {
+    /// A JPEG, base64.
+    pub image: String,
+    /// The page's width in CSS pixels.
+    pub width: u32,
+    /// Its height.
+    pub height: u32,
+    /// Its address.
+    pub url: String,
+}
+
 /// An element uid as the browser knows it (see [`Browser::uid_check`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UidCheck {
@@ -397,6 +410,40 @@ impl Browser {
             name: v["name"].as_str()?.to_owned(),
             shown: v["shown"].as_bool() == Some(true),
         })
+    }
+
+    /// The sign-in page the person is on, as it looks now: a JPEG
+    /// (base64), the page's size in CSS pixels, and its address. For a
+    /// device that can't see the window.
+    ///
+    /// # Errors
+    /// No sign-in is open, or the browser couldn't take the picture.
+    pub async fn sign_in_frame(&self) -> Result<SignInFrame, BrowserError> {
+        let v = self
+            .native
+            .call("signin_frame", json!({}))
+            .await
+            .map_err(BrowserError::Browser)?;
+        let size = |key: &str| u32::try_from(v[key].as_u64().unwrap_or(0)).unwrap_or(0);
+        Ok(SignInFrame {
+            image: v["image"].as_str().unwrap_or_default().to_owned(),
+            width: size("width"),
+            height: size("height"),
+            url: v["url"].as_str().unwrap_or_default().to_owned(),
+        })
+    }
+
+    /// The person's tap, typing, key or scroll on the sign-in page
+    /// (`{"kind": "tap", "x": 10, "y": 20}`, as the app sends it).
+    ///
+    /// # Errors
+    /// No sign-in is open, or the browser refused it (an unknown key).
+    pub async fn sign_in_input(&self, input: Value) -> Result<(), BrowserError> {
+        self.native
+            .call("signin_input", json!({ "input": input }))
+            .await
+            .map(|_| ())
+            .map_err(BrowserError::Browser)
     }
 
     /// How many elements in the page at `page_url` have `role` and are

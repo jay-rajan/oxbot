@@ -30,6 +30,13 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
     let html = r#"<!doctype html><title>Native local shop</title><label>Product <input type="search"></label><button onclick="fetch('/cart',{method:'POST'}).then(()=>document.querySelector('p').textContent='Added once')">Add milk</button><p>Ready</p><button onclick="const t=document.querySelector('#times');t.textContent='Loading';fetch('/times').then(r=>r.text()).then(x=>t.textContent=x)">Show times</button><div id="times"></div>"#;
     let router = Router::new()
         .route("/", get(move || async move { Html(html) }))
+        // A sign-in page: what's typed shows in its address.
+        .route(
+            "/login",
+            get(|| async {
+                Html("<!doctype html><title>Sign in</title><input aria-label='Email' oninput='location.hash=this.value' style='position:absolute;left:10px;top:10px;width:200px;height:30px'>")
+            }),
+        )
         // Two clinics on sites of their own, for read_sites.
         .route(
             "/a",
@@ -227,6 +234,46 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
         browser.uid_check("no-such-uid").await,
         Some(oxbot_browser::UidCheck::Gone)
     );
+    // A sign-in from a device that can't see the window: its picture, and
+    // the person's tap and typing.
+    assert!(
+        browser.sign_in_frame().await.is_err(),
+        "no sign-in open yet"
+    );
+    browser
+        .open_window("http://shop.example.test/login")
+        .await
+        .unwrap();
+    let frame = browser.sign_in_frame().await.unwrap();
+    assert!(frame.width > 200 && frame.height > 40, "{frame:?}");
+    assert!(frame.image.len() > 100);
+    assert!(frame.url.ends_with("/login"), "{}", frame.url);
+    browser
+        .sign_in_input(json!({"kind": "tap", "x": 50, "y": 25}))
+        .await
+        .unwrap();
+    browser
+        .sign_in_input(json!({"kind": "text", "text": "jay"}))
+        .await
+        .unwrap();
+    assert!(
+        browser
+            .sign_in_input(json!({"kind": "key", "key": "Meta+A"}))
+            .await
+            .is_err(),
+        "only the keys a sign-in needs"
+    );
+    assert!(
+        browser
+            .sign_in_frame()
+            .await
+            .unwrap()
+            .url
+            .ends_with("/login#jay"),
+        "what was typed reached the page"
+    );
+    browser.close_window().await;
+    assert!(browser.sign_in_frame().await.is_err(), "closed");
     assert!(
         browser
             .screenshot(Some(&origin))

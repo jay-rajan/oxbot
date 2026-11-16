@@ -250,6 +250,7 @@ impl View {
             // The terminal client shows replies only; the page shows status and logs.
             ServerMsg::Log(_)
             | ServerMsg::Dictation { .. }
+            | ServerMsg::SignInFrame { .. }
             | ServerMsg::Pairing(_)
             | ServerMsg::PairingClosed
             | ServerMsg::Devices { .. }

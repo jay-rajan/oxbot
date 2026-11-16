@@ -6,10 +6,11 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Banner, Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
-import type { Answer, ScheduleEdit } from "../../net/protocol";
+import type { Answer, ClientMsg, ScheduleEdit, SignInInput } from "../../net/protocol";
 import {
   type CardApproval,
   type CardSignIn,
+  type SignInFrame,
   cardList,
   DAYS,
   editOf,
@@ -46,6 +47,72 @@ function CheckIn({ who, steps, seconds, onGo, onStop }: { who: string; steps: st
         <Btn label="Stop" kind="secondary" cls="deny" onClick={onStop} />
       </div>
     </Card>
+  );
+}
+
+/** How often the sign-in picture refreshes, in ms. */
+const FRAME_MS = 500;
+
+/** The sign-in page, live from the home computer: tap it, type into it.
+ * Works on any device; the home computer does the browsing. */
+function SignInView({ id, frame, send }: { id: number; frame: SignInFrame | undefined; send: (m: ClientMsg) => void }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    const ask = () => {
+      if (!document.hidden) send({ type: "sign_in_frame", id });
+    };
+    ask();
+    const tick = setInterval(ask, FRAME_MS);
+    return () => clearInterval(tick);
+  }, [id, send]);
+  const input = (input: SignInInput) => send({ type: "sign_in_input", id, input });
+  const tap = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!frame) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    input({
+      kind: "tap",
+      x: Math.round(((e.clientX - box.left) / box.width) * frame.width),
+      y: Math.round(((e.clientY - box.top) / box.height) * frame.height),
+    });
+  };
+  const type = () => {
+    if (!text) return;
+    input({ kind: "text", text });
+    setText("");
+  };
+  return (
+    <div className="signin-view">
+      {frame ? (
+        <>
+          <div className="where">{frame.url}</div>
+          <img className="signin-page" alt="The sign-in page" src={`data:image/jpeg;base64,${frame.image}`} onClick={tap} />
+        </>
+      ) : (
+        <div className="where">Opening the sign-in page…</div>
+      )}
+      <div className="signin-keys">
+        <Input
+          id={`signin-text-${id}`}
+          value={text}
+          placeholder="Tap a field above, then type here"
+          autoComplete="off"
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (text) type();
+              else input({ kind: "key", key: "Enter" });
+            }
+          }}
+        />
+        <Btn label="Type" kind="secondary" onClick={type} />
+        <Btn label="Enter" kind="secondary" onClick={() => input({ kind: "key", key: "Enter" })} />
+        <Btn label="Tab" kind="secondary" onClick={() => input({ kind: "key", key: "Tab" })} />
+        <Btn label="⌫" kind="secondary" onClick={() => input({ kind: "key", key: "Backspace" })} />
+        <Btn label="▲" kind="secondary" onClick={() => input({ kind: "scroll", dy: -400 })} />
+        <Btn label="▼" kind="secondary" onClick={() => input({ kind: "scroll", dy: 400 })} />
+      </div>
+    </div>
   );
 }
 
@@ -121,14 +188,15 @@ export function Cards() {
       <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}${s.before ? ` before ${s.before}` : ""}`}>
         <div className="where">
           {s.window_open
-            ? `Sign in to ${s.site} in the window that opened, then close it.`
-            : `${s.why ? `${s.why}. ` : ""}You type your password yourself, in a normal Chrome window. Every bot then stays signed in there.`}
+            ? `Sign in to ${s.site} below (or in the window on the home computer), then press I'm signed in. Bots never see your password.`
+            : `${s.why ? `${s.why}. ` : ""}You type your password yourself, from this device. Every bot then stays signed in.`}
         </div>
+        {s.window_open ? <SignInView id={s.id} frame={cards.signInFrames[s.id]} send={send} /> : null}
         <div className="btn-row btns">
           {s.window_open ? (
             <Btn label="I'm signed in" kind="primary" onClick={() => send({ type: "sign_in_done", id: s.id })} />
           ) : (
-            <Btn label="Open sign-in window" kind="primary" onClick={() => send({ type: "open_sign_in", id: s.id })} />
+            <Btn label="Sign in" kind="primary" onClick={() => send({ type: "open_sign_in", id: s.id })} />
           )}
           <Btn label="Cancel" kind="secondary" onClick={() => send({ type: "cancel_sign_in", id: s.id })} />
         </div>

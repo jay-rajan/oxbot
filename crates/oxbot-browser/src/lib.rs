@@ -27,7 +27,8 @@ use std::path::{Path, PathBuf};
 pub use oxbot_engine::McpCommand;
 
 pub use browser::{
-    Browser, BrowserSpec, BrowserStatus, NO_PRACTICE_RUNS, NO_SEALED_READS, UidCheck, site_of,
+    Browser, BrowserSpec, BrowserStatus, NO_PRACTICE_RUNS, NO_SEALED_READS, SignInFrame, UidCheck,
+    site_of,
 };
 pub use camoufox::CamoufoxTool;
 pub use cookies::{CookieMarks, site_cookie_params};

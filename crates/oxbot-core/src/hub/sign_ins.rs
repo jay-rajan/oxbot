@@ -587,6 +587,54 @@ impl Hub {
         Ok(())
     }
 
+    /// The page of open sign-in `id` as it looks now, for a device that
+    /// can't see the window (see [`ServerMsg::SignInFrame`]).
+    ///
+    /// # Errors
+    /// The sign-in isn't open, or the browser couldn't show it.
+    pub async fn sign_in_frame(&self, id: u64) -> Result<ServerMsg, HubError> {
+        let shared = self.open_sign_in_browser(id)?;
+        let frame = shared.browser.sign_in_frame().await?;
+        Ok(ServerMsg::SignInFrame {
+            id,
+            image: frame.image,
+            width: frame.width,
+            height: frame.height,
+            url: frame.url,
+        })
+    }
+
+    /// The person's tap, typing, key or scroll on open sign-in `id`'s
+    /// page, from their device.
+    ///
+    /// # Errors
+    /// The sign-in isn't open, or the browser refused it.
+    pub async fn sign_in_input(
+        &self,
+        id: u64,
+        input: oxbot_protocol::SignInInput,
+    ) -> Result<(), HubError> {
+        let shared = self.open_sign_in_browser(id)?;
+        let input = serde_json::to_value(input).unwrap_or_default();
+        shared.browser.sign_in_input(input).await?;
+        Ok(())
+    }
+
+    /// The browser of sign-in `id`, once its window is open.
+    fn open_sign_in_browser(&self, id: u64) -> Result<Arc<super::Shared>, HubError> {
+        let request = lock(&self.sign_ins).get(&id).map(|(r, _)| r.clone());
+        let Some(request) = request else {
+            return Err(HubError::UnknownBot(format!("sign-in {id}")));
+        };
+        if !request.window_open {
+            return Err(HubError::NotAllowed("Open the sign-in first.".to_owned()));
+        }
+        self.bot(&request.bot)
+            .ok()
+            .and_then(|b| self.browser_of(&b))
+            .ok_or(HubError::NoBrowser)
+    }
+
     /// Whether `viewer` may see (and answer) sign-in request `id`.
     #[must_use]
     pub fn sign_in_visible(&self, id: u64, viewer: &Viewer) -> bool {

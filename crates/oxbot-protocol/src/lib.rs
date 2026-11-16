@@ -400,6 +400,22 @@ pub enum ClientMsg {
         #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
+    /// The sign-in page of an open [`SignInRequest`] as it looks now, for a
+    /// device that isn't the home computer (it can't see the window):
+    /// answered with [`ServerMsg::SignInFrame`], to this connection only.
+    SignInFrame {
+        /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: u64,
+    },
+    /// The person's tap, typing or key on that page.
+    SignInInput {
+        /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: u64,
+        /// What they did.
+        input: SignInInput,
+    },
     /// The user has signed in for a [`SignInRequest`].
     SignInDone {
         /// The request's id.
@@ -974,6 +990,22 @@ pub enum ServerMsg {
     /// it happens or changes (the window opened), and for each open one on
     /// connect.
     SignInNeeded(SignInRequest),
+    /// The sign-in page as it looks now ([`ClientMsg::SignInFrame`]):
+    /// to the connection that asked only.
+    SignInFrame {
+        /// The request's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: u64,
+        /// The page as a JPEG, base64.
+        image: String,
+        /// The page's width and height in its own (CSS) pixels: a tap at
+        /// a point of the picture is that point scaled to these.
+        width: u32,
+        /// See `width`.
+        height: u32,
+        /// The page's address, to show where it is.
+        url: String,
+    },
     /// A sign-in request was answered or timed out; clients drop it.
     SignInResolved {
         /// The request's id.
@@ -1310,6 +1342,36 @@ pub struct AppSettings {
 
 fn yes() -> bool {
     true
+}
+
+/// What the person does on a sign-in page from their device
+/// ([`ClientMsg::SignInInput`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SignInInput {
+    /// A tap at a point of the page, in its own (CSS) pixels.
+    Tap {
+        /// From the left.
+        x: i32,
+        /// From the top.
+        y: i32,
+    },
+    /// Text typed into whatever has focus.
+    Text {
+        /// The text.
+        text: String,
+    },
+    /// One key: `Enter`, `Tab`, `Backspace`, `Escape` or an arrow.
+    Key {
+        /// The key's name.
+        key: String,
+    },
+    /// Scrolling down (positive) or up.
+    Scroll {
+        /// Pixels.
+        dy: i32,
+    },
 }
 
 /// A bot asking the user to sign in to a site in the shared browser.

@@ -32,6 +32,8 @@ const toggles = new Set(["checkbox", "radio", "switch", "menuitemcheckbox", "men
 /// The longest the page may take to settle after a click or key press,
 /// for its network and then for its content.
 const SETTLE_MS = 2000;
+/// Keys a person may press on a sign-in page from their device.
+const SIGN_IN_KEYS = new Set(["Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// read_sites: the most sites at once, and how much of each comes back.
 const MAX_SITES = 5;
 const MAX_SITE_TEXT = 4000;
@@ -151,6 +153,9 @@ export class Adapter {
     this.ids.set(page, id);
     this.pages.set(id, page);
     this.active ??= id;
+    // A page opened during a sign-in (a "Sign in with Google" pop-up) is
+    // part of it: the person sees and uses it from their device too.
+    if (this.paused && !this.signInPages.includes(page)) this.signInPages.push(page);
     // Requests still loading, so a click's page is read once they're done.
     const loading = new Set();
     this.loading.set(page, loading);
@@ -557,6 +562,12 @@ export class Adapter {
       await page.close().catch(() => {});
     }
   }
+  signInPage() {
+    const open = this.signInPages.filter((page) => !page.isClosed());
+    const page = open.at(-1);
+    if (!this.paused || !page) throw new Error("No sign-in is open");
+    return page;
+  }
   // Back to automation: what bots read before is stale.
   async endSignIn() {
     this.refs.clear();
@@ -582,6 +593,41 @@ export class Adapter {
       await page
         .goto(params.url, { waitUntil: "domcontentloaded" })
         .catch(() => {});
+      return true;
+    }
+    // The sign-in page the person is on (the newest still open), for a
+    // device that can't see the window: its picture, and their input.
+    if (method === "signin_frame") {
+      const page = this.signInPage();
+      const size = await page.evaluate(() => [innerWidth, innerHeight]);
+      const image = await page.screenshot({ type: "jpeg", quality: 55, scale: "css" });
+      return {
+        image: image.toString("base64"),
+        width: size[0],
+        height: size[1],
+        url: page.url(),
+      };
+    }
+    if (method === "signin_input") {
+      const page = this.signInPage();
+      const input = params.input ?? {};
+      switch (input.kind) {
+        case "tap":
+          await page.mouse.click(Number(input.x), Number(input.y));
+          break;
+        case "text":
+          await page.keyboard.type(String(input.text ?? "").slice(0, 500));
+          break;
+        case "key":
+          if (!SIGN_IN_KEYS.has(input.key)) throw new Error("That key isn't sent");
+          await page.keyboard.press(input.key);
+          break;
+        case "scroll":
+          await page.mouse.wheel(0, Number(input.dy) || 0);
+          break;
+        default:
+          throw new Error("Unknown input");
+      }
       return true;
     }
     if (method === "close_window") {

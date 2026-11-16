@@ -8,6 +8,7 @@ import type { ProfileEdit } from "./ProfileEdit";
 import type { RunVerdict } from "./RunVerdict";
 import type { ScheduleEdit } from "./ScheduleEdit";
 import type { Sharing } from "./Sharing";
+import type { SignInInput } from "./SignInInput";
 import type { Target } from "./Target";
 import type { TrialNetwork } from "./TrialNetwork";
 
@@ -283,7 +284,19 @@ on: boolean, } | { "type": "open_sign_in",
 /**
  * The request's id.
  */
-id: number, } | { "type": "sign_in_done", 
+id: number, } | { "type": "sign_in_frame", 
+/**
+ * The request's id.
+ */
+id: number, } | { "type": "sign_in_input", 
+/**
+ * The request's id.
+ */
+id: number, 
+/**
+ * What they did.
+ */
+input: SignInInput, } | { "type": "sign_in_done", 
 /**
  * The request's id.
  */
