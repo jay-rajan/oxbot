@@ -1,10 +1,41 @@
 # oxbot
 
-Always-on bots on your home computer (a Mac), used through the oxbot desktop app there and the
-oxbot Android app on devices on your home Wi-Fi. Bots answer with free and paid AI models through
-your home's OpenRouter account, free models first (see [AI models](#ai-models)). Model calls go
-only to OpenRouter, or later to a model on this computer; nothing else: no relay servers, no push
-services, no analytics, and nothing goes to Anthropic.
+**Your family's AI helpers, on your own Mac.** oxbot runs always-on bots that plan meals, book
+appointments, compare prices, keep up with school emails and remind you of what's coming. They
+run on your home computer, not in someone's cloud, and the whole household shares them from
+their own phones.
+
+### Private by design
+
+- **It stays home.** Bots, chats, files, schedules and every website sign-in live on your Mac.
+  There's no oxbot account, no oxbot server and no analytics.
+- **Phones talk only to your Mac,** over your home Wi-Fi, encrypted and paired. No relay in the
+  middle, no push service.
+- **Personal details are removed before the AI sees anything** (on by default): emails, phone numbers,
+  addresses, card numbers and the names of the people in your home become stand-ins like
+  `[person 1]`, and come back in the answer on your Mac.
+- **Bots never see your passwords.** When a site needs a sign-in, you do it yourself while the
+  bot waits.
+- **Nothing changes without your OK.** Reading and searching run on their own; sending, booking,
+  buying or deleting waits for you to tap Allow.
+- **You can check.** The network log shows everything that left the Mac in the last 30 days
+  (sizes and counts, never the content). The AI key stays in the Mac's Keychain.
+
+### Made for families, and for working together
+
+- **Everyone gets their own:** a name and colour, their own Assistant, their own phone or
+  tablet, their own schedules and sidebar.
+- **Share a bot the way you'd share a list:** with everyone at home, just you, or the people you
+  pick. Each message shows who sent it.
+- **The right person answers.** An approval goes to whoever asked for the task; a child's
+  requests go to a parent. Kids can't share a sign-in with everyone.
+- **Bots know the household,** only as far as each person allows: the home area, food needs,
+  languages, notes ("I prefer metric"). Never names.
+- **Private when it should be.** A private bot uses its maker's own sign-ins, and only they and
+  the owner can open it.
+
+Bots answer with free and paid AI models through your home's OpenRouter account, free models
+first (see [AI models](#ai-models)). Model calls go only to OpenRouter; nothing goes to Anthropic.
 
 ```mermaid
 flowchart LR
