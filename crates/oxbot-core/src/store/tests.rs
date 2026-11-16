@@ -1604,6 +1604,7 @@ fn a_version_19_database_gets_the_answer_checks() {
                 turns: 3,
                 created_ms: 1,
                 updated_ms: 1,
+                tools: String::new(),
             })
             .unwrap();
     }

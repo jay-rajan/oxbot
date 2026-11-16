@@ -166,6 +166,9 @@ pub struct FakeBots {
     pub checked: Option<String>,
     /// oxbot's notes the bots got (a check, say), in order.
     pub notes: Calls,
+    /// Each request's instructions, then the people's messages it
+    /// carried (one per line), in order.
+    pub requests: Calls,
     /// The plan each (bot, message) got, so every request of a turn
     /// follows the same one (made as they're needed; leave it default).
     pub plans: Plans,
@@ -240,6 +243,17 @@ impl FakeBots {
             Some(at) => text[..at].to_owned(),
             None => text,
         })
+    }
+
+    /// Each request so far: its instructions, `=====`, then the people's
+    /// messages it carried, one per line.
+    #[must_use]
+    pub fn requests(&self) -> Vec<String> {
+        self.requests
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Every tool result the bots read so far, in order (each once).
@@ -335,11 +349,8 @@ impl FakeBots {
             args,
             say: String::new(),
         };
-        let planned = self.plan_once
-            && self
-                .heard()
-                .iter()
-                .any(|r| r.contains("can see your plan"));
+        let planned =
+            self.plan_once && self.heard().iter().any(|r| r.contains("can see your plan"));
         if let Some(args) = self.plan_task.as_ref().filter(|_| !planned) {
             calls.push(call("mcp__oxbot__plan_task", args.clone()));
         }
@@ -416,6 +427,17 @@ impl FakeBots {
             .filter(|(_, m)| m.role == Role::User && !m.text.trim_start().starts_with(NOTE))
             .map(|(i, _)| i)
             .collect();
+        {
+            let seen: Vec<&str> = persons
+                .iter()
+                .map(|&i| conv.messages[i].text.as_str())
+                .collect();
+            self.requests
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(format!("{}\n=====\n{}", conv.system, seen.join("\n")));
+        }
         let Some(&last) = persons.last() else {
             return Answer {
                 text: "ok".to_owned(),

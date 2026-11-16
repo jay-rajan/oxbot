@@ -371,7 +371,7 @@ impl Hub {
         let running = self.runtimes.lock().await.contains_key(&bot.id);
         if !running {
             // Started outside the lock: the first start can take a while.
-            let runtime = match self.start_session(bot).await {
+            let runtime = match self.start_session(bot, user_seq).await {
                 Ok(r) => r,
                 Err(err) => {
                     self.turn_failed(&bot.id, &err.to_string())?;

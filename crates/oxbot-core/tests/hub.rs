@@ -1364,7 +1364,8 @@ async fn what_assistant_read_on_the_web_counts_for_the_whole_session() {
     hub.shutdown().await;
     drop(hub);
 
-    // A new session (the Assistant's instructions changed) remembers nothing.
+    // New instructions: the same session goes on, and so does what it
+    // read.
     std::fs::write(
         tmp.path().join("bots/assistant/instructions.md"),
         "Be brief.",
@@ -1372,9 +1373,92 @@ async fn what_assistant_read_on_the_web_counts_for_the_whole_session() {
     .unwrap();
     let hub = jays_hub(tmp.path(), "task", &[("FAKE_PAGE_ONCE", once)]).await;
     let mut updates = hub.subscribe();
-    let said = ask_assistant(&hub, &mut updates).await;
-    assert!(said.starts_with("tool_ok=true helper replied:"), "{said}");
-    assert_eq!(approvals_in(&hub, "assistant"), 2, "no third card");
+    asked_and_denied(&hub, &mut updates, "a web page").await;
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_bot_keeps_its_chat_when_its_instructions_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, fake) = listening_hub(tmp.path()).await;
+    let mut updates = hub.subscribe();
+    let jay = Viewer::device("Jay");
+    hub.send_as("notes", "the gate code is 4521", &jay)
+        .await
+        .unwrap();
+    wait_for_turn_done(&mut updates).await;
+
+    hub.set_instructions(
+        "notes",
+        "Answer in French.",
+        &hub.home_computer_viewer("Jay"),
+    )
+    .await
+    .unwrap();
+    hub.send_as("notes", "what was the code?", &jay)
+        .await
+        .unwrap();
+    let last = request_with(&fake, "what was the code?").await;
+    let (system, seen) = last.split_once("\n=====\n").unwrap();
+    assert!(
+        system.contains("The user's instructions for you:\nAnswer in French."),
+        "the new instructions: {system}"
+    );
+    assert!(
+        seen.contains("the gate code is 4521"),
+        "and the chat so far: {seen}"
+    );
+    assert!(seen.contains("what was the code?"), "{seen}");
+    assert!(
+        !seen.contains("<earlier_chat>"),
+        "the same conversation: no recap"
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_bot_given_new_tools_starts_over_with_the_chat_so_far() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let db = tmp.path().join("oxbot.db");
+    let (hub, fake) = listening_hub_store(tmp.path(), Store::open(&db).unwrap()).await;
+    let mut updates = hub.subscribe();
+    let jay = Viewer::device("Jay");
+    hub.send_as("notes", "the gate code is 4521", &jay)
+        .await
+        .unwrap();
+    request_with(&fake, "the gate code is 4521").await;
+    wait_for_turn_done(&mut updates).await;
+    hub.shutdown().await;
+    drop(hub);
+
+    // As if its tools had changed since its thread started.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute("UPDATE codex_threads SET tools = 'old'", [])
+        .unwrap();
+    let (hub, fake) = listening_hub_store(tmp.path(), Store::open(&db).unwrap()).await;
+    hub.send_as("notes", "what was the code?", &jay)
+        .await
+        .unwrap();
+    let last = request_with(&fake, "what was the code?").await;
+    let (_, seen) = last.split_once("\n=====\n").unwrap();
+    let (recap, now) = seen.split_once("</earlier_chat>").expect("a recap");
+    assert!(
+        recap.starts_with("<earlier_chat>\nYour chat so far"),
+        "{recap}"
+    );
+    assert!(recap.contains("] the gate code is 4521"), "{recap}");
+    assert!(
+        !recap.contains("what was the code?"),
+        "not the new message: {recap}"
+    );
+    assert!(now.contains("what was the code?"), "{now}");
     hub.shutdown().await;
 }
 
@@ -1786,7 +1870,8 @@ async fn opened_pages_last_as_long_as_the_session() {
     hub.shutdown().await;
     drop(hub);
 
-    // A new session (its instructions changed) has opened nothing.
+    // New instructions: the same session goes on, and the page still
+    // counts.
     std::fs::write(tmp.path().join("bots/scout/instructions.md"), "Be brief.").unwrap();
     let hub = start().await;
     let mut updates = hub.subscribe();
@@ -1794,12 +1879,12 @@ async fn opened_pages_last_as_long_as_the_session() {
         .await
         .unwrap();
     let said = reply_of(&hub, &mut updates, "scout").await;
-    assert!(said.contains("weren't opened in the browser"), "{said}");
+    assert!(said.starts_with("tool_ok=true"), "{said}");
     assert_eq!(
         hub.reports_for("scout", &hub.home_computer_viewer("Jay"))
             .unwrap()
             .len(),
-        2
+        3
     );
     hub.shutdown().await;
 }
@@ -2065,10 +2150,19 @@ async fn upload(
 /// A hub whose bots (in `dir`) answer without tools; the stand-in keeps
 /// what they were told.
 async fn listening_hub(dir: &Path) -> (Arc<Hub>, Arc<FakeBots>) {
-    let all = vec![
-        Bot::create(dir, BotId::new("notes").unwrap(), "Notes", "").unwrap(),
-        Bot::create(dir, BotId::new("other").unwrap(), "Other", "").unwrap(),
-    ];
+    listening_hub_store(dir, Store::open_in_memory().unwrap()).await
+}
+
+async fn listening_hub_store(dir: &Path, store: Store) -> (Arc<Hub>, Arc<FakeBots>) {
+    // Made once; started again, the hub finds them.
+    let all = ["notes", "other"]
+        .map(|id| {
+            Bot::load(&dir.join(id)).unwrap_or_else(|_| {
+                let name = if id == "notes" { "Notes" } else { "Other" };
+                Bot::create(dir, BotId::new(id).unwrap(), name, "").unwrap()
+            })
+        })
+        .to_vec();
     let fake = Arc::new(FakeBots {
         no_page: true,
         ..FakeBots::new(dir, Tool::None)
@@ -2077,10 +2171,21 @@ async fn listening_hub(dir: &Path) -> (Arc<Hub>, Arc<FakeBots>) {
         browser: None,
         ..testing::config(dir, &dir.join(".home"), &fake, Some(program().await))
     };
-    let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
+    let hub = Hub::new(all, store, config);
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     hub.start_codex().await;
     (hub, fake)
+}
+
+/// The last request that carried `text`, once the model got it.
+async fn request_with(fake: &FakeBots, text: &str) -> String {
+    for _ in 0..200 {
+        if let Some(r) = fake.requests().into_iter().rfind(|r| r.contains(text)) {
+            return r;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    panic!("no request carried {text:?}")
 }
 
 /// The person's message in the bot's last request, as it got it.
@@ -2462,7 +2567,10 @@ async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     assert_eq!(said, "ok");
     assert_eq!(fake.ran(), ["take_snapshot"]);
     assert!(fake.heard().iter().any(|r| r.contains("can see your plan")));
-    assert!(hub.pending_approvals().is_empty(), "the card goes with its task");
+    assert!(
+        hub.pending_approvals().is_empty(),
+        "the card goes with its task"
+    );
     assert_eq!(approvals_in(&hub, "poster"), 0, "and isn't a no");
 
     // The same person's follow-up browses on the same plan.
@@ -2504,9 +2612,7 @@ async fn stop_on_a_plan_takes_it_back() {
     ending(&hub, &mut updates).await;
 
     // A follow-up needs a new plan: the old one was stopped.
-    hub.send("poster", "try again", Some("Jay"))
-        .await
-        .unwrap();
+    hub.send("poster", "try again", Some("Jay")).await.unwrap();
     ending(&hub, &mut updates).await;
     assert_eq!(fake.ran(), ["take_snapshot"], "nothing more opened");
     assert!(

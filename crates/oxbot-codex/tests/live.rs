@@ -222,6 +222,7 @@ fn spec(dir: &Path, session: Resume) -> SessionSpec {
         gate_mode: GateMode::Live,
         env: Vec::new(),
         tool_wait: Duration::from_mins(1),
+        earlier_chat: None,
     }
 }
 

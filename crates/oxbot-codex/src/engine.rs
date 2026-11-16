@@ -580,7 +580,7 @@ impl Turn {
             Ok(r) => r,
             Err(why) => return End::Failed(why),
         };
-        let (thread, model, budget) = match load_thread(core, &running).await {
+        let (thread, model, budget, fresh) = match load_thread(core, &running).await {
             Ok(t) => t,
             Err(why) => return End::Failed(why),
         };
@@ -630,7 +630,7 @@ impl Turn {
                 cancel,
                 &input.text,
             );
-            let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
+            let first = first_message(&input.text, core.spec.earlier_chat.as_deref(), fresh);
             let busy = supervisor.begin_turn(&core.key).await;
             let end = match turn.start_codex(&running, &first).await {
                 Ok(()) => {
@@ -1457,16 +1457,21 @@ fn next_turn(core: &Core, thread: &str) -> Result<u32, String> {
 }
 
 /// The session's thread, loaded in `running`: resumed if it was saved,
-/// else started. Returns it, its model and the window's budget.
+/// else started. Returns it, its model, the window's budget and whether
+/// it was started just now.
+///
+/// A saved thread always goes on with the session's instructions as they
+/// are now, as long as its tools are the same: Codex keeps a thread's
+/// tools, so new ones need a new thread (which gets the chat so far).
 async fn load_thread(
     core: &Core,
     running: &Running,
-) -> Result<(String, String, TokenBudget), String> {
+) -> Result<(String, String, TokenBudget, bool), String> {
     let mut ts = core.thread.lock().await;
     if let (Some(id), Some(budget)) = (&ts.id, ts.budget)
         && ts.loaded == Some(running.generation)
     {
-        return Ok((id.clone(), ts.model.clone(), budget));
+        return Ok((id.clone(), ts.model.clone(), budget, false));
     }
     let gateway = core.shared.loop_engine.gateway();
     let Some((model, window, max_tokens)) =
@@ -1487,8 +1492,20 @@ async fn load_thread(
     let session = core.spec.resume.id();
     let saved = store.thread(bot, session)?;
     let now = oxbot_loop::meter::now_ms();
+    let tools = fingerprint(
+        &serde_json::to_string(&core.names.dynamic_tools(&core.tools.specs(), &[]))
+            .unwrap_or_default(),
+    );
     let mut row = None;
+    let saved = saved.filter(|s| {
+        let same = s.tools.is_empty() || s.tools == tools;
+        if !same {
+            tracing::info!(%bot, "its tools changed; starting a new Codex thread");
+        }
+        same
+    });
     if let Some(saved) = saved {
+        let_go(running, bot, &saved.thread_id).await;
         let resumed = running
             .process
             .request(
@@ -1498,6 +1515,7 @@ async fn load_thread(
                     "cwd": core.spec.work_dir,
                     "approvalPolicy": "never",
                     "sandbox": "read-only",
+                    "baseInstructions": core.spec.system_prompt,
                     "config": config,
                     "excludeTurns": true,
                 }),
@@ -1509,6 +1527,7 @@ async fn load_thread(
                     model: model.clone(),
                     window,
                     updated_ms: now,
+                    tools: tools.clone(),
                     ..saved
                 });
             }
@@ -1517,6 +1536,7 @@ async fn load_thread(
             }
         }
     }
+    let fresh = row.is_none();
     let row = if let Some(row) = row {
         row
     } else {
@@ -1530,6 +1550,7 @@ async fn load_thread(
             turns: store.thread(bot, session)?.map_or(0, |r| r.turns),
             created_ms: now,
             updated_ms: now,
+            tools,
         }
     };
     store.save_thread(&row)?;
@@ -1538,7 +1559,38 @@ async fn load_thread(
     ts.model.clone_from(&model);
     ts.window = window;
     ts.budget = Some(budget);
-    Ok((row.thread_id, model, budget))
+    Ok((row.thread_id, model, budget, fresh))
+}
+
+/// The text a turn starts with: the person's message and today's date,
+/// after the chat so far for a thread started just now (`fresh`).
+fn first_message(text: &str, earlier_chat: Option<&str>, fresh: bool) -> String {
+    let date = date_line(&chrono::Local::now());
+    match earlier_chat.filter(|_| fresh) {
+        Some(earlier) => format!("{earlier}\n\n{text}\n\n{date}"),
+        None => format!("{text}\n\n{date}"),
+    }
+}
+
+/// Lets go of a saved thread before it's resumed: Codex keeps a loaded
+/// thread's own instructions, and a thread loaded again from disk takes
+/// the ones it's resumed with (the person may have changed them).
+async fn let_go(running: &Running, bot: &str, thread: &str) {
+    if let Err(err) = running
+        .process
+        .request("thread/unsubscribe", json!({"threadId": thread}))
+        .await
+    {
+        tracing::info!(%bot, %err, "couldn't let go of its Codex thread");
+    }
+}
+
+/// A short fingerprint of `text` (FNV-1a).
+fn fingerprint(text: &str) -> String {
+    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}")
 }
 
 /// Starts a thread with oxbot's instructions and tools. A tool whose

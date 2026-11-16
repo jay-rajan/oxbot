@@ -311,6 +311,7 @@ mod tests {
             gate_mode: oxbot_engine::GateMode::Live,
             env: Vec::new(),
             tool_wait: Duration::from_secs(1),
+            earlier_chat: None,
         };
         let a = process_key(&spec("scout", "/d/bots/scout/context"));
         assert_eq!(a.id, "bot:scout");
