@@ -11,6 +11,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -109,12 +110,20 @@ export async function launchNative({
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
   const lock = resolve(profileDir, ".oxbot-runtime-lock");
   await takeLock(lock);
+  // However this process ends, it must not leave its lock behind: a later
+  // start would refuse the profile while anything still answers to its pid.
+  const dropLock = () => rmSync(lock, { recursive: true, force: true });
+  process.once("exit", dropLock);
   let context, bridge, addonRoot, cleanupPromise;
   const cleanup = () =>
     (cleanupPromise ??= (async () => {
-      await bridge?.close();
-      if (addonRoot) await rm(addonRoot, { recursive: true, force: true });
-      await rm(lock, { recursive: true, force: true });
+      try {
+        await bridge?.close();
+        if (addonRoot) await rm(addonRoot, { recursive: true, force: true });
+      } finally {
+        process.off("exit", dropLock);
+        dropLock();
+      }
     })());
   try {
     await writeFile(

@@ -161,6 +161,18 @@ impl Courtesy {
     }
 }
 
+/// The helper's own errors (a refused profile, a crash) go to the log.
+fn log_errors(child: &mut Child) {
+    if let Some(errors) = child.stderr.take() {
+        tokio::spawn(async move {
+            let mut errors = BufReader::new(errors).lines();
+            while let Ok(Some(line)) = errors.next_line().await {
+                tracing::warn!(line = %line.chars().take(500).collect::<String>(), "browser helper");
+            }
+        });
+    }
+}
+
 type Reply = oneshot::Sender<Result<Value, String>>;
 struct Rpc {
     child: StdMutex<Option<Child>>,
@@ -195,10 +207,11 @@ impl Rpc {
             .envs(env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("Could not start Camoufox: {e}"))?;
+        log_errors(&mut child);
         let mut input = child.stdin.take().ok_or("No browser input pipe")?;
         let mut lines =
             BufReader::new(child.stdout.take().ok_or("No browser output pipe")?).lines();
@@ -262,6 +275,7 @@ impl Rpc {
                 }
             }
             reader.alive.store(false, Ordering::SeqCst);
+            reader.reap().await;
             feed_lock(&feed).end_all();
             status.send_replace(BrowserStatus::Off);
             for (_, reply) in reader
@@ -312,6 +326,23 @@ impl Rpc {
         result
             .map_err(|_| "The browser operation timed out".to_owned())?
             .map_err(|_| "The browser stopped".to_owned())?
+    }
+    /// Waits for a helper that ended on its own (say its window was
+    /// closed). An unreaped child still answers to its pid, and its profile
+    /// lock would then refuse every later start.
+    async fn reap(&self) {
+        let child = self
+            .child
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(mut child) = child
+            && tokio::time::timeout(Duration::from_secs(10), child.wait())
+                .await
+                .is_err()
+        {
+            let _ = child.kill().await;
+        }
     }
     async fn stop(&self) {
         // Shutdown is a priority message: it must not wait behind a page that

@@ -352,6 +352,43 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
     std::fs::write(lock.join("owner.json"), r#"{"pid":999999}"#).unwrap();
     browser.ensure_running().await.unwrap();
     assert_eq!(*browser.status().borrow(), BrowserStatus::Ready);
+    // A helper that ends on its own, without a word to oxbot, is reaped: a
+    // dead helper left unreaped kept its lock "alive", refusing every start.
+    let owner: Value =
+        serde_json::from_str(&std::fs::read_to_string(lock.join("owner.json")).unwrap()).unwrap();
+    let pid = owner["pid"].as_u64().unwrap().to_string();
+    assert!(
+        std::process::Command::new("kill")
+            .args(["-9", &pid])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut status = browser.status();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        status.wait_for(|s| *s == BrowserStatus::Off),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    drop(status);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid])
+        .output()
+        .unwrap()
+        .stdout
+        .is_empty()
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the dead helper was never reaped"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    browser.ensure_running().await.unwrap();
+    assert_eq!(*browser.status().borrow(), BrowserStatus::Ready);
     browser.shutdown().await;
     fixture.abort();
 }
