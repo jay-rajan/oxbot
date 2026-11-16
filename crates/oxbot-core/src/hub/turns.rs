@@ -258,12 +258,15 @@ impl Hub {
         }
         // The person wrote instead of answering: what the task waits on
         // them for ends (after the message went in, so the bot reads it).
+        // Writing again after Stop is a new plan: the bot may show one.
         let theirs = self
             .runtimes
             .lock()
             .await
-            .get(&bot.id)
-            .is_some_and(|r| r.origin.asker() == sent.origin.asker());
+            .get_mut(&bot.id)
+            .filter(|r| r.origin.asker() == sent.origin.asker())
+            .map(|r| r.plan_stopped = false)
+            .is_some();
         if theirs {
             self.deny_for_message(&bot.id);
             self.cancel_sign_ins(&bot.id);
@@ -422,11 +425,16 @@ impl Hub {
             self.turn_failed(&bot.id, &err.to_string())?;
             return Err(err.into());
         }
+        // The plan holds for the same person's follow-up, close behind.
+        runtime.plan_ok = runtime.plan_ok
+            && !runtime.plan_stopped
+            && runtime.origin.asker() == origin.asker()
+            && runtime.last_active.elapsed() < super::plans::PLAN_LASTS;
+        runtime.plan_stopped = false;
         runtime.busy = true;
         runtime.permit = Some(permit);
         runtime.last_active = Instant::now();
         runtime.origin = origin;
-        runtime.plan_ok = false;
         let question = if text.is_empty() {
             files
                 .iter()

@@ -263,9 +263,13 @@ struct Runtime {
     /// This turn's model requests so far: count, money, and the last model
     /// that answered.
     meter: looped::TurnMeter,
-    /// The person said Go to this turn's plan (see [`plans`]): it may
-    /// browse. Cleared when a new turn starts.
+    /// The bot showed its plan (see [`plans`]): it may browse. Kept for
+    /// the same person's next messages while they come within
+    /// [`plans::PLAN_LASTS`] of each other.
     plan_ok: bool,
+    /// The person pressed Stop on this task's plan: no browsing until
+    /// they write again.
+    plan_stopped: bool,
 }
 
 /// Cards waiting for the user, with who to tell.
@@ -329,6 +333,8 @@ pub struct Hub {
     /// Approval requests said no to because the person sent a message
     /// instead: the bot is told to read it rather than stop.
     answered_by_message: std::sync::Mutex<HashSet<u64>>,
+    /// Plan cards oxbot closed itself (their task ended): not a Stop.
+    plans_closed: std::sync::Mutex<HashSet<u64>>,
     /// Turns that may run at once.
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
@@ -430,6 +436,7 @@ impl Hub {
             starting: std::sync::Mutex::new(HashSet::new()),
             queued: std::sync::Mutex::new(HashMap::new()),
             answered_by_message: std::sync::Mutex::new(HashSet::new()),
+            plans_closed: std::sync::Mutex::new(HashSet::new()),
             approvals: std::sync::Mutex::new(BTreeMap::new()),
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),

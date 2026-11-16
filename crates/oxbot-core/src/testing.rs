@@ -124,6 +124,7 @@ pub struct Plan {
 
 /// A bot that asks first, then says what oxbot answered. See the module.
 #[derive(Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct FakeBots {
     /// The tool for every message, unless [`FakeBots::tools`] names one.
     pub tool: Option<Tool>,
@@ -143,6 +144,8 @@ pub struct FakeBots {
     pub read_file: bool,
     /// Call `plan_task` with these arguments before anything else.
     pub plan_task: Option<Value>,
+    /// Call `plan_task` only until it has shown a plan once.
+    pub plan_once: bool,
     /// `save_report`'s arguments (default: one source, the page it read).
     pub report: Option<Value>,
     /// Where the bots' folders are (for the file it uploads).
@@ -332,7 +335,12 @@ impl FakeBots {
             args,
             say: String::new(),
         };
-        if let Some(args) = &self.plan_task {
+        let planned = self.plan_once
+            && self
+                .heard()
+                .iter()
+                .any(|r| r.contains("can see your plan"));
+        if let Some(args) = self.plan_task.as_ref().filter(|_| !planned) {
             calls.push(call("mcp__oxbot__plan_task", args.clone()));
         }
         if self.read_file {

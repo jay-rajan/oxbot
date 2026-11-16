@@ -84,9 +84,9 @@ const ABOUT_BROWSER: &str = "\nAbout the browser:\n\
 
 /// The plan card before browsing, for bots with the browser.
 const PLAN_FIRST: &str = "- Before your first web visit in a task, call plan_task with the site you'll \
-         start on, the place and your plan in a line or two, and wait for the person's Go. If they \
-         reply with changes, follow them and call plan_task again. Once they say Go, don't ask again \
-         in that task.\n";
+         start on, the place and your plan in a line or two. The person sees it on a card and you \
+         start at once; don't wait for an answer. If they reply with changes, follow them. A plan \
+         holds for their follow-up messages: don't show it again unless oxbot asks for one.\n";
 
 /// What no bot can do through oxbot, in one fixed line every bot gets (the
 /// same bytes for every bot, so it never changes a prompt's start).

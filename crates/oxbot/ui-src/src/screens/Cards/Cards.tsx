@@ -235,17 +235,18 @@ export function Cards() {
       );
     }
     if (a.kind === "plan") {
-      // A bot's plan before it browses: the site, the place and what it
-      // will do. Replying in the chat instead changes the plan.
+      // A bot's plan as it starts browsing: the site, the place and what
+      // it will do. It goes ahead unless the person stops it; replying in
+      // the chat changes the plan.
       return (
-        <Card className="plan" key={key} title={`${who} wants to start on ${a.site}`}>
+        <Card className="plan" key={key} title={`${who} is starting on ${a.site}`}>
           {a.detail ? <div className="where">{`For: ${a.detail}`}</div> : null}
           <p className="plan-text">{a.target}</p>
           <div className="btn-row btns">
-            <Btn label="Go" kind="primary" onClick={() => answer(a.id, "allow_once")} />
-            <Btn label="Not now" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
+            <Btn label="OK" kind="secondary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Stop" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
           </div>
-          <div className="hint">To change the plan, reply in the chat.</div>
+          <div className="hint">It goes ahead unless you stop it. To change the plan, reply in the chat.</div>
         </Card>
       );
     }

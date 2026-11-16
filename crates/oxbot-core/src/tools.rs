@@ -148,10 +148,10 @@ fn tools(set: ToolSet) -> Vec<Value> {
     if set.browser {
         list.push(json!({
             "name": PLAN_TASK_TOOL,
-            "description": "Show the person your plan before your first web visit in a task, and wait for \
-                their Go. oxbot shows a card with the site, the place and the plan. Call it once you know what \
-                the task needs (ask first if something is missing). If the person replies with changes \
-                instead, follow them and call plan_task again.",
+            "description": "Show the person your plan before your first web visit in a task. oxbot shows a \
+                card with the site, the place and the plan, and you start at once: don't wait for an answer. \
+                Call it once you know what the task needs (ask first if something is missing). If the person \
+                replies with changes, follow them.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -474,6 +474,7 @@ fn new_runtime(
         visited,
         meter: super::looped::TurnMeter::default(),
         plan_ok: false,
+        plan_stopped: false,
     };
     match (resume, taint) {
         (Resume::Resume(_), Some(why)) => {

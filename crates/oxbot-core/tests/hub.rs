@@ -2405,9 +2405,10 @@ async fn partial_uploads_left_behind_are_deleted_and_nothing_else() {
     assert!(!again.exists());
 }
 
-/// A hub whose bot "poster" plans first (`plan`: its `plan_task`
-/// arguments, if it calls it), reads the page, then does `tool`; bots
-/// must have the person's Go before they browse.
+/// A hub whose bot "poster" shows its plan first (`plan`: its
+/// `plan_task` arguments, if it calls it; once, until a plan is shown),
+/// reads the page, then does `tool`; bots must show a plan before they
+/// browse.
 async fn planning_hub(
     dir: &Path,
     plan: Option<serde_json::Value>,
@@ -2417,6 +2418,7 @@ async fn planning_hub(
     let all = testing::bots(&bots, &["poster"]);
     let fake = Arc::new(FakeBots {
         plan_task: plan,
+        plan_once: true,
         ..FakeBots::new(&bots, tool)
     });
     let config = HubConfig {
@@ -2429,19 +2431,23 @@ async fn planning_hub(
     (hub, fake)
 }
 
+fn salmon_plan() -> serde_json::Value {
+    serde_json::json!({
+        "site": "walmart.ca", "place": "Toronto, ON", "plan": "Find fresh salmon\nand add 1 lb to the cart."
+    })
+}
+
 #[tokio::test]
-async fn a_bot_browses_only_after_the_person_says_go_to_its_plan() {
+async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
     }
-    let plan = serde_json::json!({
-        "site": "walmart.ca", "place": "Toronto, ON", "plan": "Find fresh salmon\nand add 1 lb to the cart."
-    });
-    let (hub, fake) = planning_hub(tmp.path(), Some(plan), Tool::None).await;
+    let (hub, fake) = planning_hub(tmp.path(), Some(salmon_plan()), Tool::None).await;
     let mut updates = hub.subscribe();
 
-    // Go: the card shows the site, place and plan; then it browses.
+    // The card shows the site, place and plan, and the bot starts without
+    // waiting for an answer.
     hub.send("poster", "get me salmon", Some("Jay"))
         .await
         .unwrap();
@@ -2452,29 +2458,59 @@ async fn a_bot_browses_only_after_the_person_says_go_to_its_plan() {
     assert_eq!(card.detail.as_deref(), Some("Toronto, ON"));
     assert_eq!(card.screenshot, None);
     assert_eq!(card.asker.as_deref(), Some("Jay"));
-    hub.answer(card.id, Answer::AllowOnce);
     let (said, _) = ending(&hub, &mut updates).await;
     assert_eq!(said, "ok");
     assert_eq!(fake.ran(), ["take_snapshot"]);
-    assert!(
-        fake.heard()
-            .iter()
-            .any(|r| r.contains("Go: the person said yes"))
-    );
+    assert!(fake.heard().iter().any(|r| r.contains("can see your plan")));
+    assert!(hub.pending_approvals().is_empty(), "the card goes with its task");
+    assert_eq!(approvals_in(&hub, "poster"), 0, "and isn't a no");
 
-    // A new task needs a new Go. Not now: nothing is opened.
+    // The same person's follow-up browses on the same plan.
     hub.send("poster", "and some lemons", Some("Jay"))
         .await
         .unwrap();
-    let card = next_card(&mut updates).await;
-    assert_eq!(card.kind, ApprovalKind::Plan);
-    hub.answer(card.id, Answer::Deny);
+    let (said, _) = ending(&hub, &mut updates).await;
+    assert_eq!(said, "ok");
+    assert_eq!(fake.ran(), ["take_snapshot", "take_snapshot"]);
+    assert_eq!(hub.pending_approvals(), []);
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn stop_on_a_plan_takes_it_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, fake) = planning_hub(tmp.path(), Some(salmon_plan()), Tool::Post).await;
+    let mut updates = hub.subscribe();
+    hub.send("poster", "post my update", Some("Jay"))
+        .await
+        .unwrap();
+    let plan = next_card(&mut updates).await;
+    assert_eq!(plan.kind, ApprovalKind::Plan);
+    // The bot went ahead: its post waits for its own card.
+    let post = next_card(&mut updates).await;
+    assert_ne!(post.kind, ApprovalKind::Plan);
+    hub.answer(plan.id, Answer::Deny);
+    for _ in 0..100 {
+        if approvals_in(&hub, "poster") > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(approvals_in(&hub, "poster"), 1, "the Stop is in the chat");
+    hub.answer(post.id, Answer::Deny);
     ending(&hub, &mut updates).await;
-    assert_eq!(fake.ran(), ["take_snapshot"], "no browsing without Go");
-    let heard = fake.heard();
-    assert!(heard.iter().any(|r| r.contains("said not now")));
+
+    // A follow-up needs a new plan: the old one was stopped.
+    hub.send("poster", "try again", Some("Jay"))
+        .await
+        .unwrap();
+    ending(&hub, &mut updates).await;
+    assert_eq!(fake.ran(), ["take_snapshot"], "nothing more opened");
     assert!(
-        heard
+        fake.heard()
             .iter()
             .any(|r| r.contains("Not yet: before your first web visit"))
     );

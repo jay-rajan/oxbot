@@ -123,13 +123,19 @@ impl Hub {
 
     /// Denies every open card for `bot` (its turn ended or was cancelled).
     pub(super) fn deny_open_approvals(&self, bot: &BotId) {
-        let ids: Vec<u64> = lock(&self.approvals)
+        let ids: Vec<(u64, bool)> = lock(&self.approvals)
             .iter()
             .filter(|(_, (a, _, _))| a.bot == bot.as_str())
-            .map(|(id, _)| *id)
+            .map(|(id, (a, _, _))| (*id, a.kind == ApprovalKind::Plan))
             .collect();
-        for id in ids {
-            self.answer(id, Answer::Deny);
+        for (id, plan) in ids {
+            // A plan card closed with its task: nobody pressed Stop.
+            if plan {
+                lock(&self.plans_closed).insert(id);
+            }
+            if !self.answer(id, Answer::Deny) && plan {
+                lock(&self.plans_closed).remove(&id);
+            }
         }
     }
 
@@ -561,6 +567,50 @@ impl Hub {
         page: Option<(String, String)>,
     ) -> Result<(Outcome, u64), HubError> {
         let bot_id = &bot.id;
+        let (id, rx) = self.open_card(bot, ask, page).await;
+        let _ = self.updates.send(ServerMsg::Activity {
+            bot: bot_id.to_string(),
+            text: "Waiting for your OK…".to_owned(),
+        });
+        tracing::info!(bot = %bot_id, kind = ?ask.kind, "asking the user");
+        // A schedule's run waits here: its person hears it needs them.
+        self.scheduled_run_waiting(bot_id, "is waiting for your OK");
+
+        let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
+            Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
+            Ok(Ok(Answer::AlwaysAllow)) => Outcome::AllowedAlways,
+            Ok(Ok(Answer::Deny) | Err(_)) => Outcome::Denied,
+            Err(_) => {
+                self.answer(id, Answer::Deny);
+                Outcome::TimedOut
+            }
+        };
+        // Deleting a bot says no to its cards; by the time this one wakes,
+        // the bot and its history may be gone. Nothing to add it to then.
+        if self.bot(bot_id.as_str()).is_err() {
+            return Ok((outcome, id));
+        }
+        self.record(
+            bot_id,
+            EventKind::Approval {
+                action: ask.action.clone(),
+                target: ask.target.clone(),
+                site: ask.site.clone(),
+                outcome,
+            },
+        )?;
+        Ok((outcome, id))
+    }
+
+    /// Shows `bot`'s card `ask` to the people who may answer it, without
+    /// waiting: its id, and where the answer comes.
+    pub(super) async fn open_card(
+        &self,
+        bot: &Bot,
+        ask: &policy::Ask,
+        page: Option<(String, String)>,
+    ) -> (u64, oneshot::Receiver<Answer>) {
+        let bot_id = &bot.id;
         let screenshot = match self.browser_of(bot) {
             // A new bot, a task for another bot or a schedule has nothing
             // to do with the page on screen.
@@ -629,38 +679,7 @@ impl Hub {
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
         let _ = self.updates.send(ServerMsg::ApprovalNeeded(approval));
-        let _ = self.updates.send(ServerMsg::Activity {
-            bot: bot_id.to_string(),
-            text: "Waiting for your OK…".to_owned(),
-        });
-        tracing::info!(bot = %bot_id, kind = ?ask.kind, "asking the user");
-        // A schedule's run waits here: its person hears it needs them.
-        self.scheduled_run_waiting(bot_id, "is waiting for your OK");
-
-        let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
-            Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
-            Ok(Ok(Answer::AlwaysAllow)) => Outcome::AllowedAlways,
-            Ok(Ok(Answer::Deny) | Err(_)) => Outcome::Denied,
-            Err(_) => {
-                self.answer(id, Answer::Deny);
-                Outcome::TimedOut
-            }
-        };
-        // Deleting a bot says no to its cards; by the time this one wakes,
-        // the bot and its history may be gone. Nothing to add it to then.
-        if self.bot(bot_id.as_str()).is_err() {
-            return Ok((outcome, id));
-        }
-        self.record(
-            bot_id,
-            EventKind::Approval {
-                action: ask.action.clone(),
-                target: ask.target.clone(),
-                site: ask.site.clone(),
-                outcome,
-            },
-        )?;
-        Ok((outcome, id))
+        (id, rx)
     }
 }
 

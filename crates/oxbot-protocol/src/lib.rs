@@ -1669,10 +1669,11 @@ pub enum ApprovalKind {
     /// with no internet: Yes, Always for this bot, or No. The program is
     /// [`Approval::detail`].
     Script,
-    /// A bot's plan before its first web visit in a task: the site
+    /// A bot's plan as it starts its first web visit in a task: the site
     /// ([`Approval::site`]), the plan ([`Approval::target`]) and the place
-    /// it's for ([`Approval::detail`]). Go, or Not now; a reply in the chat
-    /// instead changes the plan.
+    /// it's for ([`Approval::detail`]). A notice: the bot goes ahead
+    /// unless the person presses Stop (a deny); a reply in the chat
+    /// changes the plan.
     Plan,
     /// A bot wants to save the home's area (`Toronto, ON`, in
     /// [`Approval::target`]) for every bot in the home. Only the owner
