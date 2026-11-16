@@ -286,6 +286,21 @@ impl Hub {
         let Some(step) = super::pace::Step::of(tool) else {
             return;
         };
+        // read_sites loads several sites at once: each keeps its pace
+        // (waiting until each may be visited, so in all about as long as
+        // the longest wait).
+        if let Some(urls) = input.get("urls").and_then(Value::as_array) {
+            let sites: std::collections::BTreeSet<String> = urls
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(oxbot_browser::web_host)
+                .map(|h| oxbot_browser::site_of(&h))
+                .collect();
+            for site in &sites {
+                self.pacer.wait(site, step, self.config.pace).await;
+            }
+            return;
+        }
         let target = match step {
             super::pace::Step::Load => input.get("url").and_then(Value::as_str),
             super::pace::Step::Act => page_url,

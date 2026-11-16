@@ -22,6 +22,12 @@ export const tools = [
     { url: text },
     ["url"],
   ),
+  spec(
+    "read_sites",
+    "Read up to 5 different sites side by side, each in its own tab, at once: each site's title, text and links. For when a search found several sites to compare. It only reads (nothing is clicked); open the one you pick with new_page.",
+    { urls: { type: "array", items: text, minItems: 1, maxItems: 5 } },
+    ["urls"],
+  ),
   spec("list_pages", "List open pages."),
   spec("select_page", "Select a page.", { pageId: integer }, ["pageId"]),
   spec("close_page", "Close a page.", { pageId: integer }, ["pageId"]),

@@ -587,6 +587,26 @@ impl Camoufox {
         } else {
             None
         };
+        // read_sites loads several sites at once: each waits its turn (in
+        // the sites' order, so two calls can't hold each other up).
+        let mut guards = Vec::new();
+        if name == "read_sites" {
+            let sites: std::collections::BTreeSet<String> = body["args"]["urls"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter_map(crate::web_host)
+                .map(|host| crate::site_of(&host))
+                .collect();
+            for site in sites {
+                guards.push(
+                    self.courtesy
+                        .turn(&site, Duration::from_secs(8), &cancel)
+                        .await?,
+                );
+            }
+        }
         if self.paused.load(Ordering::SeqCst) {
             return Err("You are using the browser; automation is paused".into());
         }
@@ -595,7 +615,7 @@ impl Camoufox {
             .ok_or("The browser stopped")?
             .call("tool", body, Some(&cancel))
             .await;
-        if let Some(guard) = &mut guard {
+        for guard in guards.iter_mut().chain(guard.as_mut()) {
             **guard = Some(Instant::now());
         }
         result

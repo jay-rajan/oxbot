@@ -32,6 +32,12 @@ const toggles = new Set(["checkbox", "radio", "switch", "menuitemcheckbox", "men
 /// The longest the page may take to settle after a click or key press,
 /// for its network and then for its content.
 const SETTLE_MS = 2000;
+/// read_sites: the most sites at once, and how much of each comes back.
+const MAX_SITES = 5;
+const MAX_SITE_TEXT = 4000;
+const MAX_SITE_LINKS = 30;
+/// A site as one name: its host without "www.".
+const siteName = (host) => host.toLowerCase().replace(/^www\./, "");
 const clean = (value) =>
   String(value ?? "")
     .replace(/[\r\n\u2028\u2029]/g, " ")
@@ -222,8 +228,7 @@ export class Adapter {
   // network quiet, then its content unchanged for 3/4 of a second (a
   // booking calendar fills in after the click). At most SETTLE_MS each,
   // so a busy page still answers.
-  async settle() {
-    const page = this.pages.get(this.active);
+  async settle(page = this.pages.get(this.active)) {
     if (!page || page.isClosed()) return;
     const loading = this.loading.get(page) ?? new Set();
     // Pages that never stop loading (ads, live chat) still answer.
@@ -367,6 +372,23 @@ export class Adapter {
         await next.goto(url.href, { waitUntil: "domcontentloaded" });
         break;
       }
+      case "read_sites": {
+        const urls = Array.isArray(args.urls) ? args.urls : [];
+        if (!urls.length || urls.length > MAX_SITES)
+          throw new Error(`Give 1 to ${MAX_SITES} addresses`);
+        const parsed = urls.map((u) => new URL(String(u)));
+        if (parsed.some((u) => !["http:", "https:"].includes(u.protocol)))
+          throw new Error("Only web URLs are allowed");
+        const sites = new Set(parsed.map((u) => siteName(u.hostname)));
+        if (sites.size < parsed.length)
+          throw new Error(
+            "Give each site once: read_sites reads different sites side by side. Open more pages of one site one at a time.",
+          );
+        const read = await Promise.all(parsed.map((url) => this.readSite(url)));
+        return {
+          text: `${await this.pagesText()}\n## ${read.length} sites, read side by side (their tabs are closed; open the one you want with new_page)\n\n${read.join("\n\n")}`,
+        };
+      }
       case "select_page":
         if (!this.pages.has(args.pageId)) throw new Error("No such page");
         this.active = args.pageId;
@@ -478,6 +500,50 @@ export class Adapter {
       : "";
     this.resetNote = false;
     return { text: prefix + result };
+  }
+  // One site of read_sites, in a tab of its own: loaded, settled, read
+  // (its title, text and links), and closed. A site that fails says why.
+  async readSite(url) {
+    let page;
+    try {
+      page = await this.runtime.newPage();
+      this.track(page);
+      await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: 20000 });
+      await this.settle(page);
+      const got = await page.evaluate(
+        ([maxText, maxLinks]) => {
+          const text = (document.body?.innerText ?? "")
+            .split("\n")
+            .map((line) => line.replace(/\s+/g, " ").trim())
+            .filter(Boolean)
+            .join("\n");
+          const links = [];
+          const seen = new Set();
+          for (const a of document.querySelectorAll("a[href]")) {
+            const name = (a.innerText || a.getAttribute("aria-label") || "")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (!name || !/^https?:/.test(a.href) || seen.has(a.href)) continue;
+            seen.add(a.href);
+            links.push(`- ${name.slice(0, 80)}: ${a.href}`);
+            if (links.length >= maxLinks) break;
+          }
+          return {
+            title: document.title,
+            url: location.href,
+            text: text.length > maxText ? `${text.slice(0, maxText)}…` : text,
+            links,
+          };
+        },
+        [MAX_SITE_TEXT, MAX_SITE_LINKS],
+      );
+      const links = got.links.length ? `\nLinks:\n${got.links.join("\n")}` : "";
+      return `### ${clean(got.title)} (${clean(got.url)})\n${got.text}${links}`;
+    } catch (error) {
+      return `### ${clean(url.href)}\nCouldn't read it: ${clean(error?.message ?? error)}`;
+    } finally {
+      await page?.close().catch(() => {});
+    }
   }
   // A bot keeps at most MAX_PAGES tabs: the oldest it isn't on closes
   // (page ids grow, so the smallest are the oldest).

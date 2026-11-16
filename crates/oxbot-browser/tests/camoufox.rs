@@ -30,6 +30,20 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
     let html = r#"<!doctype html><title>Native local shop</title><label>Product <input type="search"></label><button onclick="fetch('/cart',{method:'POST'}).then(()=>document.querySelector('p').textContent='Added once')">Add milk</button><p>Ready</p><button onclick="const t=document.querySelector('#times');t.textContent='Loading';fetch('/times').then(r=>r.text()).then(x=>t.textContent=x)">Show times</button><div id="times"></div>"#;
     let router = Router::new()
         .route("/", get(move || async move { Html(html) }))
+        // Two clinics on sites of their own, for read_sites.
+        .route(
+            "/a",
+            get(|| async {
+                Html("<!doctype html><title>Clinic A</title><h1>Massage at A</h1><a href='/a/book'>Book massage</a>")
+            }),
+        )
+        .route(
+            "/b",
+            get(|| async {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                Html("<!doctype html><title>Clinic B</title><p>Physio only</p>")
+            }),
+        )
         // Times come a moment after the click, as a booking site's do.
         .route(
             "/times",
@@ -133,6 +147,44 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
         .await
         .unwrap();
     assert!(clicked.get("error").is_none(), "{clicked}");
+    // Different sites, read side by side in tabs of their own.
+    let read = send(
+        "read_sites",
+        json!({"urls": ["http://clinic-a.example.test/a", "http://clinic-b.example.test/b"]}),
+    )
+    .await
+    .unwrap()
+    .json::<Value>()
+    .await
+    .unwrap();
+    let text = read["text"].as_str().unwrap_or_default();
+    assert!(text.contains("2 sites, read side by side"), "{read}");
+    assert!(
+        text.contains("### Clinic A (http://clinic-a.example.test/a)"),
+        "{read}"
+    );
+    assert!(text.contains("Massage at A"), "{read}");
+    assert!(
+        text.contains("- Book massage: http://clinic-a.example.test/a/book"),
+        "{read}"
+    );
+    assert!(
+        text.contains("### Clinic B") && text.contains("Physio only"),
+        "{read}"
+    );
+    let same = send(
+        "read_sites",
+        json!({"urls": ["http://clinic-a.example.test/a", "http://www.clinic-a.example.test/b"]}),
+    )
+    .await
+    .unwrap()
+    .json::<Value>()
+    .await
+    .unwrap();
+    assert!(
+        same.to_string().contains("Give each site once"),
+        "one site's pages go one at a time: {same}"
+    );
     // A click's page is read once it has settled: what the site fills in
     // just after (a booking calendar) is there.
     let shown = send("click", json!({"uid":times}))

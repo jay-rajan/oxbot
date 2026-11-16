@@ -410,9 +410,10 @@ pub fn script_ask(bot_name: &str, program: &str) -> Ask {
 /// The browser tools oxbot offers models (their own names). None
 /// is one [`decide`] always refuses; scripts, network and console tools
 /// are left out, and fewer tools help small models.
-pub const LOOP_BROWSER_TOOLS: [&str; 17] = [
+pub const LOOP_BROWSER_TOOLS: [&str; 18] = [
     "navigate_page",
     "new_page",
+    "read_sites",
     "list_pages",
     "select_page",
     "close_page",
@@ -604,6 +605,7 @@ pub fn decide(
                 ))
             }
         }
+        "read_sites" => read_sites(input),
         "upload_file" => {
             if let Some(path) = file_paths(input)
                 .into_iter()
@@ -628,6 +630,46 @@ pub fn decide(
             "The browser tool {other} isn't available to oxbot bots."
         )),
     }
+}
+
+/// The most sites one `read_sites` call reads.
+pub const MAX_READ_SITES: usize = 5;
+
+/// `read_sites`: up to [`MAX_READ_SITES`] web pages on different sites,
+/// read side by side. Each is a visit like `new_page`'s; nothing is
+/// clicked or sent.
+fn read_sites(input: &Value) -> Verdict {
+    let urls: Vec<&str> = input
+        .get("urls")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if urls.is_empty() || urls.len() > MAX_READ_SITES {
+        return Verdict::Deny(format!(
+            "read_sites takes 1 to {MAX_READ_SITES} web addresses, on different sites."
+        ));
+    }
+    let mut sites = std::collections::HashSet::new();
+    for url in urls {
+        if is_home_network(url) {
+            return Verdict::Deny(format!(
+                "oxbot doesn't open pages on the home computer or the home network ({url}), only on the web."
+            ));
+        }
+        let Some(host) = web_host(url) else {
+            return Verdict::Deny(format!(
+                "oxbot only opens web pages (http or https), not {url:?}."
+            ));
+        };
+        if !sites.insert(oxbot_browser::site_of(&host)) {
+            return Verdict::Deny(
+                "read_sites reads different sites side by side: give each site once, and open \
+                 more pages of one site one at a time."
+                    .to_owned(),
+            );
+        }
+    }
+    Verdict::Allow
 }
 
 /// Clicking and typing: free, unless it changes something (a card) or
@@ -2182,7 +2224,8 @@ mod tests {
     fn the_loop_never_lists_a_tool_policy_always_refuses() {
         for tool in LOOP_BROWSER_TOOLS {
             let input = json!({"uid": "9", "url": "https://example.com/", "type": "url",
-                "key": "a", "value": "x", "text": "x", "elements": []});
+                "key": "a", "value": "x", "text": "x", "elements": [],
+                "urls": ["https://example.com/"]});
             let verdict = decide(
                 &format!("mcp__chrome-devtools__{tool}"),
                 &input,
@@ -3589,6 +3632,44 @@ mod tests {
             ),
         ] {
             assert_eq!(rule_of(&verdict), None, "{verdict:?}");
+        }
+    }
+
+    #[test]
+    fn read_sites_reads_up_to_five_different_web_sites() {
+        let read = |urls: &[&str]| {
+            decide(
+                "mcp__chrome-devtools__read_sites",
+                &json!({ "urls": urls }),
+                ctx(),
+                no_names,
+            )
+        };
+        assert!(matches!(
+            read(&[
+                "https://a.example.com/",
+                "https://www.b.example.org/x",
+                "https://c.ca/"
+            ]),
+            Verdict::Allow
+        ));
+        for (urls, why) in [
+            (vec![], "1 to 5"),
+            (vec!["https://a.com/"; 6], "1 to 5"),
+            (
+                vec!["https://shop.com/a", "https://www.shop.com/b"],
+                "different sites",
+            ),
+            (
+                vec!["https://a.com/", "file:///etc/hosts"],
+                "only opens web pages",
+            ),
+            (vec!["http://192.168.1.1/"], "home network"),
+        ] {
+            match read(&urls) {
+                Verdict::Deny(no) => assert!(no.contains(why), "{urls:?}: {no}"),
+                other => panic!("{urls:?}: {other:?}"),
+            }
         }
     }
 
