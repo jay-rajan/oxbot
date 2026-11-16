@@ -161,6 +161,24 @@ impl Hub {
         lock(&self.browsers).values().cloned().collect()
     }
 
+    /// Runs `id`'s browser hidden (no window) or as a window, from its next
+    /// turn on. A sign-in or robot check still brings it forward.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it or its file can't be written.
+    pub async fn set_browser_hidden(
+        &self,
+        id: &str,
+        hidden: bool,
+        viewer: &crate::Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
+        let bot = self.bot_to_manage(id, viewer)?;
+        self.update_bot(&bot.id, |b| b.browser_hidden = hidden)?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
     /// Gives `bot` its browser for the rest of its turn, waiting if another
     /// bot on the same browser has it. Returns `false` if the bot's turn
     /// ended while it waited.
@@ -192,6 +210,18 @@ impl Hub {
             });
             Arc::clone(&shared.lease).lock_owned().await
         };
+        // Hidden or as a window, as this bot asks. Switching starts the
+        // browser over: its tabs are gone, as after another bot.
+        shared
+            .browser
+            .set_hidden(self.bot(bot.as_str()).is_ok_and(|b| b.browser_hidden));
+        let restarted = match shared.browser.use_mode().await {
+            Ok(restarted) => restarted,
+            Err(err) => {
+                tracing::warn!(%err, "couldn't start the browser");
+                false
+            }
+        };
         {
             let mut runtimes = self.runtimes.lock().await;
             let Some(runtime) = runtimes.get_mut(bot).filter(|r| r.busy) else {
@@ -200,7 +230,7 @@ impl Hub {
             runtime.lease = Some(guard);
             let previous = lock(&shared.last).replace(bot.clone());
             // Another bot used the browser since: what this bot read is stale.
-            if previous.as_ref().is_some_and(|p| p != bot) {
+            if restarted || previous.as_ref().is_some_and(|p| p != bot) {
                 runtime.page = None;
                 runtime.elements.clear();
             }

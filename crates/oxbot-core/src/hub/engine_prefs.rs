@@ -505,4 +505,26 @@ mod tests {
         hub.set_bot_daily_limit("scout", None, &jay).await.unwrap();
         assert_eq!(hub.bot("scout").unwrap().loop_settings.daily_requests, None);
     }
+
+    #[tokio::test]
+    async fn a_bot_can_browse_with_its_browser_hidden() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = hub(tmp.path());
+        let jay = hub.home_computer_viewer("Jay");
+        hub.set_browser_hidden("scout", true, &jay).await.unwrap();
+        assert!(hub.bot("scout").unwrap().browser_hidden);
+        let listed = hub.bots().await.unwrap();
+        assert!(listed.iter().any(|b| b.id == "scout" && b.browser_hidden));
+        // Its own instructions say what a robot check means now.
+        let prompt = crate::prompt::system_prompt(
+            &hub.bot("scout").unwrap(),
+            crate::prompt::Capabilities { browser: true },
+        );
+        assert!(prompt.contains("Your browser runs hidden"), "{prompt}");
+        let ann = hub.person_named("Ann").unwrap();
+        let ann = Viewer::person(ann.id, "Ann", false);
+        assert!(hub.set_browser_hidden("scout", false, &ann).await.is_err());
+        hub.set_browser_hidden("scout", false, &jay).await.unwrap();
+        assert!(!hub.bot("scout").unwrap().browser_hidden);
+    }
 }

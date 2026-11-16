@@ -83,6 +83,10 @@ instructions: string,
  */
 daily_requests: number | null, 
 /**
+ * Whether its browser runs hidden (see [`ClientMsg::SetBrowserHidden`]).
+ */
+browser_hidden: boolean, 
+/**
  * Who it's shared with ([`BotInfo::private`] is anything but
  * everyone).
  */

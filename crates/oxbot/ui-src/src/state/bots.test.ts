@@ -23,6 +23,7 @@ function bot(id: string, name = id): BotInfo {
     can_task: true,
     instructions: "",
     daily_requests: null,
+    browser_hidden: false,
     sharing: "everyone",
     members: [],
   };

@@ -161,6 +161,29 @@ impl Courtesy {
     }
 }
 
+/// The browser helper's command: hidden or as a window, on `profile`.
+fn helper(tool: &CamoufoxTool, hidden: bool, profile: &Path, env: &[(String, String)]) -> Command {
+    let mut command = Command::new(&tool.node);
+    command
+        .arg(tool.bundle.join("service.mjs"))
+        .arg("--bundle")
+        .arg(&tool.bundle)
+        .arg("--profile")
+        .arg(profile)
+        .arg("--headless")
+        .arg(hidden.to_string());
+    if let Some(proxy) = &tool.proxy {
+        command.arg("--proxy").arg(proxy);
+    }
+    command
+        .envs(env.iter().map(|(k, v)| (k, v)))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    command
+}
+
 /// The helper's own errors (a refused profile, a crash) go to the log.
 fn log_errors(child: &mut Child) {
     if let Some(errors) = child.stderr.take() {
@@ -181,34 +204,23 @@ struct Rpc {
     next: AtomicU64,
     alive: AtomicBool,
     one: Mutex<()>,
+    /// Started without a window.
+    hidden: bool,
+    /// Being replaced by a new run (to change mode): its end mustn't mark
+    /// the browser off.
+    retired: AtomicBool,
 }
 impl Rpc {
     async fn start(
         tool: &CamoufoxTool,
+        hidden: bool,
         profile: &Path,
         env: &[(String, String)],
         status: watch::Sender<BrowserStatus>,
         feed: Feed,
         paused: Arc<AtomicBool>,
     ) -> Result<Arc<Self>, String> {
-        let mut command = Command::new(&tool.node);
-        command
-            .arg(tool.bundle.join("service.mjs"))
-            .arg("--bundle")
-            .arg(&tool.bundle)
-            .arg("--profile")
-            .arg(profile)
-            .arg("--headless")
-            .arg(tool.headless.to_string());
-        if let Some(proxy) = &tool.proxy {
-            command.arg("--proxy").arg(proxy);
-        }
-        let mut child = command
-            .envs(env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
+        let mut child = helper(tool, hidden, profile, env)
             .spawn()
             .map_err(|e| format!("Could not start Camoufox: {e}"))?;
         log_errors(&mut child);
@@ -233,6 +245,8 @@ impl Rpc {
             next: AtomicU64::new(1),
             alive: AtomicBool::new(true),
             one: Mutex::new(()),
+            hidden,
+            retired: AtomicBool::new(false),
         });
         tokio::spawn(async move {
             while let Some(line) = incoming.recv().await {
@@ -247,7 +261,7 @@ impl Rpc {
                 let Ok(value) = serde_json::from_str::<Value>(&line) else {
                     break;
                 };
-                if value["event"] == "closed" {
+                if value["event"] == "closed" && !reader.retired.load(Ordering::SeqCst) {
                     status.send_replace(BrowserStatus::Off);
                 }
                 if value["event"] == "net" {
@@ -277,7 +291,9 @@ impl Rpc {
             reader.alive.store(false, Ordering::SeqCst);
             reader.reap().await;
             feed_lock(&feed).end_all();
-            status.send_replace(BrowserStatus::Off);
+            if !reader.retired.load(Ordering::SeqCst) {
+                status.send_replace(BrowserStatus::Off);
+            }
             for (_, reply) in reader
                 .pending
                 .lock()
@@ -391,6 +407,8 @@ pub(crate) struct Camoufox {
     rpc: StdMutex<Option<Arc<Rpc>>>,
     start: Mutex<()>,
     paused: Arc<AtomicBool>,
+    /// Runs without a window (the bot using it asked for that).
+    hidden: AtomicBool,
     stopping: AtomicBool,
     courtesy: Arc<Courtesy>,
     requests: Mutex<HashMap<String, CancellationToken>>,
@@ -429,6 +447,7 @@ impl Camoufox {
             rpc: StdMutex::default(),
             start: Mutex::new(()),
             paused: Arc::new(AtomicBool::new(false)),
+            hidden: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             courtesy,
             requests: Mutex::default(),
@@ -451,74 +470,110 @@ impl Camoufox {
             .clone()
             .filter(|rpc| rpc.alive.load(Ordering::SeqCst))
     }
+    /// Whether a run asked to be hidden (or not) starts without a window:
+    /// a browser made for tests always does.
+    fn runs_hidden(&self, hidden: bool) -> bool {
+        hidden || self.tool.as_ref().is_some_and(|t| t.headless)
+    }
+    /// Whether the browser should run hidden when it next starts.
+    pub(crate) fn set_hidden(&self, hidden: bool) {
+        self.hidden.store(hidden, Ordering::SeqCst);
+    }
+    pub(crate) fn wants_hidden(&self) -> bool {
+        self.hidden.load(Ordering::SeqCst)
+    }
+    /// Starts the browser if it isn't running, in the mode last asked for.
     pub(crate) fn ensure(
         self: &Arc<Self>,
     ) -> futures_util::future::BoxFuture<'_, Result<(), BrowserError>> {
-        Box::pin(async move {
-            if self.stopping.load(Ordering::SeqCst) {
-                return Err(BrowserError::Browser("The browser is stopping".into()));
-            }
-            let tool = match &self.tool {
-                Some(tool) if tool.available() => tool,
-                _ => return Err(BrowserError::Missing),
-            };
-            if self.current().is_some() {
-                return Ok(());
-            }
-            let _start = self.start.lock().await;
-            if self.current().is_some() {
-                return Ok(());
-            }
-            if let Some(listener) = self
-                .listener
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take()
-            {
-                let listener = tokio::net::TcpListener::from_std(listener)
-                    .map_err(|e| BrowserError::Browser(e.to_string()))?;
-                let router = Router::new()
-                    .route(&self.path, post(public_tool))
-                    .layer(DefaultBodyLimit::max(2_000_000))
-                    .with_state(Arc::downgrade(self));
-                let task = tokio::spawn(async move {
-                    let _ = axum::serve(listener, router).await;
-                });
-                *self
-                    .server
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
-            }
-            let rpc = Rpc::start(
-                tool,
-                &self.profile,
-                &self.env,
-                self.status.clone(),
-                Arc::clone(&self.feed),
-                Arc::clone(&self.paused),
-            )
-            .await
-            .map_err(BrowserError::Browser)?;
-            // Ends idle visits while this run of the browser lasts.
-            let ticking = Arc::downgrade(&rpc);
-            let feed = Arc::clone(&self.feed);
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(VISIT_TICK).await;
-                    match ticking.upgrade() {
-                        Some(rpc) if rpc.alive.load(Ordering::SeqCst) => feed_lock(&feed).tick(),
-                        _ => break,
-                    }
-                }
+        Box::pin(async move { self.ensure_as(None).await.map(drop) })
+    }
+    /// Starts the browser, hidden or as a window (`None`: whichever, or the
+    /// mode last asked for if it isn't running). A browser in the other
+    /// mode starts over on the same profile, signed in as before, unless a
+    /// sign-in is open. Returns whether it started over.
+    pub(crate) async fn ensure_as(
+        self: &Arc<Self>,
+        hidden: Option<bool>,
+    ) -> Result<bool, BrowserError> {
+        if self.stopping.load(Ordering::SeqCst) {
+            return Err(BrowserError::Browser("The browser is stopping".into()));
+        }
+        let tool = match &self.tool {
+            Some(tool) if tool.available() => tool,
+            _ => return Err(BrowserError::Missing),
+        };
+        let want = hidden.map(|h| self.runs_hidden(h));
+        let fits =
+            |rpc: &Rpc| want.is_none_or(|w| rpc.hidden == w) || self.paused.load(Ordering::SeqCst);
+        if self.current().is_some_and(|rpc| fits(&rpc)) {
+            return Ok(false);
+        }
+        let _start = self.start.lock().await;
+        let old = self.current();
+        if old.as_ref().is_some_and(|rpc| fits(rpc)) {
+            return Ok(false);
+        }
+        let restarted = old.is_some();
+        if let Some(old) = old {
+            tracing::info!(
+                hidden = !old.hidden,
+                "the browser starts over to change its window"
+            );
+            old.retired.store(true, Ordering::SeqCst);
+            old.stop().await;
+        }
+        if let Some(listener) = self
+            .listener
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            let listener = tokio::net::TcpListener::from_std(listener)
+                .map_err(|e| BrowserError::Browser(e.to_string()))?;
+            let router = Router::new()
+                .route(&self.path, post(public_tool))
+                .layer(DefaultBodyLimit::max(2_000_000))
+                .with_state(Arc::downgrade(self));
+            let task = tokio::spawn(async move {
+                let _ = axum::serve(listener, router).await;
             });
-            self.paused.store(false, Ordering::SeqCst);
             *self
-                .rpc
+                .server
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rpc);
-            self.status.send_replace(BrowserStatus::Ready);
-            Ok(())
-        })
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
+        }
+        let hidden = want.unwrap_or_else(|| self.runs_hidden(self.hidden.load(Ordering::SeqCst)));
+        let rpc = Rpc::start(
+            tool,
+            hidden,
+            &self.profile,
+            &self.env,
+            self.status.clone(),
+            Arc::clone(&self.feed),
+            Arc::clone(&self.paused),
+        )
+        .await
+        .map_err(BrowserError::Browser)?;
+        // Ends idle visits while this run of the browser lasts.
+        let ticking = Arc::downgrade(&rpc);
+        let feed = Arc::clone(&self.feed);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(VISIT_TICK).await;
+                match ticking.upgrade() {
+                    Some(rpc) if rpc.alive.load(Ordering::SeqCst) => feed_lock(&feed).tick(),
+                    _ => break,
+                }
+            }
+        });
+        self.paused.store(false, Ordering::SeqCst);
+        *self
+            .rpc
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rpc);
+        self.status.send_replace(BrowserStatus::Ready);
+        Ok(restarted)
     }
     pub(crate) async fn call(
         self: &Arc<Self>,
@@ -532,7 +587,9 @@ impl Camoufox {
             .await
     }
     pub(crate) async fn open(self: &Arc<Self>, url: &str) -> Result<(), BrowserError> {
-        self.ensure().await?;
+        // A sign-in or robot check needs the person: a hidden browser comes
+        // forward as a window.
+        self.ensure_as(Some(false)).await?;
         self.paused.store(true, Ordering::SeqCst);
         self.status.send_replace(BrowserStatus::SigningIn);
         self.call("open_window", json!({"url":url}))

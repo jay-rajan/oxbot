@@ -230,6 +230,24 @@ impl Browser {
         self.native.ensure().await
     }
 
+    /// Whether the browser runs hidden (no window) for the bot using it
+    /// now. Takes effect at its next start or [`Browser::use_mode`].
+    pub fn set_hidden(&self, hidden: bool) {
+        self.native.set_hidden(hidden);
+    }
+
+    /// Starts the browser in the mode last asked for, starting a running
+    /// one over (signed in as before, its tabs gone) if it's in the other
+    /// mode and no sign-in is open. Returns whether it started over.
+    ///
+    /// # Errors
+    /// Fails if the bundled browser is missing or doesn't start.
+    pub async fn use_mode(&self) -> Result<bool, BrowserError> {
+        self.native
+            .ensure_as(Some(self.native.wants_hidden()))
+            .await
+    }
+
     /// Brings the browser forward at `url` so the user can sign in. Bots'
     /// tools are paused until [`Browser::close_window`].
     ///
@@ -592,7 +610,7 @@ pub fn site_of(host: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ToolsConfig;
+    use crate::{CamoufoxTool, ToolsConfig};
 
     fn spec(root: &Path) -> BrowserSpec {
         BrowserSpec {
@@ -618,6 +636,69 @@ mod tests {
                 .await
                 .is_err()
         );
+        browser.shutdown().await;
+        assert_eq!(*browser.status().borrow(), BrowserStatus::Off);
+    }
+
+    /// A stand-in browser helper (`sh` for Node): it notes whether each
+    /// start was hidden, and answers every call.
+    fn stand_in(root: &Path) -> CamoufoxTool {
+        let bundle = root.join("bundle");
+        std::fs::create_dir_all(&bundle).unwrap();
+        for file in ["bundle.json", "runtime.mjs", "mcp.mjs"] {
+            std::fs::write(bundle.join(file), "").unwrap();
+        }
+        std::fs::write(
+            bundle.join("service.mjs"),
+            r#"echo "$6" >> "$(dirname "$0")/starts"
+echo '{"event":"ready"}'
+while read -r line; do
+  case "$line" in *'"shutdown"'*) exit 0;; esac
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  [ -n "$id" ] && echo "{\"id\":$id,\"result\":true}"
+done
+"#,
+        )
+        .unwrap();
+        CamoufoxTool {
+            node: "/bin/sh".into(),
+            bundle,
+            headless: false,
+            proxy: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_hidden_browser_comes_forward_for_a_sign_in_and_hides_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tool = stand_in(tmp.path());
+        let starts = || std::fs::read_to_string(tool.bundle.join("starts")).unwrap_or_default();
+        let mut config = ToolsConfig::in_home(tmp.path());
+        config.camoufox = Some(tool.clone());
+        let browser = Browser::new(&Tools::new(config), spec(tmp.path())).unwrap();
+        browser.set_hidden(true);
+        browser.ensure_running().await.unwrap();
+        assert!(!browser.use_mode().await.unwrap(), "already hidden");
+        assert_eq!(starts(), "true\n");
+        // A sign-in (or robot check) brings it forward as a window.
+        browser
+            .open_window("https://example.test/login")
+            .await
+            .unwrap();
+        assert_eq!(starts(), "true\nfalse\n");
+        assert_eq!(*browser.status().borrow(), BrowserStatus::SigningIn);
+        // Never hidden away mid sign-in.
+        assert!(!browser.use_mode().await.unwrap());
+        browser.close_window().await;
+        // The next turn hides it again; the run it replaced doesn't mark it off.
+        assert!(browser.use_mode().await.unwrap());
+        assert_eq!(starts(), "true\nfalse\ntrue\n");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(*browser.status().borrow(), BrowserStatus::Ready);
+        // A bot that browses with a window gets one.
+        browser.set_hidden(false);
+        assert!(browser.use_mode().await.unwrap());
+        assert_eq!(starts(), "true\nfalse\ntrue\nfalse\n");
         browser.shutdown().await;
         assert_eq!(*browser.status().borrow(), BrowserStatus::Off);
     }

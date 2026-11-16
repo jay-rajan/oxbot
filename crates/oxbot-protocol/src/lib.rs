@@ -240,6 +240,15 @@ pub enum ClientMsg {
         #[serde(default)]
         daily_requests: Option<u32>,
     },
+    /// Run a bot's browser hidden (no window) or as a window. A sign-in or
+    /// robot check brings a hidden browser forward. Its maker or the home
+    /// computer only.
+    SetBrowserHidden {
+        /// Bot id.
+        bot: String,
+        /// Hidden or not.
+        hidden: bool,
+    },
     /// Make a bot private (only its creator and the home computer see it, and it
     /// uses its creator's own browser) or shared. Its creator or the home computer
     /// only.
@@ -2037,6 +2046,9 @@ pub struct BotInfo {
     /// The bot's own cap on model requests a day, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_requests: Option<u32>,
+    /// Whether its browser runs hidden (see [`ClientMsg::SetBrowserHidden`]).
+    #[serde(default)]
+    pub browser_hidden: bool,
     /// Who it's shared with ([`BotInfo::private`] is anything but
     /// everyone).
     #[serde(default)]
@@ -2419,6 +2431,16 @@ mod tests {
             ClientMsg::SetBotDailyLimit {
                 bot: "a".into(),
                 daily_requests: None
+            }
+        );
+        let hidden: ClientMsg =
+            serde_json::from_str(r#"{"type":"set_browser_hidden","bot":"a","hidden":true}"#)
+                .unwrap();
+        assert_eq!(
+            hidden,
+            ClientMsg::SetBrowserHidden {
+                bot: "a".into(),
+                hidden: true
             }
         );
         let meter = serde_json::to_string(&ServerMsg::Meter {

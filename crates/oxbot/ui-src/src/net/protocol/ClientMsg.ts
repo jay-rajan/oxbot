@@ -154,7 +154,15 @@ bot: string,
 /**
  * Requests a day; `None` for the household's default.
  */
-daily_requests: number | null, } | { "type": "set_private", 
+daily_requests: number | null, } | { "type": "set_browser_hidden", 
+/**
+ * Bot id.
+ */
+bot: string, 
+/**
+ * Hidden or not.
+ */
+hidden: boolean, } | { "type": "set_private", 
 /**
  * Bot id.
  */
