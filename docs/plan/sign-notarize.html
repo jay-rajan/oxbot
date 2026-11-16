@@ -1,0 +1,87 @@
+<title>oxbot Signed Release</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45;--acc:#2a5bd7}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--acc:#7da2ff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--acc:#7da2ff;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:30px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+ol,ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;max-width:78ch}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:620px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+.ok{color:var(--ok);font-weight:600}
+figure{margin:0;display:flex;flex-direction:column;gap:8px}figcaption{font-size:13px;color:var(--mut)}
+svg{max-width:100%;height:auto}
+.q{border-left:3px solid var(--acc);padding:10px 14px;background:var(--soft);border-radius:0 8px 8px 0;display:flex;flex-direction:column;gap:6px}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · scripts/make-dmg.sh · Nov 10, 2026</div>
+<h1>Sign and notarize the Mac .dmg with your Developer ID</h1>
+<p class="mut">A Mac that downloads oxbot opens it with no "unidentified developer" warning and no trip to Privacy &amp; Security. One script, one command: <code>sh scripts/make-dmg.sh arm64</code>.</p>
+</header>
+
+<section>
+<h2>Ready on this Mac</h2>
+<div class="scroll"><table>
+<tr><th>Piece</th><th>State</th></tr>
+<tr><td>Developer ID Application: Jayadev Rajan (3P46AD5J2K)</td><td class="ok">In the Keychain, backed up to Drive</td></tr>
+<tr><td>Notary profile <code>oxbot</code></td><td class="ok">Saved, Apple answers</td></tr>
+<tr><td>Codex, ripgrep, zsh (OpenAI) and Node.js (Node.js Foundation)</td><td class="ok">Already Developer ID, hardened, timestamped: Apple accepts them as they are</td></tr>
+<tr><td>oxbot itself and the Mac helper</td><td>Signed today with a throwaway signature → switch to yours</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>What the script will do</h2>
+<figure>
+<svg viewBox="0 0 860 120" role="img" aria-label="Build, sign inside-out, make the dmg, sign it, notarize, staple, check, then checksum">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g fill="none" stroke="currentColor" stroke-width="1.3">
+<rect x="4" y="30" width="110" height="52" rx="8"/><rect x="136" y="30" width="130" height="52" rx="8"/><rect x="288" y="30" width="110" height="52" rx="8"/><rect x="420" y="30" width="130" height="52" rx="8"/><rect x="572" y="30" width="130" height="52" rx="8"/><rect x="724" y="30" width="130" height="52" rx="8"/>
+<line x1="114" y1="56" x2="134" y2="56" marker-end="url(#a)"/><line x1="266" y1="56" x2="286" y2="56" marker-end="url(#a)"/><line x1="398" y1="56" x2="418" y2="56" marker-end="url(#a)"/><line x1="550" y1="56" x2="570" y2="56" marker-end="url(#a)"/><line x1="702" y1="56" x2="722" y2="56" marker-end="url(#a)"/>
+</g>
+<g fill="currentColor" font-size="12" text-anchor="middle">
+<text x="59" y="53">build</text><text x="59" y="69" fill-opacity=".6">per chip</text>
+<text x="201" y="53">sign inside-out</text><text x="201" y="69" fill-opacity=".6">helper, then app</text>
+<text x="343" y="53">make .dmg</text><text x="343" y="69" fill-opacity=".6">and sign it</text>
+<text x="485" y="53">notarize</text><text x="485" y="69" fill-opacity=".6">Apple, ~2–10 min</text>
+<text x="637" y="53">staple</text><text x="637" y="69" fill-opacity=".6">works offline</text>
+<text x="789" y="53">check + SHA-256</text><text x="789" y="69" fill-opacity=".6">like a new Mac</text>
+</g>
+</svg>
+<figcaption>The checksum moves to the very end: stapling changes the .dmg, so a checksum taken before it would be wrong.</figcaption>
+</figure>
+<ol>
+<li><b>Finds your identity</b> in the Keychain (or <code>OXBOT_SIGN_ID</code>). None found → today's throwaway signature, with a clear note; nothing breaks for builds on other Macs.</li>
+<li><b>Signs with your ID</b> plus Apple's secure timestamp: the Mac helper, then oxbot.app, hardened, microphone only (no new permissions).</li>
+<li><b>Checks every program inside</b> (Codex, Node, ripgrep, zsh, any new one) carries a Developer ID, the hardened runtime and a timestamp. Anything else stops the build with its name, before Apple rejects it.</li>
+<li><b>Signs the .dmg</b>, sends it to Apple with the <code>oxbot</code> profile and waits. A rejection prints Apple's log of what's wrong.</li>
+<li><b>Staples</b> Apple's approval to the .dmg, so it opens without a network check.</li>
+<li><b>Checks like a new Mac</b>: <code>stapler validate</code>, and Gatekeeper (<code>spctl</code>) on both the .dmg and the app inside it.</li>
+<li><b>Writes the SHA-256</b> last, for your download page.</li>
+</ol>
+<p class="mut">Switches: <code>OXBOT_NOTARY_PROFILE</code> (default <code>oxbot</code>); <code>--no-notarize</code> for a quick signed build. No secrets in the repo: only the identity and profile names.</p>
+</section>
+
+<section>
+<h2>Testing</h2>
+<ul>
+<li>Build <b>arm64</b> (your Mac) first, notarize it for real, and run the checks above. Then Intel, if you want both now.</li>
+<li>I don't open the built app: it would use your real oxbot data and clash with the oxbot running on port 7878. You open it once from the .dmg (quit the dev oxbot first) to check it starts, the microphone prompt appears and dictation works.</li>
+<li><code>shellcheck</code> on the script; the release-feature check stays.</li>
+</ul>
+</section>
+
+<section>
+<h2>Decisions</h2>
+<div class="q"><b>1. Chips now:</b> Apple chip only (recommended: faster, your Mac can test it), or Apple chip and Intel?</div>
+<div class="q"><b>2. Sign this session's notarized build into git?</b> No: the .dmg stays in <code>target/</code>, untracked. I stage the script change, never commit, as usual.</div>
+</section>
+</div>

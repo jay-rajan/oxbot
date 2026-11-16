@@ -1,0 +1,17 @@
+{
+  "version": "158.0.1-beta.41",
+  "source": "https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41",
+  "platform": "darwin",
+  "variants": {
+    "arm64": {
+      "asset": "camoufox-158.0.1-beta.41-mac.arm64.zip",
+      "sha256": "9038f86d666c9780b6fff199d488737b8596c01f24e3e517845a0ecfb0cf8add"
+    },
+    "x64": {
+      "asset": "camoufox-158.0.1-beta.41-mac.x86_64.zip",
+      "sha256": "1afd6caa1e82caa41a4f56d8519f673e36b0835700b1c9c904e78a84c5711f3a"
+    }
+  },
+  "omit": "Camoufox.app/Contents/Resources/fonts",
+  "executable": "browser/Camoufox.app/Contents/MacOS/camoufox"
+}

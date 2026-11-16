@@ -1,0 +1,101 @@
+<title>oxbot Security Review</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45;--x:#d92f2f;--warn:#a65f00}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;--warn:#f0a020;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;--warn:#f0a020;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:28px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:20px;margin:0}
+p{margin:0;max-width:74ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:720px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:80ch}
+.sev{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:0 8px;white-space:nowrap}
+.c{background:color-mix(in srgb,var(--x) 18%,transparent);color:var(--x)}
+.h{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.m{background:var(--soft);color:var(--mut)}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:12px}
+.tile b{display:block;font-size:24px;font-variant-numeric:tabular-nums}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · security review · Nov 9, 2026 · branch answers → staged in ~/src/oxbot-wt/security (not committed)</div>
+<h1>Whole-app security review: 22 findings fixed, every test passing</h1>
+<p class="mut">Five reviewers covered the server and device connection, what bots can do, secrets and personal data, the page and app shells, and outside code. Each finding was confirmed with a test that failed before the fix.</p>
+</header>
+
+<section class="tiles">
+<div class="tile"><b>6</b>critical / high, fixed</div>
+<div class="tile"><b>16</b>medium / low, fixed</div>
+<div class="tile"><b>77 / 77</b>end-to-end tests pass</div>
+<div class="tile"><b>0</b>failures in ~930 unit and integration tests</div>
+</section>
+
+<section>
+<h2>Critical and high</h2>
+<div class="scroll"><table>
+<tr><th>Was</th><th>Who could exploit it</th><th>Now</th></tr>
+<tr><td><span class="sev c">critical</span> A typed line break, NumpadEnter or Ctrl/⌘+Enter, or Tab then Space onto a Send button, sent messages with no approval request</td><td>A web page tricking a bot</td><td>Keys are judged by what they press. Only plain typing, arrows, Tab, Escape and similar run freely. Space or Enter on a focused button counts as clicking it.</td></tr>
+<tr><td><span class="sev c">critical</span> A bot could relabel buttons in oxbot's list by typing text that looked like a page snapshot, making "Place order" read as "Search"</td><td>A web page tricking a bot</td><td>Labels are learned only from the browser tool's own snapshot, and checked against the live page before a click runs freely.</td></tr>
+<tr><td><span class="sev c">critical</span> Unlisted buttons ran: Authorize (connect an app to your account), Allow, Enable/Disable, privacy switches. Unknown elements ran too.</td><td>A web page tricking a bot</td><td>Access and settings words ask. Granting access never offers Always. Form submits ask unless they only search. Unknown elements ask.</td></tr>
+<tr><td><span class="sev c">critical</span> A symlink inside a bot's folder let files from anywhere on the Mac be uploaded to a website, or opened (possibly run)</td><td>A household member, or a page plus one OK</td><td>Paths must really be inside the folder, and links are refused for uploads and opening. Scripts can't create links. "Open" only opens documents and images, and otherwise shows the file in Finder.</td></tr>
+<tr><td><span class="sev h">high</span> The bots' Chrome listened on an open remote-control port: any program on the Mac could read all cookies and drive your signed-in sites</td><td>Any program or other user on the Mac</td><td>Chrome talks to oxbot over a private pipe, with no port. A token-protected local channel serves only oxbot's browser tool.</td></tr>
+<tr><td><span class="sev h">high</span> The app handed its key to whatever was listening on port 7878, without checking it was oxbot</td><td>Any program or other user on the Mac</td><td>The listener must prove it knows the key (an HMAC challenge) before the key is revealed. Otherwise the app refuses.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>Medium and low</h2>
+<ul>
+<li><span class="sev m">medium</span> "Always allow" for send, post or settings changes no longer applies after a bot has read untrusted text, such as an email or web page.</li>
+<li><span class="sev m">medium</span> "No OK needed" now covers only real cart actions (cart, bag, basket, trolley, quantity, save for later); "Add to list" asks.</li>
+<li><span class="sev m">medium</span> The relay offers the model only oxbot's own tools and blocks calls to anything else, including Codex's patch tool, which has a sandbox bug before 0.149.</li>
+<li><span class="sev m">medium</span> Test and dev switches (<code>OXBOT_E2E</code>, <code>?as=</code>, tool and URL overrides) only work in debug builds; the real app ignores them. <code>?as=</code> can never act as the owner.</li>
+<li><span class="sev m">medium</span> Origin must match oxbot's exact address and port, and every route checks the Host header (against DNS rebinding).</li>
+<li><span class="sev m">medium</span> Page security policy: connections only to oxbot itself, the page can't be framed, no form posting. The phone app's page now has its own policy.</li>
+<li><span class="sev m">medium</span> Device pairing: wrong codes are counted per device on the Wi-Fi, so one device can't kill your code. Connections are capped per device, and the setup check is rate-limited.</li>
+<li><span class="sev m">medium</span> The data folder is private (0700) and the database 0600. Secret files are never written through a link.</li>
+<li><span class="sev m">medium</span> Test hooks on the page exist only in test mode.</li>
+<li><span class="sev m">medium</span> The video helper runs in a sandbox: it reads the one video, writes only its frames, and has no network.</li>
+<li><span class="sev m">medium</span> The Mac app is signed with the hardened runtime, which blocks code injection, and each .dmg gets a SHA-256 file.</li>
+<li><span class="sev m">low</span> A wrong OpenRouter sign-in callback can no longer cancel yours.</li>
+<li><span class="sev m">low</span> The release check catches every test feature, and the build is locked to Cargo.lock. Install scripts are off for npm, and the dev fallback installs the browser tool from the lockfile.</li>
+</ul>
+</section>
+
+<section>
+<h2>Found and fixed during testing</h2>
+<p>Combining the fixes exposed one bug in the Chrome change. oxbot switched off its private channel before asking Chrome to close, so Chrome was force-stopped after 10 seconds. That delayed sign-ins and could lose a fresh sign-in before Chrome saved it. Fixed: oxbot asks Chrome to close first. The full suite was then rerun clean.</p>
+</section>
+
+<section>
+<h2>Held up well</h2>
+<ul>
+<li>No way found to inject malicious script into the page: the Markdown renderer allows only http(s) links, was fuzzed 300,000 times, and draws as React nodes. Reports show in a sandboxed frame.</li>
+<li>The OpenRouter key stays in the Keychain, never reaches logs, the page or child processes, and isn't in the public repo.</li>
+<li>Scripts have no network, and Codex has no shell, a read-only sandbox, and every approval declined. The relay needs a per-process token.</li>
+<li>Device pairing uses one-time codes, per-device keys, a pinned certificate, and private addresses only.</li>
+<li><code>cargo audit</code> and <code>npm audit</code> found nothing reachable in the shipped app.</li>
+</ul>
+</section>
+
+<section>
+<h2>Decisions and follow-ups</h2>
+<ol>
+<li><b>More asking, for safety:</b> Authorize, Enable/Disable, privacy switches and unclear form submits now ask, beyond your money-only rule. Unrecognized buttons ask too.</li>
+<li><b>Always-allow while browsing:</b> for send, post and settings changes, it effectively never applies once a bot has read a page. Save, Like and Archive rules still apply.</li>
+<li><b>Upgrade Codex</b> from 0.148 to current. The relay now blocks the patch tool, but the fix belongs upstream.</li>
+<li><b>Check on real hardware:</b> a real <code>make-dmg</code> (hardened app and dictation), and the phone app with its new page policy.</li>
+<li><b>Release app check:</b> it relied on test switches the real app now ignores, so it needs a small rework.</li>
+<li><b>Still open, lower risk:</b> a deleted bot's files stay in the trash forever. Opening a page isn't checked, so data could leave through an address after reading private pages.</li>
+</ol>
+<p class="note">Everything is staged, not committed, in <code>~/src/oxbot-wt/security</code>: 71 files, +5,229 / −834 lines. Your running oxbot is unchanged until you say to commit, merge and restart.</p>
+</section>
+</div>

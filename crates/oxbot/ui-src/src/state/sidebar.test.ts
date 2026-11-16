@@ -24,6 +24,7 @@ function bot(id: string, more: Partial<BotInfo> = {}): BotInfo {
     can_task: true,
     instructions: "",
     daily_requests: null,
+    browser_hidden: false,
     sharing: "everyone",
     members: [],
     ...more,

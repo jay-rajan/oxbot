@@ -3,4 +3,4 @@
 /**
  * What kind of thing an [`Approval`] is about.
  */
-export type ApprovalKind = "upload" | "change" | "create_bot" | "give_task" | "schedule" | "change_schedule" | "script";
+export type ApprovalKind = "upload" | "change" | "create_bot" | "give_task" | "schedule" | "change_schedule" | "script" | "plan" | "home_area" | "checkpoint";

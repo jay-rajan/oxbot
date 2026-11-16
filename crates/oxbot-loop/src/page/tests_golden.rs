@@ -12,9 +12,10 @@ use super::{FindQuery, Snapshot, est};
 /// One find case: query, roles, near, limit.
 type Case<'a> = (Option<&'a str>, &'a [&'a str], Option<&'a str>, usize);
 
-/// The fixture pages.
-pub(super) const PAGES: [&str; 7] = [
-    "search", "product", "article", "table", "feed", "modal", "form",
+/// The fixture pages. `camoufox-shop` is real output of oxbot's browser
+/// (`scripts/camoufox/snapshot.mjs`), the rest imitate chrome-devtools-mcp.
+pub(super) const PAGES: [&str; 8] = [
+    "search", "product", "article", "table", "feed", "modal", "form", "camoufox-shop",
 ];
 
 fn dir() -> PathBuf {

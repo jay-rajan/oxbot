@@ -19,6 +19,9 @@ pub struct ThreadRow {
     pub created_ms: i64,
     /// When it last changed.
     pub updated_ms: i64,
+    /// A fingerprint of the tools it was started with (empty: unknown,
+    /// from before oxbot kept it, so it starts over like new tools).
+    pub tools: String,
 }
 
 /// The store the Codex engine uses (the hub's database).

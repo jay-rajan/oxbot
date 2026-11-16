@@ -39,6 +39,10 @@ pub const LIST_SCHEDULES_TOOL: &str = "list_schedules";
 pub const PAUSE_SCHEDULE_TOOL: &str = "pause_schedule";
 /// Deletes one of the asker's schedules (after their OK on a card).
 pub const DELETE_SCHEDULE_TOOL: &str = "delete_schedule";
+/// Shows the person a bot's plan before its first web visit in a task.
+pub const PLAN_TASK_TOOL: &str = "plan_task";
+/// Saves the home's area for every bot (after the owner's OK on a card).
+pub const SAVE_HOME_AREA_TOOL: &str = "save_home_area";
 /// Every bot's schedule tools.
 pub const SCHEDULE_TOOLS: &[&str] = &[
     SCHEDULE_TASK_TOOL,
@@ -78,8 +82,9 @@ impl ToolSet {
     #[must_use]
     pub fn has(self, tool: &str) -> bool {
         tool == SIGN_IN_TOOL
+            || tool == SAVE_HOME_AREA_TOOL
             || SCHEDULE_TOOLS.contains(&tool)
-            || (self.browser && tool == SAVE_REPORT_TOOL)
+            || (self.browser && (tool == SAVE_REPORT_TOOL || tool == PLAN_TASK_TOOL))
             || (self.central && CENTRAL_TOOLS.contains(&tool))
     }
 }
@@ -139,7 +144,24 @@ fn tools(set: ToolSet) -> Vec<Value> {
         }
     })];
     list.extend(schedule_schemas(set.central));
+    list.push(home_area_schema());
     if set.browser {
+        list.push(json!({
+            "name": PLAN_TASK_TOOL,
+            "description": "Show the person your plan before your first web visit in a task. oxbot shows a \
+                card with the site, the place and the plan, and you start at once: don't wait for an answer. \
+                Call it once you know what the task needs (ask first if something is missing). If the person \
+                replies with changes, follow them.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "site": { "type": "string", "description": "The site you'll start on, e.g. \"walmart.ca\"." },
+                    "place": { "type": "string", "description": "The place it's for, e.g. \"Toronto, ON\"; empty if it doesn't depend on a place." },
+                    "plan": { "type": "string", "description": "What you'll do, in one or two short lines, e.g. \"Find fresh salmon fillets and add 1 lb to your cart.\"" }
+                },
+                "required": ["site", "plan"]
+            }
+        }));
         list.push(save_report_schema());
     }
     if set.central {
@@ -259,6 +281,24 @@ fn schedule_schemas(central: bool) -> Vec<Value> {
 }
 
 /// `save_report`, as `tools/list` describes it.
+/// `save_home_area`: every bot's.
+fn home_area_schema() -> Value {
+    json!({
+        "name": SAVE_HOME_AREA_TOOL,
+        "description": "Save the home's area (city and region or country, e.g. \"Toronto, ON, Canada\") for \
+            every bot and everyone in the home, when the person told you where they live and the [oxbot] line \
+            has no home area. oxbot asks the home's owner on a card first. Not for a place that's only for \
+            one task.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "area": { "type": "string", "description": "The area, e.g. \"Toronto, ON, Canada\"." }
+            },
+            "required": ["area"]
+        }
+    })
+}
+
 fn save_report_schema() -> Value {
     json!({
         "name": SAVE_REPORT_TOOL,
@@ -302,6 +342,8 @@ fn missing_argument(tool: &str, arguments: &Value) -> Option<&'static str> {
         READ_REPLY_TOOL => &["bot"],
         SAVE_REPORT_TOOL => &["title", "summary", "markdown"],
         SCHEDULE_TASK_TOOL => &["task"],
+        PLAN_TASK_TOOL => &["site", "plan"],
+        SAVE_HOME_AREA_TOOL => &["area"],
         _ => &[],
     };
     required.iter().copied().find(|k| {
@@ -347,19 +389,46 @@ mod tests {
     fn specs_are_the_tools_under_their_full_names() {
         let listed = specs(BOTH);
         assert_eq!(listed.len(), tools(BOTH).len());
-        assert_eq!(listed.len(), 10);
+        assert_eq!(listed.len(), 12);
         assert_eq!(listed[0].name, "mcp__oxbot__request_sign_in");
         assert_eq!(listed[0].parameters, tools(BOTH)[0]["inputSchema"]);
         assert!(listed.iter().any(|s| s.name == full_name(GIVE_TASK_TOOL)));
         let plain: Vec<String> = std::iter::once(SIGN_IN_TOOL)
             .chain(SCHEDULE_TOOLS.iter().copied())
+            .chain([SAVE_HOME_AREA_TOOL])
             .map(full_name)
             .collect();
         assert_eq!(names(PLAIN), plain);
         let central = names(CENTRAL);
-        assert_eq!(central.len(), 9);
+        assert_eq!(central.len(), 10);
         assert!(central.contains(&full_name(CREATE_BOT_TOOL)));
         assert_eq!(full_name(GIVE_TASK_TOOL), "mcp__oxbot__give_task");
+    }
+
+    #[test]
+    fn only_a_bot_with_the_browser_plans_and_every_bot_may_save_the_area() {
+        let plan = json!({"site":"walmart.ca","place":"Toronto, ON","plan":"Find salmon."});
+        assert_eq!(check_call(PLAN_TASK_TOOL, &plan, BROWSING), Ok(()));
+        for set in [PLAIN, CENTRAL] {
+            assert_eq!(
+                check_call(PLAN_TASK_TOOL, &plan, set),
+                Err("unknown tool".into())
+            );
+        }
+        assert_eq!(
+            check_call(PLAN_TASK_TOOL, &json!({"site":"walmart.ca"}), BROWSING),
+            Err("plan_task needs plan".into())
+        );
+        for set in [PLAIN, CENTRAL, BROWSING, BOTH] {
+            assert_eq!(
+                check_call(SAVE_HOME_AREA_TOOL, &json!({"area":"Toronto, ON"}), set),
+                Ok(())
+            );
+        }
+        assert_eq!(
+            check_call(SAVE_HOME_AREA_TOOL, &json!({}), PLAIN),
+            Err("save_home_area needs area".into())
+        );
     }
 
     #[test]
@@ -402,9 +471,10 @@ mod tests {
     #[test]
     fn only_a_bot_with_the_browser_saves_reports() {
         let browsing = names(BROWSING);
-        assert_eq!(browsing.len(), 6);
-        assert_eq!(browsing[5], full_name(SAVE_REPORT_TOOL));
-        let schema = &specs(BROWSING)[5].parameters;
+        assert_eq!(browsing.len(), 8);
+        assert_eq!(browsing[6], full_name(PLAN_TASK_TOOL));
+        assert_eq!(browsing[7], full_name(SAVE_REPORT_TOOL));
+        let schema = &specs(BROWSING)[7].parameters;
         assert_eq!(
             schema["required"],
             json!(["title", "summary", "markdown", "sources"])

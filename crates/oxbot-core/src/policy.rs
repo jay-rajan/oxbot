@@ -18,6 +18,7 @@
 //! | granting access (Authorize, Grant, Allow) | red card, Allow once only |
 //! | filling or tidying a cart (Add to cart, Remove from cart, Save for later, quantity) | run: nothing is spent until the order |
 //! | clicking pay, buy, order, checkout, book, start a trial, delete or another can't-undo button | red card, Allow once only |
+//! | opening a booking: a "Book…"/"Reserve…" link, or a booking button that says it shows times ("View available time slots") | run |
 //! | a change click the user chose "Always allow" for (same bot, exact host, same button) | run, with a quiet line |
 //! | adding to a cart, checking out, ordering, buying, booking, reserving, subscribing or donating ([`account_action`]) on a site the bot's browser isn't signed in to | the sign-in card first (the hub), then as above (a cart runs, the rest ask); cancelled: refuse |
 //! | pressing Enter in a text box (not a search box), or a key other than plain typing, arrows, Tab, Escape, Backspace, Delete, Home, End or Page Up/Down (a shortcut may send) | red card |
@@ -55,8 +56,8 @@ use oxbot_protocol::ApprovalKind;
 use serde_json::Value;
 
 use crate::tools::{
-    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
-    SCHEDULE_TOOLS, SIGN_IN_TOOL,
+    self, CREATE_BOT_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL, PLAN_TASK_TOOL, READ_REPLY_TOOL,
+    SAVE_HOME_AREA_TOOL, SAVE_REPORT_TOOL, SCHEDULE_TOOLS, SIGN_IN_TOOL,
 };
 
 /// oxbot's answer to "may the bot run this?".
@@ -409,9 +410,10 @@ pub fn script_ask(bot_name: &str, program: &str) -> Ask {
 /// The browser tools oxbot offers models (their own names). None
 /// is one [`decide`] always refuses; scripts, network and console tools
 /// are left out, and fewer tools help small models.
-pub const LOOP_BROWSER_TOOLS: [&str; 17] = [
+pub const LOOP_BROWSER_TOOLS: [&str; 18] = [
     "navigate_page",
     "new_page",
+    "read_sites",
     "list_pages",
     "select_page",
     "close_page",
@@ -482,6 +484,9 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         GIVE_TASK_TOOL,
         READ_REPLY_TOOL,
         ASK_USER_TOOL,
+        // These two ask on their own cards (see `Hub::plan_task`).
+        PLAN_TASK_TOOL,
+        SAVE_HOME_AREA_TOOL,
     ];
     // The schedule tools ask the person themselves, on a card that shows
     // the schedule (see `Hub::schedule_task`): none is made without it.
@@ -600,6 +605,7 @@ pub fn decide(
                 ))
             }
         }
+        "read_sites" => read_sites(input),
         "upload_file" => {
             if let Some(path) = file_paths(input)
                 .into_iter()
@@ -615,7 +621,7 @@ pub fn decide(
                 ..Ask::new(
                     ApprovalKind::Upload,
                     "upload a file to",
-                    describe(uid).unwrap_or_else(|| format!("element {uid}")),
+                    describe(uid).unwrap_or_else(|| UNNAMED.to_owned()),
                     site(),
                 )
             })
@@ -625,6 +631,50 @@ pub fn decide(
         )),
     }
 }
+
+/// The most sites one `read_sites` call reads.
+pub const MAX_READ_SITES: usize = 5;
+
+/// `read_sites`: up to [`MAX_READ_SITES`] web pages on different sites,
+/// read side by side. Each is a visit like `new_page`'s; nothing is
+/// clicked or sent.
+fn read_sites(input: &Value) -> Verdict {
+    let urls: Vec<&str> = input
+        .get("urls")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if urls.is_empty() || urls.len() > MAX_READ_SITES {
+        return Verdict::Deny(format!(
+            "read_sites takes 1 to {MAX_READ_SITES} web addresses, on different sites."
+        ));
+    }
+    let mut sites = std::collections::HashSet::new();
+    for url in urls {
+        if is_home_network(url) {
+            return Verdict::Deny(format!(
+                "oxbot doesn't open pages on the home computer or the home network ({url}), only on the web."
+            ));
+        }
+        let Some(host) = web_host(url) else {
+            return Verdict::Deny(format!(
+                "oxbot only opens web pages (http or https), not {url:?}."
+            ));
+        };
+        if !sites.insert(oxbot_browser::site_of(&host)) {
+            return Verdict::Deny(
+                "read_sites reads different sites side by side: give each site once, and open \
+                 more pages of one site one at a time."
+                    .to_owned(),
+            );
+        }
+    }
+    Verdict::Allow
+}
+
+/// What a card says about an element oxbot couldn't name (never its id,
+/// which means nothing to the person).
+const UNNAMED: &str = "an element oxbot couldn't name";
 
 /// Clicking and typing: free, unless it changes something (a card) or
 /// types a secret (refused).
@@ -641,7 +691,7 @@ fn decide_input(
             let uid = str_of(input, "uid");
             let label = describe(uid);
             click_verdict(label.as_deref(), ctx.element, ctx.page_url, change, || {
-                format!("element {uid}")
+                UNNAMED.to_owned()
             })
         }
         "click_at" => {
@@ -837,7 +887,13 @@ fn click_verdict(
         let (role, name) = split_label(label.unwrap_or_default());
         let name = shown_name(name);
         let unclear = matches!(click_words(&name), Words::Soft | Words::Nothing);
-        if click == Click::Change && unclear && element.is_some_and(|e| e.submits) {
+        if name.is_empty() {
+            if role.is_empty() || role == "generic" {
+                UNNAMED.to_owned()
+            } else {
+                format!("an unnamed {role}")
+            }
+        } else if click == Click::Change && unclear && element.is_some_and(|e| e.submits) {
             format!("the form's \"{name}\" button")
         } else if role.is_empty() {
             format!("\"{name}\"")
@@ -1015,6 +1071,14 @@ pub fn classify_at(
     // a click does: only a clear change word counts.
     if TOGGLE_ROLES.contains(&role) && !matches!(words, Words::Final | Words::Hard) {
         return toggle_click(role, name, facts, page_url);
+    }
+    // Opening a booking isn't booking (see [`opens_booking`]): a link
+    // only opens a page, and a button that says it shows times looks
+    // things up. The step that books still asks.
+    if words == Words::Final
+        && let Some(opens) = opens_booking(role, name)
+    {
+        return opens;
     }
     match words {
         Words::Final => return Click::Final,
@@ -1256,6 +1320,53 @@ enum Words {
     Soft,
     /// Nothing telling.
     Nothing,
+}
+
+/// The only can't-undo words a click that opens a booking has.
+const BOOKING_WORDS: &[&str] = &["book", "reserve"];
+
+/// Words on a booking button that say it shows times, not that it books
+/// ("Book an Appointment – View available time slots").
+const SHOWS_TIMES_WORDS: &[&str] = &[
+    "view",
+    "see",
+    "check",
+    "find",
+    "available",
+    "availability",
+    "times",
+    "slots",
+];
+
+/// A click whose only can't-undo word is "book" or "reserve" and that
+/// only opens the booking: a link (a link only opens a page: "Book a free
+/// consultation"), [`Click::Plain`]; a button that says it shows times,
+/// [`Click::Query`]. `None` for anything else, including the step that
+/// books ("Book appointment", "Book now", "Confirm booking").
+fn opens_booking(role: &str, name: &str) -> Option<Click> {
+    let lower = name.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let text = format!(" {} ", words.join(" "));
+    let only_booking = words.iter().any(|w| BOOKING_WORDS.contains(w))
+        && !words
+            .iter()
+            .any(|w| FINAL_WORDS.contains(w) && !BOOKING_WORDS.contains(w))
+        && !FINAL_PHRASES
+            .iter()
+            .any(|p| text.contains(&format!(" {p} ")));
+    if !only_booking {
+        return None;
+    }
+    if role == "link" {
+        return Some(Click::Plain);
+    }
+    if role == "button" && words.iter().any(|w| SHOWS_TIMES_WORDS.contains(w)) {
+        return Some(Click::Query);
+    }
+    None
 }
 
 /// Words on a button that spend money or can't be undone.
@@ -1558,7 +1669,7 @@ const ACCOUNT_ENDS: &[(&str, AccountAction)] = &[
 #[must_use]
 pub fn account_action(label: &str) -> Option<AccountAction> {
     let (role, name) = split_label(label);
-    if matches!(role, "textbox" | "searchbox" | "combobox") {
+    if matches!(role, "textbox" | "searchbox" | "combobox") || opens_booking(role, name).is_some() {
         return None;
     }
     let name = name.to_lowercase();
@@ -2123,7 +2234,8 @@ mod tests {
     fn the_loop_never_lists_a_tool_policy_always_refuses() {
         for tool in LOOP_BROWSER_TOOLS {
             let input = json!({"uid": "9", "url": "https://example.com/", "type": "url",
-                "key": "a", "value": "x", "text": "x", "elements": []});
+                "key": "a", "value": "x", "text": "x", "elements": [],
+                "urls": ["https://example.com/"]});
             let verdict = decide(
                 &format!("mcp__chrome-devtools__{tool}"),
                 &input,
@@ -2543,12 +2655,24 @@ mod tests {
     }
 
     #[test]
+    fn an_element_the_page_names_without_words_runs() {
+        // The hub fills in a label from the page for an element no
+        // snapshot named (see `Hub::check_label_live`).
+        for label in ["button \"\"", "generic \"\"", "img \"\""] {
+            let verdict = decide(&tool("click"), &json!({"uid":"8_9"}), ctx(), |_| {
+                Some(label.to_owned())
+            });
+            assert!(matches!(verdict, Verdict::Allow), "{label}: {verdict:?}");
+        }
+    }
+
+    #[test]
     fn unknown_uid_asks_and_is_never_remembered() {
         let Verdict::Ask(ask) = decide(&tool("click"), &json!({"uid":"8_242"}), ctx(), names)
         else {
             panic!("an element oxbot can't name asks")
         };
-        assert_eq!(ask.target, "element 8_242");
+        assert_eq!(ask.target, "an element oxbot couldn't name");
         assert_eq!(ask.click, Some(Click::Unknown));
         assert_eq!(ask.rule, None);
         assert_eq!(classify(None, None), Click::Unknown);
@@ -2881,6 +3005,39 @@ mod tests {
         ] {
             assert_eq!(click(label, None), Verdict::Allow, "{label}");
         }
+    }
+
+    #[test]
+    fn opening_a_booking_runs_and_the_step_that_books_asks() {
+        for label in [
+            "link \"Book A Free Consultation\"",
+            "link \"Book Online\"",
+            "link \"Book now\"",
+            "link \"Reserve a table\"",
+        ] {
+            assert_eq!(click(label, None), Verdict::Allow, "{label}");
+            assert_eq!(account_action(label), None, "{label}: no sign-in card");
+        }
+        let times =
+            "button \"Book an Appointment View available time slots and book an appointment.\"";
+        assert_eq!(classify(Some(times), None), Click::Query);
+        assert_eq!(click(times, None), Verdict::Allow);
+        assert_eq!(account_action(times), None);
+        for label in [
+            "button \"Book now\"",
+            "button \"Book Appointment\"",
+            "button \"Reserve\"",
+            "button \"Book and pay\"",
+            "link \"Pay now\"",
+            "link \"Cancel booking\"",
+            "button \"Check availability and pay\"",
+        ] {
+            assert_eq!(asks(&click(label, None)), Some(Click::Final), "{label}");
+        }
+        assert_eq!(
+            asks(&click("button \"Confirm booking\"", None)),
+            Some(Click::Change)
+        );
     }
 
     #[test]
@@ -3497,6 +3654,44 @@ mod tests {
             ),
         ] {
             assert_eq!(rule_of(&verdict), None, "{verdict:?}");
+        }
+    }
+
+    #[test]
+    fn read_sites_reads_up_to_five_different_web_sites() {
+        let read = |urls: &[&str]| {
+            decide(
+                "mcp__chrome-devtools__read_sites",
+                &json!({ "urls": urls }),
+                ctx(),
+                no_names,
+            )
+        };
+        assert!(matches!(
+            read(&[
+                "https://a.example.com/",
+                "https://www.b.example.org/x",
+                "https://c.ca/"
+            ]),
+            Verdict::Allow
+        ));
+        for (urls, why) in [
+            (vec![], "1 to 5"),
+            (vec!["https://a.com/"; 6], "1 to 5"),
+            (
+                vec!["https://shop.com/a", "https://www.shop.com/b"],
+                "different sites",
+            ),
+            (
+                vec!["https://a.com/", "file:///etc/hosts"],
+                "only opens web pages",
+            ),
+            (vec!["http://192.168.1.1/"], "home network"),
+        ] {
+            match read(&urls) {
+                Verdict::Deny(no) => assert!(no.contains(why), "{urls:?}: {no}"),
+                other => panic!("{urls:?}: {other:?}"),
+            }
         }
     }
 

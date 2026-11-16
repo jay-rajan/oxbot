@@ -61,7 +61,7 @@ ol.steps li > div{min-width:0}
 </style>
 
 <div class="wrap">
-  <div class="eyebrow">oxbot · ~/src/oxbot · main @ f825f52 · 9 Nov 2026</div>
+  <div class="eyebrow">oxbot · ~/src/oxbot · main @ e471738 · 9 Nov 2026 · walk-through: <a href="https://claude.ai/artifact/3qPgUG4hXdHDW6wuS9rvBT">one message, end to end</a></div>
   <h1>oxbot Code Map</h1>
   <p class="lede">The lay of the land before going module by module: what runs where, what each crate does, how one message travels, and the order to read things in.</p>
 
@@ -102,7 +102,7 @@ flowchart LR
 <pre class="mermaid">
 flowchart TB
   subgraph clients["Clients"]
-    page["Chat page<br/>crates/oxbot/ui/index.html"]
+    page["Chat page, React<br/>crates/oxbot/ui-src"]
     phone["Android app (device)<br/>app/src-tauri + oxbot-device"]
   end
   subgraph home_computer["oxbot process (Tauri app or oxbot serve)"]
@@ -172,9 +172,9 @@ flowchart BT
       <tr><td class="crate">oxbot-relay</td><td class="num">3,616</td><td><span class="pill l2">engine parts</span></td><td>HTTP server on 127.0.0.1 with one route, <code>POST /v1/responses</code>. Checks the per-process token, rebuilds the body from an allow list, swaps personal details for stand-ins (and back while streaming), applies model and privacy rules, forwards to OpenRouter, logs what was sent.</td><td><code>lib.rs</code>, <code>shape.rs</code>, <code>personal/</code></td></tr>
       <tr><td class="crate">oxbot-codex</td><td class="num">2,926</td><td><span class="pill l2">engine</span></td><td>The Codex engine: finds and checks the <code>codex</code> binary, writes its config, supervises one <code>codex app-server</code> per bot, and maps turns and tool calls onto its JSON-RPC.</td><td><code>engine.rs</code>, <code>supervisor.rs</code>, <code>rpc.rs</code></td></tr>
       <tr><td class="crate">oxbot-core</td><td class="num">34,404</td><td><span class="pill l3">logic</span></td><td>The heart, with no networking: bots on disk, the <b>Hub</b> (split into 26 modules by job), the SQLite <b>store</b> and its migrations, the tool <b>policy</b>, prompts, reports, schedules, attachments.</td><td><code>lib.rs</code>, <code>hub/mod.rs</code>, <code>hub/turns.rs</code></td></tr>
-      <tr><td class="crate">oxbot</td><td class="num">8,679</td><td><span class="pill l3">binary</span></td><td>The <code>oxbot</code> command (<code>serve</code>, <code>chat</code>, <code>bots</code>, <code>pair</code>, <code>devices</code>, <code>doctor</code>), the WebSocket server, the device door, Keychain, dictation, notifications. Also ships the 3,329-line chat page <code>ui/index.html</code>.</td><td><code>main.rs</code>, <code>server.rs</code></td></tr>
+      <tr><td class="crate">oxbot</td><td class="num">8,679</td><td><span class="pill l3">binary</span></td><td>The <code>oxbot</code> command (<code>serve</code>, <code>chat</code>, <code>bots</code>, <code>pair</code>, <code>devices</code>, <code>doctor</code>), the WebSocket server, the device door, Keychain, dictation, notifications. Also ships the chat page: React in <code>ui-src/</code>, built into <code>ui-dist/</code>.</td><td><code>main.rs</code>, <code>server.rs</code></td></tr>
       <tr><td class="crate">oxbot-device</td><td class="num">1,114</td><td><span class="pill l1">client</span></td><td>The phone side: pairing link, TLS pinned to the home computer's certificate, the phone's own copy of chats. Builds for Android.</td><td><code>lib.rs</code></td></tr>
-      <tr><td class="crate">app/src-tauri</td><td class="num">987</td><td><span class="pill l3">app</span></td><td>Tauri 2 shell. On the Mac: server inside, chat page as the window, menu bar icon. On Android: only a device.</td><td><code>desktop.rs</code>, <code>device.rs</code></td></tr>
+      <tr><td class="crate">app/src-tauri</td><td class="num">987</td><td><span class="pill l3">app</span></td><td>Tauri 2 shell. On the Mac: server inside, chat page as the window, menu bar icon. On Android: only a Gate.</td><td><code>desktop.rs</code>, <code>gate.rs</code></td></tr>
       <tr><td class="crate">oxbot-e2e</td><td class="num">7,449</td><td><span class="pill l0">tests</span></td><td>End-to-end runner behind <code>/pr_test</code>: seeds a throwaway oxbot, drives the page in Chrome, with stand-in OpenRouter, DevTools and Mac helper. 68 tests in <code>e2e/tests/</code>.</td><td><code>main.rs</code>, <code>steps.rs</code></td></tr>
     </tbody>
   </table>

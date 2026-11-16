@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use oxbot_browser::MCP_SERVER_NAME;
+use oxbot_browser::{MCP_SERVER_NAME, UidCheck};
 use oxbot_protocol::{Answer, Approval, ApprovalKind, EventKind, Outcome, ScheduleEdit, ServerMsg};
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -123,13 +123,19 @@ impl Hub {
 
     /// Denies every open card for `bot` (its turn ended or was cancelled).
     pub(super) fn deny_open_approvals(&self, bot: &BotId) {
-        let ids: Vec<u64> = lock(&self.approvals)
+        let ids: Vec<(u64, bool)> = lock(&self.approvals)
             .iter()
             .filter(|(_, (a, _, _))| a.bot == bot.as_str())
-            .map(|(id, _)| *id)
+            .map(|(id, (a, _, _))| (*id, is_notice(a.kind)))
             .collect();
-        for id in ids {
-            self.answer(id, Answer::Deny);
+        for (id, notice) in ids {
+            // A notice closed by oxbot: nobody pressed Stop.
+            if notice {
+                lock(&self.notices_closed).insert(id);
+            }
+            if !self.answer(id, Answer::Deny) && notice {
+                lock(&self.notices_closed).remove(&id);
+            }
         }
     }
 
@@ -182,6 +188,9 @@ impl Hub {
         {
             return Ok(no);
         }
+        if let Some(no) = self.plan_first_refusal(bot_id, uses_browser, mode).await {
+            return Ok(no);
+        }
         if uses_browser && !self.take_browser(bot_id).await? {
             return Ok(Decision::Deny(
                 "Your turn ended while you waited for the browser.".to_owned(),
@@ -194,9 +203,12 @@ impl Hub {
             return Ok(no);
         }
         let browser = self.browser_of(&bot);
-        if let Some(shared) = &browser {
-            self.check_label_live(&shared.browser, request, page_url, &mut labels)
-                .await;
+        if let Some(shared) = &browser
+            && let Some(no) = self
+                .check_label_live(&shared.browser, request, page_url, &mut labels)
+                .await
+        {
+            return Ok(Decision::Deny(no));
         }
         let facts = match &browser {
             Some(shared) if policy::needs_facts(&request.tool) => shared
@@ -236,8 +248,14 @@ impl Hub {
         }
         match verdict {
             Verdict::Allow => {
-                self.run_allowed(&bot, account, page_url, request.quiet)
-                    .await
+                let decision = self
+                    .run_allowed(&bot, account, page_url, request.quiet)
+                    .await?;
+                if matches!(decision, Decision::Allow) {
+                    self.pace_visit(&request.tool, &request.input, page_url)
+                        .await;
+                }
+                Ok(decision)
             }
             Verdict::Deny(message) => {
                 self.record(
@@ -249,10 +267,50 @@ impl Hub {
                 Ok(Decision::Deny(message))
             }
             Verdict::Ask(ask) => {
-                self.ask_verdict(&bot, ask, request, tab.as_deref(), page)
-                    .await
+                let decision = self
+                    .ask_verdict(&bot, ask, request, tab.as_deref(), page.clone())
+                    .await?;
+                if matches!(decision, Decision::Allow) {
+                    self.pace_visit(&request.tool, &request.input, page_url)
+                        .await;
+                }
+                Ok(decision)
             }
         }
+    }
+
+    /// Waits so a browser call keeps to the site's pace
+    /// ([`super::pace`]): the site is the page a load goes to, or the
+    /// page the bot is on.
+    async fn pace_visit(&self, tool: &str, input: &Value, page_url: Option<&str>) {
+        let Some(step) = super::pace::Step::of(tool) else {
+            return;
+        };
+        // read_sites loads several sites at once: each keeps its pace
+        // (waiting until each may be visited, so in all about as long as
+        // the longest wait).
+        if let Some(urls) = input.get("urls").and_then(Value::as_array) {
+            let sites: std::collections::BTreeSet<String> = urls
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(oxbot_browser::web_host)
+                .map(|h| oxbot_browser::site_of(&h))
+                .collect();
+            for site in &sites {
+                self.pacer.wait(site, step, self.config.pace).await;
+            }
+            return;
+        }
+        let target = match step {
+            super::pace::Step::Load => input.get("url").and_then(Value::as_str),
+            super::pace::Step::Act => page_url,
+        };
+        let Some(host) = target.and_then(oxbot_browser::web_host) else {
+            return;
+        };
+        self.pacer
+            .wait(&oxbot_browser::site_of(&host), step, self.config.pace)
+            .await;
     }
 
     /// The page `bot_id` is on, and the labels of the elements `input`
@@ -294,34 +352,68 @@ impl Hub {
         Ok(Decision::Allow)
     }
 
-    /// A click whose learned label would let it run: the label came from
-    /// text the browser tool returned, which a page (or the bot's own
-    /// typing) can shape, so oxbot asks Chrome whether the page really
-    /// shows an element with that role and name. If it doesn't, the label
-    /// is dropped and the click asks as one oxbot can't name. If oxbot
-    /// can't look (no tab at that address), the label stands. Not in the
-    /// end-to-end test mode, whose stand-in browser tool makes up its
-    /// snapshots.
+    /// Checks the element a browser call names before oxbot judges it.
+    /// Its label came from text the browser tool returned, which a page
+    /// (or the bot's own typing) can shape, so oxbot asks the browser what
+    /// the uid really is: one from an earlier snapshot of a page that has
+    /// changed is refused (the call would fail; the bot takes a fresh
+    /// snapshot), and a label that isn't the element's own role and name,
+    /// or that the live page no longer shows, is dropped, so the click asks
+    /// as one oxbot can't name. If oxbot can't ask about the uid, a click
+    /// on a label that would run is checked by name on the page instead.
+    /// Not in the end-to-end test mode, whose stand-in browser tool makes
+    /// up its snapshots.
     async fn check_label_live(
         &self,
         browser: &oxbot_browser::Browser,
         request: &PermissionRequest,
         page_url: Option<&str>,
         labels: &mut HashMap<String, String>,
-    ) {
+    ) -> Option<String> {
         let (tool, input) = (request.tool.as_str(), &request.input);
         if self.config.e2e {
-            return;
+            return None;
+        }
+        if tool.starts_with(&format!("mcp__{MCP_SERVER_NAME}__"))
+            && let Some(uid) = input.get("uid").and_then(Value::as_str)
+        {
+            match browser.uid_check(uid).await {
+                Some(UidCheck::Gone) => {
+                    tracing::info!(uid, "a uid from an earlier snapshot: refused");
+                    return Some(STALE_UID.to_owned());
+                }
+                Some(UidCheck::Live { role, name, shown }) => {
+                    // An element oxbot didn't learn from a snapshot: the
+                    // page names it, so the click is judged like any other.
+                    if shown && !labels.contains_key(uid) {
+                        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+                        labels.insert(
+                            uid.to_owned(),
+                            format!("{role} \"{}\"", name.replace('"', "'")),
+                        );
+                        return None;
+                    }
+                    if let Some(label) = labels.get(uid) {
+                        let (label_role, label_name) = policy::role_and_name(label);
+                        if !shown || label_role != role || !same_name(label_name, &name) {
+                            tracing::info!(target = %label, "the page doesn't show what the snapshot named: asking");
+                            labels.remove(uid);
+                        }
+                    }
+                    return None;
+                }
+                None => {}
+            }
         }
         let (Some(label), Some(url)) = (click_label(tool, input, labels), page_url) else {
-            return;
+            return None;
         };
         if !matches!(
             policy::classify_at(Some(label), None, page_url),
             policy::Click::Plain | policy::Click::Query
         ) && !policy::wants_element_facts(label)
         {
-            return;
+            return None;
         }
         let (role, name) = policy::role_and_name(label);
         let (role, name) = (role.to_owned(), name.to_owned());
@@ -331,6 +423,7 @@ impl Hub {
                 labels.remove(uid);
             }
         }
+        None
     }
 
     /// Several steps at once: anywhere but websites with fine-grained
@@ -499,6 +592,50 @@ impl Hub {
         page: Option<(String, String)>,
     ) -> Result<(Outcome, u64), HubError> {
         let bot_id = &bot.id;
+        let (id, rx) = self.open_card(bot, ask, page).await;
+        let _ = self.updates.send(ServerMsg::Activity {
+            bot: bot_id.to_string(),
+            text: "Waiting for your OK…".to_owned(),
+        });
+        tracing::info!(bot = %bot_id, kind = ?ask.kind, "asking the user");
+        // A schedule's run waits here: its person hears it needs them.
+        self.scheduled_run_waiting(bot_id, "is waiting for your OK");
+
+        let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
+            Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
+            Ok(Ok(Answer::AlwaysAllow)) => Outcome::AllowedAlways,
+            Ok(Ok(Answer::Deny) | Err(_)) => Outcome::Denied,
+            Err(_) => {
+                self.answer(id, Answer::Deny);
+                Outcome::TimedOut
+            }
+        };
+        // Deleting a bot says no to its cards; by the time this one wakes,
+        // the bot and its history may be gone. Nothing to add it to then.
+        if self.bot(bot_id.as_str()).is_err() {
+            return Ok((outcome, id));
+        }
+        self.record(
+            bot_id,
+            EventKind::Approval {
+                action: ask.action.clone(),
+                target: ask.target.clone(),
+                site: ask.site.clone(),
+                outcome,
+            },
+        )?;
+        Ok((outcome, id))
+    }
+
+    /// Shows `bot`'s card `ask` to the people who may answer it, without
+    /// waiting: its id, and where the answer comes.
+    pub(super) async fn open_card(
+        &self,
+        bot: &Bot,
+        ask: &policy::Ask,
+        page: Option<(String, String)>,
+    ) -> (u64, oneshot::Receiver<Answer>) {
+        let bot_id = &bot.id;
         let screenshot = match self.browser_of(bot) {
             // A new bot, a task for another bot or a schedule has nothing
             // to do with the page on screen.
@@ -509,6 +646,9 @@ impl Hub {
                     | ApprovalKind::Schedule
                     | ApprovalKind::ChangeSchedule
                     | ApprovalKind::Script
+                    | ApprovalKind::Plan
+                    | ApprovalKind::HomeArea
+                    | ApprovalKind::Checkpoint
             ) =>
             {
                 None
@@ -565,39 +705,14 @@ impl Hub {
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
         let _ = self.updates.send(ServerMsg::ApprovalNeeded(approval));
-        let _ = self.updates.send(ServerMsg::Activity {
-            bot: bot_id.to_string(),
-            text: "Waiting for your OK…".to_owned(),
-        });
-        tracing::info!(bot = %bot_id, kind = ?ask.kind, "asking the user");
-        // A schedule's run waits here: its person hears it needs them.
-        self.scheduled_run_waiting(bot_id, "is waiting for your OK");
-
-        let outcome = match tokio::time::timeout(self.config.approval_timeout, rx).await {
-            Ok(Ok(Answer::AllowOnce)) => Outcome::Allowed,
-            Ok(Ok(Answer::AlwaysAllow)) => Outcome::AllowedAlways,
-            Ok(Ok(Answer::Deny) | Err(_)) => Outcome::Denied,
-            Err(_) => {
-                self.answer(id, Answer::Deny);
-                Outcome::TimedOut
-            }
-        };
-        // Deleting a bot says no to its cards; by the time this one wakes,
-        // the bot and its history may be gone. Nothing to add it to then.
-        if self.bot(bot_id.as_str()).is_err() {
-            return Ok((outcome, id));
-        }
-        self.record(
-            bot_id,
-            EventKind::Approval {
-                action: ask.action.clone(),
-                target: ask.target.clone(),
-                site: ask.site.clone(),
-                outcome,
-            },
-        )?;
-        Ok((outcome, id))
+        (id, rx)
     }
+}
+
+/// A card that tells the person what happens unless they stop it (a
+/// plan, a check-in), rather than asking.
+pub(super) fn is_notice(kind: ApprovalKind) -> bool {
+    matches!(kind, ApprovalKind::Plan | ApprovalKind::Checkpoint)
 }
 
 /// The element uids a browser request names: `uid`, and each of
@@ -614,6 +729,22 @@ fn request_uids(input: &Value) -> impl Iterator<Item = &str> {
 }
 
 /// The label of the element a `click` aims at, if oxbot knows it.
+/// What a bot is told when it uses a uid from a snapshot of a page that
+/// has changed since.
+const STALE_UID: &str = "That element is from an earlier snapshot, and the page has changed \
+     since. Take a fresh snapshot and use a uid from it.";
+
+/// Whether a label's name (as the snapshot text carried it: one line, cut
+/// to [`MAX_NAME`] characters) is the element's own name.
+fn same_name(label: &str, name: &str) -> bool {
+    let words = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (label, name) = (words(label), words(name));
+    label == name || (label.chars().count() >= MAX_NAME && name.starts_with(&label))
+}
+
+/// Names longer than this may be cut in a label.
+const MAX_NAME: usize = 900;
+
 fn click_label<'a>(
     tool: &str,
     input: &Value,

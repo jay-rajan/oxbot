@@ -54,6 +54,7 @@ export type { ServerMsg } from "./ServerMsg";
 export type { SetupCheck } from "./SetupCheck";
 export type { SetupReport } from "./SetupReport";
 export type { Sharing } from "./Sharing";
+export type { SignInInput } from "./SignInInput";
 export type { SignInOutcome } from "./SignInOutcome";
 export type { SignInRequest } from "./SignInRequest";
 export type { SiteInfo } from "./SiteInfo";

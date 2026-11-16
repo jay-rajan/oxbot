@@ -24,6 +24,15 @@ const approval = (id: number, extra: Partial<Approval> = {}): Approval => ({
 const signIn = (id: number) => ({ type: "sign_in_needed", id, bot: "mail", url: "https://x", site: "x.test", why: "", window_open: false });
 
 describe("cards", () => {
+  it("keeps the newest picture of an open sign-in's page, and drops it with the sign-in", () => {
+    const frame = (id: number, url: string) => srv({ type: "sign_in_frame", id, image: "AAA", width: 800, height: 600, url });
+    let s = run(initialCards, srv(signIn(2)), frame(2, "https://x.test/login"), frame(2, "https://x.test/password"), frame(9, "https://other"));
+    expect(s.signInFrames[2]?.url).toBe("https://x.test/password");
+    expect(s.signInFrames[9]).toBeUndefined();
+    s = run(s, srv({ type: "sign_in_resolved", id: 2 }));
+    expect(s.signInFrames[2]).toBeUndefined();
+  });
+
   it("shows a bot's cards only in its own chat, and lists the other bots waiting", () => {
     const s = run(
       initialCards,

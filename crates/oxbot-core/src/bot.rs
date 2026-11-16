@@ -283,6 +283,9 @@ pub struct Bot {
     /// Its model settings (the `[openrouter]` table, named from oxbot's
     /// retired loop).
     pub loop_settings: LoopSettings,
+    /// Runs the browser hidden (no window) while it browses. A sign-in or
+    /// robot check still brings the browser forward.
+    pub browser_hidden: bool,
     /// The bot's folder.
     pub dir: PathBuf,
 }
@@ -336,6 +339,9 @@ struct BotFile {
     /// (then `private` says: me, else everyone).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sharing: Option<Sharing>,
+    /// Before the `[openrouter]` table: TOML writes plain values first.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    browser_hidden: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     openrouter: Option<LoopSettings>,
 }
@@ -480,6 +486,7 @@ impl Bot {
             engine,
             moved_from,
             loop_settings: file.openrouter.unwrap_or_default(),
+            browser_hidden: file.browser_hidden,
             instructions,
             dir: dir.to_owned(),
         })
@@ -539,6 +546,7 @@ impl Bot {
             private: false,
             sharing: Some(Sharing::Everyone),
             openrouter: None,
+            browser_hidden: false,
         };
         write_file(&dir, &file)?;
         let md = dir.join("instructions.md");
@@ -653,6 +661,7 @@ impl Bot {
                 private: self.effective_sharing() != Sharing::Everyone,
                 sharing: Some(self.effective_sharing()),
                 openrouter: (!self.loop_settings.is_empty()).then(|| self.loop_settings.clone()),
+                browser_hidden: self.browser_hidden,
             },
         )
     }
@@ -980,11 +989,13 @@ mod tests {
 
         bot.loop_settings.model = Some("auto".into());
         bot.loop_settings.daily_requests = Some(200);
+        bot.browser_hidden = true;
         bot.save().unwrap();
         let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
         assert!(text.contains("engine = \"codex\""), "{text}");
         assert!(text.contains("[openrouter]") && text.contains("daily_requests = 200"));
         let again = Bot::load(&bot.dir).unwrap();
+        assert!(again.browser_hidden);
         assert_eq!(again.engine, EngineKind::Codex);
         assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
         assert_eq!(again.loop_settings.daily_requests, Some(200));

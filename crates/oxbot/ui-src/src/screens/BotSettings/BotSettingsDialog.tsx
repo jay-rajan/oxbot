@@ -18,6 +18,7 @@ import {
   Section,
   Segmented,
   Select,
+  Switch,
   TextArea,
   vars,
 } from "../../components/ui";
@@ -68,6 +69,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   const [sharing, setSharing] = useState<Sharing>(sharingOf(b));
   const [picked, setPicked] = useState<string[]>(b.members ?? []);
   const [kind, setKind] = useState<string>(() => kindOf(lists, bdList));
+  const [hidden, setHidden] = useState(!!b.browser_hidden);
   // The kinds of job came (or changed): pick the bot's again.
   const firstLists = useRef(lists);
   useEffect(() => {
@@ -112,6 +114,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
     }
     const n = name.trim();
     if (n && n !== live.name) send({ type: "rename_bot", bot: id, name: n });
+    if (hidden !== !!b.browser_hidden) send({ type: "set_browser_hidden", bot: id, hidden });
     if (!central && !busy) {
       const p = purpose.trim();
       if (p !== (b.instructions || "").trim()) send({ type: "set_bot_instructions", bot: id, instructions: p });
@@ -206,6 +209,12 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
         <p className="note-text" id="bdSharedLine" hidden={central || picks}>
           Shared with everyone in the home
         </p>
+        <div className="bd-group" id="bdHiddenBox">
+          <Switch id="bdHidden" checked={hidden} onChange={(e) => setHidden(e.target.checked)}>
+            Browse with the browser hidden
+          </Switch>
+          <Hint>No browser window while it works. A sign-in or robot check still brings it forward.</Hint>
+        </div>
         {/* The purpose's hint already says so, unless the bot has none. */}
         <Hint id="bdHint" hidden={!busy || !central}>
           Wait until it's done working to change this.

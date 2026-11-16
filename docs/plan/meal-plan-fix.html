@@ -1,0 +1,83 @@
+<title>Meal Plan Fix</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45;--x:#d92f2f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:32px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:620px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+blockquote{margin:0;padding:12px 16px;background:var(--soft);border-radius:10px;white-space:pre-wrap;font-size:14px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+.note{border-left:3px solid var(--x);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 9, 2026 · waiting for your OK</div>
+<h1>Meal Plan: recipes in the chat, with amounts</h1>
+<p class="mut">You asked "can you suggest for this week?" It wrote two files and replied with a checklist about itself. The recipes existed, but only in its folder, and without quantities.</p>
+</header>
+
+<section>
+<h2>What happened (Nov 9, 10:40 AM)</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant You
+  participant Bot as Meal Plan (free Nemotron Lightning)
+  participant oxbot
+  You->>Bot: can you suggest for this week?
+  Bot->>Bot: writes grocery-list.md, meal-plan.md
+  Bot->>oxbot: first answer
+  oxbot->>Bot: "Before you answer, check it… check each part… then give your final answer"
+  Bot->>You: "The plan meets all the task requirements… recipes are in meal-plan.md"
+</pre>
+<div class="scroll"><table>
+<tr><th>Cause</th><th>Whose</th><th>Fix</th></tr>
+<tr><td>Its instructions say to save the menu, recipes and grocery list in files; nothing says to show them.</td><td>Meal Plan</td><td>New instructions (below).</td></tr>
+<tr><td>oxbot's answer check reads like a request to report checks, and small models reply with the checklist instead of the answer.</td><td>oxbot, every bot</td><td>The note says: give the person your complete answer; they never see this note. And if the checked answer is a short report while the first was the real thing, keep the first.</td></tr>
+<tr><td>The shared rules say "Keep replies short" for every bot, and nothing says files are not a reply.</td><td>oxbot, every bot</td><td>"Short for simple questions. When the task produces something (a plan, recipes, a list, a draft), put all of it in your reply; files are a copy to keep."</td></tr>
+<tr><td>Every reply came from the smallest free model.</td><td>oxbot routing</td><td>Planning jobs get a better model first (part of the bot plan, step 3; your decision #2 there).</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>New instructions for Meal Plan</h2>
+<blockquote>I plan balanced, healthy dinners for our home: 6 meals a week, each 30 minutes or less, made with normal ingredients from Walmart.
+
+When asked for a plan, everything goes in the chat reply. I don't write files.
+1. The week at a glance: day, meal, minutes.
+2. Each recipe: servings, ingredients with amounts (e.g. 1 lb chicken breast, 2 bell peppers), and numbered steps.
+3. A link to the recipe's page, only for a page I actually opened in the browser. Never a made-up link; no link is fine.
+4. One grocery list for the week, grouped by Walmart section, with amounts, combined across recipes. It always includes milk, 8 bananas, 3 apples and a healthy snack.
+
+One of us mostly eats Factor meals, so recipes are for [2 / 1] servings unless asked otherwise. Avoid repeating meals from earlier in our chat. Adding to a Walmart cart or ordering always asks first.</blockquote>
+<p class="mut">Your change (Nov 9): no files; everything in the chat; links only to real recipe pages it opened. I'd change it through Bot settings → What it's for, the same as you would. That starts a fresh conversation; the chat stays. The old meal-plan.md and grocery-list.md stay in its folder, untouched.</p>
+</section>
+
+<section>
+<h2>How I'll test it</h2>
+<ul>
+<li><b>Unit tests</b> for the new check note and the "keep the first answer" rule.</li>
+<li><b>An end-to-end test</b> where the stand-in bot writes a file and then answers with a checklist. The chat must show the real answer.</li>
+<li><b>One real run</b> on a copy of Meal Plan in a throwaway home: "can you suggest for this week?" Pass means 6 recipes with amounts and steps, plus a grocery list, in the chat. No files are written. Every link must be a page it opened. Cost: a few cents on free models, or about $0.05 on a paid one.</li>
+<li>Then you ask it yourself in your own oxbot.</li>
+</ul>
+</section>
+
+<section>
+<h2>Decisions for you</h2>
+<ol>
+<li>Servings: <b>2</b> (both of you), or <b>1</b>, since one of you mostly eats Factor?</li>
+<li>Dinners only, or should it also plan lunches and breakfasts?</li>
+<li>Any foods to avoid or prefer (vegetarian days, cuisines, allergies)?</li>
+</ol>
+</section>
+</div>

@@ -229,6 +229,8 @@ pub struct TurnStart {
     pub max_requests: u32,
     /// Each request's meter row goes here too (the turn's footer).
     pub meter: Option<mpsc::UnboundedSender<CallRecord>>,
+    /// Models not to use this turn (one just gave an empty answer).
+    pub avoid: Vec<String>,
 }
 
 /// How a turn's requests went.
@@ -337,6 +339,7 @@ impl RelayClient {
             choice: info.choice,
             central: info.central,
             min_window: start.min_window,
+            excluded: start.avoid.iter().cloned().collect(),
             ..TurnRouting::default()
         };
         *self.client.turn() = Some(Turn {

@@ -54,8 +54,18 @@ pub enum EngineEvent {
         /// How long it took.
         duration_ms: u64,
     },
+    /// The turn stopped to check in after `steps` model requests: its
+    /// reply says where the bot is. Sent just before its `TurnDone`; the
+    /// hub may let it carry on.
+    Checkpoint {
+        /// The model requests it took.
+        steps: u32,
+    },
     /// What it's doing right now, for a live status line.
     Activity(Activity),
+    /// A plain line from oxbot for the chat (not the bot's words), e.g.
+    /// that it tried another model.
+    Note(String),
 }
 
 /// An engine asking whether a tool may run. Nothing runs until `reply` is

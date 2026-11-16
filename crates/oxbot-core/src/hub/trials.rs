@@ -39,7 +39,7 @@ use crate::engine::{
     CallRecord, Decision, GateMode, HostToolCall, ModelChoice, PermissionRequest, ToolReply,
     TurnInput, from_wire,
 };
-use crate::id::{BotId, BrowserOwner};
+use crate::id::BotId;
 use crate::policy::{self, Intent, TrialCall, TrialMode, TrialVerdict};
 use crate::store::{TestCaseRecord, TrialRunRecord, now_ms};
 use crate::tools;
@@ -111,6 +111,7 @@ pub(super) struct RunInput {
     pub files_dir: Option<PathBuf>,
     pub instructions: String,
     pub mode: TrialMode,
+    #[allow(dead_code, reason = "read again once practice runs come back")]
     pub uses_sign_ins: bool,
     pub fixtures: Fixtures,
     pub step_cap: u32,
@@ -169,13 +170,6 @@ pub(super) fn trial_mode(network: TrialNetwork) -> TrialMode {
     match network {
         TrialNetwork::Strict => TrialMode::Strict,
         TrialNetwork::Xhr => TrialMode::XhrAllowed,
-    }
-}
-
-fn net_mode(mode: TrialMode) -> oxbot_browser::NetMode {
-    match mode {
-        TrialMode::Strict => oxbot_browser::NetMode::Strict,
-        TrialMode::XhrAllowed => oxbot_browser::NetMode::XhrAllowed,
     }
 }
 
@@ -971,50 +965,25 @@ impl Hub {
         }
     }
 
-    /// The run's own Chrome: a copy of the source browser's profile without
-    /// history (when the case needs its sign-ins) or an empty one, behind
-    /// the network guard. `None` when this oxbot has no browser.
+    /// The run's own browser. Practice runs need a network guard that
+    /// oxbot's browser doesn't have yet, so with a browser this refuses
+    /// (see [`oxbot_browser::NO_PRACTICE_RUNS`]); `None` when this oxbot has
+    /// no browser.
+    #[allow(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "it starts a browser again once practice runs come back"
+    )]
     async fn trial_shared(
         &self,
-        real: &Bot,
-        dir: &Path,
-        input: &RunInput,
+        _real: &Bot,
+        _dir: &Path,
+        _input: &RunInput,
     ) -> Result<Option<Arc<Shared>>, String> {
-        let Some(tools) = self.config.browser.clone() else {
+        if self.config.browser.is_none() {
             return Ok(None);
-        };
-        let owner = self.browser_owner_of(real).unwrap_or(BrowserOwner::Home);
-        let profile = dir.join("profile");
-        if input.uses_sign_ins {
-            let source = self
-                .browser_for(&owner)
-                .ok_or_else(|| "the bot's browser isn't available".to_owned())?;
-            oxbot_browser::trial::clone_profile(source.browser.profile_dir(), &profile)
-                .await
-                .map_err(|e| e.to_string())?;
-        } else {
-            oxbot_browser::trial::clone_profile(&dir.join("no-profile"), &profile)
-                .await
-                .map_err(|e| e.to_string())?;
         }
-        let spec = oxbot_browser::BrowserSpec {
-            label: "practice run".to_owned(),
-            profile_dir: profile,
-            downloads: dir.join("work").join("downloads"),
-        };
-        let browser = oxbot_browser::Browser::new_trial(tools, spec, net_mode(input.mode))
-            .map_err(|e| format!("no local port for the run's Chrome: {e}"))?;
-        Ok(Some(Arc::new(Shared {
-            owner,
-            browser,
-            lease: Arc::new(Mutex::new(())),
-            holder: std::sync::Mutex::new(None),
-            last: std::sync::Mutex::new(None),
-            last_used: std::sync::Mutex::new(Instant::now()),
-            adding_site: std::sync::Mutex::new(None),
-            // Its sign-ins are a copy: never checked against the real list.
-            sites_checked: std::sync::atomic::AtomicBool::new(true),
-        })))
+        Err(oxbot_browser::NO_PRACTICE_RUNS.to_owned())
     }
 }
 

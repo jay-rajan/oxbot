@@ -94,7 +94,28 @@ state: BrowserState, } | { "type": "approval_needed" } & Approval | { "type": "a
 /**
  * The approval's id.
  */
-id: number, } | { "type": "sign_in_needed" } & SignInRequest | { "type": "sign_in_resolved", 
+id: number, } | { "type": "sign_in_needed" } & SignInRequest | { "type": "sign_in_frame", 
+/**
+ * The request's id.
+ */
+id: number, 
+/**
+ * The page as a JPEG, base64.
+ */
+image: string, 
+/**
+ * The page's width and height in its own (CSS) pixels: a tap at
+ * a point of the picture is that point scaled to these.
+ */
+width: number, 
+/**
+ * See `width`.
+ */
+height: number, 
+/**
+ * The page's address, to show where it is.
+ */
+url: string, } | { "type": "sign_in_resolved", 
 /**
  * The request's id.
  */

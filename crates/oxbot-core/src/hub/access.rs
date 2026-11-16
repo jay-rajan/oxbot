@@ -93,6 +93,7 @@ impl Hub {
                 let seq = seqs.get(&b.id).copied().unwrap_or_default();
                 let mut info = BotInfo::default();
                 self.fill_engine(&b, &mut info);
+                info.browser_hidden = b.browser_hidden;
                 Ok(BotInfo {
                     busy: busy.contains(&b.id),
                     last_seq: seq.last,

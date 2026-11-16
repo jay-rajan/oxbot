@@ -17,6 +17,7 @@
 .cards .card { gap: var(--s-3); padding: var(--s-4); }
 .cards .card .where { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
 .cards .card-warn .where { color: var(--warn-ink); }
+.cards .card .plan-text { margin: 0; overflow-wrap: anywhere; }
 .cards .card .hint { font-size: var(--text-xs); color: var(--muted); }
 .cards .card pre {
   margin: 0; padding: var(--s-2) var(--s-3); max-height: 180px; overflow-y: auto;
@@ -49,3 +50,9 @@
 .waiting-bot .btn { flex: none; color: var(--warn-ink); text-decoration: underline; }
 .waiting-more { color: var(--warn-ink); white-space: nowrap; }
 @media (max-width: 720px) { .waiting { margin-left: var(--s-3); margin-right: var(--s-3); } }
+
+/* The sign-in page, live from the home computer. */
+.signin-view { display: grid; gap: 8px; margin-top: 8px; }
+.signin-page { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.signin-keys { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.signin-keys input { flex: 1 1 180px; min-width: 0; }

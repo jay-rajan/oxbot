@@ -47,6 +47,10 @@ pub struct SessionSpec {
     /// The longest an oxbot tool call may wait (a sign-in, a task for
     /// another bot, a card).
     pub tool_wait: Duration,
+    /// The chat so far, for an engine that has to start the bot's
+    /// conversation over (new tools, another engine): it goes before the
+    /// first message, so the bot picks up where it left off.
+    pub earlier_chat: Option<String>,
 }
 
 /// Which session to use.

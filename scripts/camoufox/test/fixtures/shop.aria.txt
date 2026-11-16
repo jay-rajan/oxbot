@@ -1,0 +1,53 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "Home" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - link "Deals" [ref=e5] [cursor=pointer]:
+        - /url: /deals
+    - search [ref=e6]:
+      - generic [ref=e7]:
+        - text: Search products
+        - searchbox "Search products" [ref=e8]
+      - button "Search" [ref=e9]
+  - main [ref=e10]:
+    - heading "Fresh produce" [level=1] [ref=e11]
+    - paragraph [ref=e12]: Prices include tax.
+    - list [ref=e13]:
+      - listitem [ref=e14]:
+        - link "Organic bananas" [ref=e15] [cursor=pointer]:
+          - /url: /p/1
+        - text: $0.59 / lb
+        - button "Add to cart" [ref=e16]
+      - listitem [ref=e17]:
+        - link "Whole milk, 1 gal" [ref=e18] [cursor=pointer]:
+          - /url: /p/2
+        - text: $3.49
+        - button "Add to cart" [ref=e19]
+    - generic [ref=e20]:
+      - checkbox "Subscribe & save" [ref=e21]
+      - text: Subscribe & save
+    - generic [ref=e22]:
+      - text: Quantity
+      - combobox "Quantity" [ref=e23]:
+        - option "1" [selected]
+        - option "2"
+    - textbox "Delivery notes" [ref=e24]
+    - table [ref=e25]:
+      - rowgroup [ref=e26]:
+        - row [ref=e27]:
+          - columnheader "Item" [ref=e28]
+          - columnheader "Price" [ref=e29]
+        - row [ref=e30]:
+          - cell "Eggs" [ref=e31]
+          - cell "$2.99" [ref=e32]
+  - paragraph [ref=e33]: "Note: \"quoted\" text: here"
+  - 'link "Partner: deals" [ref=e34] [cursor=pointer]':
+    - /url: https://other.example/x?y=1
+  - textbox "Email" [active] [ref=e35]: a@b.c
+  - checkbox "Keep me" [checked] [ref=e36]
+  - button "Pay" [disabled] [ref=e37]
+  - group [ref=e38]:
+    - generic "More" [ref=e39]
+    - text: Hidden
+  - img "Logo" [ref=e40]

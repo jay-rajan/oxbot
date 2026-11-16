@@ -19,7 +19,7 @@ impl CodexStore for Store {
     fn thread(&self, bot: &str, session: &str) -> Result<Option<ThreadRow>, String> {
         self.conn()
             .query_row(
-                "SELECT bot, session, thread_id, model, window, turns, created_ms, updated_ms
+                "SELECT bot, session, thread_id, model, window, turns, created_ms, updated_ms, tools
                  FROM codex_threads WHERE bot = ?1 AND session = ?2",
                 params![bot, session],
                 |r| {
@@ -32,6 +32,7 @@ impl CodexStore for Store {
                         turns: r.get(5)?,
                         created_ms: r.get(6)?,
                         updated_ms: r.get(7)?,
+                        tools: r.get(8)?,
                     })
                 },
             )
@@ -43,8 +44,8 @@ impl CodexStore for Store {
         self.conn()
             .execute(
                 "INSERT OR REPLACE INTO codex_threads
-                   (bot, session, thread_id, model, window, turns, created_ms, updated_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                   (bot, session, thread_id, model, window, turns, created_ms, updated_ms, tools)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     row.bot,
                     row.session,
@@ -54,6 +55,7 @@ impl CodexStore for Store {
                     row.turns,
                     row.created_ms,
                     row.updated_ms,
+                    row.tools,
                 ],
             )
             .map_err(err)?;
@@ -168,6 +170,7 @@ mod tests {
             turns: 2,
             created_ms: 5,
             updated_ms: 6,
+            tools: "abc".into(),
         };
         store.save_thread(&row).unwrap();
         assert_eq!(store.thread("scout", "s1").unwrap(), Some(row.clone()));

@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "Oxbot window control",
+  "version": "1.0.0",
+  "description": "Controls Oxbot's own browser windows through a private local channel. No website access.",
+  "permissions": ["http://127.0.0.1/*"],
+  "background": { "scripts": ["background.js"] },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "window@oxbot.local",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  }
+}

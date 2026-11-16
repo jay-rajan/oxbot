@@ -30,14 +30,14 @@ use crate::id::BotId;
 #[cfg(test)]
 use crate::tools::{
     self, CREATE_BOT_TOOL, DELETE_SCHEDULE_TOOL, GIVE_TASK_TOOL, LIST_BOTS_TOOL,
-    LIST_SCHEDULES_TOOL, PAUSE_SCHEDULE_TOOL, READ_REPLY_TOOL, SAVE_REPORT_TOOL,
-    SCHEDULE_TASK_TOOL, SIGN_IN_TOOL,
+    LIST_SCHEDULES_TOOL, PAUSE_SCHEDULE_TOOL, PLAN_TASK_TOOL, READ_REPLY_TOOL, SAVE_HOME_AREA_TOOL,
+    SAVE_REPORT_TOOL, SCHEDULE_TASK_TOOL, SIGN_IN_TOOL,
 };
 
 /// oxbot's own tools: their results never taint a session (the same list
 /// every engine uses, [`crate::engine::trust::TRUSTED_HOST_TOOLS`]).
 #[cfg(test)]
-const TRUSTED_TOOLS: [&str; 10] = [
+const TRUSTED_TOOLS: [&str; 12] = [
     LIST_BOTS_TOOL,
     CREATE_BOT_TOOL,
     GIVE_TASK_TOOL,
@@ -48,6 +48,8 @@ const TRUSTED_TOOLS: [&str; 10] = [
     LIST_SCHEDULES_TOOL,
     PAUSE_SCHEDULE_TOOL,
     DELETE_SCHEDULE_TOOL,
+    PLAN_TASK_TOOL,
+    SAVE_HOME_AREA_TOOL,
 ];
 
 /// Why a call to tool `name` taints the session (`page`: the page the

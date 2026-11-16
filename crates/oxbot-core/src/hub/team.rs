@@ -90,6 +90,13 @@ impl Hub {
         let asker = self.person_viewer(origin.asker());
         match tool {
             tools::SIGN_IN_TOOL => self.request_sign_in(bot, &text("url"), &text("why")).await,
+            tools::PLAN_TASK_TOOL => {
+                self.plan_task(bot, &text("site"), &text("place"), &text("plan"))
+                    .await
+            }
+            tools::SAVE_HOME_AREA_TOOL => {
+                self.save_home_area_tool(bot, &asker, &text("area")).await
+            }
             tools::LIST_BOTS_TOOL => {
                 let (list, others) = self.team(bot, &asker).await;
                 if others {

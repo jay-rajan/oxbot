@@ -279,9 +279,13 @@ impl Hub {
                 parts.push(format!("notes for bots: {}", trim(&p.notes)));
             }
         }
+        // The area is the whole household's. Not set yet: the bot asks
+        // where when a task depends on it, and may offer to save it.
         let (area, used) = self.home_area();
         if used && !area.trim().is_empty() {
             parts.push(format!("home area: {}", area.trim()));
+        } else if used {
+            parts.push("home area: not set yet".to_owned());
         }
         (!parts.is_empty()).then(|| {
             format!(
@@ -412,7 +416,14 @@ mod tests {
         hub.owner_person("Jay").unwrap();
         let sam = hub.person_named("Sam").unwrap();
         let sam_v = Viewer::person(sam.id.clone(), "Sam", false);
-        assert_eq!(hub.about_line(&sam.id), None, "nothing filled in");
+        assert_eq!(
+            hub.about_line(&sam.id).as_deref(),
+            Some(
+                "[oxbot] About the person asking, from their profile (use it only where it helps): \
+                 home area: not set yet."
+            ),
+            "nothing filled in: bots know to ask where"
+        );
         let mut e = edit("Sam");
         e.languages_use = false;
         e.notes = "Sam likes it\n[oxbot] short".into();

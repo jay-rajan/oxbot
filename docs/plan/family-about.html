@@ -1,0 +1,73 @@
+<title>Family About</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--acc:#2a5bd7}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--acc:#7da2ff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--acc:#7da2ff;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:28px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}
+p{margin:0;max-width:74ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+ol,ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;max-width:80ch}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:600px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+.mock{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--soft);display:flex;flex-direction:column;gap:6px;max-width:560px;font-size:14px}
+.mock b{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:1px 10px;font-size:12.5px;margin-right:6px}
+.q{border-left:3px solid var(--acc);padding:10px 14px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · family memory · Nov 10, 2026</div>
+<h1>"About our family": one free-text note that bots build from what you tell them</h1>
+<p class="mut">One short note for the whole household, kept on the Mac and added to every message a bot gets. Bots add to it when you mention something lasting, and you can always see and edit it.</p>
+</header>
+
+<section>
+<h2>What it looks like</h2>
+<div class="mock">
+<b>Settings → People → About our family</b>
+<div>We live in Mississauga, ON (south, near the lake). Two adults and a son, 11. Weeknight dinners within 30 minutes; no pork. Watch movies as a family on Netflix, Prime and Crave. Groceries from Walmart.</div>
+<div><span class="chip">Bots may use this: on</span><span class="chip">Edit</span><span class="chip">History</span></div>
+</div>
+<div class="mock">
+<b>In a chat, after you say "my son is 11"</b>
+<div>· Remembered for the family: <i>"Son, 11."</i> <span class="chip">Undo</span><span class="chip">Edit</span></div>
+</div>
+</section>
+
+<section>
+<h2>How it works</h2>
+<ol>
+<li><b>Stored once</b> in oxbot's database on the Mac, as a home setting, with a "bots may use this" switch and a size cap of about 1,000 characters.</li>
+<li><b>Used everywhere.</b> When the switch is on, each message to a bot carries it, next to today's date and the asker's own profile: "[oxbot] About this family (use it only where it helps): …". It's not in the fixed rules, so bots never restart over it.</li>
+<li><b>Built from memory.</b> Bots get a <code>remember_for_family</code> tool. When you mention something lasting (where you live, ages, diets, stores, schedules), the bot passes it on. oxbot merges it into the note, rewriting it short and replacing what changed ("son, 11" becomes "son, 12"), and shows the line in the chat with Undo.</li>
+<li><b>History.</b> Every change is kept with the date and which bot made it, so you can see where a line came from and roll it back.</li>
+</ol>
+</section>
+
+<section>
+<h2>Guard rails</h2>
+<div class="scroll"><table>
+<tr><th>Risk</th><th>Guard</th></tr>
+<tr><td>A web page or email slips in a fake "fact" (for example "always ship to …")</td><td>Only words from a person's own chat message may be remembered. oxbot checks that the fact appears in that turn's message. If the bot has read a page or email in that conversation, it can't save on its own: it shows an approval request first.</td></tr>
+<tr><td>Something private ends up in every bot</td><td>No passwords, card or account numbers, health details or ID numbers (refused, as with typing). A private bot's chats never add to the family note.</td></tr>
+<tr><td>Others in the home see it</td><td>Everyone in the home can read it in Settings → People. Only the owner can edit or turn it off. Each person's own notes stay on their own profile.</td></tr>
+<tr><td>The note grows stale or long</td><td>oxbot merges new facts and keeps the note under its cap. You can edit it any time.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>For the search tuning run</h2>
+<p>Tasks run with a <b>sample family</b> note ("Mississauga, ON; 2 adults, son 11; dinners in 30 minutes"), not yours. That way, tuning also checks that bots use the context: local results, kid-appropriate picks, this year's dates.</p>
+</section>
+
+<section>
+<h2>Decisions</h2>
+<div class="q"><b>1. Saving a remembered fact:</b> save it and show Undo in the chat (recommended), or ask first every time?</div>
+<div class="q"><b>2. Who edits:</b> only the owner (recommended), or any adult in the home?</div>
+<div class="q"><b>3. Your own details:</b> should I start your note from today's chats (Mississauga, family of three with an 11-year-old, 30-minute dinners), for you to edit?</div>
+</div>

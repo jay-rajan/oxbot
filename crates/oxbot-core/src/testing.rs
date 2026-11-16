@@ -46,23 +46,11 @@ pub fn catalog() -> String {
     .to_string()
 }
 
-/// Browser tools that look installed, with no Chrome: the rules run as
-/// they would for real, and the scripted browser answers the calls.
-///
-/// # Panics
-/// If the folders can't be made.
+/// Browser tools with no browser behind them: the rules run as they
+/// would for real, and the scripted browser answers the calls.
 #[must_use]
 pub fn tools(home: &Path) -> Arc<Tools> {
-    let mut tools = ToolsConfig::in_home(home);
-    tools.chrome = PathBuf::from("/no/chrome");
-    let package = tools.tools_dir.join("node_modules/chrome-devtools-mcp");
-    std::fs::create_dir_all(&package).unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(package.join("package.json"), r#"{"version":"1.10.1"}"#)
-        .unwrap_or_else(|e| panic!("{e}"));
-    std::fs::create_dir_all(tools.tools_dir.join("node_modules/.bin"))
-        .unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(tools.mcp_program(), "").unwrap_or_else(|e| panic!("{e}"));
-    Tools::new(tools)
+    Tools::new(ToolsConfig::in_home(home))
 }
 
 /// What a fake bot does with one message.
@@ -136,6 +124,7 @@ pub struct Plan {
 
 /// A bot that asks first, then says what oxbot answered. See the module.
 #[derive(Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct FakeBots {
     /// The tool for every message, unless [`FakeBots::tools`] names one.
     pub tool: Option<Tool>,
@@ -153,6 +142,10 @@ pub struct FakeBots {
     pub page_once: Option<PathBuf>,
     /// Read `notes.txt` in its folder first.
     pub read_file: bool,
+    /// Call `plan_task` with these arguments before anything else.
+    pub plan_task: Option<Value>,
+    /// Call `plan_task` only until it has shown a plan once.
+    pub plan_once: bool,
     /// `save_report`'s arguments (default: one source, the page it read).
     pub report: Option<Value>,
     /// Where the bots' folders are (for the file it uploads).
@@ -173,6 +166,9 @@ pub struct FakeBots {
     pub checked: Option<String>,
     /// oxbot's notes the bots got (a check, say), in order.
     pub notes: Calls,
+    /// Each request's instructions, then the people's messages it
+    /// carried (one per line), in order.
+    pub requests: Calls,
     /// The plan each (bot, message) got, so every request of a turn
     /// follows the same one (made as they're needed; leave it default).
     pub plans: Plans,
@@ -247,6 +243,17 @@ impl FakeBots {
             Some(at) => text[..at].to_owned(),
             None => text,
         })
+    }
+
+    /// Each request so far: its instructions, `=====`, then the people's
+    /// messages it carried, one per line.
+    #[must_use]
+    pub fn requests(&self) -> Vec<String> {
+        self.requests
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Every tool result the bots read so far, in order (each once).
@@ -342,6 +349,11 @@ impl FakeBots {
             args,
             say: String::new(),
         };
+        let planned =
+            self.plan_once && self.heard().iter().any(|r| r.contains("can see your plan"));
+        if let Some(args) = self.plan_task.as_ref().filter(|_| !planned) {
+            calls.push(call("mcp__oxbot__plan_task", args.clone()));
+        }
         if self.read_file {
             calls.push(call("Read", json!({"file_path": "notes.txt"})));
         }
@@ -415,6 +427,17 @@ impl FakeBots {
             .filter(|(_, m)| m.role == Role::User && !m.text.trim_start().starts_with(NOTE))
             .map(|(i, _)| i)
             .collect();
+        {
+            let seen: Vec<&str> = persons
+                .iter()
+                .map(|&i| conv.messages[i].text.as_str())
+                .collect();
+            self.requests
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(format!("{}\n=====\n{}", conv.system, seen.join("\n")));
+        }
         let Some(&last) = persons.last() else {
             return Answer {
                 text: "ok".to_owned(),
@@ -805,6 +828,7 @@ pub fn config_with(
         browser: Some(tools(home)),
         approval_timeout: Duration::from_secs(5),
         sign_in_timeout: Duration::from_secs(5),
+        pace: crate::Pace::NONE,
         openrouter: Some(LoopParts {
             browser: Some(Arc::new(SameBrowser(browser))),
             free_per_minute: 1000,

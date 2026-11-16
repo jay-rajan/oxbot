@@ -25,6 +25,7 @@ mod access;
 mod alerts;
 mod approvals;
 mod browsers;
+mod checkpoints;
 mod codex;
 mod compare;
 mod elements;
@@ -32,7 +33,9 @@ mod engine_prefs;
 mod engines;
 mod looped;
 mod net_log;
+mod pace;
 mod people;
+mod plans;
 mod profiles;
 mod reports;
 mod rules;
@@ -58,6 +61,7 @@ pub use engines::{ChainOrigin, Entry, MOVED_FROM_CLAUDE, MOVED_FROM_LOOP};
 pub use looped::LoopParts;
 pub use net_log::{CONNECTED, DeviceVisit, OxbotCall};
 pub use oxbot_loop::DATA_POLICY_HELP;
+pub use pace::Pace;
 pub use profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
 pub use schedules::PREF_KEEP_AWAKE;
 pub use sections::{MAX_SECTION_NAME, MAX_SECTIONS};
@@ -81,6 +85,8 @@ use turns::stop_idle_bots;
 
 /// Settings for the [`Hub`].
 #[derive(Debug, Clone)]
+// Settings, each its own switch.
+#[allow(clippy::struct_excessive_bools)]
 pub struct HubConfig {
     /// Where bot folders live; new bots are created here.
     pub bots_dir: PathBuf,
@@ -138,6 +144,19 @@ pub struct HubConfig {
     pub trials_without_guard: bool,
     /// The home's time zone, for schedules: the Mac's own. Tests give one.
     pub zone: Arc<dyn crate::schedule::Zone>,
+    /// The least time between a bot's actions on one site
+    /// ([`Pace::POLITE`]; [`Pace::NONE`] for stand-in sites in tests).
+    pub pace: Pace,
+    /// A bot shows the person its plan (`plan_task`) and waits for Go
+    /// before its first web visit in a task (see [`plans`]). On in the
+    /// app; off by default, for tests whose bots browse at once.
+    pub plan_first: bool,
+    /// Model requests a task makes before it checks in (see
+    /// [`checkpoints`]): the bot writes where it is, and carries on
+    /// unless the person stops it.
+    pub max_steps: u32,
+    /// How long a check-in card waits before the bot carries on.
+    pub checkpoint_wait: Duration,
 }
 
 impl HubConfig {
@@ -158,6 +177,10 @@ impl HubConfig {
             extra_env: Vec::new(),
             mac: crate::attach::MacTools::default(),
             keep_unsent: crate::attach::KEEP_UNSENT,
+            pace: Pace::POLITE,
+            plan_first: false,
+            max_steps: 50,
+            checkpoint_wait: Duration::from_mins(1),
             e2e: false,
             openrouter: None,
             codex: None,
@@ -249,6 +272,16 @@ struct Runtime {
     /// This turn's model requests so far: count, money, and the last model
     /// that answered.
     meter: looped::TurnMeter,
+    /// The bot showed its plan (see [`plans`]): it may browse. Kept for
+    /// the same person's next messages while they come within
+    /// [`plans::PLAN_LASTS`] of each other.
+    plan_ok: bool,
+    /// The person pressed Stop on this task's plan: no browsing until
+    /// they write again.
+    plan_stopped: bool,
+    /// The running turn stopped to check in after this many steps (see
+    /// [`checkpoints`]).
+    checkpoint: Option<u32>,
 }
 
 /// Cards waiting for the user, with who to tell.
@@ -312,6 +345,9 @@ pub struct Hub {
     /// Approval requests said no to because the person sent a message
     /// instead: the bot is told to read it rather than stop.
     answered_by_message: std::sync::Mutex<HashSet<u64>>,
+    /// Notice cards (a plan, a check-in) oxbot closed itself (their task
+    /// ended, or a new one started): not a Stop.
+    notices_closed: std::sync::Mutex<HashSet<u64>>,
     /// Turns that may run at once.
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
@@ -331,6 +367,8 @@ pub struct Hub {
     conversions: Semaphore,
     /// Schedules' runs in progress and the scheduler's clock.
     scheduler: schedules::Scheduler,
+    /// When each site was last visited, to pace bots' actions.
+    pacer: pace::Pacer,
 }
 
 impl std::fmt::Debug for Hub {
@@ -411,6 +449,7 @@ impl Hub {
             starting: std::sync::Mutex::new(HashSet::new()),
             queued: std::sync::Mutex::new(HashMap::new()),
             answered_by_message: std::sync::Mutex::new(HashSet::new()),
+            notices_closed: std::sync::Mutex::new(HashSet::new()),
             approvals: std::sync::Mutex::new(BTreeMap::new()),
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
@@ -423,6 +462,7 @@ impl Hub {
             knowledge: Arc::new(NoKnowledge),
             conversions: Semaphore::new(2),
             scheduler: schedules::Scheduler::default(),
+            pacer: pace::Pacer::default(),
         });
         // Settings → Activity keeps 30 days (then checked daily).
         hub.prune_net_log(true);

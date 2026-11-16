@@ -91,6 +91,7 @@ fn target(engine: Wire) -> Target {
 }
 
 #[tokio::test]
+#[ignore = "replays are practice runs, off until oxbot's browser supports them"]
 #[allow(clippy::too_many_lines, reason = "one story, start to scoreboard")]
 async fn a_replay_records_the_post_and_changes_nothing() {
     let tmp = tempfile::tempdir().unwrap();
@@ -192,6 +193,7 @@ async fn a_replay_records_the_post_and_changes_nothing() {
 }
 
 #[tokio::test]
+#[ignore = "replays are practice runs, off until oxbot's browser supports them"]
 async fn only_the_owner_compares_and_a_replay_repeats_a_no() {
     let tmp = tempfile::tempdir().unwrap();
     let Some(codex) = testing::codex(tmp.path()).await else {

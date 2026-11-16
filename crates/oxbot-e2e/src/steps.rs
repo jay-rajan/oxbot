@@ -152,7 +152,7 @@ async fn run_step(driver: &mut Driver, server: &mut Server, step: &Step) -> anyh
         tokio::time::sleep(Duration::from_millis(ms)).await;
     }
     if step.close_sign_in_window == Some(true) {
-        close_sign_in_window(&server.home, step.timeout_ms.unwrap_or(10_000)).await?;
+        close_sign_in_window(server, step.timeout_ms.unwrap_or(10_000)).await?;
     }
     loop_steps(driver, server, step).await
 }
@@ -446,55 +446,58 @@ async fn wait_until(driver: &mut Driver, expression: &str, timeout_ms: u64) -> a
     }
 }
 
-/// Closes oxbot's sign-in window in this home, as a person would after
-/// signing in, once it's open (waiting up to `timeout_ms` for it: Chrome
-/// can take a while to start on a busy Mac). The window is the Chrome for
-/// this home started on a web page (hidden Chrome starts on a blank one);
-/// it's plain Chrome, with no `DevTools` port, so it's asked to quit as a
-/// person quitting it would, saving its cookies: SIGINT (headless Chrome
-/// quits on SIGTERM without writing the cookies it just got, so a sign-in
-/// would be lost).
-async fn close_sign_in_window(home: &Path, timeout_ms: u64) -> anyhow::Result<()> {
+/// What oxbot logs once its browser is in front for a sign-in, with the
+/// page loaded (`oxbot_browser`'s `Camoufox::open`).
+const SIGN_IN_SHOWN: &str = "the browser is in front for a sign-in";
+
+/// Ends the sign-in in this oxbot as a person would after signing in, once
+/// the sign-in page is open (waiting up to `timeout_ms` for it: the browser
+/// can take a while to start on a busy Mac). The browser runs headless in
+/// tests, so there's no window to close: its helper is asked to quit, as
+/// quitting the browser would, which saves the cookies the sign-in left.
+/// oxbot sees the browser stop while signing in, counts the sign-in as
+/// done, and starts the browser again when it next needs it.
+async fn close_sign_in_window(server: &mut Server, timeout_ms: u64) -> anyhow::Result<()> {
     let start = Instant::now();
-    let pid = loop {
-        if let Some(pid) = sign_in_window_pid(home).await? {
-            break pid;
+    loop {
+        let log = std::fs::read_to_string(&server.log).unwrap_or_default();
+        if log.matches(SIGN_IN_SHOWN).count() > server.sign_ins_closed {
+            break;
         }
         if start.elapsed() > Duration::from_millis(timeout_ms) {
-            bail!("no sign-in window opened within {} s", timeout_ms / 1000);
+            bail!("no sign-in page opened within {} s", timeout_ms / 1000);
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
-    };
-    // Let it load before it goes, as a person would.
+    }
+    server.sign_ins_closed += 1;
+    // Let it settle before it goes, as a person would.
     tokio::time::sleep(Duration::from_secs(1)).await;
+    let Some(pid) = browser_helper_pid(&server.home).await? else {
+        bail!("the sign-in page is open but no browser helper runs");
+    };
     let status = tokio::process::Command::new("kill")
         .args(["-INT", &pid.to_string()])
         .status()
         .await?;
     if !status.success() {
-        bail!("couldn't close the sign-in window");
+        bail!("couldn't close the sign-in page");
     }
     Ok(())
 }
 
-/// The process id of this home's sign-in window, if one runs: a main
-/// Chrome (not a helper) on this home's profile, without oxbot's
-/// `DevTools` pipe.
-async fn sign_in_window_pid(home: &Path) -> anyhow::Result<Option<u32>> {
+/// The process id of the browser helper showing a sign-in in this home:
+/// the one whose profile is under this home and that oxbot started last.
+async fn browser_helper_pid(home: &Path) -> anyhow::Result<Option<u32>> {
     let out = tokio::process::Command::new("ps")
         .args(["-axo", "pid=,args="])
         .output()
         .await?;
-    let marker = format!("--user-data-dir={}", home.display());
+    let marker = format!("--profile {}/browser/", home.display());
     Ok(String::from_utf8_lossy(&out.stdout)
         .lines()
-        .filter(|l| {
-            l.contains(&marker)
-                && !l.contains("Helper")
-                && !l.contains(" --type=")
-                && !l.contains("--remote-debugging-pipe")
-        })
-        .find_map(|l| l.split_whitespace().next()?.parse().ok()))
+        .filter(|l| l.contains("service.mjs") && l.contains(&marker))
+        .filter_map(|l| l.split_whitespace().next()?.parse().ok())
+        .max())
 }
 
 /// Runs `steps`, saving a screenshot after each into `shots_dir`. Stops at

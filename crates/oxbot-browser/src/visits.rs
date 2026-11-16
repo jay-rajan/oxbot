@@ -1,8 +1,8 @@
 //! A bot's visits to websites, for Settings → Activity: what its browser
 //! sent and got, per site.
 //!
-//! The guard (oxbot's own `DevTools` connection, see `guard.rs`) turns on
-//! `Network` events in each tab and feeds them here as [`NetEvent`]s. A
+//! The browser helper reports each tab's requests (see `camoufox`) and
+//! they are fed here as [`NetEvent`]s. A
 //! visit is one tab's time on one site (the registrable domain of its top
 //! page, see [`crate::site_of`]): it counts the pages opened there, the
 //! bytes of every request made meanwhile (other sites' scripts, images and
@@ -11,9 +11,9 @@
 //! someone else starts using the browser.
 //!
 //! Bytes sent are an estimate (the address, headers and body of each
-//! request); bytes received are what Chrome says came over the network
-//! (`encodedDataLength`). Requests from frames or workers in their own
-//! process, which the guard doesn't attach to, aren't seen.
+//! request); bytes received are the response's headers and body as the
+//! browser counts them. Service workers' requests belong to no tab and
+//! aren't counted.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -23,9 +23,6 @@ use crate::web::{is_home_network, web_host};
 
 /// How long a visit may go without a request before it's written.
 pub const IDLE_MS: i64 = 120_000;
-/// The longest request body `DevTools` is asked to include (a bigger one
-/// counts as this much).
-pub(crate) const MAX_POST_DATA: u64 = 65_536;
 
 /// Where finished visits go (the hub writes them down).
 pub type VisitSink = Arc<dyn Fn(Visit) + Send + Sync>;
@@ -224,24 +221,6 @@ impl Open {
     }
 }
 
-/// Bytes a request sends, as `DevTools` describes it in
-/// `Network.requestWillBeSent`'s `request`: its first line, headers and
-/// body. A body too big for `DevTools` to include counts as `max_body`.
-#[must_use]
-pub fn request_bytes(request: &serde_json::Value, max_body: u64) -> u64 {
-    let len = |v: &serde_json::Value| v.as_str().map_or(0, str::len) as u64;
-    let line = len(&request["method"]) + len(&request["url"]) + 12;
-    let headers: u64 = request["headers"].as_object().map_or(0, |h| {
-        h.iter().map(|(k, v)| k.len() as u64 + len(v) + 4).sum()
-    });
-    let body = match request.get("postData") {
-        Some(data) => len(data),
-        None if request["hasPostData"].as_bool() == Some(true) => max_body,
-        None => 0,
-    };
-    line + headers + body
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,16 +364,5 @@ mod tests {
         let handed = v.tick(IDLE_MS + 1, Some("other"));
         assert_eq!(handed[0].site, "example.org");
         assert_eq!(v.end_all(), NONE);
-    }
-
-    #[test]
-    fn request_sizes_count_the_line_headers_and_body() {
-        let req = serde_json::json!({
-            "method": "POST", "url": "https://a.test/x",
-            "headers": {"Accept": "*/*"}, "postData": "hello"
-        });
-        assert_eq!(request_bytes(&req, 1_000), (4 + 16 + 12) + (6 + 3 + 4) + 5);
-        let big = serde_json::json!({"method": "POST", "url": "", "hasPostData": true});
-        assert_eq!(request_bytes(&big, 1_000), 4 + 12 + 1_000);
     }
 }

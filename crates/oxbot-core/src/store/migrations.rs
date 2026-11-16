@@ -476,7 +476,24 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // columns are renamed in place (nothing is copied or lost), and the old
     // names in saved task origins become the new ones.
     Step::Rust(new_words),
+    // 29: the tools each Codex thread started with, so new tools start a
+    // new thread (new instructions go on in the same one).
+    Step::Rust(threads_remember_tools),
 ];
+
+/// Migration 29. Skipped if the column is already there (a database
+/// rewound to an older version for a test keeps its columns).
+fn threads_remember_tools(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let has: bool = tx.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('codex_threads') WHERE name = 'tools'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has {
+        tx.execute_batch("ALTER TABLE codex_threads ADD COLUMN tools TEXT NOT NULL DEFAULT ''")?;
+    }
+    Ok(())
+}
 
 /// Migration 28. Renames only what still has its old name, as 15 skips
 /// what is already there.

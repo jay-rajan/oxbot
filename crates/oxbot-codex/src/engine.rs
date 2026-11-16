@@ -57,7 +57,7 @@ use oxbot_loop::tools::page::ASK_PAGE;
 use oxbot_loop::{
     CHECK_AFTER_CALLS, CallCtx, Dispatched, Failures, LoopEngine, MAX_NAMED, OwnTools, RepeatGuard,
     SourcePage, Stop, ToolService, TurnHooks, add_source, answer_after_check, check_note,
-    link_line, needs_links, pages_in_result, with_sources, wrap_up_note,
+    link_line, needs_links, pages_in_result, with_sources,
 };
 use oxbot_relay::{ClientInfo, Relay, TurnStart};
 use serde_json::{Value, json};
@@ -81,6 +81,17 @@ const GRACE: Duration = Duration::from_secs(5);
 const MAX_BAD_CALLS: u32 = 3;
 /// What the chat shows while the bot checks.
 const CHECKING: &str = "Checking its answer";
+/// The model requests a turn may take after its steps, to check in.
+const CHECK_IN_STEPS: u32 = 5;
+/// What the bot is told when it reaches its steps: it writes where it is,
+/// and oxbot lets it carry on unless the person stops it (the hub's
+/// check-in, see `oxbot_core`'s `checkpoints`).
+const CHECK_IN: &str = "[oxbot] You've taken {steps} steps: pause here and call no more tools \
+     now. Reply to the person with where you are, in at most 4 short lines: what you've found so \
+     far, and what's left. oxbot then lets you carry on, unless they stop you.";
+/// What a call after the check-in tells the model: it doesn't run.
+const CHECKED_IN: &str = "[oxbot] Paused for a check-in, so this call didn't run. Call no more \
+     tools: reply to the person now, in at most 4 short lines, with what you've found and what's left.";
 /// What a skipped call tells the model.
 const SKIPPED: &str = "[skipped] An earlier call in this step was refused, so this one didn't run.";
 /// Longest wait for Codex to say a turn it was asked to stop has stopped.
@@ -409,6 +420,49 @@ impl Drop for CodexSession {
     }
 }
 
+/// What the person sees when no model gave a usable answer.
+const NO_ANSWER: &str = "The AI gave no usable answer, even with another model. Try again, or pick another model in the bot's settings.";
+
+/// A finished turn's reply that's empty or garbled (replacement
+/// characters: broken output). Only counts when no tool was called.
+fn is_empty_answer(end: &End) -> bool {
+    match end {
+        End::Done(text) => text.trim().is_empty() || text.matches('\u{FFFD}').count() >= 3,
+        _ => false,
+    }
+}
+
+/// Passes on the turn's last meter rows; returns the model that answered
+/// last, if any did.
+async fn last_meter_rows(
+    core: &Core,
+    meter_rx: &mut mpsc::UnboundedReceiver<CallRecord>,
+) -> Option<String> {
+    let mut answered_by = None;
+    while let Ok(record) = meter_rx.try_recv() {
+        if !record.model.is_empty() {
+            answered_by = Some(record.model.clone());
+        }
+        let _ = core.events.send(EngineEvent::ModelCall(record)).await;
+    }
+    answered_by
+}
+
+/// Drops the thread's last turn (the person's message and the empty
+/// answer), so a garbled answer never goes back to a model.
+async fn rollback(running: &Running, thread: &str) {
+    let undone = running
+        .process
+        .request(
+            "thread/rollback",
+            json!({ "threadId": thread, "numTurns": 1 }),
+        )
+        .await;
+    if let Err(err) = undone {
+        tracing::warn!(%err, "couldn't take the empty answer out of the history");
+    }
+}
+
 /// How a turn ends.
 enum End {
     Done(String),
@@ -465,7 +519,9 @@ struct CallState {
     /// The web pages it read, in order (see [`pages_in_result`]).
     pages: Vec<SourcePage>,
     bad_calls: u32,
-    nudged: bool,
+    /// The turn reached its steps and the bot was asked to check in (see
+    /// [`CHECK_IN`]).
+    checking_in: bool,
 }
 
 /// What the turn's loop hears from a finished call.
@@ -478,6 +534,8 @@ enum CallDone {
 }
 
 struct Turn {
+    /// Last model observed, including meter rows consumed while driving.
+    answered_by: Option<String>,
     number: u32,
     thread: String,
     codex_id: String,
@@ -535,7 +593,7 @@ impl Turn {
             Ok(r) => r,
             Err(why) => return End::Failed(why),
         };
-        let (thread, model, budget) = match load_thread(core, &running).await {
+        let (thread, model, budget, fresh) = match load_thread(core, &running).await {
             Ok(t) => t,
             Err(why) => return End::Failed(why),
         };
@@ -550,26 +608,127 @@ impl Turn {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .max_steps;
-        let (meter_tx, mut meter_rx) = mpsc::unbounded_channel::<CallRecord>();
-        running.relay.begin_turn(TurnStart {
-            session: core.spec.resume.id().to_owned(),
-            turn: number,
-            person: input.person.clone(),
-            lane: if core.spec.gate_mode == GateMode::DryRun {
-                Lane::Trial
-            } else {
-                Lane::Live
-            },
-            min_window: Some(budget.window),
-            max_requests: max_steps,
-            meter: Some(meter_tx),
-        });
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        running.process.watch(&thread, tx);
-        let _ = core.events.send(EngineEvent::Started { model }).await;
-        let mut turn = Self {
+        // A model that answers with nothing usable (no reply, no tool call)
+        // is taken out of the history and the turn runs once more without it.
+        let mut avoid: Vec<String> = Vec::new();
+        loop {
+            let (meter_tx, mut meter_rx) = mpsc::unbounded_channel::<CallRecord>();
+            running.relay.begin_turn(TurnStart {
+                session: core.spec.resume.id().to_owned(),
+                turn: number,
+                person: input.person.clone(),
+                lane: if core.spec.gate_mode == GateMode::DryRun {
+                    Lane::Trial
+                } else {
+                    Lane::Live
+                },
+                min_window: Some(budget.window),
+                // A few more than its steps: the bot writes where it is.
+                max_requests: max_steps + CHECK_IN_STEPS,
+                meter: Some(meter_tx),
+                avoid: avoid.clone(),
+            });
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            running.process.watch(&thread, tx);
+            let _ = core
+                .events
+                .send(EngineEvent::Started {
+                    model: model.clone(),
+                })
+                .await;
+            let mut turn = Self::new(
+                number,
+                thread.clone(),
+                max_steps,
+                budget,
+                cancel,
+                &input.text,
+            );
+            let first = first_message(&input.text, core.spec.earlier_chat.as_deref(), fresh);
+            let busy = supervisor.begin_turn(&core.key).await;
+            let end = match turn.start_codex(&running, &first).await {
+                Ok(()) => {
+                    let channels = Channels {
+                        rx: &mut rx,
+                        meter_rx: &mut meter_rx,
+                        steer,
+                    };
+                    turn.drive(core, &running, input, cancel, channels).await
+                }
+                Err(why) => End::Failed(why),
+            };
+            running.process.unwatch(&thread);
+            let summary = running.relay.end_turn();
+            let answered_by = turn.finish_meter(core, &mut meter_rx).await;
+            drop(busy);
+            supervisor.touch(&core.key).await;
+            let did_something = turn.did_something().await;
+            let end = match end {
+                End::Failed(why) => End::Failed(summary.stop.unwrap_or(why)),
+                other => other,
+            };
+            if cancel.is_cancelled() || did_something || !is_empty_answer(&end) {
+                return end;
+            }
+            if let Some(end) =
+                Self::without_empty_answer(core, &running, &thread, answered_by, &mut avoid).await
+            {
+                return end;
+            }
+        }
+    }
+
+    /// Preserve the last model even when its meter row arrived before completion.
+    async fn finish_meter(
+        &self,
+        core: &Core,
+        meter_rx: &mut mpsc::UnboundedReceiver<CallRecord>,
+    ) -> Option<String> {
+        last_meter_rows(core, meter_rx)
+            .await
+            .or_else(|| self.answered_by.clone())
+    }
+
+    /// After an empty answer: it's taken out of the history, and the turn
+    /// goes again without that model (`None`), once; otherwise it fails.
+    async fn without_empty_answer(
+        core: &Core,
+        running: &Running,
+        thread: &str,
+        answered_by: Option<String>,
+        avoid: &mut Vec<String>,
+    ) -> Option<End> {
+        rollback(running, thread).await;
+        match answered_by {
+            Some(bad) if avoid.is_empty() => {
+                tracing::warn!(bot = %core.spec.bot, model = bad, "empty answer; trying another model");
+                let note = format!("{bad} gave no usable answer, so oxbot tried another model.");
+                let _ = core.events.send(EngineEvent::Note(note)).await;
+                avoid.push(bad);
+                None
+            }
+            _ => Some(End::Failed(NO_ANSWER.to_owned())),
+        }
+    }
+
+    /// Whether the model called any tool this turn (ran, refused or got wrong).
+    async fn did_something(&self) -> bool {
+        let calls = self.calls.lock().await;
+        calls.ran > 0 || calls.refused || calls.bad_calls > 0
+    }
+
+    fn new(
+        number: u32,
+        thread: String,
+        max_steps: u32,
+        budget: TokenBudget,
+        cancel: &CancellationToken,
+        goal: &str,
+    ) -> Self {
+        Self {
+            answered_by: None,
             number,
-            thread: thread.clone(),
+            thread,
             codex_id: String::new(),
             max_steps,
             budget,
@@ -586,30 +745,7 @@ impl Turn {
             first_answer: None,
             bounced_at: None,
             writing: false,
-            goal: input.text.clone(),
-        };
-        let first = format!("{}\n\n{}", input.text, date_line(&chrono::Local::now()));
-        let end = match turn.start_codex(&running, &first).await {
-            Ok(()) => {
-                let channels = Channels {
-                    rx: &mut rx,
-                    meter_rx: &mut meter_rx,
-                    steer,
-                };
-                turn.drive(core, &running, input, cancel, channels).await
-            }
-            Err(why) => End::Failed(why),
-        };
-        running.process.unwatch(&thread);
-        let summary = running.relay.end_turn();
-        // The last requests' meter rows.
-        while let Ok(record) = meter_rx.try_recv() {
-            let _ = core.events.send(EngineEvent::ModelCall(record)).await;
-        }
-        supervisor.touch(&core.key).await;
-        match end {
-            End::Failed(why) => End::Failed(summary.stop.unwrap_or(why)),
-            other => other,
+            goal: goal.to_owned(),
         }
     }
 
@@ -674,6 +810,9 @@ impl Turn {
                     self.stop(running, End::Stopped).await;
                 }
                 Some(record) = meter_rx.recv() => {
+                    if !record.model.is_empty() {
+                        self.answered_by = Some(record.model.clone());
+                    }
                     let _ = core.events.send(EngineEvent::ModelCall(record)).await;
                 }
                 Some(message) = steer.recv() => {
@@ -857,6 +996,12 @@ impl Turn {
             Some("completed") => {}
             Some("interrupted") => return Some(End::Stopped),
             _ => {
+                // It ran out of steps while checking in: still a check-in,
+                // so the hub carries on unless the person stops it.
+                if self.calls.lock().await.checking_in {
+                    let text = std::mem::take(&mut self.pending).join("\n\n");
+                    return Some(self.check_in(core, text).await);
+                }
                 let raw = turn["error"]["message"]
                     .as_str()
                     .unwrap_or("The AI helper failed.");
@@ -865,6 +1010,12 @@ impl Turn {
         }
         let text = std::mem::take(&mut self.pending).join("\n\n");
         let calls = self.calls.lock().await;
+        // Checking in: its reply says where it is, as it is; the hub may
+        // let it carry on.
+        if calls.checking_in {
+            drop(calls);
+            return Some(self.check_in(core, text).await);
+        }
         let check = calls.ran >= CHECK_AFTER_CALLS && !calls.refused;
         let missing = if check {
             ungrounded(&calls, core, &self.goal, &text)
@@ -944,6 +1095,27 @@ impl Turn {
     }
 
     /// Tells the chat about a call (once), with the text said before it.
+    /// Ends the turn at a check-in: what it wrote (if anything), then the
+    /// hub's check-in.
+    async fn check_in(&self, core: &Core, text: String) -> End {
+        if !text.trim().is_empty() {
+            let _ = core
+                .events
+                .send(EngineEvent::Assistant {
+                    text: text.clone(),
+                    tool_uses: Vec::new(),
+                })
+                .await;
+        }
+        let _ = core
+            .events
+            .send(EngineEvent::Checkpoint {
+                steps: self.max_steps,
+            })
+            .await;
+        End::Done(text)
+    }
+
     async fn announce(&mut self, core: &Core, call: &ToolCall) {
         if !self.announced.insert(call.id.clone()) {
             return;
@@ -1153,6 +1325,8 @@ impl CallJob {
         let mut calls = self.calls.lock().await;
         let (mut outcome, done) = if self.stopped {
             (ToolOutcome::note("Stopped.", true), CallDone::Stopped)
+        } else if calls.checking_in {
+            (ToolOutcome::note(CHECKED_IN, false), CallDone::Ran)
         } else if calls.refused_step == Some(self.step) {
             (ToolOutcome::note(SKIPPED, false), CallDone::Ran)
         } else if !self.files_asked && oxbot_loop::tools::files::changes_files(&self.call.name) {
@@ -1168,11 +1342,13 @@ impl CallJob {
             calls.failures.count(&self.call, &mut outcome);
         }
         let steps = self.relay_steps.summary().requests;
-        if let Some(note) = wrap_up_note(steps, self.max_steps, &mut calls.nudged)
+        if steps >= self.max_steps
+            && !calls.checking_in
             && let Some(Part::Text(t)) = outcome.for_model.last_mut()
         {
+            calls.checking_in = true;
             t.push_str("\n\n");
-            t.push_str(&note);
+            t.push_str(&CHECK_IN.replace("{steps}", &steps.to_string()));
         }
         drop(calls);
         let _ = self
@@ -1332,16 +1508,21 @@ fn next_turn(core: &Core, thread: &str) -> Result<u32, String> {
 }
 
 /// The session's thread, loaded in `running`: resumed if it was saved,
-/// else started. Returns it, its model and the window's budget.
+/// else started. Returns it, its model, the window's budget and whether
+/// it was started just now.
+///
+/// A saved thread always goes on with the session's instructions as they
+/// are now, as long as its tools are the same: Codex keeps a thread's
+/// tools, so new ones need a new thread (which gets the chat so far).
 async fn load_thread(
     core: &Core,
     running: &Running,
-) -> Result<(String, String, TokenBudget), String> {
+) -> Result<(String, String, TokenBudget, bool), String> {
     let mut ts = core.thread.lock().await;
     if let (Some(id), Some(budget)) = (&ts.id, ts.budget)
         && ts.loaded == Some(running.generation)
     {
-        return Ok((id.clone(), ts.model.clone(), budget));
+        return Ok((id.clone(), ts.model.clone(), budget, false));
     }
     let gateway = core.shared.loop_engine.gateway();
     let Some((model, window, max_tokens)) =
@@ -1362,8 +1543,22 @@ async fn load_thread(
     let session = core.spec.resume.id();
     let saved = store.thread(bot, session)?;
     let now = oxbot_loop::meter::now_ms();
+    let tools = fingerprint(
+        &serde_json::to_string(&core.names.dynamic_tools(&core.tools.specs(), &[]))
+            .unwrap_or_default(),
+    );
     let mut row = None;
+    let saved = saved.filter(|s| {
+        // A thread from before oxbot kept its tools starts over too (once):
+        // with the chat so far, which it may not have seen.
+        let same = s.tools == tools;
+        if !same {
+            tracing::info!(%bot, "its tools changed; starting a new Codex thread");
+        }
+        same
+    });
     if let Some(saved) = saved {
+        let_go(running, bot, &saved.thread_id).await;
         let resumed = running
             .process
             .request(
@@ -1373,6 +1568,7 @@ async fn load_thread(
                     "cwd": core.spec.work_dir,
                     "approvalPolicy": "never",
                     "sandbox": "read-only",
+                    "baseInstructions": core.spec.system_prompt,
                     "config": config,
                     "excludeTurns": true,
                 }),
@@ -1384,6 +1580,7 @@ async fn load_thread(
                     model: model.clone(),
                     window,
                     updated_ms: now,
+                    tools: tools.clone(),
                     ..saved
                 });
             }
@@ -1392,6 +1589,7 @@ async fn load_thread(
             }
         }
     }
+    let fresh = row.is_none();
     let row = if let Some(row) = row {
         row
     } else {
@@ -1405,6 +1603,7 @@ async fn load_thread(
             turns: store.thread(bot, session)?.map_or(0, |r| r.turns),
             created_ms: now,
             updated_ms: now,
+            tools,
         }
     };
     store.save_thread(&row)?;
@@ -1413,7 +1612,38 @@ async fn load_thread(
     ts.model.clone_from(&model);
     ts.window = window;
     ts.budget = Some(budget);
-    Ok((row.thread_id, model, budget))
+    Ok((row.thread_id, model, budget, fresh))
+}
+
+/// The text a turn starts with: the person's message and today's date,
+/// after the chat so far for a thread started just now (`fresh`).
+fn first_message(text: &str, earlier_chat: Option<&str>, fresh: bool) -> String {
+    let date = date_line(&chrono::Local::now());
+    match earlier_chat.filter(|_| fresh) {
+        Some(earlier) => format!("{earlier}\n\n{text}\n\n{date}"),
+        None => format!("{text}\n\n{date}"),
+    }
+}
+
+/// Lets go of a saved thread before it's resumed: Codex keeps a loaded
+/// thread's own instructions, and a thread loaded again from disk takes
+/// the ones it's resumed with (the person may have changed them).
+async fn let_go(running: &Running, bot: &str, thread: &str) {
+    if let Err(err) = running
+        .process
+        .request("thread/unsubscribe", json!({"threadId": thread}))
+        .await
+    {
+        tracing::info!(%bot, %err, "couldn't let go of its Codex thread");
+    }
+}
+
+/// A short fingerprint of `text` (FNV-1a).
+fn fingerprint(text: &str) -> String {
+    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}")
 }
 
 /// Starts a thread with oxbot's instructions and tools. A tool whose
@@ -1477,6 +1707,20 @@ async fn start_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_or_garbled_reply_is_no_answer() {
+        assert!(is_empty_answer(&End::Done(String::new())));
+        assert!(is_empty_answer(&End::Done("  \n".to_owned())));
+        assert!(is_empty_answer(&End::Done(
+            "a\u{FFFD}b\u{FFFD}c\u{FFFD}".to_owned()
+        )));
+        assert!(!is_empty_answer(&End::Done(
+            "Added it to your cart.".to_owned()
+        )));
+        assert!(!is_empty_answer(&End::Waiting(String::new())));
+        assert!(!is_empty_answer(&End::Failed(String::new())));
+    }
 
     /// A stand-in `codex app-server` that writes each line it's sent to
     /// `log` and answers every request with `{"turnId": "turn-1"}`.

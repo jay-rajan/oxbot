@@ -7,10 +7,11 @@ only to OpenRouter, or later to a model on this computer; nothing else: no relay
 services, no analytics, and nothing goes to Anthropic.
 
 Status: the desktop app on the home computer plus the Android app for devices (milestone
-Foundations, issue #1). Shared bots share one hidden home Chrome that keeps the websites you're
-signed in to: a bot that needs an account asks, a plain Chrome window opens (no remote control, so
-sites don't take it for a robot), you sign in once and close it, and
-every bot on that Chrome stays signed in (a sign-in counts only if the window left a new cookie).
+Foundations, issue #1). Shared bots share one home browser, oxbot's own Camoufox (a Firefox build
+inside the app), minimized in the Dock, that keeps the websites you're signed in to: a bot that
+needs an account asks, the browser comes forward on that site with the bots paused, you sign in
+once and close that tab, and every bot on that browser stays signed in (a sign-in counts only if
+it left a new cookie).
 Settings → Sign-ins lists the websites you're signed in to (the sidebar's Signed in link opens
 it); open one, or sign out of it alone. Bots take turns on the browser. oxbot checks every
 browser step: links, tabs, search, filters, sorting and paging run at once; an approval request
@@ -20,8 +21,10 @@ deleting; one comes before Enter in a text box (a line break typed, or a shortcu
 Control+Enter, counts as Enter), and before an upload from the home computer; and it refuses
 passwords, page scripts, non-web pages and files outside the bot's folder (a link out of it
 doesn't count as inside). oxbot names what a click aims at from the page snapshots the browser tool
-took, checks with Chrome that the page really shows that button, and for an unclear button it
-reads the button's form itself, in its own isolated world the page's scripts can't touch. A click
+took, checks with the browser that the page really shows that button, and for an unclear button
+it reads the button's form itself. (With Chrome that read ran in an isolated world; Playwright's
+Firefox runs it in the page's own world, so a hostile page could misdescribe its forms: a known gap
+of the Camoufox switch.) A click
 oxbot can't name asks. An approval request for a change can offer **Always allow** (to the bot's
 maker or the owner at the home computer): the same bot may then click the same button on the same
 exact site without asking, with a quiet line in the chat; one that sends, posts or changes a
@@ -86,7 +89,7 @@ then oxbot adds a Sources list of the pages the bot really read.
 
 Private bots: every bot records who made it, and its maker can make it private. A private bot is
 listed for everyone (name, maker, a lock), but only its maker and the owner can open it, and it
-browses in its maker's own Chrome (Settings → Sign-ins → Yours), never the home one. Your own
+browses in its maker's own browser profile (Settings → Sign-ins → Yours), never the home one. Your own
 Assistant can give it tasks; it asks you first if it has read web content or other bots'
 replies. Nobody else's Assistant can use it, and Assistants can't task or read each other. Long
 chats open a page at a time.
@@ -143,7 +146,7 @@ computer's secret (a key in the data folder, readable only by your Mac account);
 and `oxbot bots` read it; `oxbot serve` prints a link with it. Other pages and programs on the
 Mac can't act as the home computer.
 
-Setup: the browser tool and Node.js ship inside the app; you need Google Chrome and Codex CLI
+Setup: the browser (Camoufox), its tool and Node.js ship inside the app; you need Codex CLI
 0.148.x (installed separately for now: oxbot looks in `PATH`, `/opt/homebrew/bin` and
 `/usr/local/bin`, or where Settings says, or `OXBOT_CODEX` in a debug build), and the owner signs in to OpenRouter
 once. Settings (the gear) shows setup, AI spending and oxbot's activity log.
@@ -188,7 +191,8 @@ goes to a proxy that refuses it. What the relay sent is kept for 14 days in the 
 
 Codex reaches oxbot's tools through oxbot's tool service (`oxbot-loop`, from oxbot's own agent
 loop, which retired as an engine), with oxbot's checks: the browser
-(chrome-devtools-mcp, in the same Chrome), the page tools, files in the bot's folder, the
+(oxbot's Camoufox tool, `scripts/camoufox/mcp.mjs`, keeping chrome-devtools-mcp's tool names
+and page text), the page tools, files in the bot's folder, the
 Assistant's team tools, save_report and request_sign_in. Each step is checked before it runs:
 approval requests, Always allow, refusing passwords, page scripts, pages on this computer or the
 home network and files outside the bot's folder, and marking untrusted text (an Assistant that
@@ -276,14 +280,14 @@ types and files.
 | `crates/oxbot-relay` | oxbot's model relay on 127.0.0.1 for Codex: token check, stripping, model/privacy/limits, OpenRouter's Responses API, meter and what-was-sent log |
 | `crates/oxbot-loop` | What Codex bots share with oxbot (from oxbot's own agent loop, retired as an engine): tool service and tools (browser, page tools, rows, files, stored results), gate check, answer check, model gateway (router, pacer, retries, meter) |
 | `crates/oxbot-llm` | Model client for OpenAI-style chat APIs (OpenRouter now, local models later), the key, sign-in (PKCE) |
-| `crates/oxbot-browser` | A hidden Chrome per owner (home, or a person's own) with a kept profile, and its sign-in window |
+| `crates/oxbot-browser` | A Camoufox browser per owner (home, or a person's own) with a kept profile, driven by a Node helper (`scripts/camoufox`); practice runs and sealed script reads are off until rebuilt for it |
 | `crates/oxbot` | The `oxbot` command: `serve`, `chat`, `bots`, `pair`, `devices`, `doctor`; the chat page; the device door (`src/door/`) |
 | `crates/oxbot-device` | The device side of the link: pairing link, pinned TLS client, the phone's chat copy (builds for Android) |
 | `app/src-tauri` | The desktop app and the Android app for devices (Tauri 2) |
 | `mac/` | `oxbot-mac`, the Swift helper inside the app: video frames and on-device dictation |
 
 ## Android app (a device)
-The phone app is only ever a device: no server, bots or Chrome are compiled in. Tools (once):
+The phone app is only ever a device: no server, bots or browser are compiled in. Tools (once):
 Homebrew `openjdk@17` and `android-commandlinetools`, then the SDK in `~/Library/Android/sdk`
 (platform-tools, `platforms;android-36`, `build-tools;36.0.0`, an NDK) and
 `rustup target add aarch64-linux-android`.

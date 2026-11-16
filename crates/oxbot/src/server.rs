@@ -55,9 +55,8 @@ pub struct AppState {
     pub search_path: String,
     /// The latest setup check.
     pub setup: Arc<std::sync::RwLock<SetupReport>>,
-    /// Whether the browser tool (and the Node.js it needs) ships inside the
-    /// app, so the setup check doesn't ask for Node.js.
-    pub tool_built_in: bool,
+    /// Whether oxbot's own browser (shipped inside the app) is complete.
+    pub browser_ready: bool,
     /// End-to-end test mode: a connection may say who it is with `?as=Name`
     /// (always a device person, never the home computer).
     pub e2e: bool,
@@ -282,7 +281,7 @@ impl AppState {
     /// Runs the setup check again and keeps the result.
     pub async fn refresh_setup(&self) -> SetupReport {
         self.dictation.check().await;
-        let mut report = crate::setup::check(&self.search_path, self.tool_built_in);
+        let mut report = crate::setup::check(self.browser_ready);
         report
             .checks
             .insert(0, crate::setup::codex_check(&self.hub.codex_view()));
@@ -328,7 +327,7 @@ impl AppState {
             local_person: "Me".to_owned(),
             search_path: std::env::var("PATH").unwrap_or_default(),
             setup: Arc::default(),
-            tool_built_in: false,
+            browser_ready: false,
             e2e: false,
             door: None,
             home_computer_key: crate::secret::random_hex::<32>(),
@@ -1049,6 +1048,10 @@ impl Client {
                 bot: self.inner(bot),
                 private,
             },
+            ClientMsg::SetBrowserHidden { bot, hidden } => ClientMsg::SetBrowserHidden {
+                bot: self.inner(bot),
+                hidden,
+            },
             ClientMsg::SetSharing {
                 bot,
                 sharing,
@@ -1467,6 +1470,9 @@ async fn handle_bot_settings(msg: ClientMsg, state: &AppState, viewer: &Viewer) 
     let hub = &state.hub;
     reply(match msg {
         ClientMsg::SetPrivate { bot, private } => hub.set_private(&bot, private, viewer).await,
+        ClientMsg::SetBrowserHidden { bot, hidden } => {
+            hub.set_browser_hidden(&bot, hidden, viewer).await
+        }
         ClientMsg::SetSharing {
             bot,
             sharing,
@@ -1551,6 +1557,7 @@ async fn handle(
         },
         msg @ ClientMsg::CreateBot { .. } => create_bot(state, client, out, msg).await,
         ClientMsg::SetPrivate { .. }
+        | ClientMsg::SetBrowserHidden { .. }
         | ClientMsg::SetSharing { .. }
         | ClientMsg::RenameBot { .. }
         | ClientMsg::SetBotInstructions { .. }
@@ -2258,6 +2265,15 @@ async fn handle_sign_ins(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> V
         ClientMsg::OpenSignIn { id } if state.hub.sign_in_visible(id, viewer) => {
             reply(state.hub.open_sign_in(id).await)
         }
+        ClientMsg::SignInFrame { id } if state.hub.sign_in_visible(id, viewer) => {
+            match state.hub.sign_in_frame(id).await {
+                Ok(frame) => vec![frame],
+                Err(e) => reply(Err(e)),
+            }
+        }
+        ClientMsg::SignInInput { id, input } if state.hub.sign_in_visible(id, viewer) => {
+            reply(state.hub.sign_in_input(id, input).await)
+        }
         ClientMsg::SignInDone { id } if state.hub.sign_in_visible(id, viewer) => {
             state.hub.resolve_sign_in(id, true);
             Vec::new()
@@ -2382,11 +2398,13 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
             .then_some(msg),
         // The log names every bot, site and person; pairing is the home computer's
         // job: the home computer's only.
-        // Dictation goes straight to the connection that asked; if it were
-        // ever broadcast, only the home computer could have asked.
+        // Dictation and sign-in pictures go straight to the connection that
+        // asked; if they were ever broadcast, only the home computer sees
+        // them.
         ServerMsg::Log(_)
         | ServerMsg::OpenRouterAuth { .. }
         | ServerMsg::Dictation { .. }
+        | ServerMsg::SignInFrame { .. }
         | ServerMsg::Pairing(_)
         | ServerMsg::PairingClosed
         | ServerMsg::Devices { .. }

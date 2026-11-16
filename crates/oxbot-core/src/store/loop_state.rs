@@ -451,6 +451,7 @@ mod tests {
             turns: 1,
             created_ms: now_ms(),
             updated_ms: now_ms(),
+            tools: String::new(),
         };
         for session in ["old", "current"] {
             store.save_thread(&thread(session)).unwrap();

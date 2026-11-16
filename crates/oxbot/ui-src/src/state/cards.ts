@@ -21,6 +21,14 @@ import type { Action } from "./store";
 /** A card numbered by when it first came (`at`); one sent again keeps its place. */
 export type CardApproval = Approval & { at: number };
 export type CardSignIn = SignInRequest & { at: number };
+/** A picture of a sign-in page (see `sign_in_frame`). */
+export interface SignInFrame {
+  id: number;
+  image: string;
+  width: number;
+  height: number;
+  url: string;
+}
 
 /** A schedule card being changed before Create. */
 export interface SchedEdit {
@@ -69,6 +77,9 @@ export interface CardsState {
   seq: number;
   approvals: Readonly<Record<number, CardApproval>>;
   signIns: Readonly<Record<number, CardSignIn>>;
+  /** The newest picture of each open sign-in's page, for a device that
+   * can't see the window (it asks for them while the card shows one). */
+  signInFrames: Readonly<Record<number, SignInFrame>>;
   schedEdits: Readonly<Record<number, SchedEdit>>;
   /** The bot whose ··· settings are open, with its reports and schedules (null: loading). */
   settingsFor: string | null;
@@ -103,6 +114,7 @@ export const initialCards: CardsState = {
   seq: 0,
   approvals: {},
   signIns: {},
+  signInFrames: {},
   schedEdits: {},
   settingsFor: null,
   reports: null,
@@ -161,7 +173,11 @@ function onServer(state: CardsState, action: Extract<Action, { kind: "server" }>
       return { ...state, seq, signIns: { ...state.signIns, [s.id]: { ...s, at: old ? old.at : seq } } };
     }
     case "sign_in_resolved":
-      return { ...state, signIns: without(state.signIns, msg.id) };
+      return { ...state, signIns: without(state.signIns, msg.id), signInFrames: without(state.signInFrames, msg.id) };
+    case "sign_in_frame": {
+      const { type: _t, ...f } = msg;
+      return state.signIns[f.id] ? { ...state, signInFrames: { ...state.signInFrames, [f.id]: f } } : state;
+    }
     case "reports":
       return msg.bot === state.settingsFor ? { ...state, reports: msg.reports } : state;
     case "schedules":

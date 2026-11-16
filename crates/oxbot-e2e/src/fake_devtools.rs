@@ -10,11 +10,11 @@
 //! - `list_pages` lists the open page; `take_screenshot` gives a tiny PNG;
 //! - every input tool (`click`, `fill`, …) says "done".
 //!
-//! Real Chrome still runs hidden for leases, screenshots and page facts. A
-//! page on the test site (a `.test` host) is
-//! also opened in that Chrome, in a new tab (the real tool's
-//! `--wsEndpoint` says which Chrome), so its network can be checked; no
-//! other page is ever loaded. Each call is logged (tool and arguments) to
+//! oxbot's real browser (Camoufox, headless) still runs for leases,
+//! screenshots and page facts. A page on the test site (a `.test` host,
+//! reached through the test site as the browser's proxy) is also opened in
+//! it, through oxbot's browser address (the real tool's `--endpoint`), so
+//! its network can be checked; no other page is ever loaded. Each call is logged (tool and arguments) to
 //! `OXBOT_FAKE_DT_LOG` if set, so tests can check what the loop did.
 
 use std::io::Write as _;
@@ -47,8 +47,9 @@ pub struct Devtools {
     tools: Vec<Value>,
     open: Option<String>,
     log: Option<PathBuf>,
-    /// The Chrome's `DevTools` address, from `--wsEndpoint`.
-    chrome: Option<String>,
+    /// oxbot's browser address and the bot's folder, from `--endpoint` and
+    /// `--workspace`.
+    browser: Option<(String, String)>,
 }
 
 impl Devtools {
@@ -60,21 +61,25 @@ impl Devtools {
             tools: tools(),
             open: None,
             log,
-            chrome: None,
+            browser: None,
         }
     }
 
-    /// Opens test-site pages in the Chrome at `endpoint` (the real tool's
-    /// `--wsEndpoint`, oxbot's `ws://127.0.0.1:…/devtools/browser/<token>`).
+    /// Opens test-site pages in oxbot's browser at `endpoint` (the real
+    /// tool's `--endpoint`, oxbot's `http://127.0.0.1:…/<token>`), as the
+    /// bot working in `workspace` (its `--workspace`).
     #[must_use]
-    pub fn with_ws_endpoint(mut self, endpoint: &str) -> Self {
-        self.chrome = Some(endpoint.to_owned());
+    pub fn with_endpoint(mut self, endpoint: &str, workspace: Option<&str>) -> Self {
+        self.browser = Some((endpoint.to_owned(), workspace.unwrap_or_default().to_owned()));
         self
     }
 
-    /// Opens `url` in a new tab of the Chrome, if it's on the test site.
-    fn load_in_chrome(&self, url: &str) {
-        let Some(endpoint) = &self.chrome else {
+    /// Opens `url` in oxbot's browser, if it's on the test site: one
+    /// `navigate_page` through oxbot's browser address, as the real tool
+    /// sends it. The answer comes once the page has loaded.
+    fn load_in_browser(&self, url: &str) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let Some((endpoint, workspace)) = &self.browser else {
             return;
         };
         let host = url
@@ -84,22 +89,18 @@ impl Devtools {
         if !host.to_ascii_lowercase().ends_with(".test") || url.contains(char::is_whitespace) {
             return;
         }
-        let Ok((mut socket, _)) = tokio_tungstenite::tungstenite::connect(endpoint.as_str()) else {
-            return;
-        };
-        let open = json!({ "id": 1, "method": "Target.createTarget", "params": { "url": url } });
-        if socket
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                open.to_string().into(),
-            ))
-            .is_ok()
-        {
-            let _ = socket.read();
-            // Like the real tool, answer once the page has loaded (and run
-            // its first scripts).
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-        }
-        let _ = socket.close(None);
+        let operation = format!(
+            "fake-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let body = json!({
+            "name": "navigate_page",
+            "args": { "url": url },
+            "workspace": workspace,
+            "operation": operation,
+        });
+        let _ = post_local(endpoint, &body.to_string());
     }
 
     /// Answers one JSON-RPC message; `None` for notifications.
@@ -154,7 +155,7 @@ impl Devtools {
             "navigate_page" => match args["type"].as_str().unwrap_or("url") {
                 "url" => match args["url"].as_str() {
                     Some(url) => {
-                        self.load_in_chrome(url);
+                        self.load_in_browser(url);
                         self.open = Some(url.to_owned());
                         text(&format!(
                             "Successfully navigated to {url}.\n{}",
@@ -172,7 +173,7 @@ impl Devtools {
             "new_page" => {
                 self.open = args["url"].as_str().map(str::to_owned);
                 if let Some(url) = &self.open {
-                    self.load_in_chrome(url);
+                    self.load_in_browser(url);
                 }
                 text(&self.pages())
             }
@@ -239,6 +240,31 @@ fn text(t: &str) -> Value {
 
 fn failed(t: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": t }], "isError": true })
+}
+
+/// POSTs `body` (JSON) to `url` on 127.0.0.1 and returns the reply's body.
+/// Plain HTTP/1.1 with no keep-alive: all the stand-in needs.
+fn post_local(url: &str, body: &str) -> Option<String> {
+    use std::io::{Read as _, Write as _};
+    let rest = url.strip_prefix("http://")?;
+    let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    if !host.starts_with("127.0.0.1:") {
+        return None;
+    }
+    let mut tcp = std::net::TcpStream::connect(host).ok()?;
+    // Pacing and a page load can take a while; never forever.
+    tcp.set_read_timeout(Some(std::time::Duration::from_secs(90)))
+        .ok()?;
+    let path = if path.is_empty() { "/" } else { path };
+    write!(
+        tcp,
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .ok()?;
+    let mut reply = String::new();
+    tcp.read_to_string(&mut reply).ok()?;
+    reply.split_once("\r\n\r\n").map(|(_, b)| b.to_owned())
 }
 
 #[cfg(test)]
@@ -362,3 +388,4 @@ snapshot = "## Pages\n1: Jobs (https://jobs.example.com/) [selected]\n## Latest 
         assert_eq!(r["isError"], true);
     }
 }
+

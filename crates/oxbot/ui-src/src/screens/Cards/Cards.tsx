@@ -3,13 +3,14 @@
 // answers. A bot's cards show in its own chat, oldest first, so the newest
 // sits right above the message box; other bots waiting for an answer get one
 // line above them (Waiting), with Open to go there.
-import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Banner, Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
-import type { Answer, ScheduleEdit } from "../../net/protocol";
+import type { Answer, ClientMsg, ScheduleEdit, SignInInput } from "../../net/protocol";
 import {
   type CardApproval,
   type CardSignIn,
+  type SignInFrame,
   cardList,
   DAYS,
   editOf,
@@ -21,6 +22,99 @@ import {
 import { local } from "../../state/store";
 import { expose, exposeFn } from "../../web/testBridge";
 import "./cards.css";
+
+/** Seconds left of `total`, counting down from when it first showed. */
+function useCountdown(total: number): number {
+  const [left, setLeft] = useState(total);
+  useEffect(() => {
+    const start = Date.now();
+    const tick = setInterval(() => {
+      setLeft(Math.max(0, total - Math.floor((Date.now() - start) / 1000)));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [total]);
+  return left;
+}
+
+/** A long task checking in: it keeps going when the time runs out. */
+function CheckIn({ who, steps, seconds, onGo, onStop }: { who: string; steps: string; seconds: number; onGo: () => void; onStop: () => void }) {
+  const left = useCountdown(seconds);
+  return (
+    <Card className="checkpoint" title={`${who} has taken ${steps}`}>
+      <p className="plan-text">It wrote where it is in the chat. It keeps going in {left} s unless you stop it.</p>
+      <div className="btn-row btns">
+        <Btn label="Keep going" kind="primary" onClick={onGo} />
+        <Btn label="Stop" kind="secondary" cls="deny" onClick={onStop} />
+      </div>
+    </Card>
+  );
+}
+
+/** How often the sign-in picture refreshes, in ms. */
+const FRAME_MS = 500;
+
+/** The sign-in page, live from the home computer: tap it, type into it.
+ * Works on any device; the home computer does the browsing. */
+function SignInView({ id, frame, send }: { id: number; frame: SignInFrame | undefined; send: (m: ClientMsg) => void }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    const ask = () => {
+      if (!document.hidden) send({ type: "sign_in_frame", id });
+    };
+    ask();
+    const tick = setInterval(ask, FRAME_MS);
+    return () => clearInterval(tick);
+  }, [id, send]);
+  const input = (input: SignInInput) => send({ type: "sign_in_input", id, input });
+  const tap = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!frame) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    input({
+      kind: "tap",
+      x: Math.round(((e.clientX - box.left) / box.width) * frame.width),
+      y: Math.round(((e.clientY - box.top) / box.height) * frame.height),
+    });
+  };
+  const type = () => {
+    if (!text) return;
+    input({ kind: "text", text });
+    setText("");
+  };
+  return (
+    <div className="signin-view">
+      {frame ? (
+        <>
+          <div className="where">{frame.url}</div>
+          <img className="signin-page" alt="The sign-in page" src={`data:image/jpeg;base64,${frame.image}`} onClick={tap} />
+        </>
+      ) : (
+        <div className="where">Opening the sign-in page…</div>
+      )}
+      <div className="signin-keys">
+        <Input
+          id={`signin-text-${id}`}
+          value={text}
+          placeholder="Tap a field above, then type here"
+          autoComplete="off"
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (text) type();
+              else input({ kind: "key", key: "Enter" });
+            }
+          }}
+        />
+        <Btn label="Type" kind="secondary" onClick={type} />
+        <Btn label="Enter" kind="secondary" onClick={() => input({ kind: "key", key: "Enter" })} />
+        <Btn label="Tab" kind="secondary" onClick={() => input({ kind: "key", key: "Tab" })} />
+        <Btn label="⌫" kind="secondary" onClick={() => input({ kind: "key", key: "Backspace" })} />
+        <Btn label="▲" kind="secondary" onClick={() => input({ kind: "scroll", dy: -400 })} />
+        <Btn label="▼" kind="secondary" onClick={() => input({ kind: "scroll", dy: 400 })} />
+      </div>
+    </div>
+  );
+}
 
 /** A card's button; `cls` names it for the eye ("deny") as before. */
 function Btn({ label, kind, cls, onClick }: { label: string; kind: ButtonKind; cls?: string; onClick: () => void }) {
@@ -94,14 +188,15 @@ export function Cards() {
       <Card className="signin" key={`s:${s.id}`} title={`${botName(s.bot)} needs you to sign in to ${s.site}${s.before ? ` before ${s.before}` : ""}`}>
         <div className="where">
           {s.window_open
-            ? `Sign in to ${s.site} in the window that opened, then close it.`
-            : `${s.why ? `${s.why}. ` : ""}You type your password yourself, in a normal Chrome window. Every bot then stays signed in there.`}
+            ? `Sign in to ${s.site} below (or in the window on the home computer), then press I'm signed in. Bots never see your password.`
+            : `${s.why ? `${s.why}. ` : ""}You type your password yourself, from this device. Every bot then stays signed in.`}
         </div>
+        {s.window_open ? <SignInView id={s.id} frame={cards.signInFrames[s.id]} send={send} /> : null}
         <div className="btn-row btns">
           {s.window_open ? (
             <Btn label="I'm signed in" kind="primary" onClick={() => send({ type: "sign_in_done", id: s.id })} />
           ) : (
-            <Btn label="Open sign-in window" kind="primary" onClick={() => send({ type: "open_sign_in", id: s.id })} />
+            <Btn label="Sign in" kind="primary" onClick={() => send({ type: "open_sign_in", id: s.id })} />
           )}
           <Btn label="Cancel" kind="secondary" onClick={() => send({ type: "cancel_sign_in", id: s.id })} />
         </div>
@@ -231,6 +326,46 @@ export function Cards() {
           {a.always ? (
             <div className="hint">{`Always lets ${who} run small scripts in its own folder without asking, unless it has read a web page or a file in the conversation. Remove it in the bot's ··· settings.`}</div>
           ) : null}
+        </Card>
+      );
+    }
+    if (a.kind === "plan") {
+      // A bot's plan as it starts browsing: the site, the place and what
+      // it will do. It goes ahead unless the person stops it; replying in
+      // the chat changes the plan.
+      return (
+        <Card className="plan" key={key} title={`${who} is starting on ${a.site}`}>
+          {a.detail ? <div className="where">{`For: ${a.detail}`}</div> : null}
+          <p className="plan-text">{a.target}</p>
+          <div className="btn-row btns">
+            <Btn label="OK" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Stop" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
+          </div>
+          <div className="hint">It goes ahead unless you stop it. To change the plan, reply in the chat.</div>
+        </Card>
+      );
+    }
+    if (a.kind === "checkpoint") {
+      return (
+        <CheckIn
+          key={key}
+          who={who}
+          steps={a.target}
+          seconds={Number(a.detail) || 60}
+          onGo={() => answer(a.id, "allow_once")}
+          onStop={() => answer(a.id, "deny")}
+        />
+      );
+    }
+    if (a.kind === "home_area") {
+      // The household's area: every bot uses it, for everyone in the home.
+      return (
+        <Card className="home-area" key={key} title={`${who} wants to save your home's area: ${a.target}`}>
+          <div className="where">Every bot will use it for everyone in the home. You can change it in Settings → People.</div>
+          <div className="btn-row btns">
+            <Btn label="Save" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Don't save" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
+          </div>
         </Card>
       );
     }
