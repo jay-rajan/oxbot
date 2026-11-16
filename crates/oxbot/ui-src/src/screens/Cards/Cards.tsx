@@ -243,7 +243,7 @@ export function Cards() {
           {a.detail ? <div className="where">{`For: ${a.detail}`}</div> : null}
           <p className="plan-text">{a.target}</p>
           <div className="btn-row btns">
-            <Btn label="OK" kind="secondary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="OK" kind="primary" onClick={() => answer(a.id, "allow_once")} />
             <Btn label="Stop" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
           </div>
           <div className="hint">It goes ahead unless you stop it. To change the plan, reply in the chat.</div>
