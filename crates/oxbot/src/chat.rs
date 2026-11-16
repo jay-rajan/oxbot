@@ -286,6 +286,10 @@ impl View {
             | ServerMsg::Schedules { .. }
             | ServerMsg::NetLog { .. }
             | ServerMsg::SchedulesChanged
+            | ServerMsg::HomeEvents { .. }
+            | ServerMsg::DeletedEvents { .. }
+            | ServerMsg::HomeSaved { .. }
+            | ServerMsg::HomeChanged
             | ServerMsg::Profile(_)
             | ServerMsg::ProfilesChanged => {}
             ServerMsg::Error { message } => println!("   ! {message}"),

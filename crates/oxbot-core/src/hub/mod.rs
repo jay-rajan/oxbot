@@ -31,6 +31,7 @@ mod compare;
 mod elements;
 mod engine_prefs;
 mod engines;
+mod home;
 mod looped;
 mod net_log;
 mod pace;

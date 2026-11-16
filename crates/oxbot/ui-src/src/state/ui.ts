@@ -26,6 +26,8 @@ export interface UiState {
   toast: { text: string; error: boolean; n: number } | null;
   /** The sidebar on a narrow screen. */
   sideOpen: boolean;
+  /** What the main column shows: the open bot's chat, or a Home view. */
+  page: "chat" | "calendar";
 }
 
 export const initialUi: UiState = {
@@ -35,6 +37,7 @@ export const initialUi: UiState = {
   dialogArg: null,
   toast: null,
   sideOpen: false,
+  page: "chat",
 };
 
 export function uiReducer(state: UiState, action: Action): UiState {
@@ -50,7 +53,9 @@ export function uiReducer(state: UiState, action: Action): UiState {
   if (action.kind !== "local") return state;
   switch (action.type) {
     case "ui/select":
-      return { ...state, current: action.bot as string | null, pendingSelect: null, sideOpen: false };
+      return { ...state, current: action.bot as string | null, pendingSelect: null, sideOpen: false, page: action.keepPage ? state.page : "chat" };
+    case "ui/page":
+      return { ...state, page: action.page as UiState["page"], sideOpen: false };
     case "ui/pendingSelect":
       return { ...state, pendingSelect: action.bot as string | null };
     case "ui/open":

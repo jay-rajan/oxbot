@@ -3,6 +3,7 @@ import type { Answer } from "./Answer";
 import type { ComparePrefs } from "./ComparePrefs";
 import type { EngineKind } from "./EngineKind";
 import type { EnginePrefs } from "./EnginePrefs";
+import type { EventInput } from "./EventInput";
 import type { NetKind } from "./NetKind";
 import type { ProfileEdit } from "./ProfileEdit";
 import type { RunVerdict } from "./RunVerdict";
@@ -227,7 +228,39 @@ answer: Answer,
  * On a schedule card answered with [`Answer::AllowOnce`]: the
  * schedule as they changed it ("Change"). Ignored on other cards.
  */
-schedule: ScheduleEdit | null, } | { "type": "list_schedules", 
+schedule: ScheduleEdit | null, } | { "type": "home_events", 
+/**
+ * First day.
+ */
+from: string, 
+/**
+ * Last day (included).
+ */
+to: string, } | { "type": "add_event", 
+/**
+ * What it says.
+ */
+event: EventInput, } | { "type": "change_event", 
+/**
+ * [`HomeEventInfo::id`].
+ */
+id: number, 
+/**
+ * What it says now.
+ */
+event: EventInput, } | { "type": "delete_event", 
+/**
+ * [`HomeEventInfo::id`].
+ */
+id: number, } | { "type": "restore_event", 
+/**
+ * [`HomeEventInfo::id`].
+ */
+id: number, } | { "type": "undo_home_change", 
+/**
+ * The change.
+ */
+change: number, } | { "type": "deleted_events" } | { "type": "list_schedules", 
 /**
  * Bot id; `None` for all.
  */

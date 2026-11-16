@@ -1595,6 +1595,13 @@ async fn handle(
         ClientMsg::OpenReport { .. }
         | ClientMsg::ListReports { .. }
         | ClientMsg::DeleteReport { .. } => handle_reports(msg, state, client),
+        ClientMsg::HomeEvents { .. }
+        | ClientMsg::AddEvent { .. }
+        | ClientMsg::ChangeEvent { .. }
+        | ClientMsg::DeleteEvent { .. }
+        | ClientMsg::RestoreEvent { .. }
+        | ClientMsg::UndoHomeChange { .. }
+        | ClientMsg::DeletedEvents => handle_home(msg, state, &viewer),
         ClientMsg::ListSchedules { .. }
         | ClientMsg::PauseSchedule { .. }
         | ClientMsg::DeleteSchedule { .. }
@@ -1602,6 +1609,32 @@ async fn handle(
         | ClientMsg::SetProfile { .. }
         | ClientMsg::GetProfile => handle_own(msg, state, &viewer).await,
         other => handle_sign_ins(other, state, &viewer).await,
+    }
+}
+
+/// The family Home's calendar: everyone in the home sees and changes it
+/// (the hub decides who's in the home).
+fn handle_home(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerMsg> {
+    let hub = &state.hub;
+    let answer = match msg {
+        ClientMsg::HomeEvents { from, to } => hub
+            .home_events(viewer, &from, &to)
+            .map(|events| ServerMsg::HomeEvents { from, to, events }),
+        ClientMsg::AddEvent { event } => hub.add_home_event(viewer, *event),
+        ClientMsg::ChangeEvent { id, event } => hub.change_home_event(viewer, id, *event),
+        ClientMsg::DeleteEvent { id } => hub.delete_home_event(viewer, id),
+        ClientMsg::RestoreEvent { id } => hub.restore_home_event(viewer, id),
+        ClientMsg::UndoHomeChange { change } => hub.undo_home_change(viewer, change),
+        ClientMsg::DeletedEvents => hub
+            .deleted_home_events(viewer)
+            .map(|events| ServerMsg::DeletedEvents { events }),
+        _ => return Vec::new(),
+    };
+    match answer {
+        Ok(msg) => vec![msg],
+        Err(e) => vec![ServerMsg::Error {
+            message: e.to_string(),
+        }],
     }
 }
 
@@ -2360,6 +2393,9 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // for its viewer: never passed on to anyone else.
         ServerMsg::AllowRules { .. }
         | ServerMsg::Schedules { .. }
+        | ServerMsg::HomeEvents { .. }
+        | ServerMsg::DeletedEvents { .. }
+        | ServerMsg::HomeSaved { .. }
         | ServerMsg::Profile(_)
         | ServerMsg::NetLog { .. } => None,
         ServerMsg::Report(ref r) => client.sees(&r.bot).then_some(msg),
@@ -2454,6 +2490,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::SignInResolved { .. }
         // Only cues to ask again; they say nothing about which.
         | ServerMsg::SchedulesChanged
+        | ServerMsg::HomeChanged
         | ServerMsg::ProfilesChanged
         | ServerMsg::Setup(_)
         | ServerMsg::People { .. }

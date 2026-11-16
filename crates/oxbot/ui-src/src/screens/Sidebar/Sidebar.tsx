@@ -22,6 +22,7 @@ const GROUP_BY = [
 export function Sidebar() {
   const { store, dispatch } = useApp();
   const sideOpen = useSel((s) => s.ui.sideOpen);
+  const page = useSel((s) => s.ui.page);
   const current = useSel((s) => s.ui.current);
   const status = useSel((s) => s.connection.status);
   const everConnected = useSel((s) => s.connection.everConnected);
@@ -119,6 +120,14 @@ export function Sidebar() {
     [dispatch],
   );
 
+  // The calendar, with the Calendar lead bot's chat beside it if there's one.
+  const openCalendar = () => {
+    const s = store.getState();
+    const lead = Object.values(s.bots.byId).find((b) => b.lead && (b.name || "").toLowerCase() === "calendar");
+    if (lead && lead.id !== s.ui.current) dispatch(local("ui/select", { bot: lead.id, keepPage: true }));
+    dispatch(local("ui/page", { page: "calendar" }));
+  };
+
   const toSettings = (tab?: string) => {
     dispatch(local("ui/side", { open: false }));
     dispatch(local("ui/open", tab ? { dialog: "settings", arg: tab } : { dialog: "settings" }));
@@ -184,6 +193,27 @@ export function Sidebar() {
             onChange={setGroupBy}
           />
         </div>
+        <nav className="side-home" aria-label="Home">
+          <button
+            type="button"
+            className="home-item"
+            id="calendarBtn"
+            aria-current={String(page === "calendar") as "true" | "false"}
+            onClick={openCalendar}
+          >
+            <span className="avatar home-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M3 10h18M8 3v4M16 3v4" />
+              </svg>
+            </span>
+            <span className="meta">
+              <span className="name">
+                <span>Calendar</span>
+              </span>
+            </span>
+          </button>
+        </nav>
         <BotList openMenu={openMenu} closeMenu={closeMenu} askName={askName} />
         <div className="side-foot">
           <IconButton className="gear" id="settingsBtn" label="Settings" onClick={() => toSettings()}>

@@ -319,6 +319,51 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         schedule: Option<ScheduleEdit>,
     },
+    /// The Home calendar's events that may happen from day `from` to day
+    /// `to` (both `2026-11-16`), answered with [`ServerMsg::HomeEvents`].
+    /// Everyone in the home.
+    HomeEvents {
+        /// First day.
+        from: String,
+        /// Last day (included).
+        to: String,
+    },
+    /// Add an event to the Home calendar; answered with
+    /// [`ServerMsg::HomeSaved`].
+    AddEvent {
+        /// What it says.
+        event: Box<EventInput>,
+    },
+    /// Change an event; answered with [`ServerMsg::HomeSaved`].
+    ChangeEvent {
+        /// [`HomeEventInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// What it says now.
+        event: Box<EventInput>,
+    },
+    /// Delete an event into Recently deleted (30 days); answered with
+    /// [`ServerMsg::HomeSaved`].
+    DeleteEvent {
+        /// [`HomeEventInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Bring an event back from Recently deleted.
+    RestoreEvent {
+        /// [`HomeEventInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Undo a change to the Home ([`ServerMsg::HomeSaved::change`], or a
+    /// bot's Undo line).
+    UndoHomeChange {
+        /// The change.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        change: i64,
+    },
+    /// Recently deleted events, answered with [`ServerMsg::DeletedEvents`].
+    DeletedEvents,
     /// Schedules, answered with [`ServerMsg::Schedules`]: one bot's
     /// (`bot`), or every one the client may see (Settings → Schedules).
     ListSchedules {
@@ -1251,6 +1296,37 @@ pub enum ServerMsg {
     /// Schedules changed (made, paused, deleted, or one ran): a client
     /// showing a list asks for it again. Says nothing about which.
     SchedulesChanged,
+    /// The Home calendar's events: the answer to [`ClientMsg::HomeEvents`].
+    HomeEvents {
+        /// First day asked for.
+        from: String,
+        /// Last day asked for.
+        to: String,
+        /// Earliest first; repeating ones once, as they were first set.
+        events: Vec<HomeEventInfo>,
+    },
+    /// Recently deleted events, latest first: the answer to
+    /// [`ClientMsg::DeletedEvents`].
+    DeletedEvents {
+        /// The events.
+        events: Vec<HomeEventInfo>,
+    },
+    /// A change this client made to the Home, so it can offer Undo.
+    HomeSaved {
+        /// The change, for [`ClientMsg::UndoHomeChange`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        change: i64,
+        /// The event.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// `add`, `change`, `delete`, `restore` or `undo`.
+        action: String,
+        /// The event's title.
+        title: String,
+    },
+    /// Something in the Home changed: a client showing it asks again.
+    /// Says nothing about what.
+    HomeChanged,
     /// One's own profile: sent when a person's connection opens, and as the
     /// answer to [`ClientMsg::SetProfile`] and [`ClientMsg::GetProfile`].
     Profile(ProfileView),
@@ -1593,6 +1669,73 @@ pub struct PairReply {
     /// The device's key: sent once, kept by the device, shown on every
     /// connection as `Authorization: Bearer <key>`.
     pub key: String,
+}
+
+/// How a Home calendar event repeats.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EventRepeat {
+    /// `day`, `week`, `month` or `year`.
+    pub every: String,
+    /// Its last day (`2027-06-30`), if it has one.
+    #[serde(default)]
+    pub until: Option<String>,
+}
+
+/// An event as a person writes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EventInput {
+    /// What it is.
+    pub title: String,
+    /// When it starts, local time (`2026-11-17T17:30`), or its day
+    /// (`2026-11-20`) when it's all day.
+    pub starts: String,
+    /// When it ends, the same way.
+    #[serde(default)]
+    pub ends: Option<String>,
+    /// Where.
+    #[serde(default)]
+    pub place: String,
+    /// Who it's for, by name.
+    #[serde(default)]
+    pub people: Vec<String>,
+    /// More about it.
+    #[serde(default)]
+    pub notes: String,
+    /// How it repeats.
+    #[serde(default)]
+    pub repeat: Option<EventRepeat>,
+    /// Minutes before, to remind its people.
+    #[serde(default)]
+    pub remind_min: Option<u32>,
+}
+
+/// An event on the Home calendar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HomeEventInfo {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What it says.
+    pub event: EventInput,
+    /// Whether it's all day.
+    pub all_day: bool,
+    /// What it came from (`meal:12`, `note:5`), if not added by hand.
+    #[serde(default)]
+    pub source: String,
+    /// Who added it (a person's or bot's name).
+    pub made_by: String,
+    /// Who changed it last.
+    pub changed_by: String,
+    /// When it was last changed.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub updated_ms: i64,
+    /// When it was deleted (Recently deleted).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub deleted_ms: Option<i64>,
 }
 
 /// Someone who sends messages, with the color they keep.

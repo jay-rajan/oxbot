@@ -13,6 +13,7 @@ import { type ChatState, chatReducer, initialChat } from "./chat";
 import { type CardsState, cardsReducer, initialCards } from "./cards";
 import { type SidebarState, initialSidebar, sidebarReducer } from "./sidebar";
 import { type ActivityState, activityReducer, initialActivity } from "./activity";
+import { type CalendarState, calendarReducer, initialCalendar } from "./calendar";
 
 /** A page action: `type` is "<area>/<what>", e.g. "ui/select". */
 export interface LocalAction {
@@ -37,6 +38,7 @@ export interface State {
   cards: CardsState;
   sidebar: SidebarState;
   activity: ActivityState;
+  calendar: CalendarState;
 }
 
 export const initialState: State = {
@@ -48,6 +50,7 @@ export const initialState: State = {
   cards: initialCards,
   sidebar: initialSidebar,
   activity: initialActivity,
+  calendar: initialCalendar,
 };
 
 /** Runs every area's reducer; an area that didn't change keeps its object. */
@@ -61,6 +64,7 @@ export function reduce(state: State, action: Action): State {
     cards: cardsReducer(state.cards, action),
     sidebar: sidebarReducer(state.sidebar, action),
     activity: activityReducer(state.activity, action),
+    calendar: calendarReducer(state.calendar, action),
   };
   const same = (Object.keys(next) as (keyof State)[]).every((k) => next[k] === state[k]);
   return same ? state : next;

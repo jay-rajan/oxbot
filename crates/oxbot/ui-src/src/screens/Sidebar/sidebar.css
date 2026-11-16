@@ -119,3 +119,19 @@
 .side-foot .foot-btn .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .side-foot .foot-btn.end { margin-left: auto; }
 @media (max-width: 340px) { #deviceBtn .label { display: none; } }
+
+/* The Home's views, above the bots. */
+.side-home { padding: var(--s-1) var(--s-2) var(--s-2); border-bottom: 1px solid var(--line); }
+.home-item {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
+  display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: var(--s-3);
+  min-height: calc(var(--control) + var(--s-2)); padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-md); font-weight: var(--weight-mid);
+  transition: background var(--fast) var(--ease);
+}
+.home-item:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); }
+.home-item:active { background: var(--pressed); }
+.home-item[aria-current="true"] { background: var(--sunken); }
+.home-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.home-icon { width: 32px; height: 32px; display: grid; place-items: center; color: var(--ink); }
+.home-icon svg { width: var(--icon); height: var(--icon); }

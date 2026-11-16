@@ -39,6 +39,7 @@ export function BotList({
   const you = useSel((s) => s.connection.settings?.you);
   const side = useSel((s) => s.sidebar);
   const current = useSel((s) => s.ui.current);
+  const page = useSel((s) => s.ui.page);
   const cards = useSel((s) => s.cards);
   const waiting = waitingBots(cards);
   const navRef = useRef<HTMLElement>(null);
@@ -128,7 +129,7 @@ export function BotList({
         className={helper ? "bot-item helper" : "bot-item"}
         type="button"
         data-bot={id}
-        aria-current={String(id === current) as "true" | "false"}
+        aria-current={String(id === current && page === "chat") as "true" | "false"}
         title={title}
         draggable={side.groupBy === "sections" && !b.central && !b.lead && !helper ? true : undefined}
         onClick={() => select(id)}
