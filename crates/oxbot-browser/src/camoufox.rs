@@ -88,8 +88,12 @@ fn now_ms() -> i64 {
 pub struct CamoufoxTool {
     /// Node already bundled with Oxbot.
     pub node: PathBuf,
-    /// The generated native runtime directory.
+    /// The generated native runtime directory (the driver).
     pub bundle: PathBuf,
+    /// The browser itself when it's kept apart from the driver, as a
+    /// release's pack (the folder holding `Camoufox.app`). `None`: it's in
+    /// the bundle's `browser/` folder.
+    pub browser: Option<PathBuf>,
     /// Test fixtures only: no visible window.
     pub headless: bool,
     /// End-to-end tests only: every page request goes through this HTTP
@@ -104,6 +108,10 @@ impl CamoufoxTool {
             && ["bundle.json", "runtime.mjs", "service.mjs", "mcp.mjs"]
                 .iter()
                 .all(|p| self.bundle.join(p).is_file())
+            && self
+                .browser
+                .as_ref()
+                .is_none_or(|b| b.join("Camoufox.app").is_dir())
     }
     /// A runtime inside the app's tools directory.
     #[must_use]
@@ -111,6 +119,7 @@ impl CamoufoxTool {
         let tool = Self {
             node: dir.join("node/bin/node"),
             bundle: dir.join("camoufox"),
+            browser: None,
             headless: false,
             proxy: None,
         };
@@ -126,6 +135,7 @@ impl CamoufoxTool {
             node: target.join("tools-bundle/node/bin/node"),
             bundle: std::env::var_os("OXBOT_CAMOUFOX_BUNDLE")
                 .map_or_else(|| target.join("camoufox-bundle"), PathBuf::from),
+            browser: None,
             headless: false,
             proxy: None,
         };
@@ -174,6 +184,9 @@ fn helper(tool: &CamoufoxTool, hidden: bool, profile: &Path, env: &[(String, Str
         .arg(hidden.to_string());
     if let Some(proxy) = &tool.proxy {
         command.arg("--proxy").arg(proxy);
+    }
+    if let Some(browser) = &tool.browser {
+        command.arg("--browser").arg(browser);
     }
     command
         .envs(env.iter().map(|(k, v)| (k, v)))

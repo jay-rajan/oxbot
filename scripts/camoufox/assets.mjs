@@ -20,10 +20,17 @@ export function inside(root, name) {
   return file;
 }
 
+// The browser normally sits in the bundle's browser/ folder. A release
+// keeps it apart, as its own pack: then `browser` is that folder, and the
+// bundle's "browser/…" paths resolve there.
 export async function verifyBundle(
   root,
-  { platform = process.platform, arch = process.arch } = {},
+  { platform = process.platform, arch = process.arch, browser } = {},
 ) {
+  const asset = (name) =>
+    browser && name.startsWith("browser/")
+      ? inside(browser, name.slice("browser/".length))
+      : inside(root, name);
   const manifest = JSON.parse(
     await readFile(resolve(root, "bundle.json"), "utf8"),
   );
@@ -39,23 +46,20 @@ export async function verifyBundle(
     throw new Error("This Camoufox package is tested only for macOS");
   if (manifest.configuration !== "native")
     throw new Error("Camoufox bundle is not configured for native operation");
-  const executable = inside(root, manifest.executable);
+  const executable = asset(manifest.executable);
   if (
     !(await stat(executable)).isFile() ||
     (await sha256(executable)) !== manifest.executableSha256
   )
     throw new Error("Bundled Camoufox executable is missing or damaged");
-  const fonts = inside(root, "browser/Camoufox.app/Contents/Resources/fonts");
+  const fonts = asset("browser/Camoufox.app/Contents/Resources/fonts");
   try {
     await stat(fonts);
     throw new Error("Unexpected full font bundle in native package");
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  const addon = inside(
-    root,
-    "browser/Camoufox.app/Contents/Resources/addons/UBO",
-  );
+  const addon = asset("browser/Camoufox.app/Contents/Resources/addons/UBO");
   await readFile(resolve(addon, "manifest.json"), "utf8");
   return { manifest, executable, addon };
 }

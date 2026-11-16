@@ -6,7 +6,10 @@
 #
 # Usage: make-dmg.sh [--no-notarize] [arm64] [x64]  (default: both chips)
 # Output: target/<triple>/release/bundle/dmg/oxbot_<version>_{apple-chip,intel}.dmg
-#         and its SHA-256 next to it (…dmg.sha256), for friends to check.
+#         and its SHA-256 next to it (…dmg.sha256), for friends to check;
+#         target/<triple>/release/bundle/slim/oxbot.app, the same app
+#         without its packs, notarized and stapled, which updates install
+#         (the packs come apart: make-packs.sh, crates/oxbot/src/packs.rs).
 #
 # Signing: with a "Developer ID Application" certificate in the Keychain (or
 # OXBOT_SIGN_ID naming one), the helper, the app and the .dmg are signed with
@@ -20,8 +23,8 @@
 # (scripts/mac/entitlements.plist). Codex and Node.js keep their makers'
 # signatures inside it: they sit in Resources, which signing seals but never
 # re-signs; each must already be Developer ID, hardened and timestamped.
-# The browser comes only ad-hoc signed, so it is signed here, inside-out,
-# with its own entitlements (scripts/camoufox/sign.sh).
+# The browser comes only ad-hoc signed, so its pack is signed, inside-out,
+# with its own entitlements (make-packs.sh, scripts/camoufox/sign.sh).
 # The .dmg is made with hdiutil, not Tauri's packer, which needs to control
 # Finder.
 set -e
@@ -57,15 +60,27 @@ build_one() { # arm64|x64
     x64) triple=x86_64-apple-darwin lipo_arch=x86_64 label=intel ;;
     *) echo "make-dmg: unknown chip '$1' (arm64 or x64)" >&2; exit 2 ;;
   esac
-  # The browser, Node.js and Codex for this chip (see fetch-tools.sh).
+  # The browser, Node.js and Codex for this chip (see fetch-tools.sh), as
+  # packs (see make-packs.sh).
   sh scripts/fetch-tools.sh "$1"
-  OXBOT_NODE=target/tools-bundle/node/bin/node \
-    sh scripts/camoufox/sign.sh target/tools-bundle/camoufox "${sign_id:--}"
+  pack_cache=$(sh scripts/make-packs.sh "$1" "${sign_id:--}" | sed -n 's/^PACK_CACHE=//p')
+  [ -n "$pack_cache" ] || { echo "make-dmg: no packs" >&2; exit 1; }
   (cd app && cargo tauri build --target "$triple" --bundles app -- --locked)
   bundle=target/$triple/release/bundle
   app=$bundle/macos/oxbot.app
-  rm -rf "$app/Contents/Resources/tools"
-  cp -R target/tools-bundle "$app/Contents/Resources/tools"
+  # The browser's driver, and a first copy of each pack, so a new install
+  # needs no download. packs.json names the versions this app runs with.
+  tools="$app/Contents/Resources/tools"
+  rm -rf "$tools"
+  mkdir -p "$tools"
+  cp -R "target/app-tools-$1/camoufox" "$tools/camoufox"
+  target/tools-bundle/node/bin/node -e '
+for (const p of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).packs)
+  console.log(p.name + " " + p.version);' "$PWD/target/packs-$1.json" |
+    while read -r name version; do
+      cp -R "$pack_cache/$name-$version" "$tools/$name"
+    done
+  cp "target/packs-$1.json" "$app/Contents/Resources/packs.json"
   rm -f "$app/Contents/MacOS/oxbot-mac"
   if [ -f target/mac-helper/oxbot-mac ]; then
     lipo -thin "$lipo_arch" target/mac-helper/oxbot-mac -output "$app/Contents/MacOS/oxbot-mac"
@@ -77,6 +92,7 @@ build_one() { # arm64|x64
   fi
   check_tools "$app"
   sign_app "$app"
+  slim_app "$app" "$bundle/slim/oxbot.app"
   dmg="$bundle/dmg/oxbot_${version}_$label.dmg"
   make_dmg "$app" "$dmg"
   [ -n "$sign_id" ] && sign "$dmg"
@@ -92,6 +108,35 @@ sign() { # codesign flags… path
   else
     codesign --force --sign - "$@"
   fi
+}
+
+slim_app() { # app out: the app without its packs, for updates
+  rm -rf "$2"
+  mkdir -p "$(dirname "$2")"
+  cp -R "$1" "$2"
+  for name in browser codex node; do rm -rf "$2/Contents/Resources/tools/$name"; done
+  sign_app "$2"
+  [ "$notarize" = yes ] && notarize_app "$2"
+  echo "Built $2 ($(du -sh "$2" | cut -f1))"
+}
+
+notarize_app() { # app: notarized and stapled on its own, as updates install it
+  zip="$(dirname "$1")/oxbot-notarize.zip"
+  rm -f "$zip"
+  ditto -c -k --keepParent "$1" "$zip"
+  echo "make-dmg: sending the app (no packs) to Apple (profile $profile)…"
+  out=$(xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait 2>&1) || true
+  rm -f "$zip"
+  echo "$out" | sed -nE 's/^ *(id|status): /  \1: /p'
+  if ! echo "$out" | grep -q 'status: Accepted'; then
+    id=$(echo "$out" | sed -n 's/^ *id: //p' | head -1)
+    [ -n "$id" ] && xcrun notarytool log "$id" --keychain-profile "$profile" >&2
+    echo "make-dmg: Apple did not accept the app" >&2
+    exit 1
+  fi
+  xcrun stapler staple -q "$1"
+  xcrun stapler validate -q "$1"
+  spctl -a -t exec "$1" || { echo "make-dmg: Gatekeeper refused the app" >&2; exit 1; }
 }
 
 sign_app() { # app (its helper already signed)

@@ -8,6 +8,7 @@ for (let i = 2; i < process.argv.length; i += 2) {
     "--bundle": "bundle",
     "--profile": "profile",
     "--headless": "headless",
+    "--browser": "browser",
     "--proxy": "proxy",
   }[process.argv[i]];
   if (!name || !process.argv[i + 1])

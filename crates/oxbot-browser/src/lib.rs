@@ -202,6 +202,7 @@ mod tests {
         let tool = CamoufoxTool {
             node: tmp.path().join("node/bin/node"),
             bundle: tmp.path().join("camoufox"),
+            browser: None,
             headless: false,
             proxy: None,
         };

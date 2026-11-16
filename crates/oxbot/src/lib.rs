@@ -24,6 +24,7 @@ pub mod keychain;
 pub mod logs;
 pub mod notify;
 pub mod openrouter_auth;
+pub mod packs;
 pub mod runtime;
 pub mod secret;
 pub mod server;

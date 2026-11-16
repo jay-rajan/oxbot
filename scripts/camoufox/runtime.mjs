@@ -92,12 +92,13 @@ async function takeLock(lock) {
 
 export async function launchNative({
   bundle,
+  browser,
   profile,
   locale = Intl.DateTimeFormat().resolvedOptions().locale,
   headless = false,
   proxy,
 }) {
-  const { executable, addon } = await verifyBundle(bundle);
+  const { executable, addon } = await verifyBundle(bundle, { browser });
   const profileDir = resolve(profile),
     rel = relative(resolve(bundle), profileDir);
   if (
