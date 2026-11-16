@@ -1,0 +1,116 @@
+<title>oxbot Model Picker</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45;--x:#d92f2f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:34px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}h3{font-size:15px;margin:4px 0 0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:660px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:80ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 9, 2026 · waiting for your OK</div>
+<h1>The right model for each request, and guard rails that make sure it's done</h1>
+<p class="mut">Today every bot answers with the smallest free model, and nothing checks the answer against what you asked. Meal Plan ignored "30 minutes max", gave no recipes, and searched the web. This adds a classifier that picks the cheapest model able to do each request (free first), and guard rails that check the answer against your rules before you see it, moving up a model only when a check fails.</p>
+</header>
+
+<section>
+<h2>How a request flows</h2>
+<pre class="mermaid">
+flowchart LR
+  M[Your message] --> C[Classifier<br/>rules, then a free model if unsure]
+  C -->|tier, needs web?, needs images?, checks| P[Pick model<br/>free first in that tier]
+  P --> B[Bot works<br/>tools for this request only]
+  B --> V{Guard rails<br/>check each rule}
+  V -- all pass --> A[Answer to you]
+  V -- something missing --> R[Retry once, same model,<br/>told exactly what's missing]
+  R --> V2{Check again}
+  V2 -- pass --> A
+  V2 -- still missing --> U[Move up one tier and retry]
+  U --> A2[Answer, plus a line on anything still missing]
+</pre>
+</section>
+
+<section>
+<h2>1 · Which models are free, checked every day</h2>
+<p>oxbot already reads OpenRouter's model list every 6 hours and keeps it in the database. It adds: each model's tier, whether it's free today, its price, whether it can use tools and see images, and how well it did on your tasks. Nothing is hard-wired: a model that stops being free drops to its paid place, and a new strong free model moves in.</p>
+<div class="scroll"><table>
+<tr><th>Tier</th><th>For</th><th>Today's models (free first)</th><th class="num">Cost</th></tr>
+<tr><td><b>Light</b></td><td>Chat, short answers, reminders, lists</td><td>Nemotron 3.5 Lightning (free)</td><td class="num">$0</td></tr>
+<tr><td><b>Standard</b></td><td>Plans, recipes, writing, coaching, multi-step tools</td><td>Nemotron 3 Ultra 550B (free), Nemotron 3.5 Super VL (free), dots-3 (free)</td><td class="num">$0</td></tr>
+<tr><td><b>Strong</b></td><td>Research, long reading, hard reasoning, when Standard failed a check</td><td>DeepSeek V4.1 Flash, GLM 5.3 Flash, gpt-oss-120b</td><td class="num">≈$0.05–0.15 in, $0.08–0.60 out per million tokens; pennies a task</td></tr>
+<tr><td><b>Top</b></td><td>Only if Strong also failed, within your monthly limit</td><td>One stronger paid model you pick</td><td class="num">≈$1–3 per million</td></tr>
+</table></div>
+<p class="mut">Tier membership comes from a small table oxbot keeps, since OpenRouter doesn't rate quality. Your thumbs up and down and the task-set scores move models up or down within a tier.</p>
+</section>
+
+<section>
+<h2>2 · The classifier</h2>
+<ul>
+<li><b>Rules first (instant, free):</b>
+  <ul>
+    <li>What kind of bot it is.</li>
+    <li>How long and what kind of request ("plan", "recipes", "compare", "research", "summarize this PDF" go to Standard or up; "thanks", "remind me", a yes/no go to Light).</li>
+    <li>Whether it has attachments (photos need a model that can see images).</li>
+    <li>Whether it names a website or asks for prices or today's news, which means it needs the web.</li>
+  </ul>
+</li>
+<li><b>When the rules aren't sure:</b> one quick call to a free model returns <code>{tier, needs_web, needs_images, checks}</code>.</li>
+<li><b>Needs the web, or not:</b> when the request doesn't need it ("recipes are common knowledge"), the bot gets <b>no browser for that request</b>. It can't search, whatever the model wants.</li>
+<li><b>Up or down:</b> simple messages go down to Light. Failed checks move up. You can also say "use a better model" in any message.</li>
+</ul>
+</section>
+
+<section>
+<h2>3 · Guard rails</h2>
+<div class="scroll"><table>
+<tr><th>Rule</th><th>Where it comes from</th><th>How it's checked</th></tr>
+<tr><td>The bot's standing rules (e.g. every meal ≤ 30 min, at least 6 meals, full recipes with amounts)</td><td>The bot's instructions, as a list of rules</td><td>A checker (a free model) compares the answer with each rule and returns pass or fail with the reason</td></tr>
+<tr><td>This request's specifics ("for 3 people", "vegetarian")</td><td>The classifier pulls them from your message</td><td>Same checker</td></tr>
+<tr><td>No files unless you ask</td><td>Built in</td><td>The tool refuses (built today)</td></tr>
+<tr><td>No browsing when it isn't needed</td><td>The classifier</td><td>No browser tools for that request</td></tr>
+<tr><td>No invented numbers</td><td>Built in</td><td>The existing check that numbers came from pages it read</td></tr>
+<tr><td>The answer goes in the chat, in full</td><td>Built in</td><td>The answer check (fixed today) plus the checker</td></tr>
+</table></div>
+<p>A failed check never reaches you silently. The bot is told exactly which rule it missed and tries again. If it still misses, it moves up one tier. If even that fails, you get the answer with one line saying what's missing.</p>
+<p class="note">"Remember what I tell it": when you tell a bot a rule twice, or say "always…", it asks to add it to its instructions. From then on, that rule is checked every time.</p>
+</section>
+
+<section>
+<h2>4 · Cost</h2>
+<ul>
+<li>Free models do almost everything. The classifier and checker calls are free.</li>
+<li>Paid models answer only when a free model failed a check or isn't available, always within your monthly limit. Strong costs pennies per task.</li>
+<li>Your "What was sent" list shows each request's model, its tier, and why (e.g. "moved up: no amounts in recipes").</li>
+</ul>
+</section>
+
+<section>
+<h2>5 · How it gets tested</h2>
+<ul>
+<li>Unit tests: the classifier rules (30+ sample messages), tier picks as models go free or paid, the retry and move-up steps.</li>
+<li>End-to-end tests with the stand-in AI: a failed rule leads to a retry, then a move up, then an answer with "missing" noted. A request that doesn't need the web gets no browser.</li>
+<li>Task set: your Meal Plan request is case 1, with checks (≤ 30 min, ≥ 6 meals, amounts, steps, grocery list, no browsing). Real-model runs only with your OK (cents).</li>
+</ul>
+</section>
+
+<section>
+<h2>Decisions for you</h2>
+<ol>
+<li>Moving up to <b>Strong</b> (paid, pennies) when free fails a check, within your monthly limit: automatic (recommended), or ask first?</li>
+<li><b>Top</b> tier: leave it out for now (recommended), or allow it within the limit?</li>
+<li>"Remember what I tell it" in this round (recommended)?</li>
+</ol>
+</section>
+</div>

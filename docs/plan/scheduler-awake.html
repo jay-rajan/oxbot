@@ -1,0 +1,79 @@
+<title>oxbot Schedules Awake</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45;--x:#d92f2f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;--x:#ff5a5a;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:32px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:620px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+pre.mermaid{background:var(--soft);border-radius:10px;padding:12px;overflow-x:auto}
+.note{border-left:3px solid var(--x);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · Nov 9, 2026 · waiting for your OK</div>
+<h1>Schedules that run, even after the Mac slept</h1>
+<p class="mut">The scheduler already runs on the home computer, checking every minute. Two gaps: oxbot never keeps the Mac awake, and a run missed by more than 2 hours while asleep is only marked "missed", so a Saturday 8 AM plan with the Mac asleep until 11 AM never happens.</p>
+</header>
+
+<section>
+<h2>What changes</h2>
+<div class="scroll"><table>
+<tr><th></th><th>Today</th><th>After</th></tr>
+<tr><td><b>Plugged in</b></td><td>The Mac sleeps when idle; schedules wait.</td><td>oxbot keeps the Mac awake while it's on power; the screen still sleeps. A switch in Settings: "Keep the Mac awake while plugged in" (on by default). Uses macOS's own <code>caffeinate -s</code>, tied to oxbot: quit oxbot and the Mac sleeps normally.</td></tr>
+<tr><td><b>On battery, or lid closed</b></td><td>Asleep; runs more than 2 h late are skipped.</td><td>Still asleep (that's right for battery). When the Mac wakes, each schedule's most recent missed run runs once, as long as its next run isn't due yet. Older ones are noted "missed". The chat says "Ran at 11:04 AM; the Mac was asleep at 8:00".</td></tr>
+<tr><td><b>oxbot closed or Mac restarted</b></td><td>The same 2-hour rule.</td><td>The same catch-up on start. "Open oxbot when I log in" (already in Settings) brings it back after a restart.</td></tr>
+<tr><td><b>Seeing schedules</b></td><td>Only inside each bot's settings.</td><td>Settings → Schedules: every schedule you can see, next run, last result (ran, late, missed), Pause, Delete. New schedules still come from asking a bot, with its approval request.</td></tr>
+</table></div>
+<p class="note">A Mac can't wake itself from sleep for an app without admin rights (<code>pmset schedule wake</code> needs root). So: keep awake on power, and catch up on wake. If you want, I can add an optional "Wake the Mac for schedules" that asks for your admin password once. That's one decision below.</p>
+</section>
+
+<section>
+<h2>How a run is decided</h2>
+<pre class="mermaid">
+flowchart TD
+  T[Every minute, and on wake or start] --> D{Run due?}
+  D -- no --> T
+  D -- yes --> L{How late?}
+  L -- on time --> R[Run]
+  L -- late, next run not due yet --> R2[Run once, say it's late]
+  L -- next run already due --> M[Note missed, run the newest]
+  R --> N[Answer in the bot's chat, line to your devices]
+  R2 --> N
+</pre>
+</section>
+
+<section>
+<h2>Built and tested</h2>
+<ul>
+<li><b>Keep awake:</b> a small part of the oxbot server holds <code>caffeinate -s -w &lt;oxbot&gt;</code> while the setting is on, and starts it again if it stops.</li>
+<li><b>Catch-up:</b> "run once if the next run isn't due yet" replaces the 2-hour window. The scheduler also checks right after waking (macOS tells apps when it wakes; the minute tick covers it anyway).</li>
+<li><b>Settings → Schedules</b> tab with the new design pieces.</li>
+<li><b>Tests:</b>
+  <ul>
+    <li>Unit tests for catch-up: a run 3 h late runs once; days of missed daily runs run the newest once; a weekly run is late but runs; on time is unchanged.</li>
+    <li>Keep awake: caffeinate starts and stops with the setting and with oxbot.</li>
+    <li>End-to-end: the Schedules tab; a late run says it was late.</li>
+  </ul>
+</li>
+</ul>
+</section>
+
+<section>
+<h2>Decisions for you</h2>
+<ol>
+<li>"Keep the Mac awake while plugged in": <b>on by default</b> (recommended)?</li>
+<li>"Wake the Mac for schedules" (one admin password, for battery and lid closed): add it as an option, or skip it (recommended for now)?</li>
+<li>Runs that start late: <b>run them</b> (recommended), or ask you first if more than X hours late?</li>
+</ol>
+</section>
+</div>

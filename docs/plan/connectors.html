@@ -1,0 +1,50 @@
+<title>oxbot Home Connectors</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--ok:#1f7a45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--ok:#4cc47e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:940px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:30px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}
+p{margin:0;max-width:72ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:78ch}
+.note{border-left:3px solid var(--ok);padding:8px 12px;background:var(--soft);border-radius:0 8px 8px 0}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · roadmap · Nov 9, 2026 · after the bot-quality work</div>
+<h1>Connectors for home</h1>
+<p class="mut">Bots reach the services a household already uses through proper connectors (MCP), instead of clicking around websites. Each person connects their own account; bots see only what that person may see.</p>
+</header>
+
+<section>
+<h2>Order</h2>
+<div class="scroll"><table>
+<tr><th>#</th><th>Connector</th><th>What bots do with it</th><th>How</th></tr>
+<tr><td class="n">1</td><td><b>Gmail</b>, <b>Google Calendar</b></td><td>Find bills and receipts, summarize school emails, draft replies for your OK; family schedule, add events from emails</td><td>OAuth per person; read freely, sending asks</td></tr>
+<tr><td class="n">2</td><td><b>Apple Reminders</b>, <b>Notes</b></td><td>The grocery checklist and to-dos, on your phone</td><td>Local on the Mac (no cloud), through the Mac helper</td></tr>
+<tr><td class="n">3</td><td><b>Google Drive</b>, <b>iCloud Drive</b></td><td>Read and organize documents (e.g. Divit's presentation)</td><td>OAuth / local iCloud folder</td></tr>
+<tr><td class="n">4</td><td><b>Weather</b></td><td>"Rain tomorrow: leave earlier", in schedules and plans</td><td>No account</td></tr>
+<tr><td class="n">5</td><td><b>Home Assistant</b> or <b>Apple Home</b></td><td>"Is the garage closed?", lights, thermostat</td><td>Home Assistant runs locally; changes ask</td></tr>
+<tr><td class="n">6</td><td><b>Walmart</b>, <b>Instacart</b>, <b>Amazon</b></td><td>Carts and order history without the website dance</td><td>Where an official API exists; else today's browser</td></tr>
+<tr><td class="n">later</td><td>Outlook mail and calendar, Dropbox, OneDrive, Google Classroom, store flyers (Flipp), utilities, bank read-only (Plaid), Apple Health, MyFitnessPal, Maps, WhatsApp or iMessage summaries</td><td colspan="2">By demand from the soft-launch homes</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>Rules that carry over</h2>
+<ul>
+<li>Per person: each connector signs in with that person's account (OAuth); private bots keep their own.</li>
+<li>Money and commitments ask (the money-only rule); reading never asks; sending a message or email asks.</li>
+<li>Your data goes only between the home computer and the service: never through oxbot's server, and never to anyone else.</li>
+<li>Connected accounts show in Settings → Websites (renamed "Accounts"), with Disconnect.</li>
+</ul>
+<p class="note">Your own Google account (Gmail, Drive) is a connector you choose. That's different from oxbot running on Google services, which the "no Google" rule is about.</p>
+</section>
+</div>

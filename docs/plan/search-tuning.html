@@ -1,0 +1,125 @@
+<title>oxbot Search Tuning</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1c1d20;--mut:#62656c;--line:#e3e1dc;--soft:#f2f0eb;--acc:#2a5bd7;--ok:#1f7a45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--acc:#7da2ff;--ok:#4cc47e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111113;--fg:#ecebe7;--mut:#a3a6ad;--line:#2f3035;--soft:#1b1c1f;--acc:#7da2ff;--ok:#4cc47e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Segoe UI",Inter,sans-serif}
+.wrap{max-width:940px;margin:0 auto;padding-inline:16px;padding-block:32px 72px;display:flex;flex-direction:column;gap:30px}
+h1{font-size:27px;line-height:1.2;margin:0;text-wrap:balance}h2{font-size:19px;margin:0}
+p{margin:0;max-width:74ch}.mut{color:var(--mut)}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+section{display:flex;flex-direction:column;gap:12px}
+ol,ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;max-width:80ch}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);background:var(--soft)}
+tr:last-child td{border-bottom:0}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+figure{margin:0;display:flex;flex-direction:column;gap:8px}figcaption{font-size:13px;color:var(--mut)}
+svg{max-width:100%;height:auto}
+.q{border-left:3px solid var(--acc);padding:10px 14px;background:var(--soft);border-radius:0 8px 8px 0;display:flex;flex-direction:column;gap:4px}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">oxbot · plan · how bots search and browse · Nov 10, 2026</div>
+<h1>Tune how bots look things up, on 150 household tasks</h1>
+<p class="mut">The goal is one general way of working that fits every lookup, from "best TV deals" to "is the library open Sunday". No rules for one task or one site. Each batch of 10 tasks is measured, the bots' rules are changed, and the next batch checks whether the change holds.</p>
+</header>
+
+<section>
+<h2>1. The tasks</h2>
+<p>150 household tasks for a family, written as people actually ask. I write them, and you review the list before anything runs. Each task has a few checks instead of a fixed answer, since answers change week to week. Example checks: "has links", "prices are current", "mentions this year".</p>
+<div class="scroll"><table>
+<tr><th>Group</th><th>Examples</th><th class="n">Tasks</th></tr>
+<tr><td>Deals and shopping</td><td>Best TV deals this week; cheapest diapers near me; is this vacuum worth it</td><td class="n">15</td></tr>
+<tr><td>Food and groceries</td><td>What's on sale at local grocers; a recall on my baby food brand</td><td class="n">10</td></tr>
+<tr><td>Kids and school</td><td>School board PA days this year; summer camps for an 11-year-old nearby</td><td class="n">15</td></tr>
+<tr><td>Health</td><td>Walk-in clinics open now; flu shot dates at pharmacies</td><td class="n">10</td></tr>
+<tr><td>Home and repairs</td><td>Fix a running toilet; average cost to replace a furnace in Ontario</td><td class="n">15</td></tr>
+<tr><td>Entertainment</td><td>Recent family movies on Netflix or Crave; kids' events this weekend</td><td class="n">15</td></tr>
+<tr><td>Travel</td><td>Cheap March break trips from Toronto; passport renewal wait times</td><td class="n">10</td></tr>
+<tr><td>Money (read only)</td><td>Best savings rates now; RESP grant rules; tax deadlines this year</td><td class="n">10</td></tr>
+<tr><td>Local services</td><td>Garbage pickup schedule; snow removal bylaws; library hours</td><td class="n">15</td></tr>
+<tr><td>Tech help</td><td>Set up parental controls on an iPad; best router for a 3-floor house</td><td class="n">10</td></tr>
+<tr><td>Pets, garden, gifts and the rest</td><td>When to plant tulips here; gift ideas for a 7-year-old</td><td class="n">25</td></tr>
+</table></div>
+<p class="mut">120 tasks are used for tuning. 30 are held back and run only at the start and the end, to show the rules got better in general and not just on the tasks they were tuned on.</p>
+</section>
+
+<section>
+<h2>2. How each task runs</h2>
+<ul>
+<li><b>As a practice run.</b> This is oxbot's sandbox: its own bot and folder, a separate Chrome with no sign-ins, and a network guard that stops anything being sent or changed. Your bots and your browser are untouched.</li>
+<li><b>Anything that needs a person is skipped.</b> Approval requests, sign-ins and "are you a person" checks are noted, never shown, and the bot carries on. Those counts are part of the result.</li>
+<li><b>Same conditions as your bots:</b> the same rules, the same pacing per site, and today's date on every message.</li>
+</ul>
+</section>
+
+<section>
+<h2>3. What is measured</h2>
+<div class="scroll"><table>
+<tr><th>Measure</th><th>How</th></tr>
+<tr><td>Did it answer well?</td><td>A grading model reads the task, its checks, the reply, and the pages the bot opened, and scores 0–3. I spot-check the grading by hand.</td></tr>
+<tr><td>Steps</td><td>Model requests and browser steps per task; whether it hit the limit.</td></tr>
+<tr><td>How it went about it</td><td>Whether it started with a web search, how many sites it opened, guessed addresses (pages not found), pages opened twice, items looked up one by one, whether it read a page again for no reason, and whether it needed a person.</td></tr>
+<tr><td>Links</td><td>Whether it cited pages it actually opened, and whether those pages are current.</td></tr>
+</table></div>
+</section>
+
+<section>
+<h2>4. The tuning loop</h2>
+<figure>
+<svg viewBox="0 0 860 120" role="img" aria-label="Run a batch of 10, measure, find what failed, change a general rule, next batch; three passes over all tasks or until scores stop improving">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g fill="none" stroke="currentColor" stroke-width="1.3">
+<rect x="4" y="28" width="140" height="52" rx="8"/><rect x="176" y="28" width="140" height="52" rx="8"/><rect x="348" y="28" width="160" height="52" rx="8"/><rect x="540" y="28" width="150" height="52" rx="8"/><rect x="722" y="28" width="134" height="52" rx="8"/>
+<line x1="144" y1="54" x2="174" y2="54" marker-end="url(#a)"/><line x1="316" y1="54" x2="346" y2="54" marker-end="url(#a)"/><line x1="508" y1="54" x2="538" y2="54" marker-end="url(#a)"/><line x1="690" y1="54" x2="720" y2="54" marker-end="url(#a)"/>
+<path d="M789 80 V104 H74 V82" marker-end="url(#a)"/>
+</g>
+<g fill="currentColor" font-size="12" text-anchor="middle">
+<text x="74" y="51">run 10 tasks</text><text x="74" y="67" fill-opacity=".6">practice runs</text>
+<text x="246" y="51">measure</text><text x="246" y="67" fill-opacity=".6">score, steps, pattern</text>
+<text x="428" y="51">what went wrong</text><text x="428" y="67" fill-opacity=".6">across the 10</text>
+<text x="615" y="51">change one rule</text><text x="615" y="67" fill-opacity=".6">general, no site names</text>
+<text x="789" y="51">next 10</text><text x="789" y="67" fill-opacity=".6">keep it if it helps</text>
+<text x="430" y="117" fill-opacity=".6">3 passes over the 120, or stop once scores stop improving</text>
+</g>
+</svg>
+<figcaption>A change is kept only if the next batch does no worse, and it is rechecked against earlier batches' worst tasks.</figcaption>
+</figure>
+<ul>
+<li><b>Only general rules.</b> A change can't name a site, a store or a kind of task. "Search the web first, then open the best two or three results" is fine. "Use Rotten Tomatoes for movies" isn't.</li>
+<li><b>Rules stay short.</b> They are capped in length, so tuning can't keep stacking rules on top of each other.</li>
+<li><b>Every change is logged</b>, with its reason and before/after scores. You can undo any of them.</li>
+</ul>
+</section>
+
+<section>
+<h2>5. What you get</h2>
+<ul>
+<li>After each pass, a report page: scores, steps, what changed, and the pattern the bots are settling into, in plain words. For example: "search the web → open 2 results → read only the part that answers → reply with links, about 6 steps".</li>
+<li>The rule changes, staged and not committed, to review.</li>
+<li>The task set and its runner kept in the repo, so later changes can be checked against the same 150 tasks.</li>
+</ul>
+</section>
+
+<section>
+<h2>6. Cost and time (estimates)</h2>
+<div class="scroll"><table>
+<tr><th></th><th>Free models first (your bots' default)</th><th>A cheap paid model</th></tr>
+<tr><td>Model requests</td><td colspan="2">About 450 task runs (3 passes, plus the held-back 30 twice) × 15–30 requests ≈ 7,000–13,000, plus about 500 for grading</td></tr>
+<tr><td>Money</td><td>Close to $0, but free models have daily caps, so this would stretch over days</td><td>Roughly $20–$80, depending on the model and page sizes. Page snapshots are most of the tokens. I set a hard cap.</td></tr>
+<tr><td>Time</td><td>Several days, held back by the caps</td><td>About 15–20 hours one task at a time; 3 at once on different sites gets it to about 6–8 hours</td></tr>
+</table></div>
+<p class="mut">These numbers are rough. I'd run one batch of 10 first and give you the real cost per task before going further.</p>
+</section>
+
+<section>
+<h2>Decisions</h2>
+<div class="q"><b>1. Model and budget.</b> My recommendation is the same order your bots use (free first, then cheap paid), with a hard cap of $40. I stop and ask before going past it.</div>
+<div class="q"><b>2. Grading model.</b> A stronger model than the one being tuned grades. It's a few cents per task, and I recommend it.</div>
+<div class="q"><b>3. Three runs at once</b> on different sites to finish faster: yes (recommended), or one at a time?</div>
+<div class="q"><b>4. The task list.</b> I write the 150 and you review them before the first run. Add any of your own, like "best TV deals".</div>
+</section>
+</div>
