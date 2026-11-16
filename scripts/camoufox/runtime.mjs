@@ -220,8 +220,16 @@ export async function launchNative({
           predicate: (page) => page !== launcher,
           timeout: 10000,
         });
-        await launcher.locator("#oxbot-new-tab").click();
-        return opened;
+        // A failed click leaves this wait to fail later: never unhandled,
+        // or Node ends the whole browser.
+        opened.catch(() => {});
+        try {
+          await launcher.locator("#oxbot-new-tab").click();
+          return await opened;
+        } catch {
+          // No tab from the launcher: a page of its own will do.
+          return context.newPage();
+        }
       },
       async showForUser() {
         if (bridge) await bridge.setState("normal");

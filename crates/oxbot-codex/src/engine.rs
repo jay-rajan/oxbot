@@ -89,6 +89,9 @@ const CHECK_IN_STEPS: u32 = 5;
 const CHECK_IN: &str = "[oxbot] You've taken {steps} steps: pause here and call no more tools \
      now. Reply to the person with where you are, in at most 4 short lines: what you've found so \
      far, and what's left. oxbot then lets you carry on, unless they stop you.";
+/// What a call after the check-in tells the model: it doesn't run.
+const CHECKED_IN: &str = "[oxbot] Paused for a check-in, so this call didn't run. Call no more \
+     tools: reply to the person now, in at most 4 short lines, with what you've found and what's left.";
 /// What a skipped call tells the model.
 const SKIPPED: &str = "[skipped] An earlier call in this step was refused, so this one didn't run.";
 /// Longest wait for Codex to say a turn it was asked to stop has stopped.
@@ -993,6 +996,12 @@ impl Turn {
             Some("completed") => {}
             Some("interrupted") => return Some(End::Stopped),
             _ => {
+                // It ran out of steps while checking in: still a check-in,
+                // so the hub carries on unless the person stops it.
+                if self.calls.lock().await.checking_in {
+                    let text = std::mem::take(&mut self.pending).join("\n\n");
+                    return Some(self.check_in(core, text).await);
+                }
                 let raw = turn["error"]["message"]
                     .as_str()
                     .unwrap_or("The AI helper failed.");
@@ -1005,20 +1014,7 @@ impl Turn {
         // let it carry on.
         if calls.checking_in {
             drop(calls);
-            let _ = core
-                .events
-                .send(EngineEvent::Assistant {
-                    text: text.clone(),
-                    tool_uses: Vec::new(),
-                })
-                .await;
-            let _ = core
-                .events
-                .send(EngineEvent::Checkpoint {
-                    steps: self.max_steps,
-                })
-                .await;
-            return Some(End::Done(text));
+            return Some(self.check_in(core, text).await);
         }
         let check = calls.ran >= CHECK_AFTER_CALLS && !calls.refused;
         let missing = if check {
@@ -1099,6 +1095,27 @@ impl Turn {
     }
 
     /// Tells the chat about a call (once), with the text said before it.
+    /// Ends the turn at a check-in: what it wrote (if anything), then the
+    /// hub's check-in.
+    async fn check_in(&self, core: &Core, text: String) -> End {
+        if !text.trim().is_empty() {
+            let _ = core
+                .events
+                .send(EngineEvent::Assistant {
+                    text: text.clone(),
+                    tool_uses: Vec::new(),
+                })
+                .await;
+        }
+        let _ = core
+            .events
+            .send(EngineEvent::Checkpoint {
+                steps: self.max_steps,
+            })
+            .await;
+        End::Done(text)
+    }
+
     async fn announce(&mut self, core: &Core, call: &ToolCall) {
         if !self.announced.insert(call.id.clone()) {
             return;
@@ -1308,6 +1325,8 @@ impl CallJob {
         let mut calls = self.calls.lock().await;
         let (mut outcome, done) = if self.stopped {
             (ToolOutcome::note("Stopped.", true), CallDone::Stopped)
+        } else if calls.checking_in {
+            (ToolOutcome::note(CHECKED_IN, false), CallDone::Ran)
         } else if calls.refused_step == Some(self.step) {
             (ToolOutcome::note(SKIPPED, false), CallDone::Ran)
         } else if !self.files_asked && oxbot_loop::tools::files::changes_files(&self.call.name) {

@@ -37,6 +37,8 @@ const PAGE: &str = "## Pages\n1: Jobs (https://jobs.example.com/) [selected]\n##
 #[derive(Debug)]
 struct Model {
     uid: &'static str,
+    /// Never stops: a snapshot every time, whatever it's told.
+    stubborn: bool,
     bodies: Mutex<Vec<Value>>,
 }
 
@@ -96,6 +98,11 @@ impl Upstream for Model {
         let mut events = vec![json!({"type": "response.created", "response": {"id": "r"}})];
         let n = outputs.len();
         events.extend(match (checking, n) {
+            _ if self.stubborn => {
+                let mut out = text("Still looking.");
+                out.extend(call(&format!("s{n}"), "take_snapshot", &json!({})));
+                out
+            }
             (true, _) => text("Checked: the button was handled."),
             (false, 0) => call("c1", "take_snapshot", &json!({})),
             (false, 1) => call("c2", "click", &json!({"uid": self.uid})),
@@ -123,6 +130,7 @@ fn codex() -> Option<PathBuf> {
 
 struct World {
     engine: CodexEngine,
+    prefs: Arc<std::sync::RwLock<oxbot_loop::LoopPrefs>>,
     relay: Arc<Relay>,
     model: Arc<Model>,
     browser: Arc<ScriptedBrowser>,
@@ -130,6 +138,10 @@ struct World {
 }
 
 async fn world(uid: &'static str) -> Option<World> {
+    world_as(uid, false).await
+}
+
+async fn world_as(uid: &'static str, stubborn: bool) -> Option<World> {
     let Some(program) = codex() else {
         eprintln!("SKIPPED: the codex program isn't installed (set OXBOT_CODEX to run this)");
         return None;
@@ -170,6 +182,7 @@ async fn world(uid: &'static str) -> Option<World> {
     let loop_engine = Arc::new(LoopEngine::new(setup));
     let model = Arc::new(Model {
         uid,
+        stubborn,
         bodies: Mutex::new(Vec::new()),
     });
     let relay = Arc::new(
@@ -182,6 +195,7 @@ async fn world(uid: &'static str) -> Option<World> {
         .await
         .unwrap(),
     );
+    let prefs = loop_engine.prefs();
     let engine = CodexEngine::new(CodexSetup {
         loop_engine,
         relay: Arc::clone(&relay),
@@ -194,6 +208,7 @@ async fn world(uid: &'static str) -> Option<World> {
     .unwrap();
     Some(World {
         engine,
+        prefs,
         relay,
         model,
         browser,
@@ -381,5 +396,49 @@ async fn a_refused_click_is_respected_and_the_thread_goes_on_after_a_restart() {
         "the thread went on: {resumed}"
     );
     assert_eq!(w.engine.refused_connections(), 0);
+    session.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_bot_that_keeps_going_past_its_steps_checks_in_instead_of_failing() {
+    let Some(w) = world_as("1_4", true).await else {
+        return;
+    };
+    w.prefs.write().unwrap().max_steps = 3;
+    let started = w
+        .engine
+        .start(spec(w.dir.path(), Resume::New("s3".into())))
+        .await
+        .unwrap();
+    let (mut session, mut events) = (started.session, started.events);
+    session
+        .send(TurnInput {
+            text: "[Sam] find everything".into(),
+            user_seq: 1,
+            person: Some("p_sam".into()),
+            origin: Value::Null,
+        })
+        .await
+        .unwrap();
+    let mut checked_in = false;
+    let (ok, text) = tokio::time::timeout(Duration::from_secs(90), async {
+        while let Some(event) = events.recv().await {
+            match event {
+                EngineEvent::Permission(req) => req.reply.send(Decision::Allow),
+                EngineEvent::Checkpoint { .. } => checked_in = true,
+                EngineEvent::TurnDone { ok, text, .. } => return (ok, text),
+                _ => {}
+            }
+        }
+        (false, "events closed".to_owned())
+    })
+    .await
+    .expect("the turn ended in time");
+    // It ran out of room while checking in: still a check-in, which the
+    // hub carries on from, not an error.
+    assert!(ok, "{text}");
+    assert!(checked_in);
+    // Calls after the check-in didn't run.
+    assert!(w.browser.calls().len() <= 3, "{:?}", w.browser.calls());
     session.shutdown().await;
 }
