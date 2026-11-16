@@ -2624,6 +2624,91 @@ async fn stop_on_a_plan_takes_it_back() {
 }
 
 #[tokio::test]
+async fn a_long_task_checks_in_carries_on_by_itself_and_stops_when_asked() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let bots = tmp.path().join("bots");
+    let all = testing::bots(&bots, &["poster"]);
+    let fake = Arc::new(FakeBots::new(&bots, Tool::None));
+    let config = HubConfig {
+        // One step, then it checks in; the card waits a moment.
+        max_steps: 1,
+        checkpoint_wait: std::time::Duration::from_millis(1500),
+        ..testing::config(
+            &bots,
+            &tmp.path().join("home"),
+            &fake,
+            Some(program().await),
+        )
+    };
+    let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
+    let mut updates = hub.subscribe();
+    hub.send("poster", "find the times", Some("Jay"))
+        .await
+        .unwrap();
+
+    // It writes where it is, then the card counts down.
+    let card = next_card(&mut updates).await;
+    assert_eq!(card.kind, ApprovalKind::Checkpoint);
+    assert_eq!(card.target, "1 steps");
+    assert_eq!(card.detail.as_deref(), Some("1"));
+    assert!(
+        fake.heard()
+            .iter()
+            .any(|r| r.contains("You've taken 1 steps: pause here")),
+        "the bot was asked to check in"
+    );
+    // Nobody answers: it carries on in the same conversation.
+    request_with(&fake, "the person let you carry on").await;
+    let notes = |hub: &Arc<Hub>| -> Vec<String> {
+        hub.history("poster", 0)
+            .unwrap()
+            .into_iter()
+            .filter_map(|e| match e.kind {
+                EventKind::Note { text } => Some(text),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(notes(&hub).contains(&"Keeping going after 1 steps.".to_owned()));
+
+    // It checks in again; Stop ends it there.
+    let card = next_card(&mut updates).await;
+    assert_eq!(card.kind, ApprovalKind::Checkpoint);
+    hub.answer(card.id, Answer::Deny);
+    for _ in 0..100 {
+        if notes(&hub).iter().any(|n| n.starts_with("Stopped after")) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        notes(&hub).contains(&"Stopped after 1 steps, as you asked.".to_owned()),
+        "{:?}",
+        notes(&hub)
+    );
+    let carried = fake
+        .requests()
+        .iter()
+        .filter(|r| r.contains("let you carry on"))
+        .count();
+    tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+    assert_eq!(
+        fake.requests()
+            .iter()
+            .filter(|r| r.contains("let you carry on"))
+            .count(),
+        carried,
+        "nothing more after Stop"
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_bot_that_skips_its_plan_is_told_to_make_one() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {

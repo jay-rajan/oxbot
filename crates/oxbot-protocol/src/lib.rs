@@ -1679,6 +1679,11 @@ pub enum ApprovalKind {
     /// [`Approval::target`]) for every bot in the home. Only the owner
     /// answers it.
     HomeArea,
+    /// A long task checking in: the bot took [`Approval::target`]
+    /// ("50 steps") and wrote where it is in the chat. It keeps going
+    /// unless the person presses Stop (a deny) within the seconds in
+    /// [`Approval::detail`] ("60").
+    Checkpoint,
 }
 
 /// Something a bot wants to do that needs the user's yes.

@@ -57,7 +57,7 @@ use oxbot_loop::tools::page::ASK_PAGE;
 use oxbot_loop::{
     CHECK_AFTER_CALLS, CallCtx, Dispatched, Failures, LoopEngine, MAX_NAMED, OwnTools, RepeatGuard,
     SourcePage, Stop, ToolService, TurnHooks, add_source, answer_after_check, check_note,
-    link_line, needs_links, pages_in_result, with_sources, wrap_up_note,
+    link_line, needs_links, pages_in_result, with_sources,
 };
 use oxbot_relay::{ClientInfo, Relay, TurnStart};
 use serde_json::{Value, json};
@@ -81,6 +81,14 @@ const GRACE: Duration = Duration::from_secs(5);
 const MAX_BAD_CALLS: u32 = 3;
 /// What the chat shows while the bot checks.
 const CHECKING: &str = "Checking its answer";
+/// The model requests a turn may take after its steps, to check in.
+const CHECK_IN_STEPS: u32 = 5;
+/// What the bot is told when it reaches its steps: it writes where it is,
+/// and oxbot lets it carry on unless the person stops it (the hub's
+/// check-in, see `oxbot_core`'s `checkpoints`).
+const CHECK_IN: &str = "[oxbot] You've taken {steps} steps: pause here and call no more tools \
+     now. Reply to the person with where you are, in at most 4 short lines: what you've found so \
+     far, and what's left. oxbot then lets you carry on, unless they stop you.";
 /// What a skipped call tells the model.
 const SKIPPED: &str = "[skipped] An earlier call in this step was refused, so this one didn't run.";
 /// Longest wait for Codex to say a turn it was asked to stop has stopped.
@@ -508,7 +516,9 @@ struct CallState {
     /// The web pages it read, in order (see [`pages_in_result`]).
     pages: Vec<SourcePage>,
     bad_calls: u32,
-    nudged: bool,
+    /// The turn reached its steps and the bot was asked to check in (see
+    /// [`CHECK_IN`]).
+    checking_in: bool,
 }
 
 /// What the turn's loop hears from a finished call.
@@ -610,7 +620,8 @@ impl Turn {
                     Lane::Live
                 },
                 min_window: Some(budget.window),
-                max_requests: max_steps,
+                // A few more than its steps: the bot writes where it is.
+                max_requests: max_steps + CHECK_IN_STEPS,
                 meter: Some(meter_tx),
                 avoid: avoid.clone(),
             });
@@ -990,6 +1001,25 @@ impl Turn {
         }
         let text = std::mem::take(&mut self.pending).join("\n\n");
         let calls = self.calls.lock().await;
+        // Checking in: its reply says where it is, as it is; the hub may
+        // let it carry on.
+        if calls.checking_in {
+            drop(calls);
+            let _ = core
+                .events
+                .send(EngineEvent::Assistant {
+                    text: text.clone(),
+                    tool_uses: Vec::new(),
+                })
+                .await;
+            let _ = core
+                .events
+                .send(EngineEvent::Checkpoint {
+                    steps: self.max_steps,
+                })
+                .await;
+            return Some(End::Done(text));
+        }
         let check = calls.ran >= CHECK_AFTER_CALLS && !calls.refused;
         let missing = if check {
             ungrounded(&calls, core, &self.goal, &text)
@@ -1293,11 +1323,13 @@ impl CallJob {
             calls.failures.count(&self.call, &mut outcome);
         }
         let steps = self.relay_steps.summary().requests;
-        if let Some(note) = wrap_up_note(steps, self.max_steps, &mut calls.nudged)
+        if steps >= self.max_steps
+            && !calls.checking_in
             && let Some(Part::Text(t)) = outcome.for_model.last_mut()
         {
+            calls.checking_in = true;
             t.push_str("\n\n");
-            t.push_str(&note);
+            t.push_str(&CHECK_IN.replace("{steps}", &steps.to_string()));
         }
         drop(calls);
         let _ = self

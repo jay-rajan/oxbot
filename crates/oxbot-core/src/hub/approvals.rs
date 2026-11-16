@@ -126,15 +126,15 @@ impl Hub {
         let ids: Vec<(u64, bool)> = lock(&self.approvals)
             .iter()
             .filter(|(_, (a, _, _))| a.bot == bot.as_str())
-            .map(|(id, (a, _, _))| (*id, a.kind == ApprovalKind::Plan))
+            .map(|(id, (a, _, _))| (*id, is_notice(a.kind)))
             .collect();
-        for (id, plan) in ids {
-            // A plan card closed with its task: nobody pressed Stop.
-            if plan {
-                lock(&self.plans_closed).insert(id);
+        for (id, notice) in ids {
+            // A notice closed by oxbot: nobody pressed Stop.
+            if notice {
+                lock(&self.notices_closed).insert(id);
             }
-            if !self.answer(id, Answer::Deny) && plan {
-                lock(&self.plans_closed).remove(&id);
+            if !self.answer(id, Answer::Deny) && notice {
+                lock(&self.notices_closed).remove(&id);
             }
         }
     }
@@ -648,6 +648,7 @@ impl Hub {
                     | ApprovalKind::Script
                     | ApprovalKind::Plan
                     | ApprovalKind::HomeArea
+                    | ApprovalKind::Checkpoint
             ) =>
             {
                 None
@@ -706,6 +707,12 @@ impl Hub {
         let _ = self.updates.send(ServerMsg::ApprovalNeeded(approval));
         (id, rx)
     }
+}
+
+/// A card that tells the person what happens unless they stop it (a
+/// plan, a check-in), rather than asking.
+pub(super) fn is_notice(kind: ApprovalKind) -> bool {
+    matches!(kind, ApprovalKind::Plan | ApprovalKind::Checkpoint)
 }
 
 /// The element uids a browser request names: `uid`, and each of

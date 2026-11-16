@@ -129,7 +129,7 @@ impl Hub {
     ) {
         let answer = tokio::time::timeout(self.config.approval_timeout, rx).await;
         let by_message = lock(&self.answered_by_message).remove(&id);
-        let closed = lock(&self.plans_closed).remove(&id);
+        let closed = lock(&self.notices_closed).remove(&id);
         match answer {
             Ok(Ok(Answer::Deny)) if !by_message && !closed => {
                 if let Some(runtime) = self.runtimes.lock().await.get_mut(bot_id) {

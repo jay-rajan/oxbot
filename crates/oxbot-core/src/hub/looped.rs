@@ -86,8 +86,9 @@ pub(super) struct TurnMeter {
 }
 
 /// The loop's household settings from the owner's engine settings.
-fn loop_prefs(p: &EnginePrefs) -> LoopPrefs {
+fn loop_prefs(p: &EnginePrefs, max_steps: u32) -> LoopPrefs {
     LoopPrefs {
+        max_steps,
         paid_fallback: p.paid_fallback,
         paid_models: p.paid_models.clone(),
         assistant_model: p.assistant_model.clone(),
@@ -139,7 +140,7 @@ pub(super) fn build_engine(
     setup.guard = Arc::new(HubGuard(hub));
     setup.pacer = Pacer::with_rate(parts.free_per_minute, parts.account.clone());
     *setup.prefs.write().unwrap_or_else(PoisonError::into_inner) =
-        loop_prefs(&engine_prefs_in(store));
+        loop_prefs(&engine_prefs_in(store), config.max_steps);
     setup.browser = Some(browser);
     setup.browser_allow = LOOP_BROWSER_TOOLS.iter().map(|t| (*t).to_owned()).collect();
     // A page naming one uid twice keeps the label the gate is strictest
@@ -348,7 +349,7 @@ impl Hub {
             *engine
                 .prefs()
                 .write()
-                .unwrap_or_else(PoisonError::into_inner) = loop_prefs(prefs);
+                .unwrap_or_else(PoisonError::into_inner) = loop_prefs(prefs, self.config.max_steps);
         }
     }
 

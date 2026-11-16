@@ -325,6 +325,35 @@ impl Hub {
         });
     }
 
+    /// `bot` carries on with the task for `origin` after a check-in (see
+    /// [`super::checkpoints`]): a new turn, shown in the chat as oxbot's
+    /// note `seq`.
+    pub(super) async fn continue_task(
+        self: &Arc<Self>,
+        bot: &BotId,
+        origin: ChainOrigin,
+        seq: u64,
+    ) -> Result<u64, HubError> {
+        let permit = Arc::clone(&self.turns)
+            .acquire_owned()
+            .await
+            .map_err(|_| HubError::Busy(bot.clone()))?;
+        self.claim(bot).await?;
+        let sent = Sent {
+            text: super::checkpoints::CARRY_ON,
+            files: &[],
+            from: None,
+            origin: &origin,
+            relayed: false,
+        };
+        let result = self.deliver_claimed(bot, &sent, permit, Some(seq)).await;
+        lock(&self.starting).remove(bot);
+        if result.is_err() {
+            self.run_queued(bot);
+        }
+        result
+    }
+
     /// Marks `bot` as starting, so no message, privacy change or delete can
     /// run on it at the same time. Undo with `lock(&self.starting).remove`.
     pub(super) async fn claim(&self, bot: &BotId) -> Result<(), HubError> {
@@ -351,6 +380,8 @@ impl Hub {
             origin,
             relayed,
         } = *sent;
+        // A check-in waiting for an answer goes: this is the next turn.
+        self.close_checkpoints(&bot.id);
         let scheduled = self.note_scheduled(bot, origin, relayed)?;
         let user_seq = match recorded {
             Some(seq) => seq,

@@ -25,6 +25,7 @@ mod access;
 mod alerts;
 mod approvals;
 mod browsers;
+mod checkpoints;
 mod codex;
 mod compare;
 mod elements;
@@ -150,6 +151,12 @@ pub struct HubConfig {
     /// before its first web visit in a task (see [`plans`]). On in the
     /// app; off by default, for tests whose bots browse at once.
     pub plan_first: bool,
+    /// Model requests a task makes before it checks in (see
+    /// [`checkpoints`]): the bot writes where it is, and carries on
+    /// unless the person stops it.
+    pub max_steps: u32,
+    /// How long a check-in card waits before the bot carries on.
+    pub checkpoint_wait: Duration,
 }
 
 impl HubConfig {
@@ -172,6 +179,8 @@ impl HubConfig {
             keep_unsent: crate::attach::KEEP_UNSENT,
             pace: Pace::POLITE,
             plan_first: false,
+            max_steps: 50,
+            checkpoint_wait: Duration::from_mins(1),
             e2e: false,
             openrouter: None,
             codex: None,
@@ -270,6 +279,9 @@ struct Runtime {
     /// The person pressed Stop on this task's plan: no browsing until
     /// they write again.
     plan_stopped: bool,
+    /// The running turn stopped to check in after this many steps (see
+    /// [`checkpoints`]).
+    checkpoint: Option<u32>,
 }
 
 /// Cards waiting for the user, with who to tell.
@@ -333,8 +345,9 @@ pub struct Hub {
     /// Approval requests said no to because the person sent a message
     /// instead: the bot is told to read it rather than stop.
     answered_by_message: std::sync::Mutex<HashSet<u64>>,
-    /// Plan cards oxbot closed itself (their task ended): not a Stop.
-    plans_closed: std::sync::Mutex<HashSet<u64>>,
+    /// Notice cards (a plan, a check-in) oxbot closed itself (their task
+    /// ended, or a new one started): not a Stop.
+    notices_closed: std::sync::Mutex<HashSet<u64>>,
     /// Turns that may run at once.
     turns: Arc<Semaphore>,
     updates: broadcast::Sender<ServerMsg>,
@@ -436,7 +449,7 @@ impl Hub {
             starting: std::sync::Mutex::new(HashSet::new()),
             queued: std::sync::Mutex::new(HashMap::new()),
             answered_by_message: std::sync::Mutex::new(HashSet::new()),
-            plans_closed: std::sync::Mutex::new(HashSet::new()),
+            notices_closed: std::sync::Mutex::new(HashSet::new()),
             approvals: std::sync::Mutex::new(BTreeMap::new()),
             sign_ins: std::sync::Mutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),

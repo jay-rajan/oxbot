@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 
 use super::taint::{UNKNOWN_RESULT, untrusted_tool};
 use super::team::team_label;
-use super::{Hub, HubError, Runtime, Shared, elements};
+use super::{Hub, HubError, Runtime, Shared, elements, lock};
 use crate::bot::Bot;
 use crate::engine::{
     Activity, BrowserSpec, EngineEvent, EngineKind, GateMode, HostTools, ModelChoice, Privacy,
@@ -396,7 +396,11 @@ impl Hub {
                     self.record(bot, EventKind::Error { message: text })?;
                 }
                 self.record(bot, EventKind::TurnDone { ok, duration_ms })?;
+                let mut check_in = None;
                 let meter = if let Some(runtime) = self.runtimes.lock().await.get_mut(bot) {
+                    if let Some(steps) = runtime.checkpoint.take() {
+                        check_in = Some((steps, runtime.origin.clone()));
+                    }
                     runtime.busy = false;
                     runtime.permit = None;
                     runtime.last_active = Instant::now();
@@ -414,8 +418,18 @@ impl Hub {
                 }
                 self.cue_data_policy();
                 self.announce_bots().await;
-                // A message sent while it worked that didn't go in goes now.
+                // A message sent while it worked that didn't go in goes
+                // now; else a task that stopped to check in may carry on.
+                let waiting = lock(&self.queued).get(bot).is_some_and(|q| !q.is_empty());
+                if let (true, false, Some((steps, origin))) = (ok, waiting, check_in) {
+                    self.offer_more(bot, steps, origin);
+                }
                 self.run_queued(bot);
+            }
+            EngineEvent::Checkpoint { steps } => {
+                if let Some(runtime) = self.runtimes.lock().await.get_mut(bot) {
+                    runtime.checkpoint = Some(steps);
+                }
             }
             EngineEvent::Activity(activity) => {
                 let _ = self.updates.send(ServerMsg::Activity {
@@ -549,6 +563,7 @@ fn new_runtime(
         meter: super::looped::TurnMeter::default(),
         plan_ok: false,
         plan_stopped: false,
+        checkpoint: None,
     };
     match (resume, taint) {
         (Resume::Resume(_), Some(why)) => {

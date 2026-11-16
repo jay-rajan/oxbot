@@ -3,7 +3,7 @@
 // answers. A bot's cards show in its own chat, oldest first, so the newest
 // sits right above the message box; other bots waiting for an answer get one
 // line above them (Waiting), with Open to go there.
-import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Banner, Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
 import type { Answer, ScheduleEdit } from "../../net/protocol";
@@ -21,6 +21,33 @@ import {
 import { local } from "../../state/store";
 import { expose, exposeFn } from "../../web/testBridge";
 import "./cards.css";
+
+/** Seconds left of `total`, counting down from when it first showed. */
+function useCountdown(total: number): number {
+  const [left, setLeft] = useState(total);
+  useEffect(() => {
+    const start = Date.now();
+    const tick = setInterval(() => {
+      setLeft(Math.max(0, total - Math.floor((Date.now() - start) / 1000)));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [total]);
+  return left;
+}
+
+/** A long task checking in: it keeps going when the time runs out. */
+function CheckIn({ who, steps, seconds, onGo, onStop }: { who: string; steps: string; seconds: number; onGo: () => void; onStop: () => void }) {
+  const left = useCountdown(seconds);
+  return (
+    <Card className="checkpoint" title={`${who} has taken ${steps}`}>
+      <p className="plan-text">It wrote where it is in the chat. It keeps going in {left} s unless you stop it.</p>
+      <div className="btn-row btns">
+        <Btn label="Keep going" kind="primary" onClick={onGo} />
+        <Btn label="Stop" kind="secondary" cls="deny" onClick={onStop} />
+      </div>
+    </Card>
+  );
+}
 
 /** A card's button; `cls` names it for the eye ("deny") as before. */
 function Btn({ label, kind, cls, onClick }: { label: string; kind: ButtonKind; cls?: string; onClick: () => void }) {
@@ -248,6 +275,18 @@ export function Cards() {
           </div>
           <div className="hint">It goes ahead unless you stop it. To change the plan, reply in the chat.</div>
         </Card>
+      );
+    }
+    if (a.kind === "checkpoint") {
+      return (
+        <CheckIn
+          key={key}
+          who={who}
+          steps={a.target}
+          seconds={Number(a.detail) || 60}
+          onGo={() => answer(a.id, "allow_once")}
+          onStop={() => answer(a.id, "deny")}
+        />
       );
     }
     if (a.kind === "home_area") {
