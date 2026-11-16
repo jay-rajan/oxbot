@@ -2775,3 +2775,130 @@ async fn the_owner_saves_the_home_area_for_everyone_and_others_cant() {
     );
     hub.shutdown().await;
 }
+
+/// A hub of `ids` (in `dir`) whose bots each run their own tool from
+/// `tools` (by id; `give_task` naming the bot after `>`, e.g. `task>notes`),
+/// with `leads` made lead bots by the home computer's person.
+async fn team_hub(dir: &Path, ids: &[&str], leads: &[&str], tools: &[(&str, &str)]) -> Arc<Hub> {
+    let bots = dir.join("bots");
+    let all = testing::bots(&bots, ids);
+    let tool = |t: &str| match t.split_once('>') {
+        Some(("task", to)) => Tool::Call(
+            "mcp__oxbot__give_task".to_owned(),
+            serde_json::json!({"bot": to, "message": "say hi"}),
+        ),
+        _ => Tool::named(t),
+    };
+    let fake = Arc::new(FakeBots {
+        by_bot: tools
+            .iter()
+            .map(|(bot, t)| ((*bot).to_owned(), tool(t)))
+            .collect(),
+        no_page: true,
+        ..FakeBots::new(&bots, Tool::None)
+    });
+    let config = testing::config(&bots, &dir.join("home"), &fake, Some(program().await));
+    let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
+    let jay = hub.home_computer_viewer("Jay");
+    for lead in leads {
+        hub.set_lead(lead, true, &jay).await.unwrap();
+    }
+    hub
+}
+
+/// What `bot`'s chat heard back from the task it gave, as the fake says it.
+fn task_result(hub: &Hub, bot: &str) -> String {
+    hub.history(bot, 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::AssistantMessage { text } => Some(text),
+            _ => None,
+        })
+        .next_back()
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn lead_bots_pass_a_task_on_but_never_back_or_too_far() {
+    if codex().await.is_none() {
+        return;
+    }
+    // Meals asks Calendar, Calendar asks Notes, Notes would ask a fourth
+    // bot: three bots is as far as a task goes.
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = team_hub(
+        tmp.path(),
+        &["meals", "calendar", "notes", "walmart"],
+        &["meals", "calendar", "notes"],
+        &[
+            ("meals", "task>calendar"),
+            ("calendar", "task>notes"),
+            ("notes", "task>walmart"),
+            ("walmart", "none"),
+        ],
+    )
+    .await;
+    let mut updates = hub.subscribe();
+    hub.send("meals", "who's home friday", Some("Jay"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "meals").await;
+    assert!(said.starts_with("tool_ok=true calendar replied:"), "{said}");
+    let notes = task_result(&hub, "notes");
+    assert!(notes.starts_with("tool_ok=false"), "{notes}");
+    assert!(notes.contains("passed on as far as it can go"), "{notes}");
+    assert!(hub.history("walmart", 0).unwrap().is_empty(), "nothing reached it");
+    hub.shutdown().await;
+
+    // Calendar can't hand the task back to Meals, which is waiting on it.
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = team_hub(
+        tmp.path(),
+        &["meals", "calendar"],
+        &["meals", "calendar"],
+        &[("meals", "task>calendar"), ("calendar", "task>meals")],
+    )
+    .await;
+    let mut updates = hub.subscribe();
+    hub.send("meals", "plan friday", Some("Jay")).await.unwrap();
+    let said = reply_of(&hub, &mut updates, "meals").await;
+    assert!(said.starts_with("tool_ok=true calendar replied:"), "{said}");
+    let calendar = task_result(&hub, "calendar");
+    assert!(calendar.contains("meals passed you this task"), "{calendar}");
+    let asked = hub
+        .history("meals", 0)
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e.kind, EventKind::UserMessage { .. }))
+        .count();
+    assert_eq!(asked, 1, "nothing came back to Meals as a task");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_bot_a_lead_creates_is_its_helper() {
+    if codex().await.is_none() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = team_hub(tmp.path(), &["meals"], &["meals"], &[("meals", "createbot")]).await;
+    let mut updates = hub.subscribe();
+    hub.send("meals", "make a bot that orders groceries", Some("Jay"))
+        .await
+        .unwrap();
+    let card = next_card(&mut updates).await;
+    assert_eq!(card.kind, ApprovalKind::CreateBot);
+    hub.answer(card.id, Answer::AllowOnce);
+    let said = reply_of(&hub, &mut updates, "meals").await;
+    assert!(said.starts_with("tool_ok=true Created"), "{said}");
+    let bots = hub.bots().await.unwrap();
+    let made = bots.iter().find(|b| b.name == "Mail Checker").unwrap();
+    assert_eq!(made.helper_of.as_deref(), Some("meals"));
+    assert!(!made.lead, "a helper isn't a lead");
+    let meals = bots.iter().find(|b| b.id == "meals").unwrap();
+    assert!(meals.lead && !meals.central);
+    hub.shutdown().await;
+}

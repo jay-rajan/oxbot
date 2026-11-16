@@ -527,4 +527,20 @@ mod tests {
         hub.set_browser_hidden("scout", false, &jay).await.unwrap();
         assert!(!hub.bot("scout").unwrap().browser_hidden);
     }
+
+    #[tokio::test]
+    async fn only_a_bots_managers_make_it_a_lead() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = hub(tmp.path());
+        let jay = hub.home_computer_viewer("Jay");
+        let ann = hub.person_named("Ann").unwrap();
+        let ann = Viewer::person(ann.id, "Ann", false);
+        assert!(hub.set_lead("scout", true, &ann).await.is_err());
+        hub.set_lead("scout", true, &jay).await.unwrap();
+        assert!(hub.bot("scout").unwrap().is_lead());
+        let listed = hub.bots().await.unwrap();
+        assert!(listed.iter().any(|b| b.id == "scout" && b.lead && !b.central));
+        hub.set_lead("scout", false, &jay).await.unwrap();
+        assert!(!hub.bot("scout").unwrap().lead);
+    }
 }

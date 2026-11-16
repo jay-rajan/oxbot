@@ -179,6 +179,30 @@ impl Hub {
         Ok(())
     }
 
+    /// Makes `id` a lead bot (it can list the home's bots, give them tasks
+    /// and create helpers) or an ordinary one. The Assistant is always a lead.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's the Assistant, or its file
+    /// can't be written.
+    pub async fn set_lead(
+        &self,
+        id: &str,
+        lead: bool,
+        viewer: &crate::Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed(
+                "The Assistant always leads its bots.".to_owned(),
+            ));
+        }
+        self.update_bot(&bot.id, |b| b.lead = lead)?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
     /// Gives `bot` its browser for the rest of its turn, waiting if another
     /// bot on the same browser has it. Returns `false` if the bot's turn
     /// ended while it waited.

@@ -73,6 +73,7 @@
 .bot-item:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); }
 .bot-item:active { background: var(--pressed); }
 .bot-item[aria-current="true"] { background: var(--sunken); }
+.bot-item.helper { padding-left: 28px; }
 .bot-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .bot-item .meta { display: grid; gap: 1px; min-width: 0; }
 .bot-item .name {

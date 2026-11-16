@@ -249,6 +249,15 @@ pub enum ClientMsg {
         /// Hidden or not.
         hidden: bool,
     },
+    /// Make a bot a lead bot (it can list the home's bots, give them tasks
+    /// and create helpers) or an ordinary one. Its maker or the home
+    /// computer only; never the Assistant.
+    SetLead {
+        /// Bot id.
+        bot: String,
+        /// Lead or not.
+        lead: bool,
+    },
     /// Make a bot private (only its creator and the home computer see it, and it
     /// uses its creator's own browser) or shared. Its creator or the home computer
     /// only.
@@ -2049,6 +2058,13 @@ pub struct BotInfo {
     /// Whether its browser runs hidden (see [`ClientMsg::SetBrowserHidden`]).
     #[serde(default)]
     pub browser_hidden: bool,
+    /// A lead bot (see [`ClientMsg::SetLead`]); the Assistant is
+    /// [`BotInfo::central`] instead.
+    #[serde(default)]
+    pub lead: bool,
+    /// The lead bot that created it: it's listed under that lead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper_of: Option<String>,
     /// Who it's shared with ([`BotInfo::private`] is anything but
     /// everyone).
     #[serde(default)]

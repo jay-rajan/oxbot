@@ -286,6 +286,12 @@ pub struct Bot {
     /// Runs the browser hidden (no window) while it browses. A sign-in or
     /// robot check still brings the browser forward.
     pub browser_hidden: bool,
+    /// A lead bot: like the Assistant, it can list the home's bots, give
+    /// them tasks and create helpers (see [`Bot::is_lead`]).
+    pub lead: bool,
+    /// The lead bot that created it, if one did: it's listed under that
+    /// lead as its helper.
+    pub helper_of: Option<BotId>,
     /// The bot's folder.
     pub dir: PathBuf,
 }
@@ -342,6 +348,11 @@ struct BotFile {
     /// Before the `[openrouter]` table: TOML writes plain values first.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     browser_hidden: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    lead: bool,
+    /// The id of the lead bot that created it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    helper_of: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     openrouter: Option<LoopSettings>,
 }
@@ -430,6 +441,14 @@ impl Bot {
         self.is_main_assistant() || is_personal_assistant(self.id.as_str())
     }
 
+    /// Whether it can run a team: list the home's bots, give them tasks and
+    /// create helpers. The Assistant always can; any other bot when it's
+    /// made a lead.
+    #[must_use]
+    pub fn is_lead(&self) -> bool {
+        self.lead || self.is_central()
+    }
+
     /// Whether this is the home computer's Assistant, whose instructions every person's
     /// Assistant shares.
     #[must_use]
@@ -487,6 +506,8 @@ impl Bot {
             moved_from,
             loop_settings: file.openrouter.unwrap_or_default(),
             browser_hidden: file.browser_hidden,
+            lead: file.lead,
+            helper_of: file.helper_of.and_then(|h| BotId::new(h).ok()),
             instructions,
             dir: dir.to_owned(),
         })
@@ -547,6 +568,8 @@ impl Bot {
             sharing: Some(Sharing::Everyone),
             openrouter: None,
             browser_hidden: false,
+            lead: false,
+            helper_of: None,
         };
         write_file(&dir, &file)?;
         let md = dir.join("instructions.md");
@@ -662,6 +685,8 @@ impl Bot {
                 sharing: Some(self.effective_sharing()),
                 openrouter: (!self.loop_settings.is_empty()).then(|| self.loop_settings.clone()),
                 browser_hidden: self.browser_hidden,
+                lead: self.lead,
+                helper_of: self.helper_of.as_ref().map(ToString::to_string),
             },
         )
     }
@@ -990,12 +1015,16 @@ mod tests {
         bot.loop_settings.model = Some("auto".into());
         bot.loop_settings.daily_requests = Some(200);
         bot.browser_hidden = true;
+        bot.lead = true;
+        bot.helper_of = Some(BotId::new("meals").unwrap());
         bot.save().unwrap();
         let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
         assert!(text.contains("engine = \"codex\""), "{text}");
         assert!(text.contains("[openrouter]") && text.contains("daily_requests = 200"));
         let again = Bot::load(&bot.dir).unwrap();
         assert!(again.browser_hidden);
+        assert!(again.lead && again.is_lead() && !again.is_central());
+        assert_eq!(again.helper_of.as_ref().map(BotId::as_str), Some("meals"));
         assert_eq!(again.engine, EngineKind::Codex);
         assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
         assert_eq!(again.loop_settings.daily_requests, Some(200));

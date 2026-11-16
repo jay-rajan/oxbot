@@ -162,7 +162,15 @@ bot: string,
 /**
  * Hidden or not.
  */
-hidden: boolean, } | { "type": "set_private", 
+hidden: boolean, } | { "type": "set_lead", 
+/**
+ * Bot id.
+ */
+bot: string, 
+/**
+ * Lead or not.
+ */
+lead: boolean, } | { "type": "set_private", 
 /**
  * Bot id.
  */

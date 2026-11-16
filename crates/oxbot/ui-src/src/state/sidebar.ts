@@ -73,7 +73,8 @@ export interface Group {
   ids: string[];
 }
 
-/** The sidebar's groups, top to bottom: Assistant first (no title), then by
+/** The sidebar's groups, top to bottom: Assistant and lead bots first, each
+ *  lead's helpers under it (no title), then by
  *  section (bots not in one first, without a title) or by who made them
  *  (you first, then A-Z, then the home computer's). Bots keep the server's
  *  order. A search keeps the bots whose names match and drops groups left
@@ -88,9 +89,13 @@ export function groupBots(
 ): Group[] {
   const q = fold(query).trim();
   const hit = (b: BotInfo) => !q || fold(b.name || b.id).includes(q);
-  const assistant = list.filter((b) => b.central);
-  const rest = list.filter((b) => !b.central);
-  const groups: Group[] = [{ key: "assistant", title: "", ids: assistant.filter(hit).map((b) => b.id) }];
+  // The top: the Assistant, then each lead bot with its helpers under it.
+  const leads = list.filter((b) => !b.central && b.lead);
+  const helpers = (lead: string) => list.filter((b) => !b.central && !b.lead && b.helper_of === lead);
+  const top = [...list.filter((b) => b.central), ...leads.flatMap((l) => [l, ...helpers(l.id)])];
+  const onTop = new Set(top.map((b) => b.id));
+  const rest = list.filter((b) => !onTop.has(b.id));
+  const groups: Group[] = [{ key: "assistant", title: "", ids: top.filter(hit).map((b) => b.id) }];
   if (mode === "people") {
     const by = new Map<string, BotInfo[]>();
     for (const b of rest) {

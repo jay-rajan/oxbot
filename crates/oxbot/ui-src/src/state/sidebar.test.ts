@@ -25,6 +25,8 @@ function bot(id: string, more: Partial<BotInfo> = {}): BotInfo {
     instructions: "",
     daily_requests: null,
     browser_hidden: false,
+    lead: false,
+    helper_of: null,
     sharing: "everyone",
     members: [],
     ...more,
@@ -56,6 +58,19 @@ describe("groupBots", () => {
       ["none", ["bank", "cafe", "home"]],
       ["s:s1", ["recipes"]],
     ]);
+  });
+
+  it("puts lead bots on top with their helpers under them", () => {
+    const team = [
+      ...list,
+      bot("meals", { name: "Meal Plan", lead: true }),
+      bot("walmart", { name: "Walmart", helper_of: "meals" }),
+      bot("stray", { name: "Stray", helper_of: "gone" }),
+    ];
+    const g = groupBots(team, secs, { recipes: "s1", walmart: "s1" }, "sections", "", "Jay");
+    expect(g[0]?.ids).toEqual(["assistant", "meals", "walmart"]);
+    expect(g.find((x) => x.key === "none")?.ids).toContain("stray");
+    expect(g.find((x) => x.key === "s:s1")?.ids).toEqual(["recipes"]);
   });
 
   it("ignores a placement in a section that's gone, and keeps empty sections", () => {

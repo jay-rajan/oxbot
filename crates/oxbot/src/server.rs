@@ -1052,6 +1052,10 @@ impl Client {
                 bot: self.inner(bot),
                 hidden,
             },
+            ClientMsg::SetLead { bot, lead } => ClientMsg::SetLead {
+                bot: self.inner(bot),
+                lead,
+            },
             ClientMsg::SetSharing {
                 bot,
                 sharing,
@@ -1473,6 +1477,7 @@ async fn handle_bot_settings(msg: ClientMsg, state: &AppState, viewer: &Viewer) 
         ClientMsg::SetBrowserHidden { bot, hidden } => {
             hub.set_browser_hidden(&bot, hidden, viewer).await
         }
+        ClientMsg::SetLead { bot, lead } => hub.set_lead(&bot, lead, viewer).await,
         ClientMsg::SetSharing {
             bot,
             sharing,
@@ -1558,6 +1563,7 @@ async fn handle(
         msg @ ClientMsg::CreateBot { .. } => create_bot(state, client, out, msg).await,
         ClientMsg::SetPrivate { .. }
         | ClientMsg::SetBrowserHidden { .. }
+        | ClientMsg::SetLead { .. }
         | ClientMsg::SetSharing { .. }
         | ClientMsg::RenameBot { .. }
         | ClientMsg::SetBotInstructions { .. }

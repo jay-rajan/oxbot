@@ -109,17 +109,28 @@ export function BotList({
     if (!b) return null;
     const busy = side.busy[id] ?? b.busy;
     const title = busy ? "Working…" : b.private ? (b.sharing === "people" ? "Shared with picked people" : "Private") : undefined;
-    // Under the name: Assistant's job, or who the bot belongs to.
-    const tag = b.central ? "leads your bots" : b.created_by ? `by ${b.created_by}` : "";
+    // Under the name: Assistant's job, the lead a helper works for, or who
+    // the bot belongs to.
+    const lead = b.helper_of ? bots.byId[b.helper_of] : undefined;
+    const helper = !!lead?.lead && !b.lead;
+    const tag = b.central
+      ? "leads your bots"
+      : helper
+        ? `helps ${lead?.name || b.helper_of}`
+        : b.lead
+          ? "lead bot"
+          : b.created_by
+            ? `by ${b.created_by}`
+            : "";
     return (
       <button
         key={id}
-        className="bot-item"
+        className={helper ? "bot-item helper" : "bot-item"}
         type="button"
         data-bot={id}
         aria-current={String(id === current) as "true" | "false"}
         title={title}
-        draggable={side.groupBy === "sections" && !b.central ? true : undefined}
+        draggable={side.groupBy === "sections" && !b.central && !b.lead && !helper ? true : undefined}
         onClick={() => select(id)}
         onContextMenu={(ev: MouseEvent) => {
           ev.preventDefault();

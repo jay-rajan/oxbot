@@ -123,10 +123,10 @@ impl Hub {
                 mcp: crate::engine::McpCommand::default(),
             });
         }
-        // As the prompt says: the Assistant gets its team tools, a bot given a
-        // browser can save reports.
+        // As the prompt says: the Assistant and lead bots get the team
+        // tools, a bot given a browser can save reports.
         let host_tools = HostTools {
-            central: bot.is_central(),
+            central: bot.is_lead(),
             browser: shared.is_some(),
         };
         let gate_mode = overrides.gate_mode;

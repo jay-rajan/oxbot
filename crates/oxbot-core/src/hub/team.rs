@@ -20,6 +20,10 @@ use crate::id::BotId;
 use crate::policy;
 use crate::tools::{self, TOOL_SERVER_NAME};
 
+/// The most bots that may pass one task on (lead, lead): the bot they
+/// pass it to makes three.
+const MAX_CHAIN: usize = 2;
+
 impl Hub {
     /// Runs one of oxbot's own tools that `bot`'s engine called, and
     /// answers it. Checked first as `tools/call` checks it: the bot has the
@@ -30,7 +34,7 @@ impl Hub {
             return self.trial_host_tool(bot, call).await;
         }
         let set = tools::ToolSet {
-            central: self.bot(bot.as_str()).is_ok_and(|b| b.is_central()),
+            central: self.bot(bot.as_str()).is_ok_and(|b| b.is_lead()),
             // As the prompt says (see `start_session`): the bot was given a browser.
             browser: self
                 .runtimes
@@ -118,10 +122,13 @@ impl Hub {
                             .to_owned(),
                     );
                 }
-                match self
+                let made = self
                     .create_bot_as(&text("name"), &text("instructions"), maker, private)
-                    .await
-                {
+                    .await;
+                if let Ok(info) = &made {
+                    self.mark_helper(bot, &info.id).await;
+                }
+                match made {
                     // Only the owner may have private bots: anyone else's
                     // is shared, and the Assistant says so.
                     Ok(info) if private && !info.private => (
@@ -165,6 +172,24 @@ impl Hub {
                 self.delete_schedule_tool(bot, &asker, &origin, args).await
             }
             _ => (false, "unknown tool".to_owned()),
+        }
+    }
+
+    /// Lists a bot that lead bot `lead` just created under it, as its
+    /// helper. The Assistant's bots aren't anyone's helpers.
+    async fn mark_helper(&self, lead: &BotId, made: &str) {
+        let Ok(maker) = self.bot(lead.as_str()) else {
+            return;
+        };
+        if !maker.lead || maker.is_central() {
+            return;
+        }
+        let Ok(id) = BotId::new(made.to_owned()) else {
+            return;
+        };
+        match self.update_bot(&id, |b| b.helper_of = Some(lead.clone())) {
+            Ok(_) => self.announce_bots().await,
+            Err(err) => tracing::warn!(bot = %id, %err, "couldn't list it under its lead"),
         }
     }
 
@@ -290,7 +315,25 @@ impl Hub {
         }
         // The chain stays whoever started it: passing it on never makes it
         // the owner's.
+        // A bot is never tasked by one it's working for (no loops), and a
+        // chain stops at three bots: lead, lead, helper.
+        if origin.via.contains(&to.id) {
+            return (
+                false,
+                format!(
+                    "{} passed you this task, so it can't take part of it back. Do it yourself, or \
+                     answer with what you need.",
+                    to.name
+                ),
+            );
+        }
         let relayed = origin.relayed_by(from, self.untrusted(from).await);
+        if relayed.via.len() > MAX_CHAIN {
+            return (
+                false,
+                "This task has already been passed on as far as it can go. Do it yourself.".to_owned(),
+            );
+        }
         if let Err(err) = super::engines::may_task(&relayed) {
             return (false, format!("Couldn't send the task: {err}"));
         }
