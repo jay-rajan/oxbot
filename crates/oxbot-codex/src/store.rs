@@ -20,7 +20,7 @@ pub struct ThreadRow {
     /// When it last changed.
     pub updated_ms: i64,
     /// A fingerprint of the tools it was started with (empty: unknown,
-    /// from before oxbot kept it).
+    /// from before oxbot kept it, so it starts over like new tools).
     pub tools: String,
 }
 

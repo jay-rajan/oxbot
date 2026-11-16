@@ -27,9 +27,17 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
     tokio::fs::create_dir_all(&work).await.unwrap();
     let cart = Arc::new(AtomicUsize::new(0));
     let added = Arc::clone(&cart);
-    let html = r#"<!doctype html><title>Native local shop</title><label>Product <input type="search"></label><button onclick="fetch('/cart',{method:'POST'}).then(()=>document.querySelector('p').textContent='Added once')">Add milk</button><p>Ready</p>"#;
+    let html = r#"<!doctype html><title>Native local shop</title><label>Product <input type="search"></label><button onclick="fetch('/cart',{method:'POST'}).then(()=>document.querySelector('p').textContent='Added once')">Add milk</button><p>Ready</p><button onclick="const t=document.querySelector('#times');t.textContent='Loading';fetch('/times').then(r=>r.text()).then(x=>t.textContent=x)">Show times</button><div id="times"></div>"#;
     let router = Router::new()
         .route("/", get(move || async move { Html(html) }))
+        // Times come a moment after the click, as a booking site's do.
+        .route(
+            "/times",
+            get(|| async {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                "Open at 10:00 AM"
+            }),
+        )
         .route(
             "/cart",
             post(move || {
@@ -109,6 +117,7 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
     };
     let input = uid("searchbox \"Product\"");
     let button = uid("button \"Add milk\"");
+    let times = uid("button \"Show times\"");
     let start = Instant::now();
     let filled = send("fill", json!({"uid":input,"value":"milk"}))
         .await
@@ -124,6 +133,20 @@ async fn native_tools_use_the_broker_and_keep_private_reads_paused() {
         .await
         .unwrap();
     assert!(clicked.get("error").is_none(), "{clicked}");
+    // A click's page is read once it has settled: what the site fills in
+    // just after (a booking calendar) is there.
+    let shown = send("click", json!({"uid":times}))
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert!(
+        shown["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("Open at 10:00 AM")),
+        "{shown}"
+    );
     assert!(
         start.elapsed() >= Duration::from_secs(8),
         "actions are deliberately spaced"

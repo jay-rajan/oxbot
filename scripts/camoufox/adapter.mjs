@@ -29,6 +29,9 @@ const interactive = new Set([
 ]);
 // Checked by a click: a styled one is often covered by its own drawing.
 const toggles = new Set(["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"]);
+/// The longest the page may take to settle after a click or key press,
+/// for its network and then for its content.
+const SETTLE_MS = 2000;
 const clean = (value) =>
   String(value ?? "")
     .replace(/[\r\n\u2028\u2029]/g, " ")
@@ -75,6 +78,7 @@ export class Adapter {
     this.paused = false;
     this.pages = new Map();
     this.ids = new WeakMap();
+    this.loading = new WeakMap();
     this.refs = new Map();
     this.nextPage = 1;
     this.nextUid = 1;
@@ -141,6 +145,12 @@ export class Adapter {
     this.ids.set(page, id);
     this.pages.set(id, page);
     this.active ??= id;
+    // Requests still loading, so a click's page is read once they're done.
+    const loading = new Set();
+    this.loading.set(page, loading);
+    page.on("request", (request) => loading.add(request));
+    page.on("requestfinished", (request) => loading.delete(request));
+    page.on("requestfailed", (request) => loading.delete(request));
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) this.invalidate(page);
     });
@@ -207,6 +217,32 @@ export class Adapter {
         `${id}: ${clean(await page.title().catch(() => ""))} (${clean(page.url())})${id === this.active ? " [selected]" : ""}`,
       );
     return `## Pages\n${rows.join("\n")}`;
+  }
+  // After a click or a key press, waits for the page to settle: its
+  // network quiet, then its content unchanged for 3/4 of a second (a
+  // booking calendar fills in after the click). At most SETTLE_MS each,
+  // so a busy page still answers.
+  async settle() {
+    const page = this.pages.get(this.active);
+    if (!page || page.isClosed()) return;
+    const loading = this.loading.get(page) ?? new Set();
+    // Pages that never stop loading (ads, live chat) still answer.
+    const deadline = Date.now() + SETTLE_MS;
+    while (loading.size > 0 && Date.now() < deadline)
+      await page.waitForTimeout(100).catch(() => {});
+    const quiet = Date.now() + SETTLE_MS;
+    let last = -1,
+      still = 0;
+    while (Date.now() < quiet) {
+      const size = await page
+        .evaluate(() => document.body?.innerHTML.length ?? 0)
+        .catch(() => -1);
+      if (size > 0 && size === last && loading.size === 0) {
+        if (++still >= 3) return;
+      } else still = 0;
+      last = size;
+      await page.waitForTimeout(250).catch(() => {});
+    }
   }
   async snapshot() {
     this.available();
@@ -354,6 +390,7 @@ export class Adapter {
         if (args.dblClick) await locator.dblclick();
         else if (toggles.has(entry.role)) await this.toggle(locator);
         else await locator.click();
+        await this.settle();
         break;
       }
       case "hover":
@@ -379,6 +416,7 @@ export class Adapter {
         if ((await target.getAttribute("type")) === "password")
           throw new Error("Use the sign-in handoff for secret fields");
         await target.press(args.key);
+        await this.settle();
         break;
       case "drag":
         await (

@@ -1498,7 +1498,9 @@ async fn load_thread(
     );
     let mut row = None;
     let saved = saved.filter(|s| {
-        let same = s.tools.is_empty() || s.tools == tools;
+        // A thread from before oxbot kept its tools starts over too (once):
+        // with the chat so far, which it may not have seen.
+        let same = s.tools == tools;
         if !same {
             tracing::info!(%bot, "its tools changed; starting a new Codex thread");
         }
