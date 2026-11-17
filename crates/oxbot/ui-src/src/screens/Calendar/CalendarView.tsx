@@ -18,6 +18,7 @@ import {
 import { local } from "../../state/store";
 import { DeletedDialog } from "./DeletedDialog";
 import { type Draft, EventDialog } from "./EventDialog";
+import { TimeGrid } from "./TimeGrid";
 import "./calendar.css";
 
 const VIEWS = [
@@ -85,7 +86,7 @@ export function CalendarView() {
 
   const go = (d: string) => dispatch(local("calendar/day", { day: d }));
   const setView = (v: CalView) => dispatch(local("calendar/view", { view: v }));
-  const add = (d: string) => setDraft({ day: d });
+  const add = (d: string, time?: string) => setDraft(time ? { day: d, time } : { day: d });
   const open = (ev: HomeEventInfo) => setDraft({ day: ev.event.starts.slice(0, 10), ev });
 
   const chip = (o: Occurrence, compact = false) => {
@@ -96,6 +97,7 @@ export function CalendarView() {
         type="button"
         className={`cal-ev${o.time ? "" : " all-day"}${compact ? " compact" : ""}`}
         style={vars({ who: color })}
+        title={o.time ? `${o.ev.event.title} · ${clock(o.time)}${o.endTime ? ` – ${clock(o.endTime)}` : ""}` : o.ev.event.title}
         onClick={(e) => {
           e.stopPropagation();
           open(o.ev);
@@ -135,17 +137,28 @@ export function CalendarView() {
 
   let body: React.ReactNode;
   if (view === "week") {
-    body = <div className="cal-week">{Array.from({ length: 7 }, (_, i) => dayColumn(addDays(from, i)))}</div>;
-  } else if (view === "day") {
-    const list = byDay.get(day) ?? [];
+    const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
+    // Wide: the time grid. Narrow (calendar.css): a list of days.
     body = (
-      <div className="cal-oneday">
-        {list.length ? list.map((o) => chip(o)) : <p className="cal-empty">Nothing on this day.</p>}
-        <Button kind="secondary" onClick={() => add(day)}>
-          Add an event
-        </Button>
-      </div>
+      <>
+        <div className="cal-week-grid">
+          <TimeGrid
+            days={days}
+            byDay={byDay}
+            today={now}
+            chip={chip}
+            onAdd={add}
+            onDay={(d) => {
+              go(d);
+              setView("day");
+            }}
+          />
+        </div>
+        <div className="cal-week">{days.map(dayColumn)}</div>
+      </>
     );
+  } else if (view === "day") {
+    body = <TimeGrid days={[day]} byDay={byDay} today={now} chip={chip} onAdd={add} />;
   } else if (view === "month") {
     const n = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
     const month = day.slice(0, 7);
@@ -255,6 +268,7 @@ const DONE: Record<string, string> = {
 function SavedLine() {
   const { send, dispatch } = useApp();
   const saved = useSel((s) => s.calendar.saved);
+  const botName = useSel((s) => (saved?.bot ? s.bots.byId[saved.bot]?.name || saved.bot : ""));
   useEffect(() => {
     if (!saved) return;
     const t = setTimeout(() => dispatch(local("calendar/clearSaved")), 10_000);
@@ -264,7 +278,13 @@ function SavedLine() {
   const undone = saved.action === "undo";
   return (
     <div className="cal-saved" role="status">
-      <span>{undone ? `Undone: “${saved.title}”.` : `${DONE[saved.action] ?? "Saved"} “${saved.title}”.`}</span>
+      <span>
+        {undone
+          ? `Undone: “${saved.title}”.`
+          : botName
+            ? `${botName} ${(DONE[saved.action] ?? "Saved").toLowerCase()} “${saved.title}”.`
+            : `${DONE[saved.action] ?? "Saved"} “${saved.title}”.`}
+      </span>
       {undone ? null : (
         <Button kind="quiet" size="sm" onClick={() => send({ type: "undo_home_change", change: saved.change })}>
           Undo

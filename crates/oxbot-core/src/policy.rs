@@ -488,12 +488,15 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         PLAN_TASK_TOOL,
         SAVE_HOME_AREA_TOOL,
     ];
+    // The calendar tools: every change can be undone, and a deleted event
+    // stays in Recently deleted (see `Hub::calendar_tool`).
     // The schedule tools ask the person themselves, on a card that shows
     // the schedule (see `Hub::schedule_task`): none is made without it.
     if runs
         .iter()
         .chain(LOOP_CONTEXT_TOOLS.iter())
         .chain(SCHEDULE_TOOLS.iter())
+        .chain(tools::CALENDAR_TOOLS.iter())
         .any(|t| tool == tools::full_name(t))
     {
         return Some(Verdict::Allow);

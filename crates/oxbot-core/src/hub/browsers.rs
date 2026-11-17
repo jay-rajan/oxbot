@@ -116,6 +116,10 @@ impl Hub {
         if super::trials::is_trial(&bot.id) {
             return self.trial_browser(&bot.id);
         }
+        // The Calendar and Family Notes keep the home's own things: no web.
+        if crate::bot::needs_no_browser(bot.id.as_str()) {
+            return None;
+        }
         self.browser_for(&self.browser_owner_of(bot)?)
     }
 

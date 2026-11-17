@@ -400,6 +400,7 @@ impl Hub {
         let set = tools::ToolSet {
             central: self.run_bot(key.as_str()).is_ok_and(|b| b.is_central()),
             browser: self.trial_browser(&key).is_some(),
+            calendar: false,
         };
         let (ok, text) = match tools::check_call(&name, &args, set) {
             Ok(()) => self.trial_tool(&key, &name, &args).await,

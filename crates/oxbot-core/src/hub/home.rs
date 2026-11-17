@@ -4,12 +4,15 @@
 //! asks again.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use oxbot_protocol::{EventInput, EventRepeat, HomeEventInfo, ServerMsg};
+use serde_json::Value;
 
 use super::{Hub, HubError};
 use crate::bot::Viewer;
-use crate::id::PersonId;
+use crate::id::{BotId, PersonId};
+use crate::tools;
 use crate::store::{Actor, EventFields, Every, HomeEvent, KEEP_DELETED_DAYS, Repeat, StoreError};
 
 impl Hub {
@@ -146,24 +149,181 @@ impl Hub {
             id: event.id,
             action: action.to_owned(),
             title: event.fields.title.clone(),
+            bot: None,
         }
+    }
+
+    /// Runs one of the Calendar bot's tools (`tools::CALENDAR_TOOLS`) as
+    /// `bot`. A change is shown to everyone who sees the bot, with Undo.
+    pub(super) fn calendar_tool(&self, bot: &BotId, tool: &str, args: &Value) -> (bool, String) {
+        let by = Actor::Bot(bot.clone());
+        let id = || args.get("id").and_then(Value::as_i64).ok_or("needs the event's id");
+        let saved = |r: Result<(i64, HomeEvent, &str), HubError>| match r {
+            Ok((change, event, action)) => {
+                let _ = self.updates.send(ServerMsg::HomeChanged);
+                let _ = self.updates.send(ServerMsg::HomeSaved {
+                    change,
+                    id: event.id,
+                    action: action.to_owned(),
+                    title: event.fields.title.clone(),
+                    bot: Some(bot.to_string()),
+                });
+                let done = match action {
+                    "add" => "Added",
+                    "change" => "Changed",
+                    _ => "Deleted (it's in Recently deleted for 30 days)",
+                };
+                (
+                    true,
+                    format!(
+                        "{done}: \"{}\" (id {}). Everyone's calendar shows it now, with Undo.",
+                        event.fields.title, event.id
+                    ),
+                )
+            }
+            Err(err) => (false, format!("{err} Nothing was changed.")),
+        };
+        match tool {
+            tools::CALENDAR_EVENTS_TOOL => {
+                let (from, to) = (tools::text_arg(args, "from"), tools::text_arg(args, "to"));
+                match self.store.events_between(from.trim(), to.trim()) {
+                    Ok(events) => (true, self.events_text(events)),
+                    Err(err) => (false, format!("Couldn't read the calendar: {err}")),
+                }
+            }
+            tools::ADD_EVENT_TOOL => {
+                let mut added = Vec::new();
+                let (ok, text) = saved(
+                    self.tool_event(args, &mut added)
+                        .and_then(|f| Ok(self.store.add_event(f, &by)?))
+                        .map(|(e, c)| (c, e, "add")),
+                );
+                (ok, with_added(text, &added))
+            }
+            tools::CHANGE_EVENT_TOOL => {
+                let Ok(id) = id() else {
+                    return (false, "change_event needs the event's id".to_owned());
+                };
+                let mut added = Vec::new();
+                let (ok, text) = saved((|| {
+                    let source = self.store.home_event(id)?.fields.source;
+                    let fields = EventFields { source, ..self.tool_event(args, &mut added)? };
+                    let (e, c) = self.store.change_event(id, fields, &by)?;
+                    Ok((c, e, "change"))
+                })());
+                (ok, with_added(text, &added))
+            }
+            tools::DELETE_EVENT_TOOL => {
+                let Ok(id) = id() else {
+                    return (false, "delete_event needs the event's id".to_owned());
+                };
+                saved((|| {
+                    let c = self.store.delete_event(id, &by)?;
+                    Ok((c, self.store.home_event(id)?, "delete"))
+                })())
+            }
+            _ => (false, "unknown tool".to_owned()),
+        }
+    }
+
+    /// A tool call's event, as the page would send it.
+    fn tool_event(&self, args: &Value, added: &mut Vec<String>) -> Result<EventFields, HubError> {
+        let text = |k: &str| tools::text_arg(args, k).trim().to_owned();
+        let opt = |k: &str| Some(text(k)).filter(|t| !t.is_empty());
+        let input = EventInput {
+            title: text("title"),
+            starts: text("starts"),
+            ends: opt("ends"),
+            place: text("place"),
+            people: args
+                .get("people")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default(),
+            notes: text("notes"),
+            repeat: opt("repeat").map(|every| EventRepeat { every, until: opt("until") }),
+            remind_min: args
+                .get("remind_min")
+                .and_then(Value::as_i64)
+                .and_then(|m| u32::try_from(m).ok()),
+        };
+        self.event_fields_adding(input, Some(added))
+    }
+
+    /// Events as the Calendar bot reads them, one per line, after who's in
+    /// the home.
+    fn events_text(&self, events: Vec<HomeEvent>) -> String {
+        let names = self.person_names();
+        let mut people: Vec<_> = names.values().cloned().collect();
+        people.sort();
+        let mut out = format!("People in this home: {}.\n", people.join(", "));
+        if events.is_empty() {
+            out.push_str("No events then.");
+        }
+        for e in events {
+            let i = self.event_info(e, &names);
+            let ev = &i.event;
+            let mut line = format!("- id {}: {} · {}", i.id, ev.title, ev.starts);
+            if let Some(end) = &ev.ends {
+                let _ = write!(line, " to {end}");
+            }
+            if !ev.people.is_empty() {
+                let _ = write!(line, " · for {}", ev.people.join(", "));
+            }
+            if !ev.place.is_empty() {
+                let _ = write!(line, " · at {}", ev.place);
+            }
+            if let Some(r) = &ev.repeat {
+                let _ = write!(line, " · every {}", r.every);
+                if let Some(u) = &r.until {
+                    let _ = write!(line, " until {u}");
+                }
+            }
+            if !ev.notes.is_empty() {
+                let _ = write!(line, " · notes: {}", ev.notes);
+            }
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out
     }
 
     /// `input` as the store keeps it: people by id (a name the home doesn't
     /// know is refused).
     fn event_fields(&self, input: EventInput) -> Result<EventFields, HubError> {
+        self.event_fields_adding(input, None)
+    }
+
+    /// Like [`Hub::event_fields`], adding a name the home doesn't know yet
+    /// to its people when `added` is given (the Calendar bot, told "only
+    /// Akhila is going"); their names go in `added`.
+    fn event_fields_adding(
+        &self,
+        input: EventInput,
+        mut added: Option<&mut Vec<String>>,
+    ) -> Result<EventFields, HubError> {
         let names = self.person_names();
         let mut people = Vec::new();
         for name in &input.people {
-            let id = names
+            let known = names
                 .iter()
                 .find(|(_, n)| n.eq_ignore_ascii_case(name.trim()))
-                .map(|(id, _)| id.clone())
-                .ok_or_else(|| {
-                    HubError::Store(StoreError::Invalid(format!(
+                .map(|(id, _)| id.clone());
+            let id = match known {
+                Some(id) => id,
+                None if added.is_some() && !name.trim().is_empty() => {
+                    let person = self.person_named(name)?;
+                    if let Some(added) = added.as_deref_mut() {
+                        added.push(person.name);
+                    }
+                    person.id
+                }
+                None => {
+                    return Err(HubError::Store(StoreError::Invalid(format!(
                         "There's nobody called {name} in this home."
-                    )))
-                })?;
+                    ))));
+                }
+            };
             if !people.contains(&id) {
                 people.push(id);
             }
@@ -241,6 +401,17 @@ impl Hub {
             },
         }
     }
+}
+
+/// A tool's answer, saying who joined the home's people for it.
+fn with_added(text: String, added: &[String]) -> String {
+    if added.is_empty() {
+        return text;
+    }
+    format!(
+        "{text} New in this home's people (so the family can pick them on events): {}.",
+        added.join(", ")
+    )
 }
 
 #[cfg(test)]
@@ -356,5 +527,61 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("every day, week"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_calendar_bot_adds_events_from_words_with_undo() {
+        use serde_json::json;
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = plain_hub(tmp.path());
+        hub.person_named("Leo").unwrap();
+        let cal = BotId::new("home-calendar").unwrap();
+        let mut updates = hub.subscribe();
+
+        let (ok, text) = hub.calendar_tool(
+            &cal,
+            tools::ADD_EVENT_TOOL,
+            &json!({"title": "Soccer", "starts": "2026-11-24T17:30", "people": ["leo"], "repeat": "week"}),
+        );
+        assert!(ok, "{text}");
+        assert!(text.starts_with("Added: \"Soccer\""), "{text}");
+        // Everyone's calendar asks again, and shows the bot's change with Undo.
+        assert!(matches!(updates.recv().await.unwrap(), ServerMsg::HomeChanged));
+        let ServerMsg::HomeSaved { change, id, bot, .. } = updates.recv().await.unwrap() else {
+            panic!("saved")
+        };
+        assert_eq!(bot.as_deref(), Some("home-calendar"));
+
+        let (_, list) = hub.calendar_tool(
+            &cal,
+            tools::CALENDAR_EVENTS_TOOL,
+            &json!({"from": "2026-12-01", "to": "2026-12-07"}),
+        );
+        assert!(list.contains("People in this home: Jay, Leo."), "{list}");
+        assert!(list.contains(&format!("id {id}: Soccer · 2026-11-24T17:30 · for Leo · every week")), "{list}");
+
+        // Someone the home doesn't know yet joins its people.
+        let (ok, text) = hub.calendar_tool(
+            &cal,
+            tools::ADD_EVENT_TOOL,
+            &json!({"title": "King concert", "starts": "2026-11-21T19:00", "people": ["Akhila"]}),
+        );
+        assert!(ok, "{text}");
+        assert!(text.contains("New in this home's people") && text.contains("Akhila"), "{text}");
+        assert!(hub.person_names().values().any(|n| n == "Akhila"));
+
+        let (ok, _) = hub.calendar_tool(
+            &cal,
+            tools::CHANGE_EVENT_TOOL,
+            &json!({"id": id, "title": "Soccer", "starts": "2026-11-24T18:00", "repeat": "week"}),
+        );
+        assert!(ok);
+        let (ok, text) = hub.calendar_tool(&cal, tools::DELETE_EVENT_TOOL, &json!({"id": id}));
+        assert!(ok && text.contains("Recently deleted"), "{text}");
+        let jay = hub.home_computer_viewer("Jay");
+        let gone = hub.deleted_home_events(&jay).unwrap();
+        assert_eq!(gone[0].changed_by, "home-calendar");
+        // Adding it can't be undone once it was changed after.
+        assert!(hub.undo_home_change(&jay, change).is_err());
     }
 }

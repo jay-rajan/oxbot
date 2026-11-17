@@ -1,6 +1,7 @@
 // The open bot's chat: header, setup checks, the offline bar, the usage
 // alert banner, the log, the note about the AI account, the cards, and the
 // message box. Same ids, classes and words as the hand-written page.
+import { HOME_LEADS } from "../../state/sidebar";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { type App, useApp, useSel } from "../../app/context";
 import { avatarSvg } from "../../components/brand";
@@ -185,6 +186,8 @@ function statusText(info: BotInfo, busy: boolean, activity: string | null, dicta
   const shared = info.sharing === "people" ? `shared with ${info.members?.join(", ") || "picked people"}` : info.private ? "private" : "";
   if (busy) return activity || "Working…";
   if (info.central) return "leads your bots";
+  const home = HOME_LEADS.find((h) => h.id === info.id);
+  if (home) return home.hint;
   return [shared, purposeLine(info.instructions)].filter(Boolean).join(" · ");
 }
 

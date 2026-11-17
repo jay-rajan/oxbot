@@ -133,6 +133,8 @@ pub struct HostTools {
     pub central: bool,
     /// It has a browser: `save_report`.
     pub browser: bool,
+    /// It's the Home's Calendar bot: the calendar tools.
+    pub calendar: bool,
 }
 
 /// One tool as a model sees it.

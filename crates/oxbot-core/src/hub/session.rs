@@ -128,6 +128,7 @@ impl Hub {
         let host_tools = HostTools {
             central: bot.is_lead(),
             browser: shared.is_some(),
+            calendar: bot.id.as_str() == crate::bot::HOME_LEADS[0].0,
         };
         let gate_mode = overrides.gate_mode;
         let spec = SessionSpec {

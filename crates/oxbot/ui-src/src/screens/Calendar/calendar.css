@@ -1,7 +1,8 @@
 /* The Home's calendar (look A: ink on white, rows and hairlines, one red).
    Wide: a week of columns. Under 900px: the week is a list of days, the
-   month keeps its grid with dots. Under 720px the header wraps and the
-   sidebar's button shows. */
+   month keeps its grid with dots, and the chat moves under the calendar
+   (under 1100px). Under 720px the header wraps and the sidebar's button
+   shows. */
 .cal { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
 
 .cal-head {
@@ -95,9 +96,15 @@
 /* The frame: the calendar beside the chat on a wide screen. */
 .app.home { grid-template-columns: var(--side-width) minmax(0, 1fr) minmax(320px, 380px); }
 .app.home > .chat { border-left: 1px solid var(--line); }
+/* Narrower: the chat sits under the calendar, so the Calendar bot is
+   always there to talk to. */
 @media (max-width: 1099px) {
-  .app.home { grid-template-columns: var(--side-width) minmax(0, 1fr); }
-  .app.home > .chat { display: none; }
+  .app.home { grid-template-columns: var(--side-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(240px, 42dvh); }
+  .app.home > .side { grid-row: 1 / -1; }
+  .app.home > .cal { grid-column: 2; grid-row: 1; }
+  .app.home > .chat { grid-column: 2; grid-row: 2; border-left: 0; border-top: 1px solid var(--line-strong); }
+  .app.home > .chat .chat-head { padding-top: var(--s-2); padding-bottom: var(--s-2); }
+  .app.home > .chat .chat-head .menu { display: none; }
 }
 
 /* Tablet: the week becomes a list of days. */
@@ -114,6 +121,7 @@
 /* Phone: the sidebar is a drawer; the header wraps. */
 @media (max-width: 720px) {
   .app.home { grid-template-columns: minmax(0, 1fr); }
+  .app.home > .cal, .app.home > .chat { grid-column: 1; }
   .cal-head { padding-left: max(var(--s-3), env(safe-area-inset-left)); padding-right: max(var(--s-3), env(safe-area-inset-right)); }
   .cal-head .cal-menu { display: inline-grid; margin-left: 0; }
   .cal-head h1 { flex: 1; }
@@ -127,3 +135,50 @@
   .cal-cell .cal-ev.compact .cal-ev-title { display: none; }
   .cal-cell .cal-ev.compact::before { content: ""; width: 6px; height: 6px; border-radius: var(--r-full); background: var(--who, var(--muted)); }
 }
+
+/* Day and Week on a time grid: hours down the side, events at their time. */
+.cal-week-grid { height: 100%; }
+.cal-tg { --hour: 48px; --gut: 56px; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.cal-tg-head, .cal-tg-allday, .cal-tg-body { display: grid; grid-template-columns: var(--gut) repeat(var(--cols), minmax(0, 1fr)); }
+.cal-tg-head { border-bottom: 1px solid var(--line); }
+.cal-tg-head[hidden] { display: none; }
+.cal-tg-day {
+  display: flex; align-items: baseline; gap: var(--s-1); padding: var(--s-2); min-width: 0;
+  border: 0; border-left: 1px solid var(--line); background: none; color: var(--ink);
+  font-family: inherit; font-size: inherit; text-align: left; cursor: pointer;
+}
+.cal-tg-day:disabled { cursor: default; }
+.cal-tg-day:not(:disabled):hover { background: var(--sunken); }
+.cal-tg-day.today .cal-dn { color: var(--accent); font-weight: var(--weight-bold); }
+.cal-tg-allday { border-bottom: 1px solid var(--line); }
+.cal-tg-allday-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--s-1); border-left: 1px solid var(--line); }
+.cal-tg-label { align-self: center; padding: var(--s-1) var(--s-2) var(--s-1) 0; text-align: right; font-size: var(--text-xs); color: var(--muted); }
+.cal-tg-scroll { flex: 1; min-height: 0; overflow: auto; }
+.cal-tg-body { height: calc(24 * var(--hour)); padding-top: var(--s-2); box-sizing: content-box; }
+.cal-tg-hours { display: grid; grid-template-rows: repeat(24, var(--hour)); }
+.cal-tg-hour { align-self: start; padding-right: var(--s-2); text-align: right; font-size: var(--text-xs); color: var(--muted); line-height: 1; transform: translateY(-50%); white-space: nowrap; }
+.cal-tg-col {
+  position: relative; min-width: 0; border-left: 1px solid var(--line); cursor: copy;
+  background: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px var(--hour));
+}
+.cal-tg-col.today { background-color: color-mix(in srgb, var(--accent) 4%, transparent); }
+.cal-tg-ev {
+  position: absolute; z-index: 1;
+  top: calc(var(--top) * var(--hour) / 60);
+  height: calc(var(--len) * var(--hour) / 60 - 2px);
+  left: calc(var(--lane) * 100% / var(--lanes) + 2px);
+  width: calc(100% / var(--lanes) - 4px);
+}
+.cal-tg-ev > .cal-ev { height: 100%; overflow: hidden; align-content: start; cursor: pointer; }
+/* On the grid the title comes first; the time is under it, on one line. */
+.cal-tg-ev .cal-ev-title { order: -1; }
+.cal-tg-ev .cal-ev-time { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-tg-ev.short > .cal-ev { display: flex; align-items: center; gap: var(--s-1); padding-top: 0; padding-bottom: 0; }
+.cal-tg-ev.short .cal-ev-who, .cal-tg-ev.mid .cal-ev-who { display: none; }
+.cal-tg-ev.short .cal-ev-title { flex: none; max-width: 100%; }
+.cal-tg-ev.short .cal-ev-time { flex: 1; min-width: 0; }
+.cal-tg-now { position: absolute; left: 0; right: 0; z-index: 2; height: 2px; top: calc(var(--top) * var(--hour) / 60); background: var(--accent); pointer-events: none; }
+.cal-tg-now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: var(--r-full); background: var(--accent); }
+@media (min-width: 900px) { .cal-week { display: none; } }
+@media (max-width: 899px) { .cal-week-grid { display: none; } }
+@media (max-width: 720px) { .cal-tg { --gut: 48px; --hour: 44px; } }

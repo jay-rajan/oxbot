@@ -5,7 +5,7 @@ import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useState }
 import { useApp, useSel } from "../../app/context";
 import { Button, IconButton, Input, Pill, PlusIcon, Segmented } from "../../components/ui";
 import { botList } from "../../state/bots";
-import { groupBots, initialSidebar } from "../../state/sidebar";
+import { groupBots, HOME_LEADS, initialSidebar } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { type NameAsk as AskName, askName as askNameDialog } from "../Welcome/NameDialog";
 import { BotList } from "./BotList";
@@ -13,6 +13,34 @@ import { BotMenu, type MenuAt, type MenuFor, refocus } from "./BotMenu";
 import { BrandMark } from "./BrandMark";
 import { keep, keptJson } from "./storage";
 import "./sidebar.css";
+
+const icon = (d: React.ReactNode) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {d}
+  </svg>
+);
+/** The Home row's icons: a calendar page, a plate and fork, a note. */
+const HOME_ICONS: Record<string, React.ReactNode> = {
+  "home-calendar": icon(
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>,
+  ),
+  "home-meals": icon(
+    <>
+      <circle cx="13" cy="13" r="7" />
+      <circle cx="13" cy="13" r="3.5" />
+      <path d="M4 3v6M2.5 3v4a1.5 1.5 0 0 0 3 0V3M4 9v12" />
+    </>,
+  ),
+  "home-notes": icon(
+    <>
+      <path d="M5 3h10l4 4v14H5z" />
+      <path d="M15 3v4h4M8 12h8M8 16h6" />
+    </>,
+  ),
+};
 
 const GROUP_BY = [
   ["sections", "Sections"],
@@ -36,6 +64,7 @@ export function Sidebar() {
   const collapsed = useSel((s) => s.sidebar.collapsed);
   const botsN = useSel((s) => s.sidebar.botsN);
   const created = useSel((s) => s.sidebar.created);
+  const hasBot = useSel((s) => s.bots.byId);
 
   // What this device kept: seen marks (green dots), grouping, folded groups.
   useLayoutEffect(() => {
@@ -63,14 +92,15 @@ export function Sidebar() {
   }, [current]);
 
   // Which bot to open when the list comes: one just made, the open one, the
-  // one open last time, else the first.
+  // one open last time, else the Calendar's bot, else the first. Never the
+  // Assistant: it's out of view now.
   useEffect(() => {
     if (!botsN) return;
     const s = store.getState();
-    const ids = s.bots.order;
+    const ids = s.bots.order.filter((id) => !s.bots.byId[id]?.central);
     const known = (id: string | null | undefined): id is string => !!id && ids.includes(id);
     const pending = s.ui.pendingSelect;
-    const want = [pending, s.ui.current, keep.get("oxbot.bot"), ids[0]].find(known);
+    const want = [pending, s.ui.current, keep.get("oxbot.bot"), HOME_LEADS[0].id, ids[0]].find(known);
     if (want && want !== s.ui.current && (!pending || want === pending)) dispatch(local("ui/select", { bot: want }));
   }, [botsN, store, dispatch]);
   // A bot made from this page opens now if it's listed, else once it is.
@@ -120,12 +150,13 @@ export function Sidebar() {
     [dispatch],
   );
 
-  // The calendar, with the Calendar lead bot's chat beside it if there's one.
-  const openCalendar = () => {
+  // A Home item: its bot (if the home still has it) and its page: the
+  // Calendar beside its bot's chat; Meal Plan and Family Notes their chat
+  // for now.
+  const openHome = (h: (typeof HOME_LEADS)[number]) => {
     const s = store.getState();
-    const lead = Object.values(s.bots.byId).find((b) => b.lead && (b.name || "").toLowerCase() === "calendar");
-    if (lead && lead.id !== s.ui.current) dispatch(local("ui/select", { bot: lead.id, keepPage: true }));
-    dispatch(local("ui/page", { page: "calendar" }));
+    if (s.bots.byId[h.id] && h.id !== s.ui.current) dispatch(local("ui/select", { bot: h.id, keepPage: true }));
+    dispatch(local("ui/page", { page: h.page }));
   };
 
   const toSettings = (tab?: string) => {
@@ -194,25 +225,29 @@ export function Sidebar() {
           />
         </div>
         <nav className="side-home" aria-label="Home">
-          <button
-            type="button"
-            className="home-item"
-            id="calendarBtn"
-            aria-current={String(page === "calendar") as "true" | "false"}
-            onClick={openCalendar}
-          >
-            <span className="avatar home-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <rect x="3" y="5" width="18" height="16" rx="2" />
-                <path d="M3 10h18M8 3v4M16 3v4" />
-              </svg>
-            </span>
-            <span className="meta">
-              <span className="name">
-                <span>Calendar</span>
-              </span>
-            </span>
-          </button>
+          {HOME_LEADS.map((h) => {
+            const here = h.page === "calendar" ? page === "calendar" : page === "chat" && current === h.id;
+            if (h.page !== "calendar" && !hasBot[h.id]) return null;
+            return (
+              <button
+                key={h.id}
+                type="button"
+                className="home-item"
+                id={h.btn}
+                aria-current={String(here) as "true" | "false"}
+                onClick={() => openHome(h)}
+              >
+                <span className="avatar home-icon" aria-hidden="true">
+                  {HOME_ICONS[h.id]}
+                </span>
+                <span className="meta">
+                  <span className="name">
+                    <span>{h.name}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </nav>
         <BotList openMenu={openMenu} closeMenu={closeMenu} askName={askName} />
         <div className="side-foot">

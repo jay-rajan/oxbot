@@ -13,6 +13,8 @@ export interface Draft {
   day: string;
   /** The event being changed; none for a new one. */
   ev?: HomeEventInfo;
+  /** A new event's start ("17:00"), when an hour was tapped. */
+  time?: string;
 }
 
 const REPEATS = [
@@ -47,7 +49,7 @@ function EventForm({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const [title, setTitle] = useState(e?.title ?? "");
   const [allDay, setAllDay] = useState(draft.ev ? draft.ev.all_day : false);
   const [date, setDate] = useState(e ? e.starts.slice(0, 10) : draft.day);
-  const [start, setStart] = useState(e && !draft.ev?.all_day ? e.starts.slice(11, 16) : "09:00");
+  const [start, setStart] = useState(e && !draft.ev?.all_day ? e.starts.slice(11, 16) : (draft.time ?? "09:00"));
   const [endDate, setEndDate] = useState(e?.ends ? e.ends.slice(0, 10) : "");
   const [end, setEnd] = useState(e?.ends && !draft.ev?.all_day ? e.ends.slice(11, 16) : "");
   const [place, setPlace] = useState(e?.place ?? "");

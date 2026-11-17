@@ -36,6 +36,54 @@ pub const CENTRAL_NAME: &str = "Assistant";
 /// from names never have two dashes in a row, so no other bot gets one.
 pub const PERSONAL_ASSISTANT_PREFIX: &str = "assistant--";
 
+/// The family Home's three lead bots: id, name and built-in instructions.
+/// Every home gets them once (a deleted one stays deleted). The page shows
+/// each beside its own screen; the Assistant stays, out of the bot list.
+pub const HOME_LEADS: &[(&str, &str, &str)] = &[
+    (
+        "home-calendar",
+        "Calendar",
+        "You are the family's Calendar bot. You keep everyone's events: school, \
+         practice, appointments, birthdays and trips. When someone tells you about \
+         something coming up, add it to the calendar with add_event: the day, \
+         time, place and who it's for. Ask only when the day or what it is isn't \
+         clear. Look with calendar_events first so nothing is added twice, and to \
+         answer what's on. After a change, say in one line what you did. Keep replies short: the family may be reading on \
+         a phone. You can make helper bots for jobs like reading a school's calendar.",
+    ),
+    (
+        "home-meals",
+        "Meal Plan",
+        "You are the family's Meal Plan bot. You plan the week's dinners and keep \
+         the grocery list. The first time, ask a few questions: who eats, \
+         allergies and dislikes, busy nights, budget and favorite meals. Then plan \
+         a week and add what's needed to the grocery list. Keep replies short. You \
+         can suggest helper bots, such as one that orders groceries from a store.",
+    ),
+    (
+        "home-notes",
+        "Family Notes",
+        "You are the family's Notes bot. Anyone can drop anything here: a Wi-Fi \
+         name, a doctor's number, a recipe, a warranty, a school form. File each \
+         note with a short title and tags so it's easy to find, and answer \
+         questions from the notes. Never ask for or repeat passwords, PINs or card \
+         numbers: say they're kept on the home computer only. Keep replies short.",
+    ),
+];
+
+/// Whether `id` is a Home bot that works without the web: the Calendar and
+/// Family Notes (Meal Plan may shop).
+#[must_use]
+pub fn needs_no_browser(id: &str) -> bool {
+    id == HOME_LEADS[0].0 || id == HOME_LEADS[2].0
+}
+
+/// Whether `id` is one of the Home's lead bots.
+#[must_use]
+pub fn is_home_lead(id: &str) -> bool {
+    HOME_LEADS.iter().any(|(i, ..)| *i == id)
+}
+
 /// Whether `id` is a person's own Assistant (not the home computer's, `assistant`).
 #[must_use]
 pub fn is_personal_assistant(id: &str) -> bool {
@@ -797,7 +845,30 @@ pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
         })?;
         Bot::create(bots_dir, id, CENTRAL_NAME, DEFAULT_INSTRUCTIONS)?;
     }
-    rename_old_central(bots_dir)
+    rename_old_central(bots_dir)?;
+    ensure_home_leads(bots_dir)
+}
+
+/// Makes the Home's lead bots ([`HOME_LEADS`]) once per home: a marker in
+/// `bots_dir` means it was done, so one the family deletes stays deleted.
+fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
+    let marker = bots_dir.join(".home-leads");
+    if marker.exists() {
+        return Ok(());
+    }
+    for (id, name, instructions) in HOME_LEADS {
+        if bots_dir.join(id).exists() {
+            continue;
+        }
+        let id = BotId::new(*id).map_err(|source| BotError::BadId {
+            path: bots_dir.join(id),
+            source,
+        })?;
+        let mut bot = Bot::create(bots_dir, id, name, instructions)?;
+        bot.lead = true;
+        bot.save()?;
+    }
+    fs::write(&marker, "").map_err(io_err(&marker))
 }
 
 /// A central bot (the main one or a person's own) still called "Herder"
@@ -853,11 +924,18 @@ mod tests {
         ensure_default(tmp.path()).unwrap();
         ensure_default(tmp.path()).unwrap();
         let bots = load_all(tmp.path()).unwrap();
-        assert_eq!(bots.len(), 1);
-        assert_eq!(bots[0].id.as_str(), "assistant");
+        let ids: Vec<_> = bots.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["assistant", "home-calendar", "home-meals", "home-notes"]);
         assert!(bots[0].instructions.contains("phone"));
         assert!(bots[0].work_dir().is_dir());
         assert_eq!(bots[0].name, CENTRAL_NAME);
+        assert!(bots[1..].iter().all(|b| b.lead && !b.is_central()));
+        assert_eq!(bots[2].name, "Meal Plan");
+
+        // A Home lead the family deletes stays deleted.
+        fs::remove_dir_all(tmp.path().join("home-notes")).unwrap();
+        ensure_default(tmp.path()).unwrap();
+        assert_eq!(load_all(tmp.path()).unwrap().len(), 3);
     }
 
     #[test]

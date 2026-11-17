@@ -73,14 +73,25 @@ export interface Group {
   ids: string[];
 }
 
-/** The sidebar's groups, top to bottom: Assistant and lead bots first, each
- *  lead's helpers under it (no title), then by
+/** The family Home's lead bots, in the sidebar's Home row (never the bot list). */
+export const HOME_LEADS = [
+  { id: "home-calendar", name: "Calendar", page: "calendar", btn: "calendarBtn", hint: "try “Leo has soccer Tuesdays at 5:30”" },
+  { id: "home-meals", name: "Meal Plan", page: "chat", btn: "mealsBtn", hint: "plans dinners and the grocery list" },
+  { id: "home-notes", name: "Family Notes", page: "chat", btn: "notesBtn", hint: "drop anything here to find later" },
+] as const;
+const HOME_IDS: ReadonlySet<string> = new Set(HOME_LEADS.map((h) => h.id));
+/** Whether the bot list leaves this bot out: the Assistant (it stays, out of
+ *  view) and the Home's lead bots (in the Home row instead). */
+export const offList = (b: BotInfo) => b.central || HOME_IDS.has(b.id);
+
+/** The sidebar's groups, top to bottom: the Home leads' helpers and other
+ *  lead bots first, each lead's helpers under it (no title), then by
  *  section (bots not in one first, without a title) or by who made them
  *  (you first, then A-Z, then the home computer's). Bots keep the server's
- *  order. A search keeps the bots whose names match and drops groups left
- *  empty. */
+ *  order. The Assistant and the Home's lead bots aren't listed. A search
+ *  keeps the bots whose names match and drops groups left empty. */
 export function groupBots(
-  list: readonly BotInfo[],
+  all: readonly BotInfo[],
   secs: readonly SectionInfo[],
   where: Readonly<Record<string, string>>,
   mode: GroupBy,
@@ -89,10 +100,11 @@ export function groupBots(
 ): Group[] {
   const q = fold(query).trim();
   const hit = (b: BotInfo) => !q || fold(b.name || b.id).includes(q);
-  // The top: the Assistant, then each lead bot with its helpers under it.
-  const leads = list.filter((b) => !b.central && b.lead);
-  const helpers = (lead: string) => list.filter((b) => !b.central && !b.lead && b.helper_of === lead);
-  const top = [...list.filter((b) => b.central), ...leads.flatMap((l) => [l, ...helpers(l.id)])];
+  const list = all.filter((b) => !offList(b));
+  // The top: the Home leads' helpers, then each other lead with its helpers under it.
+  const leads = list.filter((b) => b.lead);
+  const helpers = (lead: string) => list.filter((b) => !b.lead && b.helper_of === lead);
+  const top = [...HOME_LEADS.flatMap((h) => helpers(h.id)), ...leads.flatMap((l) => [l, ...helpers(l.id)])];
   const onTop = new Set(top.map((b) => b.id));
   const rest = list.filter((b) => !onTop.has(b.id));
   const groups: Group[] = [{ key: "assistant", title: "", ids: top.filter(hit).map((b) => b.id) }];

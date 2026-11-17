@@ -42,6 +42,7 @@ impl Hub {
                 .await
                 .get(&bot)
                 .is_some_and(|r| r.browser.is_some()),
+            calendar: bot.as_str() == crate::bot::HOME_LEADS[0].0,
         };
         let HostToolCall { name, args, reply } = call;
         let name = name
@@ -171,6 +172,7 @@ impl Hub {
             tools::DELETE_SCHEDULE_TOOL => {
                 self.delete_schedule_tool(bot, &asker, &origin, args).await
             }
+            t if tools::CALENDAR_TOOLS.contains(&t) => self.calendar_tool(bot, t, args),
             _ => (false, "unknown tool".to_owned()),
         }
     }
@@ -638,6 +640,10 @@ pub(super) fn team_label(name: &str) -> Option<&'static str> {
         tools::LIST_SCHEDULES_TOOL => "looking at schedules",
         tools::PAUSE_SCHEDULE_TOOL => "pausing or resuming a schedule",
         tools::DELETE_SCHEDULE_TOOL => "deleting a schedule",
+        tools::CALENDAR_EVENTS_TOOL => "looking at the calendar",
+        tools::ADD_EVENT_TOOL => "adding to the calendar",
+        tools::CHANGE_EVENT_TOOL => "changing an event",
+        tools::DELETE_EVENT_TOOL => "deleting an event",
         _ => return None,
     })
 }

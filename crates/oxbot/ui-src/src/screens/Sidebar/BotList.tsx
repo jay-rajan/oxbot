@@ -6,7 +6,7 @@ import { avatarSvg } from "../../components/brand";
 import { Button, ChevronIcon, Note, Pill, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { waitingBots } from "../../state/cards";
-import { type Group, fold, groupBots, isUnread } from "../../state/sidebar";
+import { type Group, fold, groupBots, HOME_LEADS, isUnread } from "../../state/sidebar";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
 import { type MenuFor, menuKey } from "./BotMenu";
@@ -114,6 +114,8 @@ export function BotList({
     // the bot belongs to.
     const lead = b.helper_of ? bots.byId[b.helper_of] : undefined;
     const helper = !!lead?.lead && !b.lead;
+    // A Home lead's helper isn't under its lead (that's in the Home row): not indented.
+    const under = helper && !HOME_LEADS.some((h) => h.id === b.helper_of);
     const tag = b.central
       ? "leads your bots"
       : helper
@@ -126,7 +128,7 @@ export function BotList({
     return (
       <button
         key={id}
-        className={helper ? "bot-item helper" : "bot-item"}
+        className={under ? "bot-item helper" : "bot-item"}
         type="button"
         data-bot={id}
         aria-current={String(id === current && page === "chat") as "true" | "false"}

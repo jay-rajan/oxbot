@@ -2389,6 +2389,9 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         // A bot's rules also go only to those who may manage it: see
         // [`for_viewer`].
         ServerMsg::AllowRules { ref bot, .. } if client.sees(bot) => Some(msg),
+        // A change the Calendar bot made goes to everyone who sees it, so
+        // the calendar shows it with Undo.
+        ServerMsg::HomeSaved { bot: Some(ref b), .. } if client.sees(b) => Some(msg),
         // A schedule list (or Settings → Activity) is a direct answer, made
         // for its viewer: never passed on to anyone else.
         ServerMsg::AllowRules { .. }

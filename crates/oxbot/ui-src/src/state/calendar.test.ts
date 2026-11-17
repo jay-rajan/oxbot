@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HomeEventInfo } from "../net/protocol";
-import { addDays, addMonths, occurrences, rangeOf, step, weekday, weekStart } from "./calendar";
+import { addDays, addMonths, type Occurrence, occurrences, placeDay, rangeOf, step, weekday, weekStart } from "./calendar";
 
 function ev(id: number, starts: string, more: Partial<HomeEventInfo["event"]> = {}): HomeEventInfo {
   return {
@@ -50,6 +50,21 @@ describe("occurrences", () => {
     expect(tue[1]?.endTime).toBe("18:30");
   });
 
+  it("keeps an evening till midnight on its own day", () => {
+    const m = occurrences([ev(1, "2026-11-21T19:00", { ends: "2026-11-22T00:00" })], "2026-11-16", "2026-11-22");
+    expect(days(m)).toEqual(["2026-11-21"]);
+    const sat = m.get("2026-11-21")?.[0];
+    expect([sat?.time, sat?.endTime]).toEqual(["19:00", "24:00"]);
+    expect(placeDay(m.get("2026-11-21") ?? []).map((p) => [p.top, p.height])).toEqual([[1140, 300]]);
+  });
+
+  it("runs a late party past midnight into the next morning", () => {
+    const m = occurrences([ev(1, "2026-11-21T22:00", { ends: "2026-11-22T02:00" })], "2026-11-16", "2026-11-22");
+    expect(days(m)).toEqual(["2026-11-21", "2026-11-22"]);
+    expect(m.get("2026-11-21")?.map((o) => [o.time, o.endTime])).toEqual([["22:00", "24:00"]]);
+    expect(m.get("2026-11-22")?.map((o) => [o.time, o.endTime])).toEqual([["00:00", "02:00"]]);
+  });
+
   it("repeats weekly from long ago, and stops on its last day", () => {
     const m = occurrences(
       [ev(1, "2025-01-07T17:30", { repeat: { every: "week", until: "2026-11-24" } })],
@@ -66,13 +81,41 @@ describe("occurrences", () => {
     expect(days(y)).toEqual(["2026-02-14"]);
   });
 
-  it("shows a long event on each day it covers, its time on the first", () => {
+  it("shows an event of a day or more on each day it covers, in the all-day row", () => {
     const m = occurrences([ev(1, "2026-11-20T09:00", { ends: "2026-11-23T12:00" })], "2026-11-16", "2026-11-22");
     expect(days(m)).toEqual(["2026-11-20", "2026-11-21", "2026-11-22"]);
-    expect(m.get("2026-11-20")?.[0]?.time).toBe("09:00");
+    expect(m.get("2026-11-20")?.[0]?.time).toBeNull();
     expect(m.get("2026-11-21")?.[0]?.time).toBeNull();
     // One that started before the range still shows.
     const later = occurrences([ev(1, "2026-11-20", { ends: "2026-11-24" })], "2026-11-23", "2026-11-29");
     expect(days(later)).toEqual(["2026-11-23", "2026-11-24"]);
+  });
+});
+
+describe("placeDay", () => {
+  const occ = (id: number, time: string | null, endTime: string | null = null): Occurrence => ({
+    ev: { id } as Occurrence["ev"],
+    day: "2026-11-21",
+    start: "2026-11-21",
+    time,
+    endTime,
+  });
+
+  it("puts events at their time, an hour long without an end, all-day ones left out", () => {
+    const p = placeDay([occ(1, "19:00"), occ(2, null), occ(3, "08:30", "08:40")]);
+    expect(p.map((x) => [x.o.ev.id, x.top, x.height, x.lane, x.lanes])).toEqual([
+      [3, 510, 30, 0, 1],
+      [1, 1140, 60, 0, 1],
+    ]);
+  });
+
+  it("sets overlapping events side by side, and a later one back to full width", () => {
+    const p = placeDay([occ(1, "09:00", "11:00"), occ(2, "10:00", "10:30"), occ(3, "10:30", "12:00"), occ(4, "13:00")]);
+    expect(p.map((x) => [x.o.ev.id, x.lane, x.lanes])).toEqual([
+      [1, 0, 2],
+      [2, 1, 2],
+      [3, 1, 2],
+      [4, 0, 1],
+    ]);
   });
 });

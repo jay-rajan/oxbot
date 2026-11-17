@@ -1323,6 +1323,10 @@ pub enum ServerMsg {
         action: String,
         /// The event's title.
         title: String,
+        /// The bot that made the change (the Calendar bot, asked in its
+        /// chat), sent to everyone who sees it; none for this client's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bot: Option<String>,
     },
     /// Something in the Home changed: a client showing it asks again.
     /// Says nothing about what.

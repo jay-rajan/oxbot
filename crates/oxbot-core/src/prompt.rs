@@ -34,6 +34,11 @@ const EVERY_BOT_CAN: &str = "- Read and write files in your working folder, but 
          when they ask for it in their own message. oxbot shows them a card first; nothing is scheduled \
          without their yes.\n";
 
+/// Stand-ins for personal details (the model relay swaps them in and back).
+const STAND_INS: &str = "\nNames, emails and phone numbers may reach you as stand-ins: a word and a number \
+         in square brackets, like [person N] or [email N] with N a number. Write them exactly so, brackets \
+         included, in replies and tool calls: oxbot puts the real details back. Never drop the brackets.\n";
+
 /// Understanding the person and the task before acting, for every bot.
 const UNDERSTAND_FIRST: &str = "\nUnderstand the task first:\n\
          - Work out what the task depends on before you act: the place, dates and times, who it's for, \
@@ -214,6 +219,7 @@ pub fn system_prompt(bot: &Bot, caps: Capabilities) -> String {
     }
     p.push_str(EVERY_BOT_CAN);
     p.push_str(UNDERSTAND_FIRST);
+    p.push_str(STAND_INS);
     if caps.browser {
         p.push_str(PLAN_FIRST);
         p.push_str(ABOUT_BROWSER);

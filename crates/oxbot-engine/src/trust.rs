@@ -9,7 +9,7 @@ pub const HOST_TOOL_PREFIX: &str = "mcp__oxbot__";
 /// oxbot's own tools whose text oxbot writes (statuses, refusals, sign-in
 /// results, whether a report was saved, schedules the person approved). The team tools mark the session
 /// themselves when they hand back someone else's text.
-pub const TRUSTED_HOST_TOOLS: [&str; 12] = [
+pub const TRUSTED_HOST_TOOLS: [&str; 16] = [
     "list_bots",
     "create_bot",
     "give_task",
@@ -22,6 +22,10 @@ pub const TRUSTED_HOST_TOOLS: [&str; 12] = [
     "delete_schedule",
     "plan_task",
     "save_home_area",
+    "calendar_events",
+    "add_event",
+    "change_event",
+    "delete_event",
 ];
 
 /// The loop's own tools whose text oxbot writes or the model wrote

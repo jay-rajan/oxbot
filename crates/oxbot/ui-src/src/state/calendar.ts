@@ -19,7 +19,8 @@ export interface CalendarState {
   changed: number;
   deleted: HomeEventInfo[];
   /** This page's last change, for its Undo line. */
-  saved: { change: number; id: number; action: string; title: string } | null;
+  /** The last change made from this page, or by a bot (`bot`, its id), for Undo. */
+  saved: { change: number; id: number; action: string; title: string; bot?: string } | null;
 }
 
 export const initialCalendar: CalendarState = {
@@ -44,7 +45,10 @@ export function calendarReducer(state: CalendarState, action: Action): CalendarS
       case "home_changed":
         return { ...state, changed: state.changed + 1 };
       case "home_saved":
-        return { ...state, saved: { change: msg.change, id: msg.id, action: msg.action, title: msg.title } };
+        return {
+          ...state,
+          saved: { change: msg.change, id: msg.id, action: msg.action, title: msg.title, ...(msg.bot ? { bot: msg.bot } : {}) },
+        };
       default:
         return state;
     }
@@ -138,9 +142,11 @@ export interface Occurrence {
   day: string;
   /** The day this time of it starts (for a repeat, that time's day). */
   start: string;
-  /** "17:30", or null for all day (or a later day of a long event). */
+  /** "17:30" (a later day of a timed event that goes past midnight:
+   *  "00:00"), or null for all day. */
   time: string | null;
-  /** "18:30" when it ends that same day. */
+  /** When it ends that day: "18:30", "24:00" if it goes on past
+   *  midnight; null if not said. */
   endTime: string | null;
 }
 
@@ -179,16 +185,38 @@ export function occurrences(events: readonly HomeEventInfo[], from: string, to: 
   const t = dayNum(to);
   for (const ev of events) {
     const base = ev.event.starts.slice(0, 10);
-    const end = ev.event.ends ? ev.event.ends.slice(0, 10) : base;
+    const timed = !ev.all_day;
+    let end = ev.event.ends ? ev.event.ends.slice(0, 10) : base;
+    let endHM = timed && ev.event.ends ? ev.event.ends.slice(11, 16) : null;
+    // Ending at midnight is the end of the day before (7 PM till 12 AM is
+    // one evening, not two days).
+    if (timed && endHM === "00:00" && end > base) {
+      end = dayOf(dayNum(end) - 1);
+      endHM = "24:00";
+    }
     const span = Math.max(0, dayNum(end) - dayNum(base));
-    const time = ev.all_day ? null : ev.event.starts.slice(11, 16);
-    const endTime = !ev.all_day && span === 0 && ev.event.ends ? ev.event.ends.slice(11, 16) : null;
+    const startHM = ev.event.starts.slice(11, 16);
+    // A day or longer (a trip): in each day's all-day row. Shorter, even
+    // past midnight (a late party): at its hours on each day it touches.
+    const long = span > 1 || (span === 1 && (endHM ?? "00:00") >= startHM);
+    const hours = timed && !long;
+    const time = hours ? startHM : null;
     for (const start of starts(ev, base, span, from, to)) {
       const s = dayNum(start);
       for (let n = Math.max(s, f); n <= Math.min(s + span, t); n++) {
         const day = dayOf(n);
         const list = byDay.get(day) ?? [];
-        list.push({ ev, day, start, time: n === s ? time : null, endTime: n === s ? endTime : null });
+        // A timed event over several days: from its start till midnight,
+        // whole days, then from midnight till its end.
+        const first = n === s;
+        const last = n === s + span;
+        list.push({
+          ev,
+          day,
+          start,
+          time: hours ? (first ? time : "00:00") : null,
+          endTime: hours ? (last ? endHM : "24:00") : null,
+        });
         byDay.set(day, list);
       }
     }
@@ -196,4 +224,55 @@ export function occurrences(events: readonly HomeEventInfo[], from: string, to: 
   for (const list of byDay.values())
     list.sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.ev.id - b.ev.id);
   return byDay;
+}
+
+/** A timed event placed on a day's time grid: minutes from midnight, and
+ *  its lane among the events it overlaps. */
+export interface Placed {
+  o: Occurrence;
+  top: number;
+  /** How long it's drawn: its length, at least half an hour. */
+  height: number;
+  lane: number;
+  lanes: number;
+}
+
+const minutes = (hm: string) => {
+  const [h, m] = hm.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+};
+
+/** One day's timed events on its time grid. An event without an end is an
+ *  hour long. Events that overlap sit side by side, each group sharing its
+ *  width evenly. All-day ones are left out. */
+export function placeDay(list: readonly Occurrence[]): Placed[] {
+  const timed = list
+    .filter((o) => o.time)
+    .map((o) => {
+      const top = minutes(o.time ?? "00:00");
+      const end = o.endTime ? minutes(o.endTime) : top + 60;
+      return { o, top, end: Math.min(24 * 60, end > top ? end : top + 60) };
+    })
+    .sort((a, b) => a.top - b.top || b.end - a.end);
+  const out: Placed[] = [];
+  let group: Placed[] = [];
+  let laneEnds: number[] = [];
+  let groupEnd = -1;
+  const close = () => {
+    for (const p of group) p.lanes = laneEnds.length;
+    group = [];
+    laneEnds = [];
+  };
+  for (const t of timed) {
+    if (t.top >= groupEnd) close();
+    let lane = laneEnds.findIndex((e) => e <= t.top);
+    if (lane < 0) lane = laneEnds.push(0) - 1;
+    laneEnds[lane] = t.end;
+    groupEnd = Math.max(groupEnd, t.end);
+    const p = { o: t.o, top: t.top, height: Math.max(30, t.end - t.top), lane, lanes: 1 };
+    group.push(p);
+    out.push(p);
+  }
+  close();
+  return out;
 }

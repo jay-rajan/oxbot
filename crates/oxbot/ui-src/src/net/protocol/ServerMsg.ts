@@ -331,7 +331,12 @@ action: string,
 /**
  * The event's title.
  */
-title: string, } | { "type": "home_changed" } | { "type": "profile" } & ProfileView | { "type": "profiles_changed" } | { "type": "notify", 
+title: string, 
+/**
+ * The bot that made the change (the Calendar bot, asked in its
+ * chat), sent to everyone who sees it; none for this client's own.
+ */
+bot: string | null, } | { "type": "home_changed" } | { "type": "profile" } & ProfileView | { "type": "profiles_changed" } | { "type": "notify", 
 /**
  * Bot id.
  */
