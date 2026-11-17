@@ -77,6 +77,10 @@
 .msg.bot { align-self: flex-start; background: var(--bubble); color: var(--ink); border-bottom-left-radius: var(--r-sm); }
 .msg.bot.streaming::after { content: "▍"; color: var(--accent); animation: chat-blink 1s steps(2) infinite; }
 @keyframes chat-blink { 50% { opacity: 0; } }
+/* When it was sent: small, in the bubble's bottom right. */
+.msg-time { display: block; margin-top: 2px; text-align: right; font-size: var(--text-xs); line-height: var(--leading-tight); color: var(--muted); white-space: nowrap; }
+.msg.me .msg-time { color: inherit; opacity: .75; }
+.mine > .msg-time { margin-top: 0; }
 .msg p { margin: 0 0 var(--s-2); }
 .msg p:last-child { margin: 0; }
 .msg pre {

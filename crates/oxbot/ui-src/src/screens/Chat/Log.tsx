@@ -156,6 +156,20 @@ function SentFiles({ e, homeComputer }: { e: Extract<BotEvent, { kind: "user_mes
   );
 }
 
+/** When a message was sent, for its corner: "4:21 PM" today, "Nov 16,
+ *  4:21 PM" this year, else with the year. */
+export function stamp(ms: number, now = new Date()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return time;
+  const day = d.toLocaleDateString([], d.getFullYear() === now.getFullYear() ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+  return `${day}, ${time}`;
+}
+
+function When({ ms }: { ms: number }) {
+  return <time className="msg-time" dateTime={new Date(ms).toISOString()}>{stamp(ms)}</time>;
+}
+
 /** One stored event, or nothing for kinds the chat doesn't show. */
 const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx }) {
   const title = new Date(e.ts_ms).toLocaleString();
@@ -165,12 +179,13 @@ const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx })
       return (
         <div className="mine" title={title} style={color ? vars({ person: color }) : undefined}>
           {e.from ? <div className="who"><i className="person-dot" />{e.from}</div> : null}
-          {e.text || !e.files?.length ? <div className="msg me">{e.text}</div> : null}
+          {e.text || !e.files?.length ? <div className="msg me">{e.text}<When ms={e.ts_ms} /></div> : null}
           {e.files?.length ? <SentFiles e={e} homeComputer={ctx.homeComputer} /> : null}
+          {e.text || !e.files?.length ? null : <When ms={e.ts_ms} />}
         </div>
       );
     }
-    case "assistant_message": return <div className="msg bot" title={title}><MdView text={e.text} /></div>;
+    case "assistant_message": return <div className="msg bot" title={title}><MdView text={e.text} /><When ms={e.ts_ms} /></div>;
     case "tool_use": {
       // Older lines kept a tool's raw name ("mcp__oxbot__ask_user").
       const raw = /^mcp__[^_]+(?:_[^_]+)*?__(.+)$/.exec(e.name)?.[1];
