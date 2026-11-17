@@ -489,7 +489,8 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         SAVE_HOME_AREA_TOOL,
     ];
     // The calendar tools: every change can be undone, and a deleted event
-    // stays in Recently deleted (see `Hub::calendar_tool`).
+    // stays in Recently deleted (see `Hub::calendar_tool`). The notes
+    // tools only find, show and file the family's own notes.
     // The schedule tools ask the person themselves, on a card that shows
     // the schedule (see `Hub::schedule_task`): none is made without it.
     if runs
@@ -497,6 +498,7 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         .chain(LOOP_CONTEXT_TOOLS.iter())
         .chain(SCHEDULE_TOOLS.iter())
         .chain(tools::CALENDAR_TOOLS.iter())
+        .chain(tools::NOTES_TOOLS.iter())
         .any(|t| tool == tools::full_name(t))
     {
         return Some(Verdict::Allow);

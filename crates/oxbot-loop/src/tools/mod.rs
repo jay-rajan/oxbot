@@ -423,6 +423,8 @@ struct Raw {
     taints: bool,
     /// A browser result's page snapshot, parsed.
     snapshot: Option<Snapshot>,
+    /// A picture to show the model with the text (Read on a picture).
+    image: Option<Part>,
 }
 
 impl Raw {
@@ -435,6 +437,7 @@ impl Raw {
             page: None,
             taints: false,
             snapshot: None,
+            image: None,
         }
     }
 
@@ -447,6 +450,7 @@ impl Raw {
             page: None,
             taints: false,
             snapshot: None,
+            image: None,
         }
     }
 }
@@ -564,6 +568,7 @@ async fn browser(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
                 }),
                 page,
                 taints: false,
+                image: None,
             }
         }
         Err(err) => Raw::error(err),
@@ -600,6 +605,10 @@ async fn file(call: &ToolCall, env: &ToolEnv<'_>) -> Raw {
                 page: None,
                 taints: false,
                 snapshot: None,
+                image: result.image.map(|(mime, bytes)| Part::Image {
+                    mime: mime.to_owned(),
+                    base64: oxbot_llm::oauth::base64(&bytes),
+                }),
             }
         }
         Ok(Err(err)) => Raw::error(err),
@@ -666,9 +675,11 @@ fn finish(mut raw: Raw, tool: &str, untrusted: bool, env: &ToolEnv<'_>) -> ToolO
         }
         None => format!("{}{}", shown.0, shown.1),
     };
+    let mut for_model = vec![Part::Text(for_model)];
+    for_model.extend(raw.image);
     ToolOutcome {
         text_for_hub: raw.text,
-        for_model: vec![Part::Text(for_model)],
+        for_model,
         untrusted,
         handle,
         error: false,

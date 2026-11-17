@@ -34,6 +34,7 @@ mod engines;
 mod home;
 mod looped;
 mod net_log;
+mod notes;
 mod pace;
 mod people;
 mod plans;

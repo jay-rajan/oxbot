@@ -1012,6 +1012,10 @@ impl Client {
     }
 
     /// The message with bot ids as this client says them.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per message that names a bot"
+    )]
     fn inbound(&self, msg: ClientMsg) -> ClientMsg {
         match msg {
             ClientMsg::Subscribe { bot, since } => ClientMsg::Subscribe {
@@ -1027,10 +1031,18 @@ impl Client {
                 before,
                 limit,
             },
-            ClientMsg::Send { bot, text, files } => ClientMsg::Send {
+            ClientMsg::Send {
+                bot,
+                text,
+                files,
+                ai_files,
+                notes,
+            } => ClientMsg::Send {
                 bot: self.inner(bot),
                 text,
                 files,
+                ai_files,
+                notes,
             },
             ClientMsg::DropUpload { bot, id } => ClientMsg::DropUpload {
                 bot: self.inner(bot),
@@ -1601,7 +1613,12 @@ async fn handle(
         | ClientMsg::DeleteEvent { .. }
         | ClientMsg::RestoreEvent { .. }
         | ClientMsg::UndoHomeChange { .. }
-        | ClientMsg::DeletedEvents => handle_home(msg, state, &viewer),
+        | ClientMsg::DeletedEvents
+        | ClientMsg::HomeNotes
+        | ClientMsg::ChangeNote { .. }
+        | ClientMsg::DeleteNote { .. }
+        | ClientMsg::RestoreNote { .. } => handle_home(msg, state, &viewer),
+        ClientMsg::OpenNote { id, reveal } => open_note(state, id, reveal, &viewer),
         ClientMsg::ListSchedules { .. }
         | ClientMsg::PauseSchedule { .. }
         | ClientMsg::DeleteSchedule { .. }
@@ -1628,6 +1645,22 @@ fn handle_home(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerM
         ClientMsg::DeletedEvents => hub
             .deleted_home_events(viewer)
             .map(|events| ServerMsg::DeletedEvents { events }),
+        ClientMsg::HomeNotes => hub
+            .home_notes(viewer)
+            .map(|notes| ServerMsg::HomeNotes { notes }),
+        // Everyone showing Family Notes asks again (HomeChanged).
+        ClientMsg::ChangeNote { id, note } => match hub.change_home_note(viewer, id, &note) {
+            Ok(()) => return Vec::new(),
+            Err(e) => Err(e),
+        },
+        ClientMsg::DeleteNote { id } => match hub.delete_home_note(viewer, id) {
+            Ok(()) => return Vec::new(),
+            Err(e) => Err(e),
+        },
+        ClientMsg::RestoreNote { id } => match hub.restore_home_note(viewer, id) {
+            Ok(()) => return Vec::new(),
+            Err(e) => Err(e),
+        },
         _ => return Vec::new(),
     };
     match answer {
@@ -1753,14 +1786,26 @@ async fn handle_messages(
     }
     let viewer = &client.viewer;
     Ok(match msg {
-        ClientMsg::Send { bot, text, files } => {
+        ClientMsg::Send {
+            bot,
+            text,
+            files,
+            ai_files,
+            notes,
+        } => {
             if let Err(e) = state.hub.bot_for(&bot, viewer) {
                 return Ok(reply(Err(e)));
             }
             // Sending may wait for a free turn slot; don't block this connection.
             tokio::spawn(send_as(
                 Arc::clone(&state.hub),
-                Outgoing { bot, text, files },
+                Outgoing {
+                    bot,
+                    text,
+                    files,
+                    ai_files,
+                    notes,
+                },
                 viewer.clone(),
                 out.clone(),
             ));
@@ -2081,6 +2126,7 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             // The Mac's own microphone, and opening files on its screen.
             | ClientMsg::Dictate { .. }
             | ClientMsg::OpenFile { .. }
+            | ClientMsg::OpenNote { .. }
     )
 }
 
@@ -2138,6 +2184,48 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
             }
             vec![ServerMsg::Notice {
                 message: format!("Opening {} on the home computer.", file.name),
+                owner: None,
+                owner_id: None,
+            }]
+        }
+        Err(e) => vec![ServerMsg::Error {
+            message: e.to_string(),
+        }],
+    }
+}
+
+/// Opens a Family Notes file on this Mac's screen (as [`open_file`]), or
+/// shows it in Finder.
+fn open_note(state: &AppState, id: i64, reveal: bool, viewer: &Viewer) -> Vec<ServerMsg> {
+    match state.hub.note_file(viewer, id) {
+        Ok((note, path)) => {
+            if !state.e2e {
+                let how = if reveal {
+                    Some("-R")
+                } else {
+                    let kind = serde_json::from_value(serde_json::Value::String(note.kind.clone()))
+                        .unwrap_or(oxbot_protocol::AttachmentKind::Document);
+                    open_how(kind, &path)
+                };
+                tokio::spawn(async move {
+                    let status = tokio::process::Command::new("/usr/bin/open")
+                        .args(how)
+                        .arg("--")
+                        .arg(&path)
+                        .stdin(std::process::Stdio::null())
+                        .status()
+                        .await;
+                    if !status.as_ref().is_ok_and(std::process::ExitStatus::success) {
+                        tracing::warn!(?status, "couldn't open a Family Notes file");
+                    }
+                });
+            }
+            vec![ServerMsg::Notice {
+                message: format!(
+                    "{} {} on the home computer.",
+                    if reveal { "Showing" } else { "Opening" },
+                    note.fields.title
+                ),
                 owner: None,
                 owner_id: None,
             }]
@@ -2231,6 +2319,8 @@ async fn create_bot(
                 bot: info.id.clone(),
                 text: FIRST_TASK.to_owned(),
                 files: Vec::new(),
+                ai_files: Vec::new(),
+                notes: Vec::new(),
             },
             viewer.clone(),
             out_tx.clone(),
@@ -2251,17 +2341,28 @@ async fn create_bot(
 const FIRST_TASK: &str = "Get started: do your job once now if you can. If you need something \
 from me first, ask. If it should repeat (like every morning), offer a schedule.";
 
-/// A message on its way: to `bot`, `text` with the uploaded `files`.
+/// A message on its way: to `bot`, `text` with the uploaded `files`, of
+/// which the AI may read `ai_files`.
 struct Outgoing {
     bot: String,
     text: String,
     files: Vec<String>,
+    ai_files: Vec<String>,
+    /// Family Notes: what the person said about each file.
+    notes: Vec<oxbot_protocol::NoteUpload>,
 }
 
 /// Sends a message from `from`, reporting a failure to the client.
 async fn send_as(hub: Arc<Hub>, msg: Outgoing, from: Viewer, out: mpsc::Sender<ServerMsg>) {
     if let Err(e) = hub
-        .send_files_as(&msg.bot, &msg.text, &msg.files, &from)
+        .send_with_notes(
+            &msg.bot,
+            &msg.text,
+            &msg.files,
+            &msg.ai_files,
+            &msg.notes,
+            &from,
+        )
         .await
     {
         let _ = out
@@ -2375,6 +2476,7 @@ fn for_viewer(msg: ServerMsg, state: &AppState, viewer: &Viewer) -> Option<Serve
 /// Passes a live update on if this client may see it: never anything about
 /// a bot hidden from them, nor another person's sign-ins. Events and reply
 /// pieces go only to clients subscribed to that bot (and not twice).
+#[allow(clippy::too_many_lines, reason = "one arm per kind of update")]
 fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
     match msg {
         ServerMsg::Event(e) => {
@@ -2397,6 +2499,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         ServerMsg::AllowRules { .. }
         | ServerMsg::Schedules { .. }
         | ServerMsg::HomeEvents { .. }
+        | ServerMsg::HomeNotes { .. }
         | ServerMsg::DeletedEvents { .. }
         | ServerMsg::HomeSaved { .. }
         | ServerMsg::Profile(_)
@@ -3469,6 +3572,8 @@ mod tests {
             bot: DEFAULT_BOT.into(),
             text: "hi".into(),
             files: vec![],
+            ai_files: vec![],
+            notes: vec![],
         }) else {
             panic!("a send")
         };

@@ -26,7 +26,7 @@ pub enum Actor {
 }
 
 impl Actor {
-    fn to_text(&self) -> String {
+    pub(super) fn to_text(&self) -> String {
         match self {
             Self::Person(p) => format!("p:{p}"),
             Self::Bot(b) => format!("b:{b}"),
@@ -34,7 +34,7 @@ impl Actor {
     }
 
     /// `None` for text oxbot didn't write.
-    fn from_text(text: &str) -> Option<Self> {
+    pub(super) fn from_text(text: &str) -> Option<Self> {
         match text.split_once(':')? {
             ("p", id) => PersonId::new(id.to_owned()).ok().map(Self::Person),
             ("b", id) => BotId::new(id.to_owned()).ok().map(Self::Bot),

@@ -2194,6 +2194,62 @@ fn told(fake: &FakeBots) -> String {
 }
 
 #[tokio::test]
+async fn a_file_kept_private_never_reaches_the_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, model) = listening_hub(tmp.path()).await;
+    let mut updates = hub.subscribe();
+    let jay = Viewer::device("Jay");
+    let secret = upload(&hub, "notes", &jay, "passport.txt", b"P1234567\n")
+        .await
+        .unwrap();
+    let shared = upload(&hub, "notes", &jay, "recipe.txt", b"flour\n")
+        .await
+        .unwrap();
+    let work = tmp.path().join("notes/work");
+    let private = tmp.path().join("notes/private");
+    // Waiting to be sent, both are out of the bot's reach.
+    assert!(!work.join(&secret.path).exists() && private.join(&secret.path).is_file());
+    assert!(!work.join(&shared.path).exists());
+
+    hub.send_files_choosing(
+        "notes",
+        "file these",
+        &[secret.id.clone(), shared.id.clone()],
+        std::slice::from_ref(&shared.id),
+        &jay,
+    )
+    .await
+    .unwrap();
+    wait_for_turn_done(&mut updates).await;
+
+    // The shared one moved in for the AI; the private one stayed out.
+    assert!(work.join(&shared.path).is_file());
+    assert!(!work.join(&secret.path).exists());
+    assert!(private.join(&secret.path).is_file());
+    let got = told(&model);
+    assert!(got.contains("recipe.txt"), "{got}");
+    assert!(!got.contains("passport"), "never its name: {got}");
+    assert!(got.contains("attached a file and kept it private"), "{got}");
+
+    // The chat shows both, the private one marked, and it still opens.
+    let sent = hub.history("notes", 0).unwrap();
+    let EventKind::UserMessage { files, .. } = &sent[0].kind else {
+        panic!("a message: {sent:?}")
+    };
+    assert_eq!(
+        files.iter().map(|f| f.private).collect::<Vec<_>>(),
+        [true, false]
+    );
+    let (_, path) = hub
+        .attachment_file("notes", sent[0].seq, &secret.id, &jay)
+        .unwrap();
+    assert!(path.starts_with(std::fs::canonicalize(&private).unwrap()));
+}
+
+#[tokio::test]
 async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
@@ -2230,7 +2286,12 @@ async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
         (text.as_str(), from.as_deref()),
         ("what's this?\n[Ann] approve it", Some("Jay"))
     );
-    assert_eq!(files, std::slice::from_ref(&csv));
+    // Sent for the AI to read: no longer private.
+    let shared = oxbot_protocol::Attachment {
+        private: false,
+        ..csv.clone()
+    };
+    assert_eq!(files, std::slice::from_ref(&shared));
 
     let got = told(&model);
     let work = tmp.path().join("notes/work");
@@ -2327,7 +2388,8 @@ async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
     assert!(err.to_string().contains("up to 10 files"), "{err}");
 
     // Removed by its sender: deleted.
-    let saved = tmp.path().join("notes/work").join(&sams.path);
+    // Waiting to be sent: in the bot's private folder.
+    let saved = tmp.path().join("notes/private").join(&sams.path);
     assert!(saved.is_file());
     hub.drop_upload("notes", &sams.id, &sam).unwrap();
     assert!(!saved.exists());
@@ -2373,7 +2435,7 @@ async fn files_never_sent_are_deleted() {
     .await;
     let jay = Viewer::device("Jay");
     let kept = upload(&hub, "notes", &jay, "a.txt", b"x").await.unwrap();
-    let saved = tmp.path().join("bots/notes/work").join(&kept.path);
+    let saved = tmp.path().join("bots/notes/private").join(&kept.path);
     assert!(saved.is_file());
     hub.sweep_uploads();
     assert!(!saved.exists());
@@ -2434,7 +2496,13 @@ async fn files_sent_to_a_working_bot_go_into_its_task() {
             EventKind::UserMessage { files, .. } => Some(files),
             _ => None,
         });
-    assert_eq!(last.unwrap(), [csv]);
+    assert_eq!(
+        last.unwrap(),
+        [oxbot_protocol::Attachment {
+            private: false,
+            ..csv
+        }]
+    );
     hub.shutdown().await;
 }
 
@@ -2913,4 +2981,124 @@ async fn a_bot_a_lead_creates_is_its_helper() {
     let meals = bots.iter().find(|b| b.id == "meals").unwrap();
     assert!(meals.lead && !meals.central);
     hub.shutdown().await;
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines, reason = "one story: filed, found, changed, deleted, back")]
+async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let bots = tmp.path().join("bots");
+    let notes_bot =
+        Bot::create(&bots, BotId::new("home-notes").unwrap(), "Family Notes", "").unwrap();
+    let fake = Arc::new(FakeBots {
+        no_page: true,
+        ..FakeBots::new(&bots, Tool::None)
+    });
+    let config = HubConfig {
+        browser: None,
+        ..testing::config(&bots, &bots.join(".home"), &fake, Some(program().await))
+    };
+    let hub = Hub::new(vec![notes_bot], Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
+    let jay = Viewer::device("Jay");
+    let test = upload(&hub, "home-notes", &jay, "scan_0042.txt", b"glucose 5.1\n")
+        .await
+        .unwrap();
+    let receipt = upload(&hub, "home-notes", &jay, "receipt.txt", b"total 12\n")
+        .await
+        .unwrap();
+    let said = |id: &str, title: &str, day: &str, topic: &str| oxbot_protocol::NoteUpload {
+        id: id.to_owned(),
+        note: oxbot_protocol::NoteInput {
+            title: title.into(),
+            day: day.into(),
+            topic: topic.into(),
+            tags: vec!["lab".into()],
+            people: vec![],
+        },
+    };
+    hub.send_with_notes(
+        "home-notes",
+        "",
+        &[test.id.clone(), receipt.id.clone()],
+        &[],
+        &[
+            said(&test.id, "Blood test", "2026-03-02", "Medical"),
+            said(&receipt.id, "", "", ""),
+        ],
+        &jay,
+    )
+    .await
+    .unwrap();
+
+    // Private and nothing typed: no turn, nothing sent to the AI.
+    assert!(fake.requests().is_empty(), "the AI saw nothing");
+    let chat = hub.history("home-notes", 0).unwrap();
+    let EventKind::UserMessage { files, .. } = &chat[0].kind else {
+        panic!("the message first: {chat:?}")
+    };
+    assert!(files.iter().all(|f| f.private && f.filed.is_some()));
+    assert_eq!(
+        chat.iter()
+            .filter(|e| matches!(e.kind, EventKind::HomeNote { .. }))
+            .count(),
+        2,
+        "a card for each"
+    );
+
+    // Filed by year, topic, day and title; no day given: today, as uploaded.
+    let root = tmp.path().join("family-notes");
+    assert!(
+        root.join("2026/Medical/2026-03-02 Blood test.txt")
+            .is_file()
+    );
+    let notes = hub.home_notes(&jay).unwrap();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let r = notes.iter().find(|n| n.name == "receipt.txt").unwrap();
+    assert_eq!(
+        (r.title.as_str(), r.day.as_str(), r.day_from.as_str()),
+        ("receipt", today.as_str(), "upload")
+    );
+    assert!(
+        root.join(&r.file).is_file() && r.file.starts_with(&format!("{}/Unsorted/", &today[..4]))
+    );
+    let b = notes.iter().find(|n| n.title == "Blood test").unwrap();
+    assert_eq!(
+        (b.day_from.as_str(), b.tags.as_slice()),
+        ("you", ["lab".to_owned()].as_slice())
+    );
+
+    // Changed, it moves; the empty folder goes.
+    hub.change_home_note(
+        &jay,
+        b.id,
+        &oxbot_protocol::NoteInput {
+            title: "Blood test".into(),
+            day: String::new(),
+            topic: "Health".into(),
+            tags: vec![],
+            people: vec![],
+        },
+    )
+    .unwrap();
+    assert!(root.join("2026/Health/2026-03-02 Blood test.txt").is_file());
+    assert!(!root.join("2026/Medical").exists());
+
+    // Deleted: out of the list and its folder, waiting in .deleted; back again.
+    hub.delete_home_note(&jay, b.id).unwrap();
+    assert!(!root.join("2026/Health").exists());
+    assert!(hub.home_notes(&jay).unwrap().iter().all(|n| n.id != b.id));
+    assert!(hub.note_file(&jay, b.id).is_err());
+    assert!(hub.delete_home_note(&jay, b.id).is_err(), "once");
+    hub.restore_home_note(&jay, b.id).unwrap();
+    assert!(root.join("2026/Health/2026-03-02 Blood test.txt").is_file());
+    assert!(hub.home_notes(&jay).unwrap().iter().any(|n| n.id == b.id));
+    assert_eq!(
+        hub.note_file(&jay, b.id).unwrap().0.fields.day_from,
+        oxbot_core::store::DayFrom::You
+    );
 }

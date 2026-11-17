@@ -77,7 +77,7 @@ export interface Group {
 export const HOME_LEADS = [
   { id: "home-calendar", name: "Calendar", page: "calendar", btn: "calendarBtn", hint: "try “Leo has soccer Tuesdays at 5:30”" },
   { id: "home-meals", name: "Meal Plan", page: "chat", btn: "mealsBtn", hint: "plans dinners and the grocery list" },
-  { id: "home-notes", name: "Family Notes", page: "chat", btn: "notesBtn", hint: "drop anything here to find later" },
+  { id: "home-notes", name: "Family Notes", page: "notes", btn: "notesBtn", hint: "attach a file to keep it, or ask for one" },
 ] as const;
 const HOME_IDS: ReadonlySet<string> = new Set(HOME_LEADS.map((h) => h.id));
 /** Whether the bot list leaves this bot out: the Assistant (it stays, out of

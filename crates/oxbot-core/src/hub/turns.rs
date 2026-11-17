@@ -67,17 +67,57 @@ impl Hub {
     }
 
     /// Like [`Hub::send_as`], with files `viewer` uploaded for `bot` (by
-    /// upload id; see [`Hub::accept_upload`]).
+    /// upload id; see [`Hub::accept_upload`]), every one of them for the AI
+    /// to read.
     ///
     /// # Errors
-    /// Fails if the bot doesn't exist, is hidden from `viewer`, or is busy,
-    /// a file isn't theirs or isn't waiting any more, or its engine can't
-    /// start.
+    /// As [`Hub::send_files_choosing`].
     pub async fn send_files_as(
         self: &Arc<Self>,
         bot: &str,
         text: &str,
         files: &[String],
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        self.send_files_choosing(bot, text, files, files, viewer)
+            .await
+    }
+
+    /// Like [`Hub::send_files_as`], letting the AI read only the files in
+    /// `ai`; the rest stay private on the home computer (the bot is told
+    /// only that there are some).
+    ///
+    /// # Errors
+    /// Fails if the bot doesn't exist, is hidden from `viewer`, or is busy,
+    /// a file isn't theirs or isn't waiting any more, can't be moved, or
+    /// the bot's engine can't start.
+    pub async fn send_files_choosing(
+        self: &Arc<Self>,
+        bot: &str,
+        text: &str,
+        files: &[String],
+        ai: &[String],
+        viewer: &Viewer,
+    ) -> Result<(), HubError> {
+        self.send_with_notes(bot, text, files, ai, &[], viewer)
+            .await
+    }
+
+    /// Like [`Hub::send_files_choosing`]; to the Family Notes bot, each
+    /// file is filed in Family Notes first, by what the person said about
+    /// it (`notes`). Files that are all private, with nothing typed, don't
+    /// involve the AI at all: the message and a card for each note go in
+    /// the chat, and no turn starts.
+    ///
+    /// # Errors
+    /// As [`Hub::send_files_choosing`], or a file couldn't be filed.
+    pub async fn send_with_notes(
+        self: &Arc<Self>,
+        bot: &str,
+        text: &str,
+        files: &[String],
+        ai: &[String],
+        notes: &[oxbot_protocol::NoteUpload],
         viewer: &Viewer,
     ) -> Result<(), HubError> {
         let viewer = self.resolve(viewer).into_owned();
@@ -86,13 +126,44 @@ impl Hub {
         // Only a bot they may open (as the bot list says): one hidden from
         // them answers as if it didn't exist.
         let target = self.bot_for(bot, &viewer)?;
+        let mut kept = Vec::new();
         let files = if files.is_empty() {
             Vec::new()
         } else {
             // Refused before its files are taken: they stay for another try.
             may_task(&origin)?;
-            self.claim_uploads(&target.id, viewer.id.as_ref(), files)?
+            let mut claimed = self.claim_uploads(&target.id, viewer.id.as_ref(), files)?;
+            if let Err(err) = self.place_uploads(&target, &mut claimed, ai) {
+                self.uploads_not_sent(&claimed);
+                return Err(err);
+            }
+            if target.id.as_str() == super::notes::NOTES_BOT {
+                match self.file_notes(&target, &mut claimed, notes, &viewer) {
+                    Ok(notes) => kept = notes,
+                    Err(err) => {
+                        self.uploads_not_sent(&claimed);
+                        return Err(err);
+                    }
+                }
+            }
+            claimed
         };
+        if !files.is_empty()
+            && text.trim().is_empty()
+            && files.iter().all(|f| f.private)
+            && files.iter().all(|f| f.filed.is_some())
+        {
+            let sent = Sent {
+                text,
+                files: &files,
+                from,
+                origin: &origin,
+                relayed: false,
+            };
+            self.record_message(&target.id, &sent)?;
+            self.note_cards(&target.id, &kept);
+            return Ok(());
+        }
         let sent = self.send_for(bot, text, &files, from, &origin, false).await;
         // Not sent (busy, say): the files wait to be sent again.
         if sent.is_err() {

@@ -1,0 +1,70 @@
+/* Family Notes: the list by year and topic, its search, and the forms that
+   file a note. The frame beside the chat is the calendar's (.cal). */
+.notes-find {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-3) var(--s-5); border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.notes-topics { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.notes-topic {
+  padding: 2px var(--s-3); border: 1px solid var(--line); border-radius: var(--r-full);
+  background: var(--surface); color: var(--muted); font-family: inherit; font-size: var(--text-sm); cursor: pointer;
+}
+.notes-topic[aria-pressed="true"] { border-color: var(--home-notes); background: var(--home-notes-soft); color: var(--ink); }
+.notes-topic:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.notes-body { padding: var(--s-3) var(--s-5) var(--s-6); }
+.notes-year h2 { margin: var(--s-4) 0 var(--s-2); font-size: var(--text-lg); font-weight: var(--weight-bold); }
+.notes-group h3 { margin: var(--s-3) 0 var(--s-1); font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
+.notes-group h3 span { font-weight: var(--weight-mid); }
+.notes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+.note-row-item {
+  display: flex; align-items: center; gap: var(--s-2); min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
+}
+.note-main {
+  flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-2) var(--s-3);
+  border: 0; background: none; color: inherit; font-family: inherit; text-align: left; cursor: pointer; border-radius: var(--r-md);
+}
+.note-main:hover { background: var(--sunken); }
+.note-main:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.note-icon { flex: none; font-size: var(--text-lg); line-height: var(--leading-tight); }
+.note-text { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.note-title { font-size: var(--text-md); font-weight: var(--weight-mid); overflow-wrap: anywhere; }
+.note-meta { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
+.note-actions { flex: none; display: flex; gap: var(--s-1); padding-right: var(--s-2); }
+@media (max-width: 720px) {
+  .notes-find, .notes-body { padding-left: var(--s-4); padding-right: var(--s-4); }
+  .note-actions { display: none; }
+}
+
+/* The forms: a note's fields, and the files being kept. */
+.note-fields { display: flex; flex-direction: column; gap: var(--s-3); }
+.note-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+@media (max-width: 480px) { .note-row { grid-template-columns: 1fr; } }
+.note-who { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); margin: 0; padding: 0; border: 0; }
+.note-who legend { margin-bottom: var(--s-1); }
+.note-file + .note-file { margin-top: var(--s-5); padding-top: var(--s-4); border-top: 1px solid var(--line); }
+.note-file-name { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-3); font-weight: var(--weight-mid); overflow-wrap: anywhere; }
+.note-file-size { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--muted); font-weight: var(--weight-mid); }
+.note-file-name .spin { flex: none; width: 12px; height: 12px; border: 2px solid var(--ink); border-right-color: transparent; border-radius: 50%; animation: chat-turn 1s linear infinite; }
+.note-ai { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin: 0 0 var(--s-4); padding: 0; border: 0; }
+.note-ai legend { margin-bottom: var(--s-1); }
+@media (max-width: 480px) { .note-ai { grid-template-columns: 1fr; } }
+.note-ai-pick {
+  display: flex; align-items: flex-start; gap: var(--s-2); padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md); cursor: pointer;
+}
+.note-ai-pick.on { border-color: var(--home-notes); background: var(--home-notes-soft); }
+.note-ai-pick:last-child.on { border-color: var(--warn); background: var(--warn-soft); }
+.note-ai-pick input { margin-top: 3px; }
+.note-ai-pick span { display: flex; flex-direction: column; gap: 2px; }
+.note-ai-pick b { font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.note-ai-pick small { font-size: var(--text-xs); color: var(--muted); }
+.note-where { margin: 0 0 var(--s-3); font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
+.note-summary { margin: 0 0 var(--s-3); font-size: var(--text-sm); }
+
+/* A note in the chat: one just kept, or one the bot found. */
+.note-card {
+  display: flex; align-items: center; gap: var(--s-3); max-width: 520px; padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line); border-left: 3px solid var(--home-notes); border-radius: var(--r-md); background: var(--surface);
+}
+.note-card .note-text { flex: 1; }

@@ -61,6 +61,14 @@ pub const CALENDAR_TOOLS: &[&str] = &[
     CHANGE_EVENT_TOOL,
     DELETE_EVENT_TOOL,
 ];
+/// Finds notes in Family Notes (the Family Notes bot).
+pub const FIND_NOTES_TOOL: &str = "find_notes";
+/// Files a note: its title, day, topic, tags, people (the Family Notes bot).
+pub const FILE_NOTE_TOOL: &str = "file_note";
+/// Shows a note as a card in the chat (the Family Notes bot).
+pub const SHOW_NOTE_TOOL: &str = "show_note";
+/// The Family Notes bot's tools.
+pub const NOTES_TOOLS: &[&str] = &[FIND_NOTES_TOOL, FILE_NOTE_TOOL, SHOW_NOTE_TOOL];
 /// Every bot's schedule tools.
 pub const SCHEDULE_TOOLS: &[&str] = &[
     SCHEDULE_TASK_TOOL,
@@ -77,6 +85,10 @@ pub const CENTRAL_TOOLS: &[&str] = &[
 ];
 
 /// Which of oxbot's tools a bot gets.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one switch per group of tools"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ToolSet {
     /// It's the Assistant, the central bot: the team tools.
@@ -86,6 +98,8 @@ pub struct ToolSet {
     pub browser: bool,
     /// It's the Home's Calendar bot: the calendar tools.
     pub calendar: bool,
+    /// It's the Home's Family Notes bot: the notes tools.
+    pub notes: bool,
 }
 
 impl From<crate::engine::HostTools> for ToolSet {
@@ -94,6 +108,7 @@ impl From<crate::engine::HostTools> for ToolSet {
             central: tools.central,
             browser: tools.browser,
             calendar: tools.calendar,
+            notes: tools.notes,
         }
     }
 }
@@ -108,6 +123,7 @@ impl ToolSet {
             || (self.browser && (tool == SAVE_REPORT_TOOL || tool == PLAN_TASK_TOOL))
             || (self.central && CENTRAL_TOOLS.contains(&tool))
             || (self.calendar && CALENDAR_TOOLS.contains(&tool))
+            || (self.notes && NOTES_TOOLS.contains(&tool))
     }
 }
 
@@ -168,6 +184,9 @@ fn tools(set: ToolSet) -> Vec<Value> {
     list.extend(schedule_schemas(set.central));
     if set.calendar {
         list.extend(calendar_schemas());
+    }
+    if set.notes {
+        list.extend(notes_schemas());
     }
     list.push(home_area_schema());
     if set.browser {
@@ -319,7 +338,8 @@ fn calendar_schemas() -> Vec<Value> {
         "remind_min": { "type": "integer", "minimum": 0, "description": "A reminder this many minutes before, if asked (1440 is a day)." }
     });
     let mut change = event.clone();
-    change["id"] = json!({ "type": "integer", "description": "The event's id, from calendar_events." });
+    change["id"] =
+        json!({ "type": "integer", "description": "The event's id, from calendar_events." });
     vec![
         json!({
             "name": CALENDAR_EVENTS_TOOL,
@@ -358,6 +378,58 @@ fn calendar_schemas() -> Vec<Value> {
                 "properties": { "id": { "type": "integer", "description": "The event's id, from calendar_events." } },
                 "required": ["id"]
             }
+        }),
+    ]
+}
+
+/// The Family Notes bot's tools.
+fn notes_schemas() -> Vec<Value> {
+    let id = json!({ "type": "integer", "description": "The note's id: from the (oxbot: ...) line about a file just filed, or from find_notes." });
+    vec![
+        json!({
+            "name": FIND_NOTES_TOOL,
+            "description": "Look for notes in Family Notes: the files the family keeps. It searches what's recorded \
+                about each (title, day, topic, tags, people, summary), never the files, and lists the best \
+                matches, latest first, with their ids. Use it when someone asks for a file (\"Akhila's last \
+                blood test\", \"car insurance from last year\"), then show_note the one(s) they want. Work out \
+                days from today's (the [oxbot] line): \"last year\" is from and to.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Words to look for: \"blood test\", \"insurance car\". Leave out to list by the other filters." },
+                    "from": { "type": "string", "description": "The first day, YYYY-MM-DD, if the question says when." },
+                    "to": { "type": "string", "description": "The last day, YYYY-MM-DD." },
+                    "person": { "type": "string", "description": "Only notes about this person, by name." },
+                    "topic": { "type": "string", "description": "Only notes in this topic (\"Medical\")." }
+                }
+            }
+        }),
+        json!({
+            "name": FILE_NOTE_TOOL,
+            "description": "File a note better: set its title, day, topic, tags, people or summary. Give only what \
+                should change. The file moves to Family Notes/<year>/<topic>/<day> <title>. For a file you read: \
+                its day is the document's own date (a bill's, a visit's, a statement's), with day_from \
+                \"document\"; a day the person gave stays. Never for a private file's content: you can't read it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": id,
+                    "title": { "type": "string", "description": "What it is, short, so it's easy to find: \"Akhila's blood test\", \"Car insurance renewal\"." },
+                    "day": { "type": "string", "description": "Its day, YYYY-MM-DD." },
+                    "day_from": { "type": "string", "enum": ["document", "you"], "description": "document: read from the file; you: the person said it." },
+                    "topic": { "type": "string", "description": "One broad folder, reused across notes: Medical, Bills, Insurance, School, Taxes, House, Car, Travel, IDs, Receipts, Warranties, Recipes, Photos. Use one that's there already when it fits." },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": "A few words someone might search for: the company, the kind of document, the place." },
+                    "people": { "type": "array", "items": { "type": "string" }, "description": "Who it's about, by name; someone new is added to the home's people." },
+                    "summary": { "type": "string", "description": "One line on what's in it (only from what you read or were told). Leave out numbers like account or card numbers." }
+                },
+                "required": ["id"]
+            }
+        }),
+        json!({
+            "name": SHOW_NOTE_TOOL,
+            "description": "Show a note in the chat as a card that opens its file. Use it for what someone asked for, \
+                after find_notes.",
+            "inputSchema": { "type": "object", "properties": { "id": id }, "required": ["id"] }
         }),
     ]
 }
@@ -452,21 +524,25 @@ mod tests {
         central: false,
         browser: false,
         calendar: false,
+        notes: false,
     };
     const CENTRAL: ToolSet = ToolSet {
         central: true,
         browser: false,
         calendar: false,
+        notes: false,
     };
     const BROWSING: ToolSet = ToolSet {
         central: false,
         browser: true,
         calendar: false,
+        notes: false,
     };
     const BOTH: ToolSet = ToolSet {
         central: true,
         browser: true,
         calendar: false,
+        notes: false,
     };
 
     fn names(set: ToolSet) -> Vec<String> {

@@ -1362,9 +1362,14 @@ impl CallJob {
         let text: Vec<Value> = outcome
             .for_model
             .iter()
-            .filter_map(|p| match p {
-                Part::Text(t) => Some(json!({"type": "inputText", "text": t})),
-                Part::Image { .. } => None,
+            .map(|p| match p {
+                Part::Text(t) => json!({"type": "inputText", "text": t}),
+                // A picture (Read on one): the relay sends it to a model
+                // that sees pictures.
+                Part::Image { mime, base64 } => json!({
+                    "type": "inputImage",
+                    "imageUrl": format!("data:{mime};base64,{base64}"),
+                }),
             })
             .collect();
         self.process

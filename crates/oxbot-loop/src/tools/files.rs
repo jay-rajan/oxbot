@@ -158,6 +158,9 @@ pub struct FileResult {
     pub text: String,
     /// The file it read, relative to `work/`, for reads.
     pub read_path: Option<String>,
+    /// A picture Read opened: its media type and bytes, for a model that
+    /// sees pictures.
+    pub image: Option<(&'static str, Vec<u8>)>,
 }
 
 /// Runs file tool `name` with `args` inside `work`. Blocking: call it off
@@ -174,9 +177,17 @@ pub fn run(name: &str, args: &Value, work: &Path) -> Result<FileResult, String> 
     match name {
         "Read" => {
             let path = resolve(work, &work_real, Some(need("file_path")?))?;
+            if let Some(mime) = picture_type(&path) {
+                return picture(&path, mime, &work_real).map(|(text, bytes)| FileResult {
+                    text,
+                    read_path: Some(shown(&path, work)),
+                    image: Some((mime, bytes)),
+                });
+            }
             read(&path, args, &work_real).map(|text| FileResult {
                 text,
                 read_path: Some(shown(&path, work)),
+                image: None,
             })
         }
         "Write" => {
@@ -218,7 +229,42 @@ fn plain(text: String) -> FileResult {
     FileResult {
         text,
         read_path: None,
+        image: None,
     }
+}
+
+/// The largest picture Read gives the model.
+const MAX_PICTURE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// A picture's media type, by its name: JPEG, PNG, WebP or GIF.
+fn picture_type(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => return None,
+    })
+}
+
+/// Opens a picture for the model: a line about it, and its bytes.
+fn picture(path: &Path, mime: &str, work_real: &Path) -> Result<(String, Vec<u8>), String> {
+    let real = real_inside(path, work_real)?;
+    let size = fs::metadata(&real)
+        .map_err(|e| format!("couldn't read it: {e}"))?
+        .len();
+    if size > MAX_PICTURE_BYTES {
+        return Err("That picture is too big to look at (over 8 MB).".to_owned());
+    }
+    let bytes = fs::read(&real).map_err(|e| format!("couldn't read it: {e}"))?;
+    Ok((
+        format!(
+            "(A picture, {} KB, {mime}: it's attached below for you to look at. If you can't see it, say so; don't guess what's in it.)",
+            bytes.len().div_ceil(1024)
+        ),
+        bytes,
+    ))
 }
 
 const OUTSIDE: &str = "Bots may only use files in their own work folder.";
@@ -651,6 +697,18 @@ mod tests {
         // Globbing doesn't follow it either.
         let r = run("Glob", &json!({"pattern": "**/*.toml"}), &work).unwrap();
         assert_eq!(r.text, "No files match.");
+    }
+
+    #[test]
+    fn a_picture_is_read_as_a_picture() {
+        let (_tmp, work) = setup();
+        fs::write(work.join("scan.JPG"), [0xff, 0xd8, 0xff, 0x00, 1, 2]).unwrap();
+        let r = run("Read", &json!({"file_path": "scan.JPG"}), &work).unwrap();
+        let (mime, bytes) = r.image.unwrap();
+        assert_eq!((mime, bytes.len()), ("image/jpeg", 6));
+        assert!(r.text.contains("attached below"), "{}", r.text);
+        // Still only inside the work folder.
+        assert!(run("Read", &json!({"file_path": "/etc/x.png"}), &work).is_err());
     }
 
     #[test]

@@ -512,6 +512,32 @@ pub(super) const MIGRATIONS: &[Step] = &[
         );
         CREATE INDEX IF NOT EXISTS home_changes_event ON home_changes (event, id);",
     ),
+    // 31: Family Notes: files the family keeps, each with a title, a day
+    // (and where that day came from), a topic, tags and who it's about.
+    // The file itself is in the `family-notes` folder, at `file`.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS home_notes (
+            id           INTEGER PRIMARY KEY,
+            title        TEXT    NOT NULL,
+            day          TEXT    NOT NULL,              -- 2026-11-17
+            day_from     TEXT    NOT NULL,              -- you | document | upload
+            topic        TEXT    NOT NULL DEFAULT '',
+            tags         TEXT    NOT NULL DEFAULT '[]', -- JSON
+            people       TEXT    NOT NULL DEFAULT '[]', -- JSON: person ids
+            summary      TEXT    NOT NULL DEFAULT '',
+            file         TEXT    NOT NULL,              -- below family-notes/
+            name         TEXT    NOT NULL,              -- as uploaded
+            kind         TEXT    NOT NULL,
+            size         INTEGER NOT NULL,
+            private      INTEGER NOT NULL,              -- the AI never read it
+            uploaded_ms  INTEGER NOT NULL,
+            uploaded_by  TEXT    NOT NULL,              -- p:<person id> or b:<bot id>
+            changed_by   TEXT    NOT NULL,
+            updated_ms   INTEGER NOT NULL,
+            deleted_ms   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS home_notes_day ON home_notes (day);",
+    ),
 ];
 
 /// Migration 29. Skipped if the column is already there (a database

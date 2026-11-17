@@ -5,6 +5,8 @@ import type { EngineKind } from "./EngineKind";
 import type { EnginePrefs } from "./EnginePrefs";
 import type { EventInput } from "./EventInput";
 import type { NetKind } from "./NetKind";
+import type { NoteInput } from "./NoteInput";
+import type { NoteUpload } from "./NoteUpload";
 import type { ProfileEdit } from "./ProfileEdit";
 import type { RunVerdict } from "./RunVerdict";
 import type { ScheduleEdit } from "./ScheduleEdit";
@@ -72,7 +74,18 @@ text: string,
 /**
  * The upload ids ([`Attachment::id`]) of the files sent with it.
  */
-files: Array<string>, } | { "type": "drop_upload", 
+files: Array<string>, 
+/**
+ * Those of `files` the person let the AI read (the whole file is
+ * sent to the AI provider). The rest stay on the home computer,
+ * out of the bot's reach.
+ */
+ai_files: Array<string>, 
+/**
+ * Family Notes only: what the person said about each file as they
+ * attached it (its title, day, topic...), to file it by.
+ */
+notes: Array<NoteUpload>, } | { "type": "drop_upload", 
 /**
  * Bot id.
  */
@@ -260,7 +273,31 @@ id: number, } | { "type": "undo_home_change",
 /**
  * The change.
  */
-change: number, } | { "type": "deleted_events" } | { "type": "list_schedules", 
+change: number, } | { "type": "deleted_events" } | { "type": "home_notes" } | { "type": "change_note", 
+/**
+ * [`HomeNoteInfo::id`].
+ */
+id: number, 
+/**
+ * What it says now.
+ */
+note: NoteInput, } | { "type": "delete_note", 
+/**
+ * [`HomeNoteInfo::id`].
+ */
+id: number, } | { "type": "restore_note", 
+/**
+ * [`HomeNoteInfo::id`].
+ */
+id: number, } | { "type": "open_note", 
+/**
+ * [`HomeNoteInfo::id`].
+ */
+id: number, 
+/**
+ * Show it in Finder instead.
+ */
+reveal: boolean, } | { "type": "list_schedules", 
 /**
  * Bot id; `None` for all.
  */

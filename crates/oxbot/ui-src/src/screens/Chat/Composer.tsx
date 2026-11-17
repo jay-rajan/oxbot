@@ -7,7 +7,8 @@ import { Button, Chip as ChipPiece, IconButton } from "../../components/ui";
 import type { BotInfo } from "../../net/protocol";
 import type { Chip } from "../../state/chat";
 import { local } from "../../state/store";
-import { PHONE_FILES, addFiles, isLocked, removeChip, sendMessage, sizeText, startDictation, stopDictation } from "./actions";
+import { FileDialog } from "../Notes/FileDialog";
+import { NOTES_BOT, PHONE_FILES, addFiles, isLocked, removeChip, sendMessage, sizeText, startDictation, stopDictation } from "./actions";
 
 const MIC_TITLE = "Dictate with the home computer's microphone (the audio stays on the home computer)";
 const NO_CHIPS: Chip[] = [];
@@ -18,7 +19,26 @@ function ChipView({ c }: { c: Chip }) {
   const name = c.state !== "error" ? c.name : c.error.includes(c.name) ? c.error : `${c.name}: ${c.error}`;
   const small =
     c.state === "sending" ? "sending…" : c.state === "uploading" ? (c.progress >= 1 ? "checking…" : `${Math.round(c.progress * 100)}%`) : c.att?.note || sizeText(c.att?.size ?? c.size);
+  // Private unless the person lets the AI read it: the whole file then goes
+  // to the AI provider.
+  const pick = c.state === "error" ? null : (
+    <button
+      type="button"
+      className={`ai-pick${c.ai ? " on" : ""}`}
+      aria-pressed={c.ai ? "true" : "false"}
+      disabled={c.state === "sending"}
+      title={
+        c.ai
+          ? "The AI reads this file: the whole file is sent to the AI provider. Tap to keep it private."
+          : "Private: kept on the home computer; the AI never sees it. Tap to let the AI read it."
+      }
+      onClick={() => app.dispatch(local("chat/chip", { bot: c.bot, key: c.key, patch: { ai: !c.ai } }))}
+    >
+      {c.ai ? "AI may read" : "Private"}
+    </button>
+  );
   return (
+    <span className="file-pick">
     <ChipPiece
       data-state={c.state}
       {...(c.state === "error" ? { tone: "bad" as const } : { sub: small })}
@@ -29,6 +49,8 @@ function ChipView({ c }: { c: Chip }) {
     >
       {name}
     </ChipPiece>
+    {pick}
+    </span>
   );
 }
 
@@ -103,7 +125,7 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
             className="composer-input"
             rows={1}
             ref={box}
-            placeholder={known && locked ? "Private" : dictating ? "Listening…" : "Message"}
+            placeholder={known && locked ? "Private" : dictating ? "Listening…" : current === NOTES_BOT ? "Ask, or attach a file" : "Message"}
             aria-label="Message"
             disabled={known && locked}
             value={input}
@@ -136,6 +158,7 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
         <Button kind="secondary" id="stop" hidden={!known || !busy || locked} onClick={() => current && app.send({ type: "cancel", bot: current })}>Stop</Button>
         <Button kind="primary" id="send" type="submit" disabled={known && (locked || !connected || uploadingNow)}>Send</Button>
       </form>
+      {current === NOTES_BOT ? <FileDialog bot={current} /> : null}
     </>
   );
 }

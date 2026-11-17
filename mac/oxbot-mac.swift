@@ -12,12 +12,18 @@
 //       reads an audio file instead of the mic (for tests).
 //   oxbot-mac frames VIDEO OUTDIR [--max 8] [--size 1024]
 //       writes OUTDIR/01.jpg … and prints {"duration_ms":N,"frames":N}
+//   oxbot-mac pdf PDF OUTDIR [--max 10] [--size 1600]
+//       writes the PDF's text to OUTDIR/text.txt (page by page); a scan
+//       with (almost) no text gets pictures of its first pages instead,
+//       OUTDIR/01.jpg …, for a model that sees pictures.
+//       Prints {"pages":N,"chars":N,"images":N}.
 //
 // Errors print {"error":"…"} and exit 1.
 
 import AVFoundation
 import Foundation
 import ImageIO
+import PDFKit
 import Speech
 
 let version = "1"
@@ -224,6 +230,49 @@ func frames(_ path: String, _ outDir: String, max: Int, size: Int) async {
     emit(["duration_ms": Int(seconds * 1000), "frames": written])
 }
 
+func pdf(_ path: String, _ outDir: String, max: Int, size: Int) {
+    guard let doc = PDFDocument(url: URL(fileURLWithPath: path)) else { fail("This PDF can't be opened.") }
+    if doc.isLocked { fail("This PDF is locked with a password.") }
+    do {
+        try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+    } catch {
+        fail("Couldn't make the folder.")
+    }
+    let out = URL(fileURLWithPath: outDir)
+    var text = ""
+    var chars = 0
+    for i in 0..<doc.pageCount {
+        let page = (doc.page(at: i)?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        chars += page.count
+        text += "--- page \(i + 1) of \(doc.pageCount) ---\n\(page)\n\n"
+    }
+    // Text on its pages: that's what the bot reads.
+    if chars >= 40 * Swift.max(1, Swift.min(doc.pageCount, 3)) {
+        do {
+            try text.write(to: out.appendingPathComponent("text.txt"), atomically: true, encoding: .utf8)
+        } catch {
+            fail("Couldn't write the text.")
+        }
+        emit(["pages": doc.pageCount, "chars": chars, "images": 0])
+        return
+    }
+    // A scan: pictures of its first pages, for a model that sees pictures.
+    var written = 0
+    for i in 0..<Swift.min(doc.pageCount, max) {
+        guard let page = doc.page(at: i) else { continue }
+        let box = page.bounds(for: .mediaBox)
+        let scale = CGFloat(size) / Swift.max(box.width, box.height, 1)
+        let thumb = page.thumbnail(of: CGSize(width: box.width * scale, height: box.height * scale), for: .mediaBox)
+        guard let image = thumb.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+        let name = String(format: "%02d.jpg", written + 1)
+        if writeJPEG(image, to: out.appendingPathComponent(name)) {
+            written += 1
+        }
+    }
+    guard written > 0 else { fail("This PDF has no text and its pages couldn't be drawn.") }
+    emit(["pages": doc.pageCount, "chars": chars, "images": written])
+}
+
 // MARK: main
 
 let args = Array(CommandLine.arguments.dropFirst())
@@ -245,6 +294,12 @@ case "frames":
         exit(0)
     }
     dispatchMain()
+case "pdf":
+    guard words.count >= 3 else { fail("usage: oxbot-mac pdf PDF OUTDIR [--max 10] [--size 1600]") }
+    let max = Int(option(args, "--max") ?? "") ?? 10
+    let size = Int(option(args, "--size") ?? "") ?? 1600
+    pdf(words[1], words[2], max: Swift.min(Swift.max(max, 1), 30), size: Swift.min(Swift.max(size, 256), 4096))
+    exit(0)
 default:
-    fail("usage: oxbot-mac version | can-dictate | dictate | frames")
+    fail("usage: oxbot-mac version | can-dictate | dictate | frames | pdf")
 }

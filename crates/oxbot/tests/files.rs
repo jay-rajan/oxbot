@@ -35,6 +35,8 @@ struct Server {
     addr: std::net::SocketAddr,
     key: String,
     work: PathBuf,
+    /// Where uploads wait, and private files stay (beside `work`).
+    private: PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -63,6 +65,7 @@ async fn start_with(owner_person: bool) -> Server {
     diary.private = true;
     diary.save().unwrap();
     let work = notes.work_dir();
+    let private = notes.dir.join("private");
     let fake = Arc::new(FakeBots::new(dir.path(), Tool::Note));
     let config = HubConfig {
         browser: None,
@@ -91,6 +94,7 @@ async fn start_with(owner_person: bool) -> Server {
         addr,
         key,
         work,
+        private,
         _dir: dir,
     }
 }
@@ -217,7 +221,16 @@ async fn anyone_who_may_task_a_shared_bot_sends_it_files() {
     assert_eq!(status, 200, "{body}");
     let (status, body) = upload(&s, "bot=notes&name=b.txt", &home_computer(&s), b"hi").await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(files_in(&s.work), 2);
+    assert_eq!(
+        files_in(&s.private),
+        2,
+        "uploads wait in the private folder"
+    );
+    assert_eq!(
+        files_in(&s.work),
+        0,
+        "never in the bot's work folder before it's sent"
+    );
 }
 
 #[tokio::test]
@@ -273,7 +286,7 @@ async fn too_big_or_unreadable_files_get_a_plain_message_and_leave_nothing() {
         body["error"].as_str().unwrap().contains("Unzip it"),
         "{body}"
     );
-    assert_eq!(files_in(&s.work.join("inbox")), 0, "nothing left behind");
+    assert_eq!(files_in(&s.private.join("inbox")), 0, "nothing left behind");
 }
 
 #[tokio::test]
@@ -305,6 +318,8 @@ async fn a_file_goes_with_a_message_and_opens_on_the_home_computer_only() {
             bot: "notes".into(),
             text: String::new(),
             files: vec![file.id.clone()],
+            ai_files: vec![],
+            notes: vec![],
         },
     )
     .await;

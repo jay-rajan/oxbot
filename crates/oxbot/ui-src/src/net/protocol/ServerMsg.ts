@@ -12,6 +12,7 @@ import type { DeviceInfo } from "./DeviceInfo";
 import type { DoorState } from "./DoorState";
 import type { EnginesView } from "./EnginesView";
 import type { HomeEventInfo } from "./HomeEventInfo";
+import type { HomeNoteInfo } from "./HomeNoteInfo";
 import type { LogLine } from "./LogLine";
 import type { NetRow } from "./NetRow";
 import type { NetTotals } from "./NetTotals";
@@ -336,7 +337,11 @@ title: string,
  * The bot that made the change (the Calendar bot, asked in its
  * chat), sent to everyone who sees it; none for this client's own.
  */
-bot: string | null, } | { "type": "home_changed" } | { "type": "profile" } & ProfileView | { "type": "profiles_changed" } | { "type": "notify", 
+bot: string | null, } | { "type": "home_changed" } | { "type": "home_notes", 
+/**
+ * Latest day first.
+ */
+notes: Array<HomeNoteInfo>, } | { "type": "profile" } & ProfileView | { "type": "profiles_changed" } | { "type": "notify", 
 /**
  * Bot id.
  */

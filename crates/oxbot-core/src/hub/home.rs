@@ -12,13 +12,13 @@ use serde_json::Value;
 use super::{Hub, HubError};
 use crate::bot::Viewer;
 use crate::id::{BotId, PersonId};
-use crate::tools;
 use crate::store::{Actor, EventFields, Every, HomeEvent, KEEP_DELETED_DAYS, Repeat, StoreError};
+use crate::tools;
 
 impl Hub {
     /// Who `viewer` is in the Home: a person (the home computer acts as
     /// its owner). Someone the home doesn't know yet can't change it.
-    fn home_actor(&self, viewer: &Viewer) -> Result<Actor, HubError> {
+    pub(super) fn home_actor(&self, viewer: &Viewer) -> Result<Actor, HubError> {
         let viewer = self.resolve(viewer);
         if let Some(id) = &viewer.id {
             return Ok(Actor::Person(id.clone()));
@@ -157,7 +157,11 @@ impl Hub {
     /// `bot`. A change is shown to everyone who sees the bot, with Undo.
     pub(super) fn calendar_tool(&self, bot: &BotId, tool: &str, args: &Value) -> (bool, String) {
         let by = Actor::Bot(bot.clone());
-        let id = || args.get("id").and_then(Value::as_i64).ok_or("needs the event's id");
+        let id = || {
+            args.get("id")
+                .and_then(Value::as_i64)
+                .ok_or("needs the event's id")
+        };
         let saved = |r: Result<(i64, HomeEvent, &str), HubError>| match r {
             Ok((change, event, action)) => {
                 let _ = self.updates.send(ServerMsg::HomeChanged);
@@ -207,7 +211,10 @@ impl Hub {
                 let mut added = Vec::new();
                 let (ok, text) = saved((|| {
                     let source = self.store.home_event(id)?.fields.source;
-                    let fields = EventFields { source, ..self.tool_event(args, &mut added)? };
+                    let fields = EventFields {
+                        source,
+                        ..self.tool_event(args, &mut added)?
+                    };
                     let (e, c) = self.store.change_event(id, fields, &by)?;
                     Ok((c, e, "change"))
                 })());
@@ -238,10 +245,18 @@ impl Hub {
             people: args
                 .get("people")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
                 .unwrap_or_default(),
             notes: text("notes"),
-            repeat: opt("repeat").map(|every| EventRepeat { every, until: opt("until") }),
+            repeat: opt("repeat").map(|every| EventRepeat {
+                every,
+                until: opt("until"),
+            }),
             remind_min: args
                 .get("remind_min")
                 .and_then(Value::as_i64)
@@ -546,8 +561,14 @@ mod tests {
         assert!(ok, "{text}");
         assert!(text.starts_with("Added: \"Soccer\""), "{text}");
         // Everyone's calendar asks again, and shows the bot's change with Undo.
-        assert!(matches!(updates.recv().await.unwrap(), ServerMsg::HomeChanged));
-        let ServerMsg::HomeSaved { change, id, bot, .. } = updates.recv().await.unwrap() else {
+        assert!(matches!(
+            updates.recv().await.unwrap(),
+            ServerMsg::HomeChanged
+        ));
+        let ServerMsg::HomeSaved {
+            change, id, bot, ..
+        } = updates.recv().await.unwrap()
+        else {
             panic!("saved")
         };
         assert_eq!(bot.as_deref(), Some("home-calendar"));
@@ -558,7 +579,12 @@ mod tests {
             &json!({"from": "2026-12-01", "to": "2026-12-07"}),
         );
         assert!(list.contains("People in this home: Jay, Leo."), "{list}");
-        assert!(list.contains(&format!("id {id}: Soccer · 2026-11-24T17:30 · for Leo · every week")), "{list}");
+        assert!(
+            list.contains(&format!(
+                "id {id}: Soccer · 2026-11-24T17:30 · for Leo · every week"
+            )),
+            "{list}"
+        );
 
         // Someone the home doesn't know yet joins its people.
         let (ok, text) = hub.calendar_tool(
@@ -567,7 +593,10 @@ mod tests {
             &json!({"title": "King concert", "starts": "2026-11-21T19:00", "people": ["Akhila"]}),
         );
         assert!(ok, "{text}");
-        assert!(text.contains("New in this home's people") && text.contains("Akhila"), "{text}");
+        assert!(
+            text.contains("New in this home's people") && text.contains("Akhila"),
+            "{text}"
+        );
         assert!(hub.person_names().values().any(|n| n == "Akhila"));
 
         let (ok, _) = hub.calendar_tool(

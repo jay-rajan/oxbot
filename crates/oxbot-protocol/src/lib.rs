@@ -141,6 +141,15 @@ pub enum ClientMsg {
         /// The upload ids ([`Attachment::id`]) of the files sent with it.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<String>,
+        /// Those of `files` the person let the AI read (the whole file is
+        /// sent to the AI provider). The rest stay on the home computer,
+        /// out of the bot's reach.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ai_files: Vec<String>,
+        /// Family Notes only: what the person said about each file as they
+        /// attached it (its title, day, topic...), to file it by.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        notes: Vec<NoteUpload>,
     },
     /// Forget a file uploaded for `bot` that won't be sent after all (its
     /// chip was removed): oxbot deletes it.
@@ -364,6 +373,41 @@ pub enum ClientMsg {
     },
     /// Recently deleted events, answered with [`ServerMsg::DeletedEvents`].
     DeletedEvents,
+    /// Family Notes, answered with [`ServerMsg::HomeNotes`]. Everyone in
+    /// the home.
+    HomeNotes,
+    /// Change a note's title, day, topic, tags or people; everyone showing
+    /// Family Notes is told ([`ServerMsg::HomeChanged`]).
+    ChangeNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// What it says now.
+        note: Box<NoteInput>,
+    },
+    /// Delete a note: its file waits 30 days in case it's brought back
+    /// ([`ClientMsg::RestoreNote`]).
+    DeleteNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Bring a deleted note back.
+    RestoreNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Home computer only: open a note's file on this Mac, or show it in
+    /// Finder (`reveal`).
+    OpenNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// Show it in Finder instead.
+        #[serde(default)]
+        reveal: bool,
+    },
     /// Schedules, answered with [`ServerMsg::Schedules`]: one bot's
     /// (`bot`), or every one the client may see (Settings → Schedules).
     ListSchedules {
@@ -1331,6 +1375,11 @@ pub enum ServerMsg {
     /// Something in the Home changed: a client showing it asks again.
     /// Says nothing about what.
     HomeChanged,
+    /// Family Notes: the answer to [`ClientMsg::HomeNotes`].
+    HomeNotes {
+        /// Latest day first.
+        notes: Vec<HomeNoteInfo>,
+    },
     /// One's own profile: sent when a person's connection opens, and as the
     /// answer to [`ClientMsg::SetProfile`] and [`ClientMsg::GetProfile`].
     Profile(ProfileView),
@@ -1684,6 +1733,78 @@ pub struct EventRepeat {
     /// Its last day (`2027-06-30`), if it has one.
     #[serde(default)]
     pub until: Option<String>,
+}
+
+/// A note as a person writes it (or changes it).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct NoteInput {
+    /// What it is ("Akhila's blood test"); empty: the file's name.
+    #[serde(default)]
+    pub title: String,
+    /// Its day, `2026-11-17`; empty: none given (the document's, if the
+    /// AI reads it, or else the day it was uploaded).
+    #[serde(default)]
+    pub day: String,
+    /// Its topic ("Medical"); empty: Unsorted.
+    #[serde(default)]
+    pub topic: String,
+    /// Words to find it by.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Who it's about, by name.
+    #[serde(default)]
+    pub people: Vec<String>,
+}
+
+/// What a person said about one file they attached in Family Notes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct NoteUpload {
+    /// The upload ([`Attachment::id`]).
+    pub id: String,
+    /// What they said about it.
+    pub note: NoteInput,
+}
+
+/// A note in Family Notes: a file the family keeps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HomeNoteInfo {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What it is.
+    pub title: String,
+    /// Its day, `2026-11-17`.
+    pub day: String,
+    /// Where the day came from: `you`, `document` or `upload`.
+    pub day_from: String,
+    /// Its topic; empty: Unsorted.
+    pub topic: String,
+    /// Words to find it by.
+    pub tags: Vec<String>,
+    /// Who it's about, by name.
+    pub people: Vec<String>,
+    /// A line about what's in it.
+    pub summary: String,
+    /// Where it's kept, below the Family Notes folder
+    /// (`2026/Medical/2026-11-17 Blood test.pdf`).
+    pub file: String,
+    /// Its name as uploaded.
+    pub name: String,
+    /// What kind of file.
+    pub kind: AttachmentKind,
+    /// Its size in bytes.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub size: u64,
+    /// Kept private: the AI never read it.
+    pub private: bool,
+    /// When it was uploaded.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub uploaded_ms: i64,
+    /// Who uploaded it.
+    pub uploaded_by: String,
 }
 
 /// An event as a person writes it.
@@ -2059,6 +2180,14 @@ pub struct Attachment {
     /// text` or `3 still frames`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Kept private: saved on the home computer outside the bot's folder,
+    /// never read by the AI (the person didn't let it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub private: bool,
+    /// Filed in Family Notes as this note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "number | null", optional))]
+    pub filed: Option<i64>,
 }
 
 #[allow(
@@ -2327,6 +2456,22 @@ pub enum EventKind {
     Note {
         /// The line.
         text: String,
+    },
+    /// A note in Family Notes, as a card: one just filed, or one the
+    /// bot found for someone. Opens it (the note may have changed since).
+    HomeNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// Its title then.
+        title: String,
+        /// Its day then.
+        day: String,
+        /// Where it's kept then, below the Family Notes folder.
+        file: String,
+        /// Kept private.
+        #[serde(default)]
+        private: bool,
     },
     /// The turn failed or the bot stopped.
     Error {
@@ -3049,6 +3194,8 @@ mod tests {
                 readable: None,
                 frames: 0,
                 note: None,
+                private: false,
+                filed: None,
             }],
         };
         let json = serde_json::to_string(&sent).unwrap();
@@ -3210,6 +3357,8 @@ mod tests {
             bot: "assistant".into(),
             text: "hi".into(),
             files: vec![],
+            ai_files: vec![],
+            notes: vec![],
         };
         assert_eq!(
             serde_json::to_string(&msg).unwrap(),

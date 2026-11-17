@@ -27,7 +27,7 @@ export interface UiState {
   /** The sidebar on a narrow screen. */
   sideOpen: boolean;
   /** What the main column shows: the open bot's chat, or a Home view. */
-  page: "chat" | "calendar";
+  page: "chat" | "calendar" | "notes";
 }
 
 export const initialUi: UiState = {

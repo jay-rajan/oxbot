@@ -43,6 +43,7 @@ impl Hub {
                 .get(&bot)
                 .is_some_and(|r| r.browser.is_some()),
             calendar: bot.as_str() == crate::bot::HOME_LEADS[0].0,
+            notes: bot.as_str() == crate::bot::HOME_LEADS[2].0,
         };
         let HostToolCall { name, args, reply } = call;
         let name = name
@@ -173,6 +174,7 @@ impl Hub {
                 self.delete_schedule_tool(bot, &asker, &origin, args).await
             }
             t if tools::CALENDAR_TOOLS.contains(&t) => self.calendar_tool(bot, t, args),
+            t if tools::NOTES_TOOLS.contains(&t) => self.notes_tool(bot, t, args),
             _ => (false, "unknown tool".to_owned()),
         }
     }
@@ -642,6 +644,9 @@ pub(super) fn team_label(name: &str) -> Option<&'static str> {
         tools::DELETE_SCHEDULE_TOOL => "deleting a schedule",
         tools::CALENDAR_EVENTS_TOOL => "looking at the calendar",
         tools::ADD_EVENT_TOOL => "adding to the calendar",
+        tools::FIND_NOTES_TOOL => "looking in Family Notes",
+        tools::FILE_NOTE_TOOL => "filing a note",
+        tools::SHOW_NOTE_TOOL => "showing a note",
         tools::CHANGE_EVENT_TOOL => "changing an event",
         tools::DELETE_EVENT_TOOL => "deleting an event",
         _ => return None,

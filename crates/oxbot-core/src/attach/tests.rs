@@ -296,6 +296,8 @@ fn attachment(kind: AttachmentKind, path: &str, readable: Option<&str>) -> Attac
         readable: readable.map(Into::into),
         frames: 0,
         note: None,
+        private: false,
+        filed: None,
     }
 }
 
@@ -611,9 +613,14 @@ async fn a_video_becomes_still_frames_on_a_mac_with_the_helper() {
     for n in ["01.jpg", "02.jpg", "03.jpg"] {
         assert!(dir.join(n).is_file(), "{n}");
     }
+    // Sent for the AI to read (an upload is private until then).
+    let shared = Attachment {
+        private: false,
+        ..a.clone()
+    };
     let note = note(
         Some("Jay"),
-        std::slice::from_ref(a),
+        std::slice::from_ref(&shared),
         &tmp.path().join("work"),
     );
     assert!(

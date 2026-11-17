@@ -547,6 +547,8 @@ async fn each_person_talks_to_their_own_assistant() {
             bot: "assistant".into(),
             text: "what did Jay ask you?".into(),
             files: vec![],
+            ai_files: vec![],
+            notes: vec![],
         },
     )
     .await;
@@ -609,6 +611,8 @@ async fn opening_a_bot_is_checked_like_subscribing() {
             bot: "assistant".into(),
             text: "hello".into(),
             files: vec![],
+            ai_files: vec![],
+            notes: vec![],
         },
     )
     .await;

@@ -3,7 +3,7 @@
 // sent, the message box, dictation, and the research reports opened here.
 // Pure: sending to the server is done by the chat screen, which tells this
 // reducer what it asked for (`chat/subscribed`, `chat/olderAsked`, …).
-import type { Attachment, BotEvent, ReportView, ServerMsg } from "../net/protocol";
+import type { Attachment, BotEvent, NoteInput, ReportView, ServerMsg } from "../net/protocol";
 import type { Action } from "./store";
 
 /** Events per history page. */
@@ -56,6 +56,11 @@ export interface Chip {
   error: string;
   /** The words sent with it (to put back if the send fails). */
   text?: string;
+  /** The person let the AI read it (the whole file is sent to the AI
+   *  provider). Off: it stays on the home computer, private. */
+  ai?: boolean;
+  /** Family Notes: what the person said about it, to file it by. */
+  note?: NoteInput;
 }
 
 /** The owner's thumbs and kept test cases, per bot. */

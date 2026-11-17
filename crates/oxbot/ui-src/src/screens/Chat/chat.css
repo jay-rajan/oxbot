@@ -160,6 +160,17 @@
 .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 
 /* A file going up: a tiny turning board */
+/* A file in the message box, and whether the AI may read it. */
+.file-pick { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 100%; }
+.ai-pick {
+  padding: 1px var(--s-2); border: 1px solid var(--line); border-radius: var(--r-full);
+  background: var(--surface); color: var(--muted); font-family: inherit; font-size: var(--text-xs); cursor: pointer;
+}
+.ai-pick::before { content: "🔒 "; }
+.ai-pick.on { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-ink); }
+.ai-pick.on::before { content: "✦ "; }
+.ai-pick:disabled { cursor: default; opacity: .7; }
+.ai-pick:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .chip .spin { flex: none; width: 12px; height: 12px; position: relative; }
 .chip .spin::before { content: ""; position: absolute; inset: 1px; border: 2px solid var(--ink); border-radius: 50%; animation: chat-turn 1s linear infinite; }
 .chip .spin::after {

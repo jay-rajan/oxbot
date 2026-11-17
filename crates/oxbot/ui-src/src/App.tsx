@@ -4,6 +4,7 @@
 import { useSel } from "./app/context";
 import { Toast } from "./components/ui";
 import { CalendarView } from "./screens/Calendar/CalendarView";
+import { NotesView } from "./screens/Notes/NotesView";
 import { BotSettingsDialog } from "./screens/BotSettings/BotSettingsDialog";
 import { ChatMain } from "./screens/Chat/ChatMain";
 import { ReportDialog } from "./screens/Chat/ReportDialog";
@@ -25,6 +26,7 @@ export function App() {
       <div className={page === "chat" ? "app" : "app home"}>
         <Sidebar />
         {page === "calendar" ? <CalendarView /> : null}
+        {page === "notes" ? <NotesView /> : null}
         <ChatMain />
       </div>
       <NewBotDialog />

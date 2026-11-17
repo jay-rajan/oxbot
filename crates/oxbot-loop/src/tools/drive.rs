@@ -286,6 +286,7 @@ pub(crate) async fn read_pages(
         page: None,
         taints: true,
         snapshot: None,
+        image: None,
     };
     finish(raw, &call.name, true, env)
 }
@@ -574,6 +575,7 @@ pub(crate) async fn read_document(
         }),
         taints: true,
         snapshot: None,
+        image: None,
     };
     finish(raw, &call.name, true, env)
 }
