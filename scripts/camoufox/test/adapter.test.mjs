@@ -136,3 +136,48 @@ test(
     );
   },
 );
+
+test(
+  "save_file keeps a web file in downloads under a readable name, never a web page",
+  { skip: !bundle, timeout: 90000 },
+  async (t) => {
+    const root = await mkdtemp(resolve(tmpdir(), "oxbot-save-test-"));
+    const workspace = resolve(root, "work");
+    await mkdir(resolve(workspace, "downloads"), { recursive: true });
+    const server = createServer((req, res) => {
+      if (req.url === "/files/fractions-6.pdf") {
+        res.setHeader("Content-Type", "application/pdf");
+        res.end("%PDF-1.4 fractions");
+      } else if (req.url === "/get?id=7") {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", 'attachment; filename="Science/../Plants.pdf"');
+        res.end("%PDF-1.4 plants");
+      } else {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.end("<title>Worksheets</title><a href=/files/fractions-6.pdf>Fractions</a>");
+      }
+    });
+    await new Promise((done) => server.listen(0, "127.0.0.1", done));
+    t.after(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const adapter = await Adapter.start({ bundle, profile: resolve(root, "profile"), headless: true });
+    // The browser closes first: it writes to its profile until then.
+    t.after(async () => {
+      await adapter.runtime.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    await adapter.admin("downloads", { dir: resolve(workspace, "downloads") });
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const saved = (await adapter.tool("save_file", { url: `${origin}/files/fractions-6.pdf` }, workspace)).text;
+    assert.match(saved, /^Saved fractions-6\.pdf \(1 KB, application\/pdf\) in your folder: downloads\/fractions-6\.pdf$/);
+    const again = (await adapter.tool("save_file", { url: `${origin}/files/fractions-6.pdf` }, workspace)).text;
+    assert.ok(again.includes("downloads/fractions-6 (2).pdf"), again);
+    const named = (await adapter.tool("save_file", { url: `${origin}/get?id=7` }, workspace)).text;
+    assert.ok(named.includes("downloads/Plants.pdf"), named);
+    assert.equal(await readFile(resolve(workspace, "downloads/Plants.pdf"), "utf8"), "%PDF-1.4 plants");
+    await assert.rejects(adapter.tool("save_file", { url: `${origin}/page` }, workspace), /web page, not a file/);
+    await assert.rejects(adapter.tool("save_file", { url: "file:///etc/hosts" }, workspace), /Only web addresses/);
+  },
+);

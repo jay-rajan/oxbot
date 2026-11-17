@@ -653,6 +653,7 @@ impl Camoufox {
             name,
             "navigate_page"
                 | "new_page"
+                | "save_file"
                 | "click"
                 | "fill"
                 | "fill_form"
@@ -663,9 +664,9 @@ impl Camoufox {
                 | "upload_file"
                 | "handle_dialog"
         );
-        let load = matches!(name, "navigate_page" | "new_page" | "click")
+        let load = matches!(name, "navigate_page" | "new_page" | "save_file" | "click")
             || name == "press_key" && body["args"]["key"].as_str() == Some("Enter");
-        let url = if matches!(name, "navigate_page" | "new_page") {
+        let url = if matches!(name, "navigate_page" | "new_page" | "save_file") {
             body["args"]["url"].as_str().map(str::to_owned)
         } else {
             self.call("page_url", json!({}))

@@ -711,6 +711,9 @@ pub(super) fn tool_label(name: &str) -> String {
         return label.to_owned();
     }
     if let Some(action) = name.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")) {
+        if action == "save_file" {
+            return "saving a file".to_owned();
+        }
         return format!("browser {action}");
     }
     // Any other tool of a server: its own name, in words.

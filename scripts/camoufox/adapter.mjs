@@ -45,6 +45,8 @@ const clean = (value) =>
     .replace(/[\r\n\u2028\u2029]/g, " ")
     .slice(0, 2000);
 // Must match oxbot-core's hub/elements.rs SNAPSHOT_TOOLS.
+// The largest file save_file keeps.
+const MAX_SAVE = 50 * 1024 * 1024;
 const SNAPSHOT_RESULTS = new Set([
   "take_snapshot",
   "wait_for",
@@ -395,6 +397,8 @@ export class Adapter {
         await next.goto(url.href, { waitUntil: "domcontentloaded" });
         break;
       }
+      case "save_file":
+        return { text: await this.saveFile(args.url) };
       case "read_sites": {
         const urls = Array.isArray(args.urls) ? args.urls : [];
         if (!urls.length || urls.length > MAX_SITES)
@@ -523,6 +527,53 @@ export class Adapter {
       : "";
     this.resetNote = false;
     return { text: prefix + result };
+  }
+  // save_file: one file from the web, fetched as this browser would (its
+  // cookies, its proxy), into the bot's downloads folder under a readable
+  // name ("worksheet.pdf", then "worksheet (2).pdf"). Web pages are refused.
+  async saveFile(address) {
+    if (!this.downloads) throw new Error("There's no downloads folder right now");
+    const url = new URL(String(address ?? ""));
+    if (!["http:", "https:"].includes(url.protocol))
+      throw new Error("Only web addresses (http or https) are allowed");
+    const response = await this.context.request.get(url.href, {
+      timeout: 60000,
+      maxRedirects: 5,
+    });
+    if (!response.ok())
+      throw new Error(`The site answered ${response.status()}: nothing was saved`);
+    const headers = response.headers();
+    const type = (headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+    if (type === "text/html" || type === "application/xhtml+xml")
+      throw new Error(
+        "That address is a web page, not a file: open it and use the file's own link (often ending in .pdf)",
+      );
+    const body = await response.body();
+    if (body.length > MAX_SAVE)
+      throw new Error(`That file is ${Math.round(body.length / 1048576)} MB; files up to 50 MB are saved`);
+    const given = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(headers["content-disposition"] ?? "")?.[1];
+    let name = basename(decodeURIComponent(given ?? url.pathname.split("/").pop() ?? ""))
+      .replace(/[^\p{L}\p{N} ._()-]/gu, "_")
+      .replace(/^[.\s]+/, "")
+      .slice(-120);
+    const ext = { "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg" }[type];
+    if (!name) name = "download";
+    if (ext && !name.toLowerCase().endsWith(ext)) name += ext;
+    const dot = name.lastIndexOf(".");
+    const [stem, tail] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+    for (let n = 1; n < 1000; n++) {
+      const pick = n === 1 ? name : `${stem} (${n})${tail}`;
+      const file = await workspaceFile(this.workspace, resolve(this.downloads, pick));
+      try {
+        await writeFile(file, body, { flag: "wx", mode: 0o600 });
+      } catch (error) {
+        if (error.code === "EEXIST") continue;
+        throw error;
+      }
+      const kb = Math.max(1, Math.round(body.length / 1024));
+      return `Saved ${pick} (${kb} KB${type ? `, ${type}` : ""}) in your folder: downloads/${pick}`;
+    }
+    throw new Error("Too many files with that name");
   }
   // One site of read_sites, in a tab of its own: loaded, settled, read
   // (its title, text and links), and closed. A site that fails says why.

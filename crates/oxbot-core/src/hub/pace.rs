@@ -50,7 +50,7 @@ impl Step {
     pub(super) fn of(tool: &str) -> Option<Self> {
         let name = tool.rsplit("__").next().unwrap_or(tool);
         match name {
-            "navigate_page" | "new_page" | "read_sites" => Some(Self::Load),
+            "navigate_page" | "new_page" | "read_sites" | "save_file" => Some(Self::Load),
             "click" | "click_at" | "fill" | "fill_form" | "type_text" | "press_key" | "hover"
             | "drag" | "upload_file" | "handle_dialog" => Some(Self::Act),
             _ => None,
