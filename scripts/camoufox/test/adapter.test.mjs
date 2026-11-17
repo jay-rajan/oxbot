@@ -171,7 +171,7 @@ test(
     await adapter.admin("downloads", { dir: resolve(workspace, "downloads") });
     const origin = `http://127.0.0.1:${server.address().port}`;
     const saved = (await adapter.tool("save_file", { url: `${origin}/files/fractions-6.pdf` }, workspace)).text;
-    assert.match(saved, /^Saved fractions-6\.pdf \(1 KB, application\/pdf\) in your folder: downloads\/fractions-6\.pdf$/);
+    assert.match(saved, /^Saved fractions-6\.pdf \(1 KB, application\/pdf\) in your folder: downloads\/fractions-6\.pdf\. On the home computer it's at .+\/work\/downloads\/fractions-6\.pdf\. Tell the person/);
     const again = (await adapter.tool("save_file", { url: `${origin}/files/fractions-6.pdf` }, workspace)).text;
     assert.ok(again.includes("downloads/fractions-6 (2).pdf"), again);
     const named = (await adapter.tool("save_file", { url: `${origin}/get?id=7` }, workspace)).text;

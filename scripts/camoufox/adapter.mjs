@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, realpath, writeFile, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { launchNative } from "./runtime.mjs";
 import { workspaceFile } from "./files.mjs";
@@ -571,7 +572,10 @@ export class Adapter {
         throw error;
       }
       const kb = Math.max(1, Math.round(body.length / 1024));
-      return `Saved ${pick} (${kb} KB${type ? `, ${type}` : ""}) in your folder: downloads/${pick}`;
+      // Where it is on the Mac, as the person would find it in Finder.
+      const home = homedir();
+      const onMac = file.startsWith(`${home}/`) ? `~${file.slice(home.length)}` : file;
+      return `Saved ${pick} (${kb} KB${type ? `, ${type}` : ""}) in your folder: downloads/${pick}. On the home computer it's at ${onMac}. Tell the person that full path for each file you save.`;
     }
     throw new Error("Too many files with that name");
   }
