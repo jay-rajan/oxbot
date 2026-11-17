@@ -265,6 +265,24 @@ export class Adapter {
       url: page.url(),
       uid: (n) => (n === "root" ? `${this.generation}_root` : `${this.generation}_${this.nextUid++}`),
     });
+    // A password box's text never leaves the browser: the snapshot may
+    // show what's typed in it, so it's blanked out (each text box's type is
+    // asked of the browser itself, never read from the page's own text).
+    const secret = new Set();
+    for (const { uid, ref, role } of refs) {
+      if (role !== "textbox") continue;
+      const type = await page
+        .locator(`aria-ref=${ref}`)
+        .getAttribute("type", { timeout: 1000 })
+        .catch(() => "password");
+      if ((type ?? "").toLowerCase() === "password") secret.add(uid);
+    }
+    if (secret.size)
+      for (let i = 0; i < lines.length; i++) {
+        const uid = /uid=(\S+)/.exec(lines[i])?.[1];
+        if (uid && secret.has(uid))
+          lines[i] = lines[i].replace(/ value="(?:[^"\\]|\\.)*"/, ' value="(hidden)"');
+      }
     for (const { uid, ref, role, name } of refs) {
       // Facts are read when the element is first used, not here: a big
       // page has hundreds of controls and one page call each.
