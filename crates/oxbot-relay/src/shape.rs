@@ -136,7 +136,14 @@ pub fn outgoing(
             && takes(param)
             && (has_tools || !tool_field)
         {
-            out.insert(key.into(), v.clone());
+            // One call at a time: bots share one browser, and two pages
+            // opened at once leave the next look on the wrong tab.
+            let v = if key == "parallel_tool_calls" {
+                json!(false)
+            } else {
+                v.clone()
+            };
+            out.insert(key.into(), v);
         }
     }
     if takes("max_tokens") {
@@ -291,7 +298,7 @@ mod tests {
     fn an_unknown_model_gets_the_optional_fields_but_never_the_ids() {
         let out = outgoing(&codex_request(), &attempt(None), &ours());
         assert_eq!(out["reasoning"], json!({"summary": "auto"}));
-        assert_eq!(out["parallel_tool_calls"], true);
+        assert_eq!(out["parallel_tool_calls"], false, "one call at a time");
         assert!(!out.contains_key("prompt_cache_key"));
         assert!(!out.contains_key("client_metadata"));
     }
