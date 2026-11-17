@@ -40,7 +40,7 @@
       const { id, state } = await response.json();
       let result;
       try {
-        if (!["minimized", "normal", "status"].includes(state))
+        if (!["minimized", "normal", "maximized", "status"].includes(state))
           throw new Error("Invalid window state");
         const windows = await browser.windows.getAll({
           windowTypes: ["normal"],
@@ -50,7 +50,7 @@
           for (const window of windows) {
             await browser.windows.update(
               window.id,
-              state === "normal" ? { state, focused: true } : { state },
+              state === "minimized" ? { state } : { state, focused: true },
             );
           }
         }

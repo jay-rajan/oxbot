@@ -99,7 +99,7 @@ export async function windowBridge({ timeout = 10000 } = {}) {
         return Promise.reject(
           new Error("Window bridge is unavailable or busy"),
         );
-      if (!["minimized", "normal", "status"].includes(state))
+      if (!["minimized", "normal", "maximized", "status"].includes(state))
         return Promise.reject(new Error("Invalid window command"));
       return new Promise((done, fail) => {
         const id = randomUUID();

@@ -232,8 +232,10 @@ export async function launchNative({
           return context.newPage();
         }
       },
+      // In front of the person, filling the screen: only when they're
+      // needed (a sign-in or a robot check).
       async showForUser() {
-        if (bridge) await bridge.setState("normal");
+        if (bridge) await bridge.setState("maximized");
       },
       async minimize() {
         if (bridge) await bridge.setState("minimized");

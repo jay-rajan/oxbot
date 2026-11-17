@@ -460,7 +460,9 @@ impl Camoufox {
             rpc: StdMutex::default(),
             start: Mutex::new(()),
             paused: Arc::new(AtomicBool::new(false)),
-            hidden: AtomicBool::new(false),
+            // Hidden until a bot (or a sign-in) wants a window: starting
+            // with one would flash it up, then start over hidden.
+            hidden: AtomicBool::new(true),
             stopping: AtomicBool::new(false),
             courtesy,
             requests: Mutex::default(),

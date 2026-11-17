@@ -410,7 +410,10 @@ struct BotFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sharing: Option<Sharing>,
     /// Before the `[openrouter]` table: TOML writes plain values first.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// Hidden unless the file says `browser_hidden = false` (Nov 2026: every
+    /// bot's browser is hidden by default, shown only when the user is
+    /// needed).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
     browser_hidden: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     lead: bool,
@@ -489,6 +492,19 @@ pub enum BotError {
     /// A bot with that id already exists.
     #[error("bot {0} already exists")]
     Exists(BotId),
+}
+
+#[allow(clippy::unnecessary_wraps, reason = "serde's default takes a function")]
+const fn yes() -> bool {
+    true
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes a reference"
+)]
+const fn is_true(b: &bool) -> bool {
+    *b
 }
 
 fn io_err(path: &Path) -> impl FnOnce(io::Error) -> BotError + '_ {
@@ -631,7 +647,7 @@ impl Bot {
             private: false,
             sharing: Some(Sharing::Everyone),
             openrouter: None,
-            browser_hidden: false,
+            browser_hidden: true,
             lead: false,
             helper_of: None,
         };
@@ -1116,6 +1132,14 @@ mod tests {
 
         bot.loop_settings.model = Some("auto".into());
         bot.loop_settings.daily_requests = Some(200);
+        // Hidden by default; only a shown browser is written down.
+        assert!(bot.browser_hidden);
+        assert!(!text.contains("browser_hidden"), "{text}");
+        bot.browser_hidden = false;
+        bot.save().unwrap();
+        let shown = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(shown.contains("browser_hidden = false"), "{shown}");
+        assert!(!Bot::load(&bot.dir).unwrap().browser_hidden);
         bot.browser_hidden = true;
         bot.lead = true;
         bot.helper_of = Some(BotId::new("meals").unwrap());
