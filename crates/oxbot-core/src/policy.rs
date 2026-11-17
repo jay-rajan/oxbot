@@ -10,7 +10,7 @@
 //! | reading, opening web pages, scrolling, hovering, typing | run |
 //! | clicking links, tabs, search, filters, sorting, paging, "Show more" | run |
 //! | clicking a search form's or a GET form's button | run |
-//! | clicking an element oxbot can't name, or whose name the live page doesn't show | red card |
+//! | clicking an element oxbot can't name, or whose name the live page doesn't show | red card on a site the bot's browser is signed in to; elsewhere run (the hub checks: nothing there is the person's) |
 //! | clicking something that changes things (Send, Post, Save, Apply, Allow, Enable, Block, Leave, Add…) | red card |
 //! | clicking a POST form's button that doesn't only look things up | red card |
 //! | a switch, checkbox or radio on a settings, privacy or account page, a privacy one ("Private account", "Show my email"), or a switch outside search results | red card |

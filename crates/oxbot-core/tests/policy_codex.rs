@@ -250,9 +250,10 @@ async fn page_scripts_are_never_offered_and_never_run() {
 }
 
 #[tokio::test]
-async fn adding_to_a_cart_needs_no_ok_but_a_sign_in() {
+async fn adding_to_a_cart_signed_out_is_skipped_without_asking() {
     // Adding to a cart costs nothing: no card. Not signed in to the shop,
-    // though, it waits for a sign-in; cancelled, nothing is added.
+    // it needs the person's account there: nothing is added, and nobody is
+    // asked to sign in (the bot may ask, if they wanted their account used).
     let page = "## Pages\n1: Milk frother (https://shop.example.com/frother) [selected]\n## Latest page snapshot\nuid=1_1 RootWebArea \"Milk frother\"\n  uid=1_2 link \"Cart (2 items)\"\n  uid=1_3 button \"Add to Cart, SIMPLETASTE Rechargeable Milk Frother Handheld\"";
     let Some(o) = on_codex(
         "poster",
@@ -264,14 +265,7 @@ async fn adding_to_a_cart_needs_no_ok_but_a_sign_in() {
     else {
         return;
     };
-    assert_eq!(
-        o.seen,
-        [
-            "sign in to example.com before adding to your cart",
-            "oxbot refused: Not signed in to example.com, so nothing was added. Tell the person \
-             they need to sign in (Settings → Websites) and stop."
-        ]
-    );
+    assert!(o.seen.is_empty(), "no sign-in card or line: {:?}", o.seen);
     assert!(o.cards.is_empty(), "no approval card");
     assert_eq!(o.said, "behavior=deny");
     assert_eq!(o.ran, ["take_snapshot"], "nothing went into the cart");
@@ -303,4 +297,24 @@ async fn a_page_that_says_to_delete_still_gets_a_red_card_and_no_means_no() {
         !o.hub.can_always(&o.cards[0], &Viewer::home_computer("Jay")),
         "a delete never offers Always allow"
     );
+}
+
+#[tokio::test]
+async fn a_click_oxbot_cant_name_runs_on_a_site_not_signed_in_to() {
+    // An icon with no name on a worksheet site: nothing there is the
+    // person's, so it runs without a card.
+    let page = "## Pages\n1: Worksheets (https://worksheets.example.org/grade-6) [selected]\n## Latest page snapshot\nuid=1_1 RootWebArea \"Worksheets\"\n  uid=1_2 generic";
+    let Some(o) = on_codex(
+        "poster",
+        &call("mcp__chrome-devtools__click", json!({"uid": "1_2"})),
+        Some(page),
+        Answer::Deny,
+    )
+    .await
+    else {
+        return;
+    };
+    assert!(o.cards.is_empty(), "no card: {:?}", o.seen);
+    assert_eq!(o.said, "behavior=allow");
+    assert!(o.ran.contains(&"click".to_owned()), "{:?}", o.ran);
 }

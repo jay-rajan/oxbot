@@ -455,18 +455,8 @@ async fn shop_hub(dir: &Path, uid: &str, store: Store) -> (Arc<Hub>, Arc<FakeBot
     (hub, fake)
 }
 
-/// The sign-in card that comes up, failing if an approval card comes first.
-async fn sign_in_first(updates: &mut Receiver<ServerMsg>) -> oxbot_protocol::SignInRequest {
-    next(updates, |m| match m {
-        ServerMsg::SignInNeeded(r) => Some(r),
-        ServerMsg::ApprovalNeeded(a) => panic!("an approval card before the sign-in: {a:?}"),
-        _ => None,
-    })
-    .await
-}
-
 #[tokio::test]
-async fn adding_to_a_cart_signed_out_asks_to_sign_in_first() {
+async fn adding_to_a_cart_signed_out_is_skipped_without_asking() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
@@ -474,49 +464,24 @@ async fn adding_to_a_cart_signed_out_asks_to_sign_in_first() {
     let (hub, fake) = shop_hub(tmp.path(), "4_3", Store::open_in_memory().unwrap()).await;
     let mut updates = hub.subscribe();
 
-    // Not signed in: the sign-in card, for the shop's main domain.
+    // Not signed in: no sign-in card and no approval; the bot is told the
+    // site needs the person's account, and nothing is clicked.
     hub.send("poster", "add the milk to my cart", Some("Jay"))
         .await
         .unwrap();
-    let request = sign_in_first(&mut updates).await;
-    assert_eq!(request.site, "example.com");
-    assert_eq!(request.url, "https://www.shop.example.com/");
-    assert_eq!(request.before.as_deref(), Some("adding to your cart"));
-    assert_eq!(hub.pending_approvals(), []);
-
-    // Cancelled: refused, in words the bot can act on, and nothing clicked.
-    hub.resolve_sign_in(request.id, false);
     let (said, outcome) = ending(&hub, &mut updates).await;
     assert_eq!(said, "behavior=deny");
     assert_eq!(outcome, None, "no approval card at all");
+    assert_eq!(hub.pending_sign_ins(), []);
     assert!(
         fake.heard().iter().any(|r| r
-            == "[oxbot said no] Not signed in to example.com, so nothing was added. Tell the \
-                person they need to sign in (Settings → Websites) and stop."),
+            .contains("Not signed in to example.com, so nothing was added")
+            && r.contains("Skip it")
+            && r.contains("request_sign_in")),
         "{:?}",
         fake.heard()
     );
     assert!(!fake.ran().contains(&"click".to_owned()));
-    let blocked = hub.history("poster", 0).unwrap().into_iter().any(|e| {
-        matches!(&e.kind, EventKind::Blocked { message } if message.contains("Not signed in to example.com"))
-    });
-    assert!(blocked, "the chat shows the refusal");
-
-    // Signed in this time: the site joins the list and, as adding to a cart
-    // costs nothing, the click runs with no approval card.
-    hub.send("poster", "again", Some("Jay")).await.unwrap();
-    let request = sign_in_first(&mut updates).await;
-    hub.resolve_sign_in(request.id, true);
-    let (said, outcome) = ending(&hub, &mut updates).await;
-    assert_eq!(said, "behavior=allow");
-    assert_eq!(outcome, None, "no approval card");
-    assert!(fake.ran().contains(&"click".to_owned()));
-    let listed: Vec<String> = hub
-        .sites(oxbot_core::id::BrowserOwner::Home)
-        .into_iter()
-        .map(|s| s.site)
-        .collect();
-    assert_eq!(listed, ["example.com"]);
     hub.shutdown().await;
 }
 
@@ -550,21 +515,23 @@ async fn adding_to_a_cart_signed_in_just_runs() {
 }
 
 #[tokio::test]
-async fn buying_signed_out_asks_to_sign_in_then_for_the_ok() {
+async fn buying_signed_in_asks_for_the_ok() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
     }
-    let (hub, fake) = shop_hub(tmp.path(), "4_4", Store::open_in_memory().unwrap()).await;
+    let store = Store::open_in_memory().unwrap();
+    store
+        .add_site(oxbot_core::store::HOME, "example.com")
+        .unwrap();
+    let (hub, fake) = shop_hub(tmp.path(), "4_4", store).await;
     let mut updates = hub.subscribe();
     hub.send("poster", "buy the milk", Some("Jay"))
         .await
         .unwrap();
-    let request = sign_in_first(&mut updates).await;
-    assert_eq!(request.before.as_deref(), Some("buying"));
-    hub.resolve_sign_in(request.id, true);
-    // Signed in: the approval follows, as buying costs money.
+    // Signed in: the approval, as buying costs money.
     let approval = next(&mut updates, |m| match m {
+        ServerMsg::SignInNeeded(r) => panic!("signed in already, yet asked: {r:?}"),
         ServerMsg::ApprovalNeeded(a) => Some(a),
         _ => None,
     })
@@ -575,19 +542,6 @@ async fn buying_signed_out_asks_to_sign_in_then_for_the_ok() {
     assert_eq!(said, "behavior=deny");
     assert_eq!(outcome, Some(Outcome::Denied));
     assert!(!fake.ran().contains(&"click".to_owned()));
-
-    // Already signed in now: straight to the approval.
-    hub.send("poster", "again", Some("Jay")).await.unwrap();
-    let approval = next(&mut updates, |m| match m {
-        ServerMsg::SignInNeeded(r) => panic!("signed in already, yet asked: {r:?}"),
-        ServerMsg::ApprovalNeeded(a) => Some(a),
-        _ => None,
-    })
-    .await;
-    hub.answer(approval.id, Answer::AllowOnce);
-    let (said, outcome) = ending(&hub, &mut updates).await;
-    assert_eq!(said, "behavior=allow");
-    assert_eq!(outcome, Some(Outcome::Allowed));
     hub.shutdown().await;
 }
 
@@ -2984,7 +2938,10 @@ async fn a_bot_a_lead_creates_is_its_helper() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines, reason = "one story: filed, found, changed, deleted, back")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one story: filed, found, changed, deleted, back"
+)]
 async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {

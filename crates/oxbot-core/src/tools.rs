@@ -170,8 +170,11 @@ fn tools(set: ToolSet) -> Vec<Value> {
         "name": SIGN_IN_TOOL,
         "description": "Ask the user to sign in to a website in the shared browser. oxbot shows them an approval \
             request; they open the page in a normal Chrome window on the home computer and sign in themselves. Waits (up to \
-            about 10 minutes) until they're done. Use it whenever a site shows a sign-in page, a CAPTCHA or a \
-            2-step prompt. Every bot then stays signed in. Afterwards, reload the page and carry on.",
+            about 10 minutes) until they're done. Use it only when the person asked you to use their own account or \
+            data on that site (\"check my Spirit of Math\", \"order from my Costco account\"), or for a CAPTCHA \
+            or 2-step prompt on a page you need. When a page only offers an account (a free download behind a \
+            sign-up, a site that wants you to log in), skip it, use another source, and tell them at the end. \
+            Every bot then stays signed in. Afterwards, reload the page and carry on.",
         "inputSchema": {
             "type": "object",
             "properties": {
