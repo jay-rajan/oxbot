@@ -28,7 +28,15 @@ export interface UiState {
   sideOpen: boolean;
   /** What the main column shows: the open bot's chat, or a Home view. */
   page: "chat" | "calendar" | "notes";
+  /** How a Home view and its bot's chat share the screen. */
+  homeMode: HomeMode;
 }
+
+/** Split: the view and the chat side by side (stacked on a phone); full:
+ *  the view alone; chat: the chat alone. */
+export type HomeMode = "split" | "full" | "chat";
+
+
 
 export const initialUi: UiState = {
   current: null,
@@ -38,6 +46,7 @@ export const initialUi: UiState = {
   toast: null,
   sideOpen: false,
   page: "chat",
+  homeMode: "split",
 };
 
 export function uiReducer(state: UiState, action: Action): UiState {
@@ -68,6 +77,8 @@ export function uiReducer(state: UiState, action: Action): UiState {
       return state.toast && state.toast.n === action.n ? { ...state, toast: null } : state;
     case "ui/side":
       return { ...state, sideOpen: Boolean(action.open) };
+    case "ui/homeMode":
+      return { ...state, homeMode: action.mode as HomeMode };
     default:
       return state;
   }

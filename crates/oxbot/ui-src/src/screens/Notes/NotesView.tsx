@@ -10,6 +10,8 @@ import type { HomeNoteInfo } from "../../net/protocol";
 import { byYearTopic, dayFrom, search, topics as topicsOf } from "../../state/notes";
 import { local } from "../../state/store";
 import { longDay } from "../Calendar/CalendarView";
+import { HomeMode } from "../Calendar/HomeMode";
+import { HomeIcon } from "../Sidebar/HomeIcon";
 import { NoteDialog } from "./NoteDialog";
 import "../Calendar/calendar.css";
 import "./notes.css";
@@ -42,7 +44,9 @@ export function NotesView() {
         <IconButton className="menu cal-menu" label="Bots" onClick={() => dispatch(local("ui/side", { open: true }))}>
           <MenuIcon />
         </IconButton>
+        <HomeIcon id="home-notes" />
         <h1>Family Notes</h1>
+        <HomeMode where="view" view="Notes" />
       </header>
       {deleted ? (
         <div className="cal-saved" role="status">

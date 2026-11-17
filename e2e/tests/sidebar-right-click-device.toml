@@ -43,7 +43,7 @@ key = "Escape"
 [[step]]
 click = "Recipes by Jay"
 [[step]]
-expect_js = "!document.getElementById('botMore').hidden && document.getElementById('botMore').getAttribute('aria-label') === 'Reports'"
+expect_js = "document.getElementById('botMore').getAttribute('aria-disabled') === 'false' && document.getElementById('botMore').getAttribute('aria-label') === 'Reports'"
 note = "On Jay's bot ··· only lists its reports (#14): no rename, privacy or delete, the same rule"
 [[step]]
 click = "Reports"
@@ -54,7 +54,7 @@ click = "Close"
 [[step]]
 click = "Garden by Sam"
 [[step]]
-expect_js = "!document.getElementById('botMore').hidden && document.getElementById('botMore').getAttribute('aria-label') === 'Bot settings'"
+expect_js = "document.getElementById('botMore').getAttribute('aria-disabled') === 'false' && document.getElementById('botMore').getAttribute('aria-label') === 'Bot settings'"
 [[step]]
 right_click = "Recipes by Jay"
 [[step]]

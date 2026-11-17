@@ -11,36 +11,9 @@ import { type NameAsk as AskName, askName as askNameDialog } from "../Welcome/Na
 import { BotList } from "./BotList";
 import { BotMenu, type MenuAt, type MenuFor, refocus } from "./BotMenu";
 import { BrandMark } from "./BrandMark";
+import { HomeIcon } from "./HomeIcon";
 import { keep, keptJson } from "./storage";
 import "./sidebar.css";
-
-const icon = (d: React.ReactNode) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    {d}
-  </svg>
-);
-/** The Home row's icons: a calendar page, a plate and fork, a note. */
-const HOME_ICONS: Record<string, React.ReactNode> = {
-  "home-calendar": icon(
-    <>
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 10h18M8 3v4M16 3v4" />
-    </>,
-  ),
-  "home-meals": icon(
-    <>
-      <circle cx="13" cy="13" r="7" />
-      <circle cx="13" cy="13" r="3.5" />
-      <path d="M4 3v6M2.5 3v4a1.5 1.5 0 0 0 3 0V3M4 9v12" />
-    </>,
-  ),
-  "home-notes": icon(
-    <>
-      <path d="M5 3h10l4 4v14H5z" />
-      <path d="M15 3v4h4M8 12h8M8 16h6" />
-    </>,
-  ),
-};
 
 const GROUP_BY = [
   ["sections", "Sections"],
@@ -237,9 +210,7 @@ export function Sidebar() {
                 aria-current={String(here) as "true" | "false"}
                 onClick={() => openHome(h)}
               >
-                <span className="avatar home-icon" aria-hidden="true">
-                  {HOME_ICONS[h.id]}
-                </span>
+                <HomeIcon id={h.id} />
                 <span className="meta">
                   <span className="name">
                     <span>{h.name}</span>

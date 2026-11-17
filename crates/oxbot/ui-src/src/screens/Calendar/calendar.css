@@ -107,6 +107,20 @@
   .app.home > .chat .chat-head .menu { display: none; }
 }
 
+/* Full: the view alone. Chat: the bot's chat alone (the switch is in
+   both headers). The view's own header has the switch too, so the chat's
+   is shown only when the view is hidden, and on a phone. */
+.app.home.mode-full, .app.home.mode-chat { grid-template-columns: var(--side-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.app.home.mode-full > .chat, .app.home.mode-chat > .cal { display: none; }
+.app.home.mode-full > .cal, .app.home.mode-chat > .chat { grid-column: 2; grid-row: 1; border: 0; }
+.app.home:not(.mode-chat) > .chat .home-mode { display: none; }
+.home-mode .seg-option span { padding-left: var(--s-2); padding-right: var(--s-2); }
+/* Always at the top right of its header; the calendar's own controls go
+   on the row below. */
+.cal-head .home-mode { flex: none; margin-left: auto; order: 1; }
+.cal-break { order: 2; flex-basis: 100%; height: 0; }
+.cal-head > .cal-views, .cal-head > .cal-range, .cal-head > .cal-actions { order: 3; }
+
 /* Tablet: the week becomes a list of days. */
 @media (max-width: 899px) {
   .cal-week { grid-template-columns: minmax(0, 1fr); min-height: 0; }
@@ -122,9 +136,17 @@
 @media (max-width: 720px) {
   .app.home { grid-template-columns: minmax(0, 1fr); }
   .app.home > .cal, .app.home > .chat { grid-column: 1; }
+  .app.home.mode-full, .app.home.mode-chat { grid-template-columns: minmax(0, 1fr); }
+  .app.home.mode-full > .cal, .app.home.mode-chat > .chat { grid-column: 1; }
+  /* The chat alone on a phone: its menu opens the bots. */
+  .app.home.mode-chat > .chat .chat-head .menu { display: inline-grid; }
   .cal-head { padding-left: max(var(--s-3), env(safe-area-inset-left)); padding-right: max(var(--s-3), env(safe-area-inset-right)); }
   .cal-head .cal-menu { display: inline-grid; margin-left: 0; }
   .cal-head h1 { flex: 1; }
+  .cal-head .home-mode { order: 1; }
+  .cal-head > .cal-actions { order: 3; }
+  .cal-head > .cal-range { order: 4; }
+  .cal-head > .cal-views { order: 5; }
   .cal-actions { order: 2; margin-left: 0; }
   .cal-range { order: 3; width: 100%; justify-content: space-between; }
   .cal-views { order: 4; width: 100%; }

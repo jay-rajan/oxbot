@@ -5,6 +5,7 @@ import { useSel } from "./app/context";
 import { Toast } from "./components/ui";
 import { CalendarView } from "./screens/Calendar/CalendarView";
 import { NotesView } from "./screens/Notes/NotesView";
+import { useHomeMode, useSavedHomeMode } from "./screens/Calendar/HomeMode";
 import { BotSettingsDialog } from "./screens/BotSettings/BotSettingsDialog";
 import { ChatMain } from "./screens/Chat/ChatMain";
 import { ReportDialog } from "./screens/Chat/ReportDialog";
@@ -20,10 +21,12 @@ import "./shell.css";
 
 export function App() {
   const page = useSel((s) => s.ui.page);
+  const mode = useHomeMode();
+  useSavedHomeMode();
   return (
     <>
       {/* A Home view sits beside the chat on a wide screen (calendar.css). */}
-      <div className={page === "chat" ? "app" : "app home"}>
+      <div className={page === "chat" ? "app" : `app home mode-${mode}`}>
         <Sidebar />
         {page === "calendar" ? <CalendarView /> : null}
         {page === "notes" ? <NotesView /> : null}

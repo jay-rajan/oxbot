@@ -18,6 +18,8 @@ import {
 import { local } from "../../state/store";
 import { DeletedDialog } from "./DeletedDialog";
 import { type Draft, EventDialog } from "./EventDialog";
+import { HomeIcon } from "../Sidebar/HomeIcon";
+import { HomeMode } from "./HomeMode";
 import { TimeGrid } from "./TimeGrid";
 import "./calendar.css";
 
@@ -219,7 +221,10 @@ export function CalendarView() {
         <IconButton className="menu cal-menu" label="Bots" onClick={() => dispatch(local("ui/side", { open: true }))}>
           <MenuIcon />
         </IconButton>
+        <HomeIcon id="home-calendar" />
         <h1>Calendar</h1>
+        <HomeMode where="view" view="Calendar" />
+        <span className="cal-break" aria-hidden="true" />
         <Segmented className="cal-views" name="calView" label="Calendar view" options={VIEWS} value={view} onChange={setView} />
         <div className="cal-range">
           <IconButton label="Earlier" size="sm" onClick={() => go(step(view, day, -1))}>

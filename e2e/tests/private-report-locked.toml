@@ -8,7 +8,7 @@ click = "Bank"
 [[step]]
 expect = "Jay's private bot"
 [[step]]
-expect_js = "document.getElementById('botMore').hidden"
+expect_js = "document.getElementById('botMore').getAttribute('aria-disabled') === 'true'"
 note = "No ··· (and no Reports) on someone else's private bot"
 [[step]]
 expect_js = "(openReport('bank', 'r_5ec2e75ec2e75ec2e75ec2e75ec2e75e'), send({ type: 'list_reports', bot: 'bank' }), true)"

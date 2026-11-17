@@ -22,7 +22,13 @@
   font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-tight);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.head-more { margin-left: auto; }
+/* The bot's icon and name: tap for its settings. */
+.head-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s-3); margin: calc(-1 * var(--s-1)) 0; padding: var(--s-1) var(--s-2) var(--s-1) var(--s-1); border-radius: var(--r-md); cursor: pointer; }
+.head-who:hover { background: var(--sunken); }
+.head-who:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.head-who[aria-disabled="true"] { cursor: default; }
+.head-who[aria-disabled="true"]:hover { background: none; }
+.chat-head .home-mode { flex: none; margin-left: auto; }
 
 /* A working bot's piece moves: an O rocks like a rolling ring, an X ticks. */
 .head-avatar .pc { transform-box: view-box; transform-origin: 50px 54px; }
