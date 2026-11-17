@@ -663,6 +663,7 @@ done
         CamoufoxTool {
             node: "/bin/sh".into(),
             bundle,
+            browser: None,
             headless: false,
             proxy: None,
         }

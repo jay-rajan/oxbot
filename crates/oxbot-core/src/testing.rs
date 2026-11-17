@@ -132,6 +132,8 @@ pub struct FakeBots {
     pub tools: Vec<Tool>,
     /// The same, for the bot named `helper`.
     pub helper_tools: Vec<Tool>,
+    /// A bot's tool for every message, by its name (before the lists).
+    pub by_bot: Vec<(String, Tool)>,
     /// The bot `give_task` and `read_reply` name (default `helper`).
     pub target: Option<String>,
     /// `create_bot` asks for a private bot.
@@ -314,6 +316,9 @@ impl FakeBots {
 
     /// The tool for `bot`'s `n`th message.
     fn tool_for(&self, bot: &str, n: usize) -> Tool {
+        if let Some((_, tool)) = self.by_bot.iter().find(|(name, _)| same_name(name, bot)) {
+            return tool.clone();
+        }
         let list = if bot == "helper" && !self.helper_tools.is_empty() {
             &self.helper_tools
         } else {

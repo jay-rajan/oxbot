@@ -116,6 +116,10 @@ impl Hub {
         if super::trials::is_trial(&bot.id) {
             return self.trial_browser(&bot.id);
         }
+        // The Calendar and Records keep the home's own things: no web.
+        if crate::bot::needs_no_browser(bot.id.as_str()) {
+            return None;
+        }
         self.browser_for(&self.browser_owner_of(bot)?)
     }
 
@@ -175,6 +179,30 @@ impl Hub {
         let viewer = &*self.resolve(viewer);
         let bot = self.bot_to_manage(id, viewer)?;
         self.update_bot(&bot.id, |b| b.browser_hidden = hidden)?;
+        self.announce_bots().await;
+        Ok(())
+    }
+
+    /// Makes `id` a lead bot (it can list the home's bots, give them tasks
+    /// and create helpers) or an ordinary one. The Assistant is always a lead.
+    ///
+    /// # Errors
+    /// Fails if `viewer` may not change it, it's the Assistant, or its file
+    /// can't be written.
+    pub async fn set_lead(
+        &self,
+        id: &str,
+        lead: bool,
+        viewer: &crate::Viewer,
+    ) -> Result<(), HubError> {
+        let viewer = &*self.resolve(viewer);
+        let bot = self.bot_to_manage(id, viewer)?;
+        if bot.is_central() {
+            return Err(HubError::NotAllowed(
+                "The Assistant always leads its bots.".to_owned(),
+            ));
+        }
+        self.update_bot(&bot.id, |b| b.lead = lead)?;
         self.announce_bots().await;
         Ok(())
     }

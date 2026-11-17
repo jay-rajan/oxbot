@@ -3,25 +3,22 @@
 // phone it's a drawer over the chat, with a scrim behind it.
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, IconButton, Input, Pill, PlusIcon, Segmented } from "../../components/ui";
+import { Button, IconButton, Input, Pill, PlusIcon } from "../../components/ui";
 import { botList } from "../../state/bots";
-import { groupBots, initialSidebar } from "../../state/sidebar";
+import { groupBots, HOME_LEADS, initialSidebar } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { type NameAsk as AskName, askName as askNameDialog } from "../Welcome/NameDialog";
 import { BotList } from "./BotList";
 import { BotMenu, type MenuAt, type MenuFor, refocus } from "./BotMenu";
 import { BrandMark } from "./BrandMark";
+import { HomeIcon } from "./HomeIcon";
 import { keep, keptJson } from "./storage";
 import "./sidebar.css";
-
-const GROUP_BY = [
-  ["sections", "Sections"],
-  ["people", "People"],
-] as const;
 
 export function Sidebar() {
   const { store, dispatch } = useApp();
   const sideOpen = useSel((s) => s.ui.sideOpen);
+  const page = useSel((s) => s.ui.page);
   const current = useSel((s) => s.ui.current);
   const status = useSel((s) => s.connection.status);
   const everConnected = useSel((s) => s.connection.everConnected);
@@ -30,18 +27,19 @@ export function Sidebar() {
   const signedIn = useSel((s) => s.home.homeSites.length + (s.connection.settings?.owner ? s.home.mySites.length : 0));
   const warnings = useSel((s) => s.sidebar.warnings);
   const query = useSel((s) => s.sidebar.query);
-  const groupBy = useSel((s) => s.sidebar.groupBy);
   const seen = useSel((s) => s.sidebar.seen);
   const collapsed = useSel((s) => s.sidebar.collapsed);
   const botsN = useSel((s) => s.sidebar.botsN);
   const created = useSel((s) => s.sidebar.created);
+  const hasBot = useSel((s) => s.bots.byId);
 
   // What this device kept: seen marks (green dots), grouping, folded groups.
   useLayoutEffect(() => {
     dispatch(
       local("sidebar/load", {
         seen: keptJson<Record<string, number>>("oxbot.seen", {}),
-        groupBy: keep.get("oxbot.groupBy"),
+        // Always by section (People grouping is gone).
+        groupBy: "sections",
         collapsed: keptJson<string[]>("oxbot.collapsed", []),
       }),
     );
@@ -62,14 +60,15 @@ export function Sidebar() {
   }, [current]);
 
   // Which bot to open when the list comes: one just made, the open one, the
-  // one open last time, else the first.
+  // one open last time, else the Calendar's bot, else the first. Never the
+  // Assistant: it's out of view now.
   useEffect(() => {
     if (!botsN) return;
     const s = store.getState();
-    const ids = s.bots.order;
+    const ids = s.bots.order.filter((id) => !s.bots.byId[id]?.central);
     const known = (id: string | null | undefined): id is string => !!id && ids.includes(id);
     const pending = s.ui.pendingSelect;
-    const want = [pending, s.ui.current, keep.get("oxbot.bot"), ids[0]].find(known);
+    const want = [pending, s.ui.current, keep.get("oxbot.bot"), HOME_LEADS[0].id, ids[0]].find(known);
     if (want && want !== s.ui.current && (!pending || want === pending)) dispatch(local("ui/select", { bot: want }));
   }, [botsN, store, dispatch]);
   // A bot made from this page opens now if it's listed, else once it is.
@@ -119,6 +118,15 @@ export function Sidebar() {
     [dispatch],
   );
 
+  // A Home item: its bot (if the home still has it) and its page: the
+  // Calendar beside its bot's chat; Meal Plan and Records their chat
+  // for now.
+  const openHome = (h: (typeof HOME_LEADS)[number]) => {
+    const s = store.getState();
+    if (s.bots.byId[h.id] && h.id !== s.ui.current) dispatch(local("ui/select", { bot: h.id, keepPage: true }));
+    dispatch(local("ui/page", { page: h.page }));
+  };
+
   const toSettings = (tab?: string) => {
     dispatch(local("ui/side", { open: false }));
     dispatch(local("ui/open", tab ? { dialog: "settings", arg: tab } : { dialog: "settings" }));
@@ -137,12 +145,6 @@ export function Sidebar() {
     }
   };
 
-  // Group by sections or by people: this device remembers which. (Real
-  // radios: the arrow keys switch between them.)
-  const setGroupBy = (mode: "sections" | "people") => {
-    keep.set("oxbot.groupBy", mode);
-    dispatch(local("sidebar/groupBy", { groupBy: mode }));
-  };
 
   // The server's name; "Reconnecting…" once a connection is lost (or never came).
   const server = status !== "open" && (everConnected || status === "closed") ? "Reconnecting…" : serverName || "Connecting…";
@@ -153,14 +155,46 @@ export function Sidebar() {
         <div className="side-head">
           <div className="brand">
             <BrandMark />
-            <IconButton className="new-bot" id="newBot" size="sm" label="New bot" onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}>
+            <Button
+              kind="secondary"
+              size="sm"
+              className="new-bot"
+              id="newBot"
+              aria-label="New bot"
+              title="Make a new bot: say what it should do, in your own words"
+              onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}
+            >
               <PlusIcon />
-            </IconButton>
+              New bot
+            </Button>
           </div>
           <div className="server" id="server">
             {server}
           </div>
         </div>
+        <nav className="side-home" aria-label="Home">
+          {HOME_LEADS.map((h) => {
+            const here = h.page !== "chat" ? page === h.page : page === "chat" && current === h.id;
+            if (h.page !== "calendar" && !hasBot[h.id]) return null;
+            return (
+              <button
+                key={h.id}
+                type="button"
+                className="home-item"
+                id={h.btn}
+                aria-current={String(here) as "true" | "false"}
+                onClick={() => openHome(h)}
+              >
+                <HomeIcon id={h.id} />
+                <span className="meta">
+                  <span className="name">
+                    <span>{h.name}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
         <div className="side-find">
           <Input
             type="search"
@@ -173,15 +207,6 @@ export function Sidebar() {
             value={query}
             onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
             onKeyDown={searchKey}
-          />
-          <Segmented
-            className="group-by"
-            id="groupBy"
-            name="groupBy"
-            label="Group bots by"
-            options={GROUP_BY}
-            value={groupBy}
-            onChange={setGroupBy}
           />
         </div>
         <BotList openMenu={openMenu} closeMenu={closeMenu} askName={askName} />

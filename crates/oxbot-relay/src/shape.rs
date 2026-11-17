@@ -58,6 +58,22 @@ pub fn offered(request: &Map<String, Value>, tools: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Whether a Responses request carries a picture (an `input_image` part
+/// anywhere in its input).
+#[must_use]
+pub fn has_images(request: &Map<String, Value>) -> bool {
+    fn any(v: &Value) -> bool {
+        match v {
+            Value::Object(m) => {
+                m.get("type").and_then(Value::as_str) == Some("input_image") || m.values().any(any)
+            }
+            Value::Array(a) => a.iter().any(any),
+            _ => false,
+        }
+    }
+    request.get("input").is_some_and(any)
+}
+
 /// The body to send for `request` on `attempt`, offering only oxbot's
 /// `tools` (see [`offered`]).
 #[must_use]
@@ -120,7 +136,14 @@ pub fn outgoing(
             && takes(param)
             && (has_tools || !tool_field)
         {
-            out.insert(key.into(), v.clone());
+            // One call at a time: bots share one browser, and two pages
+            // opened at once leave the next look on the wrong tab.
+            let v = if key == "parallel_tool_calls" {
+                json!(false)
+            } else {
+                v.clone()
+            };
+            out.insert(key.into(), v);
         }
     }
     if takes("max_tokens") {
@@ -138,6 +161,17 @@ pub fn outgoing(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picture_anywhere_in_the_input_is_seen() {
+        let with = json!({"input": [{"type": "function_call_output", "output": [
+            {"type": "input_text", "text": "a picture"},
+            {"type": "input_image", "image_url": "data:image/jpeg;base64,AA=="}
+        ]}]});
+        let without = json!({"input": [{"type": "message", "content": "input_image"}]});
+        assert!(has_images(with.as_object().unwrap()));
+        assert!(!has_images(without.as_object().unwrap()));
+    }
     use oxbot_llm::ProviderPrefs;
 
     /// A request as Codex 0.148 sent it (captured against a stand-in).
@@ -264,7 +298,7 @@ mod tests {
     fn an_unknown_model_gets_the_optional_fields_but_never_the_ids() {
         let out = outgoing(&codex_request(), &attempt(None), &ours());
         assert_eq!(out["reasoning"], json!({"summary": "auto"}));
-        assert_eq!(out["parallel_tool_calls"], true);
+        assert_eq!(out["parallel_tool_calls"], false, "one call at a time");
         assert!(!out.contains_key("prompt_cache_key"));
         assert!(!out.contains_key("client_metadata"));
     }

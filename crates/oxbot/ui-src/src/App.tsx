@@ -1,7 +1,11 @@
 // The page: the sidebar and the open bot's chat, the dialogs, and the toast.
 // Same structure, ids and classes as the hand-written page, so the
 // end-to-end tests apply as they are. The frame's layout is in shell.css.
+import { useSel } from "./app/context";
 import { Toast } from "./components/ui";
+import { CalendarView } from "./screens/Calendar/CalendarView";
+import { NotesView } from "./screens/Notes/NotesView";
+import { useHomeMode, useSavedHomeMode } from "./screens/Calendar/HomeMode";
 import { BotSettingsDialog } from "./screens/BotSettings/BotSettingsDialog";
 import { ChatMain } from "./screens/Chat/ChatMain";
 import { ReportDialog } from "./screens/Chat/ReportDialog";
@@ -16,10 +20,16 @@ import { WelcomeDialog } from "./screens/Welcome/WelcomeDialog";
 import "./shell.css";
 
 export function App() {
+  const page = useSel((s) => s.ui.page);
+  const mode = useHomeMode();
+  useSavedHomeMode();
   return (
     <>
-      <div className="app">
+      {/* A Home view sits beside the chat on a wide screen (calendar.css). */}
+      <div className={page === "chat" ? "app" : `app home mode-${mode}`}>
         <Sidebar />
+        {page === "calendar" ? <CalendarView /> : null}
+        {page === "notes" ? <NotesView /> : null}
         <ChatMain />
       </div>
       <NewBotDialog />

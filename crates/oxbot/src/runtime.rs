@@ -2,7 +2,7 @@
 //! WebSocket. Shared by `oxbot serve` and the desktop app.
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
@@ -156,7 +156,8 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
     // person can be set, and test connections may say who they are. Debug
     // builds only, like every test setting (see `oxbot_engine::dev`).
     let e2e = oxbot_core::engine::dev::e2e();
-    let camoufox = browser_tool(e2e);
+    let built = BuiltIn::find(home.root());
+    let camoufox = browser_tool(e2e, &built);
     let browser_ready = camoufox.as_ref().is_some_and(CamoufoxTool::available);
     let browser = options.browser.then(|| {
         Tools::new(ToolsConfig {
@@ -222,7 +223,7 @@ pub async fn start(options: ServerOptions) -> anyhow::Result<RunningServer> {
             upstream: Arc::new(openrouter.client().clone()),
             program: dev_env("OXBOT_CODEX").map(PathBuf::from),
             // The Codex inside the app runs, not one installed elsewhere.
-            built_in: built_in_codex(),
+            built_in: built_in_codex(&built),
         }),
         // Practice runs and test cases' files.
         data_dir: home.root().to_path_buf(),
@@ -390,24 +391,112 @@ fn fake_devtools(e2e: bool) -> Option<oxbot_browser::McpCommand> {
     })
 }
 
-/// oxbot's browser: the Camoufox built into oxbot.app
-/// (`Resources/tools/camoufox`, on the app's Node.js), or, in a debug build
-/// from a checkout, the one `node scripts/camoufox/build.mjs` made. There
-/// is no other browser to fall back to. End-to-end tests run it headless
-/// and reach the test site through `OXBOT_E2E_PROXY`.
-fn browser_tool(e2e: bool) -> Option<CamoufoxTool> {
-    let found = built_in_tools_dir()
-        .and_then(|dir| CamoufoxTool::find_in(&dir))
-        .or_else(|| {
-            cfg!(debug_assertions)
-                .then(CamoufoxTool::in_checkout)
-                .flatten()
-        });
+/// Where oxbot's built-in tools are: its browser (driver and browser),
+/// Codex and Node.js. An app with a pack list (`Resources/packs.json`)
+/// takes exactly those packs (see [`crate::packs`]); a missing one is
+/// logged, never swapped for something else. Otherwise (`oxbot serve`
+/// from a checkout, `OXBOT_BUILT_IN_TOOLS` in tests, an app from before
+/// packs) they're in one folder: `node`, `codex` and `camoufox` with the
+/// browser inside it.
+#[derive(Debug, Default)]
+struct BuiltIn {
+    /// Node.js's folder (`bin/node`).
+    node: Option<PathBuf>,
+    /// The `codex` program.
+    codex: Option<PathBuf>,
+    /// The browser's driver (`Resources/tools/camoufox`).
+    driver: Option<PathBuf>,
+    /// The browser's pack (holding `Camoufox.app`), when kept apart.
+    browser: Option<PathBuf>,
+    /// Found through a pack list: the browser must be its pack.
+    packed: bool,
+}
+
+impl BuiltIn {
+    fn find(data: &Path) -> Self {
+        if let Some(dir) = dev_env("OXBOT_BUILT_IN_TOOLS") {
+            return Self::in_folder(Path::new(&dir));
+        }
+        let Some(resources) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.parent()?.join("Resources")))
+        else {
+            return Self::default();
+        };
+        match crate::packs::read_list(&resources) {
+            Ok(Some(list)) => Self::from_packs(&list, data, &resources),
+            Ok(None) => Self::in_folder(&resources.join("tools")),
+            Err(err) => {
+                tracing::error!(%err, "couldn't read the app's pack list; reinstall oxbot");
+                Self::default()
+            }
+        }
+    }
+
+    fn in_folder(dir: &Path) -> Self {
+        Self {
+            node: Some(dir.join("node")),
+            codex: Some(dir.join(oxbot_codex::binary::BUILT_IN)),
+            driver: Some(dir.join("camoufox")),
+            browser: None,
+            packed: false,
+        }
+    }
+
+    fn from_packs(list: &[crate::packs::Pack], data: &Path, resources: &Path) -> Self {
+        use crate::packs::{BROWSER, CODEX, NODE};
+        let (found, missing) =
+            crate::packs::locate_all(list, &data.join("tools"), &resources.join("tools"));
+        for pack in missing {
+            tracing::error!(pack = %pack.name, version = %pack.version, "a pack this oxbot runs with is missing; reinstall oxbot");
+        }
+        let at = |name: &str| {
+            found
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, dir)| dir.clone())
+        };
+        Self {
+            node: at(NODE),
+            codex: at(CODEX).map(|dir| dir.join("bin/codex")),
+            driver: Some(resources.join("tools/camoufox")),
+            browser: at(BROWSER),
+            packed: true,
+        }
+    }
+
+    /// The browser, if all of it is here.
+    fn browser_tool(&self) -> Option<CamoufoxTool> {
+        if self.packed && self.browser.is_none() {
+            return None;
+        }
+        let tool = CamoufoxTool {
+            node: self.node.as_ref()?.join("bin/node"),
+            bundle: self.driver.clone()?,
+            browser: self.browser.clone(),
+            headless: false,
+            proxy: None,
+        };
+        tool.available().then_some(tool)
+    }
+}
+
+/// oxbot's browser: the Camoufox built into oxbot.app (its driver, on the
+/// app's Node.js, and the browser pack), or, in a debug build from a
+/// checkout, the one `node scripts/camoufox/build.mjs` made. There is no
+/// other browser to fall back to. End-to-end tests run it headless and
+/// reach the test site through `OXBOT_E2E_PROXY`.
+fn browser_tool(e2e: bool, built: &BuiltIn) -> Option<CamoufoxTool> {
+    let found = built.browser_tool().or_else(|| {
+        cfg!(debug_assertions)
+            .then(CamoufoxTool::in_checkout)
+            .flatten()
+    });
     let Some(mut tool) = found else {
         tracing::warn!("oxbot's browser is missing; bots will go without one");
         return None;
     };
-    tracing::info!(bundle = %tool.bundle.display(), "using oxbot's browser");
+    tracing::info!(bundle = %tool.bundle.display(), browser = ?tool.browser, "using oxbot's browser");
     if e2e {
         tool.headless = true;
         tool.proxy = dev_env_string("OXBOT_E2E_PROXY");
@@ -415,21 +504,10 @@ fn browser_tool(e2e: bool) -> Option<CamoufoxTool> {
     Some(tool)
 }
 
-/// oxbot's built-in tools folder: `Contents/Resources/tools` in
-/// oxbot.app (next to the program), or `OXBOT_BUILT_IN_TOOLS` for
-/// testing (debug builds). `oxbot serve` from a source checkout has none.
-fn built_in_tools_dir() -> Option<PathBuf> {
-    if let Some(dir) = dev_env("OXBOT_BUILT_IN_TOOLS") {
-        return Some(PathBuf::from(dir));
-    }
-    let exe = std::env::current_exe().ok()?;
-    Some(exe.parent()?.parent()?.join("Resources/tools"))
-}
-
-/// The Codex shipped inside oxbot.app, logged. Without it (`oxbot serve`
+/// The Codex shipped with oxbot.app, logged. Without it (`oxbot serve`
 /// from a checkout), Codex is looked for on the Mac.
-fn built_in_codex() -> Option<PathBuf> {
-    let found = built_in_tools_dir().and_then(|dir| oxbot_codex::binary::built_in(&dir));
+fn built_in_codex(built: &BuiltIn) -> Option<PathBuf> {
+    let found = built.codex.clone().filter(|p| p.is_file());
     if let Some(program) = &found {
         tracing::info!(codex = %program.display(), "using the Codex built into the app");
     } else {
@@ -558,6 +636,58 @@ mod tests {
         assert!(
             tokio::net::TcpStream::connect(addr).await.is_err(),
             "stopped listening"
+        );
+    }
+
+    /// An app laid out as a release makes it: the driver inside, packs
+    /// found through packs.json, in oxbot's folder or inside the app.
+    #[test]
+    fn an_app_finds_its_tools_through_its_packs() {
+        use crate::packs::{self, Pack};
+        let tmp = tempfile::tempdir().unwrap();
+        let resources = tmp.path().join("oxbot.app/Contents/Resources");
+        let data = tmp.path().join("data");
+        let driver = resources.join("tools/camoufox");
+        std::fs::create_dir_all(&driver).unwrap();
+        for f in ["bundle.json", "runtime.mjs", "service.mjs", "mcp.mjs"] {
+            std::fs::write(driver.join(f), "").unwrap();
+        }
+        let list = |name: &str, version: &str| Pack {
+            name: name.into(),
+            version: version.into(),
+            sha256: String::new(),
+            size: 0,
+        };
+        let (browser, codex, node) = (
+            list(packs::BROWSER, "158-1"),
+            list(packs::CODEX, "0.148.0"),
+            list(packs::NODE, "24"),
+        );
+        // Node and Codex inside the app; the browser in oxbot's folder.
+        for (pack, dir) in [
+            (&node, resources.join("tools/node")),
+            (&codex, resources.join("tools/codex")),
+            (&browser, data.join("tools/browser-158-1")),
+        ] {
+            std::fs::create_dir_all(&dir).unwrap();
+            packs::mark(&dir, pack).unwrap();
+        }
+        std::fs::create_dir_all(resources.join("tools/node/bin")).unwrap();
+        std::fs::write(resources.join("tools/node/bin/node"), "").unwrap();
+        std::fs::create_dir_all(data.join("tools/browser-158-1/Camoufox.app")).unwrap();
+        let all = [browser.clone(), codex, node];
+        let built = BuiltIn::from_packs(&all, &data, &resources);
+        let tool = built.browser_tool().expect("the browser");
+        assert_eq!(tool.bundle, driver);
+        assert_eq!(tool.browser, Some(data.join("tools/browser-158-1")));
+        assert_eq!(built.codex, Some(resources.join("tools/codex/bin/codex")));
+        // Another browser version isn't taken for the one the app runs.
+        let mut newer = all.clone();
+        newer[0] = list(packs::BROWSER, "159-1");
+        let built = BuiltIn::from_packs(&newer, &data, &resources);
+        assert!(
+            built.browser_tool().is_none(),
+            "no browser, never another one"
         );
     }
 }

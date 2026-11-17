@@ -123,11 +123,13 @@ impl Hub {
                 mcp: crate::engine::McpCommand::default(),
             });
         }
-        // As the prompt says: the Assistant gets its team tools, a bot given a
-        // browser can save reports.
+        // As the prompt says: the Assistant and lead bots get the team
+        // tools, a bot given a browser can save reports.
         let host_tools = HostTools {
-            central: bot.is_central(),
+            central: bot.is_lead(),
             browser: shared.is_some(),
+            calendar: bot.id.as_str() == crate::bot::HOME_LEADS[0].0,
+            notes: bot.id.as_str() == crate::bot::HOME_LEADS[2].0,
         };
         let gate_mode = overrides.gate_mode;
         let spec = SessionSpec {
@@ -360,6 +362,10 @@ impl Hub {
                 }
                 self.tools_called(bot, &tool_uses).await;
                 for tool in tool_uses {
+                    // Shown by what they make: the question, the note's card.
+                    if QUIET_TOOLS.iter().any(|t| tool.name == tools::full_name(t)) {
+                        continue;
+                    }
                     let summary = tool.summary();
                     let name = tool_label(&tool.name);
                     self.record(bot, EventKind::ToolUse { name, summary })?;
@@ -704,11 +710,25 @@ pub(super) fn tool_label(name: &str) -> String {
     if let Some((label, _)) = loop_label(name) {
         return label.to_owned();
     }
-    match name.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")) {
-        Some(action) => format!("browser {action}"),
+    if let Some(action) = name.strip_prefix(&format!("mcp__{MCP_SERVER_NAME}__")) {
+        if action == "save_file" {
+            return "saving a file".to_owned();
+        }
+        return format!("browser {action}");
+    }
+    // Any other tool of a server: its own name, in words.
+    match name
+        .strip_prefix("mcp__")
+        .and_then(|rest| rest.split_once("__"))
+    {
+        Some((_, tool)) => tool.replace('_', " "),
         None => name.to_owned(),
     }
 }
+
+/// oxbot's tools the chat doesn't list: what they make shows instead (the
+/// question asked, a note's card).
+const QUIET_TOOLS: [&str; 2] = ["ask_user", tools::SHOW_NOTE_TOOL];
 
 fn capitalized(text: &str) -> String {
     let mut chars = text.chars();

@@ -141,6 +141,15 @@ pub enum ClientMsg {
         /// The upload ids ([`Attachment::id`]) of the files sent with it.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<String>,
+        /// Those of `files` the person let the AI read (the whole file is
+        /// sent to the AI provider). The rest stay on the home computer,
+        /// out of the bot's reach.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ai_files: Vec<String>,
+        /// Records only: what the person said about each file as they
+        /// attached it (its title, day, topic...), to file it by.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        notes: Vec<NoteUpload>,
     },
     /// Forget a file uploaded for `bot` that won't be sent after all (its
     /// chip was removed): oxbot deletes it.
@@ -249,6 +258,15 @@ pub enum ClientMsg {
         /// Hidden or not.
         hidden: bool,
     },
+    /// Make a bot a lead bot (it can list the home's bots, give them tasks
+    /// and create helpers) or an ordinary one. Its maker or the home
+    /// computer only; never the Assistant.
+    SetLead {
+        /// Bot id.
+        bot: String,
+        /// Lead or not.
+        lead: bool,
+    },
     /// Make a bot private (only its creator and the home computer see it, and it
     /// uses its creator's own browser) or shared. Its creator or the home computer
     /// only.
@@ -309,6 +327,86 @@ pub enum ClientMsg {
         /// schedule as they changed it ("Change"). Ignored on other cards.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         schedule: Option<ScheduleEdit>,
+    },
+    /// The Home calendar's events that may happen from day `from` to day
+    /// `to` (both `2026-11-16`), answered with [`ServerMsg::HomeEvents`].
+    /// Everyone in the home.
+    HomeEvents {
+        /// First day.
+        from: String,
+        /// Last day (included).
+        to: String,
+    },
+    /// Add an event to the Home calendar; answered with
+    /// [`ServerMsg::HomeSaved`].
+    AddEvent {
+        /// What it says.
+        event: Box<EventInput>,
+    },
+    /// Change an event; answered with [`ServerMsg::HomeSaved`].
+    ChangeEvent {
+        /// [`HomeEventInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// What it says now.
+        event: Box<EventInput>,
+    },
+    /// Delete an event into Recently deleted (30 days); answered with
+    /// [`ServerMsg::HomeSaved`].
+    DeleteEvent {
+        /// [`HomeEventInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Bring an event back from Recently deleted.
+    RestoreEvent {
+        /// [`HomeEventInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Undo a change to the Home ([`ServerMsg::HomeSaved::change`], or a
+    /// bot's Undo line).
+    UndoHomeChange {
+        /// The change.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        change: i64,
+    },
+    /// Recently deleted events, answered with [`ServerMsg::DeletedEvents`].
+    DeletedEvents,
+    /// Records, answered with [`ServerMsg::HomeNotes`]. Everyone in
+    /// the home.
+    HomeNotes,
+    /// Change a note's title, day, topic, tags or people; everyone showing
+    /// Records is told ([`ServerMsg::HomeChanged`]).
+    ChangeNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// What it says now.
+        note: Box<NoteInput>,
+    },
+    /// Delete a note: its file waits 30 days in case it's brought back
+    /// ([`ClientMsg::RestoreNote`]).
+    DeleteNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Bring a deleted note back.
+    RestoreNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Home computer only: open a note's file on this Mac, or show it in
+    /// Finder (`reveal`).
+    OpenNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// Show it in Finder instead.
+        #[serde(default)]
+        reveal: bool,
     },
     /// Schedules, answered with [`ServerMsg::Schedules`]: one bot's
     /// (`bot`), or every one the client may see (Settings → Schedules).
@@ -1242,6 +1340,46 @@ pub enum ServerMsg {
     /// Schedules changed (made, paused, deleted, or one ran): a client
     /// showing a list asks for it again. Says nothing about which.
     SchedulesChanged,
+    /// The Home calendar's events: the answer to [`ClientMsg::HomeEvents`].
+    HomeEvents {
+        /// First day asked for.
+        from: String,
+        /// Last day asked for.
+        to: String,
+        /// Earliest first; repeating ones once, as they were first set.
+        events: Vec<HomeEventInfo>,
+    },
+    /// Recently deleted events, latest first: the answer to
+    /// [`ClientMsg::DeletedEvents`].
+    DeletedEvents {
+        /// The events.
+        events: Vec<HomeEventInfo>,
+    },
+    /// A change this client made to the Home, so it can offer Undo.
+    HomeSaved {
+        /// The change, for [`ClientMsg::UndoHomeChange`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        change: i64,
+        /// The event.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// `add`, `change`, `delete`, `restore` or `undo`.
+        action: String,
+        /// The event's title.
+        title: String,
+        /// The bot that made the change (the Calendar bot, asked in its
+        /// chat), sent to everyone who sees it; none for this client's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bot: Option<String>,
+    },
+    /// Something in the Home changed: a client showing it asks again.
+    /// Says nothing about what.
+    HomeChanged,
+    /// Records: the answer to [`ClientMsg::HomeNotes`].
+    HomeNotes {
+        /// Latest day first.
+        notes: Vec<HomeNoteInfo>,
+    },
     /// One's own profile: sent when a person's connection opens, and as the
     /// answer to [`ClientMsg::SetProfile`] and [`ClientMsg::GetProfile`].
     Profile(ProfileView),
@@ -1586,6 +1724,145 @@ pub struct PairReply {
     pub key: String,
 }
 
+/// How a Home calendar event repeats.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EventRepeat {
+    /// `day`, `week`, `month` or `year`.
+    pub every: String,
+    /// Its last day (`2027-06-30`), if it has one.
+    #[serde(default)]
+    pub until: Option<String>,
+}
+
+/// A note as a person writes it (or changes it).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct NoteInput {
+    /// What it is ("Akhila's blood test"); empty: the file's name.
+    #[serde(default)]
+    pub title: String,
+    /// Its day, `2026-11-17`; empty: none given (the document's, if the
+    /// AI reads it, or else the day it was uploaded).
+    #[serde(default)]
+    pub day: String,
+    /// Its topic ("Medical"); empty: Unsorted.
+    #[serde(default)]
+    pub topic: String,
+    /// Words to find it by.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Who it's about, by name.
+    #[serde(default)]
+    pub people: Vec<String>,
+}
+
+/// What a person said about one file they attached in Records.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct NoteUpload {
+    /// The upload ([`Attachment::id`]).
+    pub id: String,
+    /// What they said about it.
+    pub note: NoteInput,
+}
+
+/// A note in Records: a file the family keeps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HomeNoteInfo {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What it is.
+    pub title: String,
+    /// Its day, `2026-11-17`.
+    pub day: String,
+    /// Where the day came from: `you`, `document` or `upload`.
+    pub day_from: String,
+    /// Its topic; empty: Unsorted.
+    pub topic: String,
+    /// Words to find it by.
+    pub tags: Vec<String>,
+    /// Who it's about, by name.
+    pub people: Vec<String>,
+    /// A line about what's in it.
+    pub summary: String,
+    /// Where it's kept, below the Records folder
+    /// (`2026/Medical/2026-11-17 Blood test.pdf`).
+    pub file: String,
+    /// Its name as uploaded.
+    pub name: String,
+    /// What kind of file.
+    pub kind: AttachmentKind,
+    /// Its size in bytes.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub size: u64,
+    /// Kept private: the AI never read it.
+    pub private: bool,
+    /// When it was uploaded.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub uploaded_ms: i64,
+    /// Who uploaded it.
+    pub uploaded_by: String,
+}
+
+/// An event as a person writes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EventInput {
+    /// What it is.
+    pub title: String,
+    /// When it starts, local time (`2026-11-17T17:30`), or its day
+    /// (`2026-11-20`) when it's all day.
+    pub starts: String,
+    /// When it ends, the same way.
+    #[serde(default)]
+    pub ends: Option<String>,
+    /// Where.
+    #[serde(default)]
+    pub place: String,
+    /// Who it's for, by name.
+    #[serde(default)]
+    pub people: Vec<String>,
+    /// More about it.
+    #[serde(default)]
+    pub notes: String,
+    /// How it repeats.
+    #[serde(default)]
+    pub repeat: Option<EventRepeat>,
+    /// Minutes before, to remind its people.
+    #[serde(default)]
+    pub remind_min: Option<u32>,
+}
+
+/// An event on the Home calendar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HomeEventInfo {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What it says.
+    pub event: EventInput,
+    /// Whether it's all day.
+    pub all_day: bool,
+    /// What it came from (`meal:12`, `note:5`), if not added by hand.
+    #[serde(default)]
+    pub source: String,
+    /// Who added it (a person's or bot's name).
+    pub made_by: String,
+    /// Who changed it last.
+    pub changed_by: String,
+    /// When it was last changed.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub updated_ms: i64,
+    /// When it was deleted (Recently deleted).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub deleted_ms: Option<i64>,
+}
+
 /// Someone who sends messages, with the color they keep.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -1903,6 +2180,14 @@ pub struct Attachment {
     /// text` or `3 still frames`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Kept private: saved on the home computer outside the bot's folder,
+    /// never read by the AI (the person didn't let it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub private: bool,
+    /// Filed in Records as this note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "number | null", optional))]
+    pub filed: Option<i64>,
 }
 
 #[allow(
@@ -2049,6 +2334,13 @@ pub struct BotInfo {
     /// Whether its browser runs hidden (see [`ClientMsg::SetBrowserHidden`]).
     #[serde(default)]
     pub browser_hidden: bool,
+    /// A lead bot (see [`ClientMsg::SetLead`]); the Assistant is
+    /// [`BotInfo::central`] instead.
+    #[serde(default)]
+    pub lead: bool,
+    /// The lead bot that created it: it's listed under that lead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper_of: Option<String>,
     /// Who it's shared with ([`BotInfo::private`] is anything but
     /// everyone).
     #[serde(default)]
@@ -2164,6 +2456,22 @@ pub enum EventKind {
     Note {
         /// The line.
         text: String,
+    },
+    /// A note in Records, as a card: one just filed, or one the
+    /// bot found for someone. Opens it (the note may have changed since).
+    HomeNote {
+        /// [`HomeNoteInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// Its title then.
+        title: String,
+        /// Its day then.
+        day: String,
+        /// Where it's kept then, below the Records folder.
+        file: String,
+        /// Kept private.
+        #[serde(default)]
+        private: bool,
     },
     /// The turn failed or the bot stopped.
     Error {
@@ -2886,6 +3194,8 @@ mod tests {
                 readable: None,
                 frames: 0,
                 note: None,
+                private: false,
+                filed: None,
             }],
         };
         let json = serde_json::to_string(&sent).unwrap();
@@ -3047,6 +3357,8 @@ mod tests {
             bot: "assistant".into(),
             text: "hi".into(),
             files: vec![],
+            ai_files: vec![],
+            notes: vec![],
         };
         assert_eq!(
             serde_json::to_string(&msg).unwrap(),

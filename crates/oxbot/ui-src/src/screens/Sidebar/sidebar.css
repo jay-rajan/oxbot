@@ -1,5 +1,5 @@
-/* The sidebar: brand and New bot, the server line, search and group by, the
-   bot list, and the bottom row. Quiet on var(--side); the open bot's row on
+/* The sidebar: brand and New bot, the server line, the Home's views, search,
+   the bot list, and the bottom row. Quiet on var(--side); the open bot's row on
    var(--sunken). The phone drawer is in shell.css. */
 .side {
   display: flex; flex-direction: column; gap: var(--s-4); min-height: 0; min-width: 0;
@@ -19,17 +19,16 @@
 .mark-o { stroke: var(--mark-o); }
 .wm-red { stroke: var(--accent); }
 @media (prefers-color-scheme: dark) { .brand .mark { box-shadow: 0 0 0 1px var(--line); } }
-.brand .new-bot { margin-left: auto; }
+.brand .new-bot { margin-left: auto; flex: none; gap: var(--s-1); padding-left: var(--s-2); padding-right: var(--s-3); }
+.brand .new-bot svg { width: 16px; height: 16px; }
 .server {
   padding-left: var(--s-2); font-size: var(--text-xs); color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* Search and group by */
+/* Search, below the Home's views */
 .side-find { display: grid; gap: var(--s-2); }
 .side .bot-search { background: var(--surface); }
-.side .group-by { display: flex; }
-.side .group-by .seg-option { flex: 1 1 0; }
 
 /* The list */
 .bots {
@@ -73,6 +72,7 @@
 .bot-item:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); }
 .bot-item:active { background: var(--pressed); }
 .bot-item[aria-current="true"] { background: var(--sunken); }
+.bot-item.helper { padding-left: 28px; }
 .bot-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .bot-item .meta { display: grid; gap: 1px; min-width: 0; }
 .bot-item .name {
@@ -118,3 +118,23 @@
 .side-foot .foot-btn .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .side-foot .foot-btn.end { margin-left: auto; }
 @media (max-width: 340px) { #deviceBtn .label { display: none; } }
+
+/* The Home's views, above the bots. */
+.side-home { padding: var(--s-1) var(--s-2) var(--s-2); border-bottom: 1px solid var(--line); }
+.home-item {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
+  display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: var(--s-3);
+  min-height: calc(var(--control) + var(--s-2)); padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-md); font-weight: var(--weight-mid);
+  transition: background var(--fast) var(--ease);
+}
+.home-item:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); }
+.home-item:active { background: var(--pressed); }
+.home-item[aria-current="true"] { background: var(--sunken); }
+.home-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.home-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-md); color: var(--tint); background: var(--tint-soft); }
+.home-icon svg { width: var(--icon); height: var(--icon); }
+.home-icon[data-home="home-calendar"] { --tint: var(--home-cal); --tint-soft: var(--home-cal-soft); }
+.home-icon[data-home="home-meals"] { --tint: var(--home-meals); --tint-soft: var(--home-meals-soft); }
+.home-icon[data-home="home-notes"] { --tint: var(--home-notes); --tint-soft: var(--home-notes-soft); }
+.home-icon { flex: none; }

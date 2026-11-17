@@ -479,6 +479,65 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // 29: the tools each Codex thread started with, so new tools start a
     // new thread (new instructions go on in the same one).
     Step::Rust(threads_remember_tools),
+    // 30: the family Home's calendar: events everyone can see and change
+    // (local times as written; deleted ones kept 30 days), and a log of
+    // each change, so a bot's change can be undone.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS home_events (
+            id          INTEGER PRIMARY KEY,
+            title       TEXT    NOT NULL,
+            starts      TEXT    NOT NULL,             -- 2026-11-17T17:30, or 2026-11-20 all day
+            ends        TEXT,
+            place       TEXT    NOT NULL DEFAULT '',
+            people      TEXT    NOT NULL DEFAULT '[]', -- JSON: person ids it's for
+            notes       TEXT    NOT NULL DEFAULT '',
+            repeat      TEXT,                         -- JSON: {every, until}
+            remind_min  INTEGER,
+            source      TEXT    NOT NULL DEFAULT '',  -- meal:<id>, note:<id>
+            made_by     TEXT    NOT NULL,             -- p:<person id> or b:<bot id>
+            changed_by  TEXT    NOT NULL,
+            created_ms  INTEGER NOT NULL,
+            updated_ms  INTEGER NOT NULL,
+            deleted_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS home_events_starts ON home_events (starts);
+        CREATE TABLE IF NOT EXISTS home_changes (
+            id         INTEGER PRIMARY KEY,
+            ts_ms      INTEGER NOT NULL,
+            by         TEXT    NOT NULL,
+            action     TEXT    NOT NULL,   -- add | change | delete | restore
+            event      INTEGER NOT NULL,
+            before     TEXT,               -- JSON: the event's fields before a change
+            undone_ms  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS home_changes_event ON home_changes (event, id);",
+    ),
+    // 31: Records: files the family keeps, each with a title, a day
+    // (and where that day came from), a topic, tags and who it's about.
+    // The file itself is in the `family-notes` folder, at `file`.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS home_notes (
+            id           INTEGER PRIMARY KEY,
+            title        TEXT    NOT NULL,
+            day          TEXT    NOT NULL,              -- 2026-11-17
+            day_from     TEXT    NOT NULL,              -- you | document | upload
+            topic        TEXT    NOT NULL DEFAULT '',
+            tags         TEXT    NOT NULL DEFAULT '[]', -- JSON
+            people       TEXT    NOT NULL DEFAULT '[]', -- JSON: person ids
+            summary      TEXT    NOT NULL DEFAULT '',
+            file         TEXT    NOT NULL,              -- below family-notes/
+            name         TEXT    NOT NULL,              -- as uploaded
+            kind         TEXT    NOT NULL,
+            size         INTEGER NOT NULL,
+            private      INTEGER NOT NULL,              -- the AI never read it
+            uploaded_ms  INTEGER NOT NULL,
+            uploaded_by  TEXT    NOT NULL,              -- p:<person id> or b:<bot id>
+            changed_by   TEXT    NOT NULL,
+            updated_ms   INTEGER NOT NULL,
+            deleted_ms   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS home_notes_day ON home_notes (day);",
+    ),
 ];
 
 /// Migration 29. Skipped if the column is already there (a database

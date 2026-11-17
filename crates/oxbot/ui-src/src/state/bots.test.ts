@@ -24,6 +24,8 @@ function bot(id: string, name = id): BotInfo {
     instructions: "",
     daily_requests: null,
     browser_hidden: false,
+    lead: false,
+    helper_of: null,
     sharing: "everyone",
     members: [],
   };

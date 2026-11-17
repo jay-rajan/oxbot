@@ -87,6 +87,15 @@ daily_requests: number | null,
  */
 browser_hidden: boolean, 
 /**
+ * A lead bot (see [`ClientMsg::SetLead`]); the Assistant is
+ * [`BotInfo::central`] instead.
+ */
+lead: boolean, 
+/**
+ * The lead bot that created it: it's listed under that lead.
+ */
+helper_of: string | null, 
+/**
  * Who it's shared with ([`BotInfo::private`] is anything but
  * everyone).
  */

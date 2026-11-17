@@ -28,6 +28,12 @@ export const tools = [
     { urls: { type: "array", items: text, minItems: 1, maxItems: 5 } },
     ["urls"],
   ),
+  spec(
+    "save_file",
+    "Save a file from the web (a PDF, a picture, a spreadsheet) into your folder's downloads/, when the person asked you to download, save or keep files. Give the file's own address (often ending in .pdf), not the page that links to it. One file at a time. The answer says where it was saved, in your folder and on the home computer: tell the person the full path on the home computer for each file. Keep a list of what you saved so you can carry on later. Not for web pages: when they only want something to print or read, give them the link instead.",
+    { url: text },
+    ["url"],
+  ),
   spec("list_pages", "List open pages."),
   spec("select_page", "Select a page.", { pageId: integer }, ["pageId"]),
   spec("close_page", "Close a page.", { pageId: integer }, ["pageId"]),

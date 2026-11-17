@@ -45,7 +45,7 @@ pub const MCP_SERVER_NAME: &str = "chrome-devtools";
 
 /// The version of the bots' browser tool list (`scripts/camoufox/
 /// tool-specs.mjs`). Change it with the list: cached lists are keyed by it.
-pub const TOOLS_VERSION: &str = "camoufox-1";
+pub const TOOLS_VERSION: &str = "camoufox-3";
 
 /// Errors from the browser.
 #[derive(Debug, thiserror::Error)]
@@ -202,6 +202,7 @@ mod tests {
         let tool = CamoufoxTool {
             node: tmp.path().join("node/bin/node"),
             bundle: tmp.path().join("camoufox"),
+            browser: None,
             headless: false,
             proxy: None,
         };

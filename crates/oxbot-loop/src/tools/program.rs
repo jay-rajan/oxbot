@@ -79,24 +79,28 @@ pub const SYSTEM_READ: [&str; 13] = [
 pub fn spec() -> ToolSpec {
     ToolSpec {
         name: super::RUN_PROGRAM.to_owned(),
-        description: "Run a small script on the home computer: totals, CSV and spreadsheet \
-            work, comparisons, reformatting or editing files in your folder. The person sees \
-            the program and says yes first. It runs in your folder (the working directory) and \
+        description: "Run a small script on the home computer, only for sums and file work the \
+            browser and your file tools can't do: totals, CSV and spreadsheet work, comparisons, \
+            reformatting files in your folder. Not for websites (it has no internet): use the \
+            browser for those, one page at a time, even if it takes longer. The person sees \
+            what it does and the program, and says yes first. It runs in your folder (the working directory) and \
             can only read and write files there: no internet, nothing else on the computer, \
-            at most 30 seconds and 256 KB of output. language: sh, python3 or node. program: \
-            the whole program. files: files in your folder to pass as arguments (sys.argv[1:] \
+            at most 30 seconds and 256 KB of output. purpose: what it does, in plain words \
+            for the person deciding (they may not read code). language: sh, python3 or node. \
+            program: the whole program. files: files in your folder to pass as arguments (sys.argv[1:] \
             / process.argv.slice(2) / \"$@\"). You get its output and exit code. Example: \
-            language: python3, program: import csv,sys\\nrows = list(csv.DictReader(open(sys.argv[1])))\\n\
+            purpose: Adds up the amounts in your bills file., language: python3, program: import csv,sys\\nrows = list(csv.DictReader(open(sys.argv[1])))\\n\
             print(sum(float(r['amount']) for r in rows)), files: [\"inbox/2026-11-06/bills.csv\"]"
             .to_owned(),
         parameters: json!({
             "type": "object",
             "properties": {
+                "purpose": {"type": "string", "description": "What the program does, in one or two plain sentences the person reads before saying yes: \"Adds up the amounts in bills.csv.\" No code words, and nothing it doesn't do."},
                 "language": {"type": "string", "enum": ["sh", "python3", "node"], "description": "The interpreter."},
                 "program": {"type": "string", "description": "The whole program."},
                 "files": {"type": "array", "items": {"type": "string"}, "description": "Files in your folder to pass as arguments, as paths in it."}
             },
-            "required": ["language", "program"]
+            "required": ["purpose", "language", "program"]
         }),
     }
 }
@@ -232,7 +236,18 @@ pub fn card_text(args: &Value) -> String {
         .and_then(Value::as_array)
         .map(|l| l.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let mut out = format!("{language}:\n{}", program.trim_end());
+    let purpose = args
+        .get("purpose")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    // What it does, in the bot's words, above the program itself.
+    let mut out = if purpose.is_empty() {
+        String::new()
+    } else {
+        format!("What it does: {purpose}\n\n")
+    };
+    let _ = write!(out, "{language}:\n{}", program.trim_end());
     if !files.is_empty() {
         let _ = write!(out, "\n\nFiles: {}", files.join(", "));
     }
@@ -793,6 +808,10 @@ mod tests {
         assert_eq!(
             card_text(&json!({"language": "python3", "program": "print(1)\n", "files": ["a.csv"]})),
             "python3:\nprint(1)\n\nFiles: a.csv"
+        );
+        assert_eq!(
+            card_text(&json!({"purpose": " Prints one. ", "language": "sh", "program": "echo 1"})),
+            "What it does: Prints one.\n\nsh:\necho 1"
         );
     }
 

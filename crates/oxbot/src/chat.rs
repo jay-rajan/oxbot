@@ -73,7 +73,7 @@ pub async fn run(url: &str, bot: &str) -> anyhow::Result<()> {
                         let answer = if line.trim() == "/yes" { Answer::AllowOnce } else { Answer::Deny };
                         ClientMsg::Answer { id, answer, schedule: None }
                     }
-                    text => ClientMsg::Send { bot: bot.to_owned(), text: text.to_owned(), files: Vec::new() },
+                    text => ClientMsg::Send { bot: bot.to_owned(), text: text.to_owned(), files: Vec::new(), ai_files: Vec::new(), notes: Vec::new() },
                 };
                 sink.send(send(&msg)).await?;
             }
@@ -151,6 +151,11 @@ impl View {
                     SignInOutcome::TimedOut => "No answer; didn't sign in to",
                 };
                 println!("   · {what} {site}");
+            }
+            EventKind::HomeNote {
+                title, day, file, ..
+            } => {
+                println!("   · Records: {title} ({day}), at {file}");
             }
             EventKind::Report {
                 title,
@@ -286,6 +291,11 @@ impl View {
             | ServerMsg::Schedules { .. }
             | ServerMsg::NetLog { .. }
             | ServerMsg::SchedulesChanged
+            | ServerMsg::HomeEvents { .. }
+            | ServerMsg::HomeNotes { .. }
+            | ServerMsg::DeletedEvents { .. }
+            | ServerMsg::HomeSaved { .. }
+            | ServerMsg::HomeChanged
             | ServerMsg::Profile(_)
             | ServerMsg::ProfilesChanged => {}
             ServerMsg::Error { message } => println!("   ! {message}"),

@@ -1,5 +1,5 @@
 name = "The sidebar on a phone"
-about = "In the phone's drawer the search, the group-by switch and the bottom row fit, and the right-click menu (a long press) shows above the drawer."
+about = "In the phone's drawer New bot, the search and the bottom row fit, and the right-click menu (a long press) shows above the drawer."
 covers = ["crates/oxbot/ui-src/**"]
 as = "Sam"
 viewport = { width = 390, height = 844 }
@@ -7,8 +7,8 @@ viewport = { width = 390, height = 844 }
 [[step]]
 click = "Show bots"
 [[step]]
-expect_js = "__e2e.shown(document.getElementById('botSearch')) && __e2e.shown(document.getElementById('groupBy'))"
-note = "Search and group by are in the drawer"
+expect_js = "__e2e.shown(document.getElementById('botSearch')) && __e2e.shown(document.getElementById('newBot')) && !document.getElementById('groupBy')"
+note = "New bot and the search are in the drawer; bots are grouped by section only"
 [[step]]
 expect_js = "(() => { const side = document.getElementById('side').getBoundingClientRect(); const items = [...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden); return items.length === 2 && items.every((b) => b.getBoundingClientRect().right <= side.right + 0.5); })()"
 note = "A device's bottom row: Settings and Websites, inside the drawer"

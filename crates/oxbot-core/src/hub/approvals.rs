@@ -487,6 +487,12 @@ impl Hub {
         {
             return Ok(no);
         }
+        // A click oxbot can't name, on a site the bot isn't signed in to:
+        // nothing there is the person's (no account, no money), so it
+        // runs without a card. Signed in, it still asks.
+        if ask.click == Some(policy::Click::Unknown) && !self.signed_in_at(bot, page_url).await {
+            return Ok(Decision::Allow);
+        }
         let mut ask = ask;
         if let Some(read) = self.rule_held_back(bot, &ask).await? {
             // The card says why an Always rule didn't apply.

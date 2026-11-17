@@ -47,6 +47,9 @@ const MAX_FILE = 25 * MB;
 const MAX_VIDEO = 200 * MB;
 export const MAX_TEXT = 1000000;
 const VIDEO = /\.(mov|mp4|m4v)$/i;
+/** The Records bot: files sent to it are kept in Records. */
+export const NOTES_BOT = "home-notes";
+
 export const PHONE_FILES = "Sending files from a phone isn't possible yet. Send them from the home computer.";
 
 export function sizeText(n: number): string {
@@ -122,12 +125,20 @@ export function sendMessage(app: App) {
   const text = s.chat.input.trim();
   const chips = s.chat.drafts[bot] ?? [];
   if (uploading(s.chat, bot)) { app.toast("Wait until the files finish uploading."); return; }
-  const files = chips.filter((c) => c.state === "ready" && c.att).map((c) => (c.att as { id: string }).id);
+  const ready = chips.filter((c) => c.state === "ready" && c.att);
+  const files = ready.map((c) => (c.att as { id: string }).id);
+  // Only the files the person let the AI read; the rest stay private.
+  const ai_files = ready.filter((c) => c.ai).map((c) => (c.att as { id: string }).id);
+  // Records: what the person said about each file, to file it by.
+  const notes =
+    bot === NOTES_BOT
+      ? ready.map((c) => ({ id: (c.att as { id: string }).id, note: c.note ?? { title: "", day: "", topic: "", tags: [], people: [] } }))
+      : [];
   if (!text && !files.length) return;
   if (text.length > MAX_TEXT) { app.toast("That message is too long to send (over 1 MB). Attach it as a file instead.", true); return; }
   stopDictation(app);
   // Offline: the message stays in the box, to send once oxbot is back.
-  if (s.connection.status !== "open" || !app.send({ type: "send", bot, text, files })) {
+  if (s.connection.status !== "open" || !app.send({ type: "send", bot, text, files, ai_files, notes })) {
     app.toast("Not connected yet. Your message is still here: send it once you're back on.", true);
     return;
   }

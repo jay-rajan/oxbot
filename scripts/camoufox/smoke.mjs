@@ -159,7 +159,7 @@ try {
     animations: "disabled",
   });
   await runtime.showForUser();
-  assert.deepEqual(await runtime.windowState(), headless ? [] : ["normal"]);
+  assert.deepEqual(await runtime.windowState(), headless ? [] : ["maximized"]);
   await page.screenshot({
     path: resolve(out, "visible.png"),
     fullPage: true,

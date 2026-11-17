@@ -110,7 +110,27 @@ duration_ms: number, } | { "kind": "note",
 /**
  * The line.
  */
-text: string, } | { "kind": "error", 
+text: string, } | { "kind": "home_note", 
+/**
+ * [`HomeNoteInfo::id`].
+ */
+id: number, 
+/**
+ * Its title then.
+ */
+title: string, 
+/**
+ * Its day then.
+ */
+day: string, 
+/**
+ * Where it's kept then, below the Records folder.
+ */
+file: string, 
+/**
+ * Kept private.
+ */
+private: boolean, } | { "kind": "error", 
 /**
  * What went wrong, for the user.
  */

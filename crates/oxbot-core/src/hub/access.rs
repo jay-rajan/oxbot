@@ -94,6 +94,8 @@ impl Hub {
                 let mut info = BotInfo::default();
                 self.fill_engine(&b, &mut info);
                 info.browser_hidden = b.browser_hidden;
+                info.lead = b.lead;
+                info.helper_of = b.helper_of.as_ref().map(ToString::to_string);
                 Ok(BotInfo {
                     busy: busy.contains(&b.id),
                     last_seq: seq.last,

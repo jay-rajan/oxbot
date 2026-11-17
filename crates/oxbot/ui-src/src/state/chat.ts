@@ -3,7 +3,7 @@
 // sent, the message box, dictation, and the research reports opened here.
 // Pure: sending to the server is done by the chat screen, which tells this
 // reducer what it asked for (`chat/subscribed`, `chat/olderAsked`, …).
-import type { Attachment, BotEvent, ReportView, ServerMsg } from "../net/protocol";
+import type { Attachment, BotEvent, NoteInput, ReportView, ServerMsg } from "../net/protocol";
 import type { Action } from "./store";
 
 /** Events per history page. */
@@ -36,6 +36,9 @@ export interface BotChat {
   subscribed: boolean;
   /** Text streamed in for the reply being written. */
   stream: string | null;
+  /** A reply streamed in and not kept (oxbot sent it back to be checked):
+   *  shown faded until the checked one comes, so nothing vanishes. */
+  draft: string | null;
   /** What it's doing, e.g. "Working…". */
   activity: string | null;
   /** Meters shown in the open chat, each after the event it came after. */
@@ -56,6 +59,11 @@ export interface Chip {
   error: string;
   /** The words sent with it (to put back if the send fails). */
   text?: string;
+  /** The person let the AI read it (the whole file is sent to the AI
+   *  provider). Off: it stays on the home computer, private. */
+  ai?: boolean;
+  /** Records: what the person said about it, to file it by. */
+  note?: NoteInput;
 }
 
 /** The owner's thumbs and kept test cases, per bot. */
@@ -120,6 +128,7 @@ export function newBotChat(): BotChat {
     busy: false,
     subscribed: false,
     stream: null,
+    draft: null,
     activity: null,
     meters: [],
     histN: 0,
@@ -155,8 +164,8 @@ function applyEvent(state: ChatState, b: BotChat, e: BotEvent): { state: ChatSta
     b = { ...b, busy: true, activity: "Working…" };
     if (e.files?.length) state = filesSent(state, e.bot, e.files);
   }
-  if (e.kind === "turn_done") b = { ...b, busy: false, activity: null };
-  if (e.kind === "assistant_message") b = { ...b, stream: null };
+  if (e.kind === "turn_done") b = { ...b, busy: false, activity: null, draft: null };
+  if (e.kind === "assistant_message") b = { ...b, stream: null, draft: null };
   return { state, b };
 }
 
@@ -269,13 +278,14 @@ function onServer(state: ChatState, msg: ServerMsg): ChatState {
       return onHistory(state, msg);
     case "delta": {
       const b = chatOf(state, msg.bot);
-      return withBot(state, msg.bot, { ...b, stream: (b.stream ?? "") + msg.text });
+      return withBot(state, msg.bot, { ...b, stream: (b.stream ?? "") + msg.text, draft: null });
     }
     case "activity": {
       const b = chatOf(state, msg.bot);
-      // A new request: text streamed before it and never kept goes.
-      const stream = msg.text === "Working…" ? null : b.stream;
-      return withBot(state, msg.bot, { ...b, activity: msg.text, stream });
+      // A new request: text streamed before it and never kept (an answer
+      // sent back to be checked) stays, faded, until the next one comes.
+      if (msg.text !== "Working…") return withBot(state, msg.bot, { ...b, activity: msg.text });
+      return withBot(state, msg.bot, { ...b, activity: msg.text, stream: null, draft: b.stream ?? b.draft });
     }
     case "meter": {
       // Shown in the open chat only, like the hand-written page.

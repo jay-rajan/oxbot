@@ -8,9 +8,10 @@
 //! | Browser tools | Answer |
 //! |---|---|
 //! | reading, opening web pages, scrolling, hovering, typing | run |
+//! | saving a file from the web into the bot's folder (`save_file`) | run, checked like opening its address |
 //! | clicking links, tabs, search, filters, sorting, paging, "Show more" | run |
 //! | clicking a search form's or a GET form's button | run |
-//! | clicking an element oxbot can't name, or whose name the live page doesn't show | red card |
+//! | clicking an element oxbot can't name, or whose name the live page doesn't show | red card on a site the bot's browser is signed in to; elsewhere run (the hub checks: nothing there is the person's) |
 //! | clicking something that changes things (Send, Post, Save, Apply, Allow, Enable, Block, Leave, Add…) | red card |
 //! | clicking a POST form's button that doesn't only look things up | red card |
 //! | a switch, checkbox or radio on a settings, privacy or account page, a privacy one ("Private account", "Show my email"), or a switch outside search results | red card |
@@ -410,9 +411,10 @@ pub fn script_ask(bot_name: &str, program: &str) -> Ask {
 /// The browser tools oxbot offers models (their own names). None
 /// is one [`decide`] always refuses; scripts, network and console tools
 /// are left out, and fewer tools help small models.
-pub const LOOP_BROWSER_TOOLS: [&str; 18] = [
+pub const LOOP_BROWSER_TOOLS: [&str; 19] = [
     "navigate_page",
     "new_page",
+    "save_file",
     "read_sites",
     "list_pages",
     "select_page",
@@ -488,12 +490,17 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         PLAN_TASK_TOOL,
         SAVE_HOME_AREA_TOOL,
     ];
+    // The calendar tools: every change can be undone, and a deleted event
+    // stays in Recently deleted (see `Hub::calendar_tool`). The notes
+    // tools only find, show and file the family's own notes.
     // The schedule tools ask the person themselves, on a card that shows
     // the schedule (see `Hub::schedule_task`): none is made without it.
     if runs
         .iter()
         .chain(LOOP_CONTEXT_TOOLS.iter())
         .chain(SCHEDULE_TOOLS.iter())
+        .chain(tools::CALENDAR_TOOLS.iter())
+        .chain(tools::NOTES_TOOLS.iter())
         .any(|t| tool == tools::full_name(t))
     {
         return Some(Verdict::Allow);
@@ -586,7 +593,7 @@ pub fn decide(
              sites. Read pages with take_snapshot and act with click and fill."
                 .to_owned(),
         ),
-        "navigate_page" | "new_page" => {
+        "navigate_page" | "new_page" | "save_file" => {
             let kind = str_of(input, "type");
             if action == "navigate_page" && !kind.is_empty() && kind != "url" {
                 return Verdict::Allow; // back, forward, reload

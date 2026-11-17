@@ -92,12 +92,13 @@ async function takeLock(lock) {
 
 export async function launchNative({
   bundle,
+  browser,
   profile,
   locale = Intl.DateTimeFormat().resolvedOptions().locale,
   headless = false,
   proxy,
 }) {
-  const { executable, addon } = await verifyBundle(bundle);
+  const { executable, addon } = await verifyBundle(bundle, { browser });
   const profileDir = resolve(profile),
     rel = relative(resolve(bundle), profileDir);
   if (
@@ -231,8 +232,10 @@ export async function launchNative({
           return context.newPage();
         }
       },
+      // In front of the person, filling the screen: only when they're
+      // needed (a sign-in or a robot check).
       async showForUser() {
-        if (bridge) await bridge.setState("normal");
+        if (bridge) await bridge.setState("maximized");
       },
       async minimize() {
         if (bridge) await bridge.setState("minimized");

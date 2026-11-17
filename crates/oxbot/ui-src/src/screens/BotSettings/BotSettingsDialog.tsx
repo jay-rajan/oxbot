@@ -70,6 +70,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   const [picked, setPicked] = useState<string[]>(b.members ?? []);
   const [kind, setKind] = useState<string>(() => kindOf(lists, bdList));
   const [hidden, setHidden] = useState(!!b.browser_hidden);
+  const [lead, setLead] = useState(!!b.lead);
   // The kinds of job came (or changed): pick the bot's again.
   const firstLists = useRef(lists);
   useEffect(() => {
@@ -115,6 +116,7 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
     const n = name.trim();
     if (n && n !== live.name) send({ type: "rename_bot", bot: id, name: n });
     if (hidden !== !!b.browser_hidden) send({ type: "set_browser_hidden", bot: id, hidden });
+    if (!central && lead !== !!b.lead) send({ type: "set_lead", bot: id, lead });
     if (!central && !busy) {
       const p = purpose.trim();
       if (p !== (b.instructions || "").trim()) send({ type: "set_bot_instructions", bot: id, instructions: p });
@@ -209,6 +211,12 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
         <p className="note-text" id="bdSharedLine" hidden={central || picks}>
           Shared with everyone in the home
         </p>
+        <div className="bd-group" id="bdLeadBox" hidden={central || !manage}>
+          <Switch id="bdLead" checked={lead} onChange={(e) => setLead(e.target.checked)}>
+            Lead bot
+          </Switch>
+          <Hint>Can ask the home's other bots for help and make helper bots for its job, after your OK.</Hint>
+        </div>
         <div className="bd-group" id="bdHiddenBox">
           <Switch id="bdHidden" checked={hidden} onChange={(e) => setHidden(e.target.checked)}>
             Browse with the browser hidden

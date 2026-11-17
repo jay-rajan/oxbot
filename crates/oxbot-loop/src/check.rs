@@ -52,7 +52,8 @@ pub fn note(goal: &str, ungrounded: &[String], browser: bool) -> String {
     note.push_str(
         " Check each part the task asked for (every filter, the number of items, each field). \
          Then reply to the person with your complete answer, written for them: they never see \
-         this note, so don't describe your checks.",
+         this note, so don't describe your checks. Start with the answer itself, never with \
+         \"All values check out\", \"I checked\" or \"Confirmed\".",
     );
     note
 }
@@ -363,14 +364,16 @@ mod tests {
              them (find_in_page, read_section or query_rows) or remove them. Check each part the \
              task asked for (every filter, the number of items, each field). Then reply to the \
              person with your complete answer, written for them: they never see this note, so \
-             don't describe your checks."
+             don't describe your checks. Start with the answer itself, never with \"All values \
+             check out\", \"I checked\" or \"Confirmed\"."
         );
         assert_eq!(
             note(" [Sam] sum the file ", &[], false),
             "[oxbot] Before you answer, check it. The task was: «[Sam] sum the file». Check each \
              part the task asked for (every filter, the number of items, each field). Then reply \
              to the person with your complete answer, written for them: they never see this \
-             note, so don't describe your checks."
+             note, so don't describe your checks. Start with the answer itself, never with \"All values \
+             check out\", \"I checked\" or \"Confirmed\"."
         );
         assert!(
             note("[Sam] go", &["12".into()], false).contains("(read_result or the file tools)")

@@ -6,7 +6,7 @@ import { avatarSvg } from "../../components/brand";
 import { Button, ChevronIcon, Note, Pill, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { waitingBots } from "../../state/cards";
-import { type Group, fold, groupBots, isUnread } from "../../state/sidebar";
+import { type Group, fold, groupBots, HOME_LEADS, isUnread } from "../../state/sidebar";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
 import { type MenuFor, menuKey } from "./BotMenu";
@@ -39,6 +39,7 @@ export function BotList({
   const you = useSel((s) => s.connection.settings?.you);
   const side = useSel((s) => s.sidebar);
   const current = useSel((s) => s.ui.current);
+  const page = useSel((s) => s.ui.page);
   const cards = useSel((s) => s.cards);
   const waiting = waitingBots(cards);
   const navRef = useRef<HTMLElement>(null);
@@ -109,17 +110,30 @@ export function BotList({
     if (!b) return null;
     const busy = side.busy[id] ?? b.busy;
     const title = busy ? "Working…" : b.private ? (b.sharing === "people" ? "Shared with picked people" : "Private") : undefined;
-    // Under the name: Assistant's job, or who the bot belongs to.
-    const tag = b.central ? "leads your bots" : b.created_by ? `by ${b.created_by}` : "";
+    // Under the name: Assistant's job, the lead a helper works for, or who
+    // the bot belongs to.
+    const lead = b.helper_of ? bots.byId[b.helper_of] : undefined;
+    const helper = !!lead?.lead && !b.lead;
+    // A Home lead's helper isn't under its lead (that's in the Home row): not indented.
+    const under = helper && !HOME_LEADS.some((h) => h.id === b.helper_of);
+    const tag = b.central
+      ? "leads your bots"
+      : helper
+        ? `helps ${lead?.name || b.helper_of}`
+        : b.lead
+          ? "lead bot"
+          : b.created_by
+            ? `by ${b.created_by}`
+            : "";
     return (
       <button
         key={id}
-        className="bot-item"
+        className={under ? "bot-item helper" : "bot-item"}
         type="button"
         data-bot={id}
-        aria-current={String(id === current) as "true" | "false"}
+        aria-current={String(id === current && page === "chat") as "true" | "false"}
         title={title}
-        draggable={side.groupBy === "sections" && !b.central ? true : undefined}
+        draggable={side.groupBy === "sections" && !b.central && !b.lead && !helper ? true : undefined}
         onClick={() => select(id)}
         onContextMenu={(ev: MouseEvent) => {
           ev.preventDefault();

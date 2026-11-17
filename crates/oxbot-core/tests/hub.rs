@@ -455,18 +455,8 @@ async fn shop_hub(dir: &Path, uid: &str, store: Store) -> (Arc<Hub>, Arc<FakeBot
     (hub, fake)
 }
 
-/// The sign-in card that comes up, failing if an approval card comes first.
-async fn sign_in_first(updates: &mut Receiver<ServerMsg>) -> oxbot_protocol::SignInRequest {
-    next(updates, |m| match m {
-        ServerMsg::SignInNeeded(r) => Some(r),
-        ServerMsg::ApprovalNeeded(a) => panic!("an approval card before the sign-in: {a:?}"),
-        _ => None,
-    })
-    .await
-}
-
 #[tokio::test]
-async fn adding_to_a_cart_signed_out_asks_to_sign_in_first() {
+async fn adding_to_a_cart_signed_out_is_skipped_without_asking() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
@@ -474,49 +464,24 @@ async fn adding_to_a_cart_signed_out_asks_to_sign_in_first() {
     let (hub, fake) = shop_hub(tmp.path(), "4_3", Store::open_in_memory().unwrap()).await;
     let mut updates = hub.subscribe();
 
-    // Not signed in: the sign-in card, for the shop's main domain.
+    // Not signed in: no sign-in card and no approval; the bot is told the
+    // site needs the person's account, and nothing is clicked.
     hub.send("poster", "add the milk to my cart", Some("Jay"))
         .await
         .unwrap();
-    let request = sign_in_first(&mut updates).await;
-    assert_eq!(request.site, "example.com");
-    assert_eq!(request.url, "https://www.shop.example.com/");
-    assert_eq!(request.before.as_deref(), Some("adding to your cart"));
-    assert_eq!(hub.pending_approvals(), []);
-
-    // Cancelled: refused, in words the bot can act on, and nothing clicked.
-    hub.resolve_sign_in(request.id, false);
     let (said, outcome) = ending(&hub, &mut updates).await;
     assert_eq!(said, "behavior=deny");
     assert_eq!(outcome, None, "no approval card at all");
+    assert_eq!(hub.pending_sign_ins(), []);
     assert!(
         fake.heard().iter().any(|r| r
-            == "[oxbot said no] Not signed in to example.com, so nothing was added. Tell the \
-                person they need to sign in (Settings → Websites) and stop."),
+            .contains("Not signed in to example.com, so nothing was added")
+            && r.contains("Skip it")
+            && r.contains("request_sign_in")),
         "{:?}",
         fake.heard()
     );
     assert!(!fake.ran().contains(&"click".to_owned()));
-    let blocked = hub.history("poster", 0).unwrap().into_iter().any(|e| {
-        matches!(&e.kind, EventKind::Blocked { message } if message.contains("Not signed in to example.com"))
-    });
-    assert!(blocked, "the chat shows the refusal");
-
-    // Signed in this time: the site joins the list and, as adding to a cart
-    // costs nothing, the click runs with no approval card.
-    hub.send("poster", "again", Some("Jay")).await.unwrap();
-    let request = sign_in_first(&mut updates).await;
-    hub.resolve_sign_in(request.id, true);
-    let (said, outcome) = ending(&hub, &mut updates).await;
-    assert_eq!(said, "behavior=allow");
-    assert_eq!(outcome, None, "no approval card");
-    assert!(fake.ran().contains(&"click".to_owned()));
-    let listed: Vec<String> = hub
-        .sites(oxbot_core::id::BrowserOwner::Home)
-        .into_iter()
-        .map(|s| s.site)
-        .collect();
-    assert_eq!(listed, ["example.com"]);
     hub.shutdown().await;
 }
 
@@ -550,21 +515,23 @@ async fn adding_to_a_cart_signed_in_just_runs() {
 }
 
 #[tokio::test]
-async fn buying_signed_out_asks_to_sign_in_then_for_the_ok() {
+async fn buying_signed_in_asks_for_the_ok() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
         return;
     }
-    let (hub, fake) = shop_hub(tmp.path(), "4_4", Store::open_in_memory().unwrap()).await;
+    let store = Store::open_in_memory().unwrap();
+    store
+        .add_site(oxbot_core::store::HOME, "example.com")
+        .unwrap();
+    let (hub, fake) = shop_hub(tmp.path(), "4_4", store).await;
     let mut updates = hub.subscribe();
     hub.send("poster", "buy the milk", Some("Jay"))
         .await
         .unwrap();
-    let request = sign_in_first(&mut updates).await;
-    assert_eq!(request.before.as_deref(), Some("buying"));
-    hub.resolve_sign_in(request.id, true);
-    // Signed in: the approval follows, as buying costs money.
+    // Signed in: the approval, as buying costs money.
     let approval = next(&mut updates, |m| match m {
+        ServerMsg::SignInNeeded(r) => panic!("signed in already, yet asked: {r:?}"),
         ServerMsg::ApprovalNeeded(a) => Some(a),
         _ => None,
     })
@@ -575,19 +542,6 @@ async fn buying_signed_out_asks_to_sign_in_then_for_the_ok() {
     assert_eq!(said, "behavior=deny");
     assert_eq!(outcome, Some(Outcome::Denied));
     assert!(!fake.ran().contains(&"click".to_owned()));
-
-    // Already signed in now: straight to the approval.
-    hub.send("poster", "again", Some("Jay")).await.unwrap();
-    let approval = next(&mut updates, |m| match m {
-        ServerMsg::SignInNeeded(r) => panic!("signed in already, yet asked: {r:?}"),
-        ServerMsg::ApprovalNeeded(a) => Some(a),
-        _ => None,
-    })
-    .await;
-    hub.answer(approval.id, Answer::AllowOnce);
-    let (said, outcome) = ending(&hub, &mut updates).await;
-    assert_eq!(said, "behavior=allow");
-    assert_eq!(outcome, Some(Outcome::Allowed));
     hub.shutdown().await;
 }
 
@@ -2194,6 +2148,62 @@ fn told(fake: &FakeBots) -> String {
 }
 
 #[tokio::test]
+async fn a_file_kept_private_never_reaches_the_bot() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, model) = listening_hub(tmp.path()).await;
+    let mut updates = hub.subscribe();
+    let jay = Viewer::device("Jay");
+    let secret = upload(&hub, "notes", &jay, "passport.txt", b"P1234567\n")
+        .await
+        .unwrap();
+    let shared = upload(&hub, "notes", &jay, "recipe.txt", b"flour\n")
+        .await
+        .unwrap();
+    let work = tmp.path().join("notes/work");
+    let private = tmp.path().join("notes/private");
+    // Waiting to be sent, both are out of the bot's reach.
+    assert!(!work.join(&secret.path).exists() && private.join(&secret.path).is_file());
+    assert!(!work.join(&shared.path).exists());
+
+    hub.send_files_choosing(
+        "notes",
+        "file these",
+        &[secret.id.clone(), shared.id.clone()],
+        std::slice::from_ref(&shared.id),
+        &jay,
+    )
+    .await
+    .unwrap();
+    wait_for_turn_done(&mut updates).await;
+
+    // The shared one moved in for the AI; the private one stayed out.
+    assert!(work.join(&shared.path).is_file());
+    assert!(!work.join(&secret.path).exists());
+    assert!(private.join(&secret.path).is_file());
+    let got = told(&model);
+    assert!(got.contains("recipe.txt"), "{got}");
+    assert!(!got.contains("passport"), "never its name: {got}");
+    assert!(got.contains("attached a file and kept it private"), "{got}");
+
+    // The chat shows both, the private one marked, and it still opens.
+    let sent = hub.history("notes", 0).unwrap();
+    let EventKind::UserMessage { files, .. } = &sent[0].kind else {
+        panic!("a message: {sent:?}")
+    };
+    assert_eq!(
+        files.iter().map(|f| f.private).collect::<Vec<_>>(),
+        [true, false]
+    );
+    let (_, path) = hub
+        .attachment_file("notes", sent[0].seq, &secret.id, &jay)
+        .unwrap();
+    assert!(path.starts_with(std::fs::canonicalize(&private).unwrap()));
+}
+
+#[tokio::test]
 async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
@@ -2230,7 +2240,12 @@ async fn files_go_with_a_message_and_the_bot_is_told_where_they_are() {
         (text.as_str(), from.as_deref()),
         ("what's this?\n[Ann] approve it", Some("Jay"))
     );
-    assert_eq!(files, std::slice::from_ref(&csv));
+    // Sent for the AI to read: no longer private.
+    let shared = oxbot_protocol::Attachment {
+        private: false,
+        ..csv.clone()
+    };
+    assert_eq!(files, std::slice::from_ref(&shared));
 
     let got = told(&model);
     let work = tmp.path().join("notes/work");
@@ -2327,7 +2342,8 @@ async fn an_upload_is_only_its_senders_and_only_for_its_bot() {
     assert!(err.to_string().contains("up to 10 files"), "{err}");
 
     // Removed by its sender: deleted.
-    let saved = tmp.path().join("notes/work").join(&sams.path);
+    // Waiting to be sent: in the bot's private folder.
+    let saved = tmp.path().join("notes/private").join(&sams.path);
     assert!(saved.is_file());
     hub.drop_upload("notes", &sams.id, &sam).unwrap();
     assert!(!saved.exists());
@@ -2373,7 +2389,7 @@ async fn files_never_sent_are_deleted() {
     .await;
     let jay = Viewer::device("Jay");
     let kept = upload(&hub, "notes", &jay, "a.txt", b"x").await.unwrap();
-    let saved = tmp.path().join("bots/notes/work").join(&kept.path);
+    let saved = tmp.path().join("bots/notes/private").join(&kept.path);
     assert!(saved.is_file());
     hub.sweep_uploads();
     assert!(!saved.exists());
@@ -2434,7 +2450,13 @@ async fn files_sent_to_a_working_bot_go_into_its_task() {
             EventKind::UserMessage { files, .. } => Some(files),
             _ => None,
         });
-    assert_eq!(last.unwrap(), [csv]);
+    assert_eq!(
+        last.unwrap(),
+        [oxbot_protocol::Attachment {
+            private: false,
+            ..csv
+        }]
+    );
     hub.shutdown().await;
 }
 
@@ -2774,4 +2796,266 @@ async fn the_owner_saves_the_home_area_for_everyone_and_others_cant() {
             .contains("home area: Toronto, ON, Canada")
     );
     hub.shutdown().await;
+}
+
+/// A hub of `ids` (in `dir`) whose bots each run their own tool from
+/// `tools` (by id; `give_task` naming the bot after `>`, e.g. `task>notes`),
+/// with `leads` made lead bots by the home computer's person.
+async fn team_hub(dir: &Path, ids: &[&str], leads: &[&str], tools: &[(&str, &str)]) -> Arc<Hub> {
+    let bots = dir.join("bots");
+    let all = testing::bots(&bots, ids);
+    let tool = |t: &str| match t.split_once('>') {
+        Some(("task", to)) => Tool::Call(
+            "mcp__oxbot__give_task".to_owned(),
+            serde_json::json!({"bot": to, "message": "say hi"}),
+        ),
+        _ => Tool::named(t),
+    };
+    let fake = Arc::new(FakeBots {
+        by_bot: tools
+            .iter()
+            .map(|(bot, t)| ((*bot).to_owned(), tool(t)))
+            .collect(),
+        no_page: true,
+        ..FakeBots::new(&bots, Tool::None)
+    });
+    let config = testing::config(&bots, &dir.join("home"), &fake, Some(program().await));
+    let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
+    let jay = hub.home_computer_viewer("Jay");
+    for lead in leads {
+        hub.set_lead(lead, true, &jay).await.unwrap();
+    }
+    hub
+}
+
+/// What `bot`'s chat heard back from the task it gave, as the fake says it.
+fn task_result(hub: &Hub, bot: &str) -> String {
+    hub.history(bot, 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::AssistantMessage { text } => Some(text),
+            _ => None,
+        })
+        .next_back()
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn lead_bots_pass_a_task_on_but_never_back_or_too_far() {
+    if codex().await.is_none() {
+        return;
+    }
+    // Meals asks Calendar, Calendar asks Notes, Notes would ask a fourth
+    // bot: three bots is as far as a task goes.
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = team_hub(
+        tmp.path(),
+        &["meals", "calendar", "notes", "walmart"],
+        &["meals", "calendar", "notes"],
+        &[
+            ("meals", "task>calendar"),
+            ("calendar", "task>notes"),
+            ("notes", "task>walmart"),
+            ("walmart", "none"),
+        ],
+    )
+    .await;
+    let mut updates = hub.subscribe();
+    hub.send("meals", "who's home friday", Some("Jay"))
+        .await
+        .unwrap();
+    let said = reply_of(&hub, &mut updates, "meals").await;
+    assert!(said.starts_with("tool_ok=true calendar replied:"), "{said}");
+    let notes = task_result(&hub, "notes");
+    assert!(notes.starts_with("tool_ok=false"), "{notes}");
+    assert!(notes.contains("passed on as far as it can go"), "{notes}");
+    assert!(
+        hub.history("walmart", 0).unwrap().is_empty(),
+        "nothing reached it"
+    );
+    hub.shutdown().await;
+
+    // Calendar can't hand the task back to Meals, which is waiting on it.
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = team_hub(
+        tmp.path(),
+        &["meals", "calendar"],
+        &["meals", "calendar"],
+        &[("meals", "task>calendar"), ("calendar", "task>meals")],
+    )
+    .await;
+    let mut updates = hub.subscribe();
+    hub.send("meals", "plan friday", Some("Jay")).await.unwrap();
+    let said = reply_of(&hub, &mut updates, "meals").await;
+    assert!(said.starts_with("tool_ok=true calendar replied:"), "{said}");
+    let calendar = task_result(&hub, "calendar");
+    assert!(
+        calendar.contains("meals passed you this task"),
+        "{calendar}"
+    );
+    let asked = hub
+        .history("meals", 0)
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e.kind, EventKind::UserMessage { .. }))
+        .count();
+    assert_eq!(asked, 1, "nothing came back to Meals as a task");
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_bot_a_lead_creates_is_its_helper() {
+    if codex().await.is_none() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let hub = team_hub(
+        tmp.path(),
+        &["meals"],
+        &["meals"],
+        &[("meals", "createbot")],
+    )
+    .await;
+    let mut updates = hub.subscribe();
+    hub.send("meals", "make a bot that orders groceries", Some("Jay"))
+        .await
+        .unwrap();
+    let card = next_card(&mut updates).await;
+    assert_eq!(card.kind, ApprovalKind::CreateBot);
+    hub.answer(card.id, Answer::AllowOnce);
+    let said = reply_of(&hub, &mut updates, "meals").await;
+    assert!(said.starts_with("tool_ok=true Created"), "{said}");
+    let bots = hub.bots().await.unwrap();
+    let made = bots.iter().find(|b| b.name == "Mail Checker").unwrap();
+    assert_eq!(made.helper_of.as_deref(), Some("meals"));
+    assert!(!made.lead, "a helper isn't a lead");
+    let meals = bots.iter().find(|b| b.id == "meals").unwrap();
+    assert!(meals.lead && !meals.central);
+    hub.shutdown().await;
+}
+
+#[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one story: filed, found, changed, deleted, back"
+)]
+async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let bots = tmp.path().join("bots");
+    let notes_bot =
+        Bot::create(&bots, BotId::new("home-notes").unwrap(), "Records", "").unwrap();
+    let fake = Arc::new(FakeBots {
+        no_page: true,
+        ..FakeBots::new(&bots, Tool::None)
+    });
+    let config = HubConfig {
+        browser: None,
+        ..testing::config(&bots, &bots.join(".home"), &fake, Some(program().await))
+    };
+    let hub = Hub::new(vec![notes_bot], Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
+    let jay = Viewer::device("Jay");
+    let test = upload(&hub, "home-notes", &jay, "scan_0042.txt", b"glucose 5.1\n")
+        .await
+        .unwrap();
+    let receipt = upload(&hub, "home-notes", &jay, "receipt.txt", b"total 12\n")
+        .await
+        .unwrap();
+    let said = |id: &str, title: &str, day: &str, topic: &str| oxbot_protocol::NoteUpload {
+        id: id.to_owned(),
+        note: oxbot_protocol::NoteInput {
+            title: title.into(),
+            day: day.into(),
+            topic: topic.into(),
+            tags: vec!["lab".into()],
+            people: vec![],
+        },
+    };
+    hub.send_with_notes(
+        "home-notes",
+        "",
+        &[test.id.clone(), receipt.id.clone()],
+        &[],
+        &[
+            said(&test.id, "Blood test", "2026-03-02", "Medical"),
+            said(&receipt.id, "", "", ""),
+        ],
+        &jay,
+    )
+    .await
+    .unwrap();
+
+    // Private and nothing typed: no turn, nothing sent to the AI.
+    assert!(fake.requests().is_empty(), "the AI saw nothing");
+    let chat = hub.history("home-notes", 0).unwrap();
+    let EventKind::UserMessage { files, .. } = &chat[0].kind else {
+        panic!("the message first: {chat:?}")
+    };
+    assert!(files.iter().all(|f| f.private && f.filed.is_some()));
+    assert_eq!(
+        chat.iter()
+            .filter(|e| matches!(e.kind, EventKind::HomeNote { .. }))
+            .count(),
+        2,
+        "a card for each"
+    );
+
+    // Filed by year, topic, day and title; no day given: today, as uploaded.
+    let root = tmp.path().join("family-notes");
+    assert!(
+        root.join("2026/Medical/2026-03-02 Blood test.txt")
+            .is_file()
+    );
+    let notes = hub.home_notes(&jay).unwrap();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let r = notes.iter().find(|n| n.name == "receipt.txt").unwrap();
+    assert_eq!(
+        (r.title.as_str(), r.day.as_str(), r.day_from.as_str()),
+        ("receipt", today.as_str(), "upload")
+    );
+    assert!(
+        root.join(&r.file).is_file() && r.file.starts_with(&format!("{}/Unsorted/", &today[..4]))
+    );
+    let b = notes.iter().find(|n| n.title == "Blood test").unwrap();
+    assert_eq!(
+        (b.day_from.as_str(), b.tags.as_slice()),
+        ("you", ["lab".to_owned()].as_slice())
+    );
+
+    // Changed, it moves; the empty folder goes.
+    hub.change_home_note(
+        &jay,
+        b.id,
+        &oxbot_protocol::NoteInput {
+            title: "Blood test".into(),
+            day: String::new(),
+            topic: "Health".into(),
+            tags: vec![],
+            people: vec![],
+        },
+    )
+    .unwrap();
+    assert!(root.join("2026/Health/2026-03-02 Blood test.txt").is_file());
+    assert!(!root.join("2026/Medical").exists());
+
+    // Deleted: out of the list and its folder, waiting in .deleted; back again.
+    hub.delete_home_note(&jay, b.id).unwrap();
+    assert!(!root.join("2026/Health").exists());
+    assert!(hub.home_notes(&jay).unwrap().iter().all(|n| n.id != b.id));
+    assert!(hub.note_file(&jay, b.id).is_err());
+    assert!(hub.delete_home_note(&jay, b.id).is_err(), "once");
+    hub.restore_home_note(&jay, b.id).unwrap();
+    assert!(root.join("2026/Health/2026-03-02 Blood test.txt").is_file());
+    assert!(hub.home_notes(&jay).unwrap().iter().any(|n| n.id == b.id));
+    assert_eq!(
+        hub.note_file(&jay, b.id).unwrap().0.fields.day_from,
+        oxbot_core::store::DayFrom::You
+    );
 }

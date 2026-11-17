@@ -112,13 +112,40 @@ function ReportCard({ e }: { e: Extract<BotEvent, { kind: "report" }> }) {
   );
 }
 
+/** A note in Records, as kept then: opens on the home computer, or
+ *  shows in Records. */
+function NoteCard({ e, homeComputer }: { e: Extract<BotEvent, { kind: "home_note" }>; homeComputer: boolean }) {
+  const { send, dispatch } = useApp();
+  const day = new Date(`${e.day}T12:00`).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return (
+    <div className="note-card">
+      <span className="note-icon" aria-hidden="true">{e.private ? "🔒" : "📄"}</span>
+      <span className="note-text">
+        <span className="note-title">{e.title}</span>
+        <span className="note-meta">{`${day} · Records/${e.file.split("/").slice(0, -1).join("/")}`}</span>
+      </span>
+      {homeComputer ? (
+        <Button kind="quiet" size="sm" onClick={() => send({ type: "open_note", id: e.id, reveal: false })}>Open</Button>
+      ) : null}
+      <Button kind="quiet" size="sm" onClick={() => dispatch(local("ui/page", { page: "notes" }))}>All records</Button>
+    </div>
+  );
+}
+
 /** The files sent with a message. On the home computer a click opens one there. */
 function SentFiles({ e, homeComputer }: { e: Extract<BotEvent, { kind: "user_message" }>; homeComputer: boolean }) {
   const { send } = useApp();
   return (
     <div className="msg-files">
       {e.files.map((f) => {
-        const sub = f.kind === "video" ? `Bots can't watch video: ${f.note || "still frames"} sent` : f.note || sizeText(f.size);
+        const kept = f.filed != null ? " · in Records" : "";
+        const sub = f.private
+          ? `Private · ${sizeText(f.size)}${kept}`
+          : kept
+            ? `${sizeText(f.size)}${kept}`
+          : f.kind === "video"
+            ? `Bots can't watch video: ${f.note || "still frames"} sent`
+            : f.note || sizeText(f.size);
         return homeComputer ? (
           <Chip key={f.id} sub={sub} title="Open it on the home computer" onClick={() => send({ type: "open_file", bot: e.bot, seq: e.seq, id: f.id })}>{f.name}</Chip>
         ) : (
@@ -127,6 +154,20 @@ function SentFiles({ e, homeComputer }: { e: Extract<BotEvent, { kind: "user_mes
       })}
     </div>
   );
+}
+
+/** When a message was sent, for its corner: "4:21 PM" today, "Nov 16,
+ *  4:21 PM" this year, else with the year. */
+export function stamp(ms: number, now = new Date()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return time;
+  const day = d.toLocaleDateString([], d.getFullYear() === now.getFullYear() ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+  return `${day}, ${time}`;
+}
+
+function When({ ms }: { ms: number }) {
+  return <time className="msg-time" dateTime={new Date(ms).toISOString()}>{stamp(ms)}</time>;
 }
 
 /** One stored event, or nothing for kinds the chat doesn't show. */
@@ -138,13 +179,20 @@ const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx })
       return (
         <div className="mine" title={title} style={color ? vars({ person: color }) : undefined}>
           {e.from ? <div className="who"><i className="person-dot" />{e.from}</div> : null}
-          {e.text || !e.files?.length ? <div className="msg me">{e.text}</div> : null}
+          {e.text || !e.files?.length ? <div className="msg me">{e.text}<When ms={e.ts_ms} /></div> : null}
           {e.files?.length ? <SentFiles e={e} homeComputer={ctx.homeComputer} /> : null}
+          {e.text || !e.files?.length ? null : <When ms={e.ts_ms} />}
         </div>
       );
     }
-    case "assistant_message": return <div className="msg bot" title={title}><MdView text={e.text} /></div>;
-    case "tool_use": return <div className="tool" title={title}>{`${e.name} ${e.summary}`.trim()}</div>;
+    case "assistant_message": return <div className="msg bot" title={title}><MdView text={e.text} /><When ms={e.ts_ms} /></div>;
+    case "tool_use": {
+      // Older lines kept a tool's raw name ("mcp__oxbot__ask_user").
+      const raw = /^mcp__[^_]+(?:_[^_]+)*?__(.+)$/.exec(e.name)?.[1];
+      if (raw === "ask_user" || raw === "show_note") return null;
+      const name = raw ? raw.replace(/_/g, " ") : e.name;
+      return <div className="tool" title={title}>{`${name} ${e.summary}`.trim()}</div>;
+    }
     case "turn_done":
       return (
         <div className="done" title={title}>
@@ -158,6 +206,7 @@ const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx })
     case "error": return <div className="err" title={title}>{e.message}</div>;
     case "approval": return <div className="redline" title={title}>{`⚠ ${OUTCOME[e.outcome] || e.outcome}: ${e.action} ${e.target} on ${e.site}`}</div>;
     case "report": return <ReportCard e={e} />;
+    case "home_note": return <NoteCard e={e} homeComputer={ctx.homeComputer} />;
     case "blocked": return <div className="redline" title={title}>{`⚠ ${e.message}`}</div>;
     case "allowed_by_rule": return <div className="tool" title={title}>{`always allowed: ${e.action} ${e.target} on ${e.site}`}</div>;
     case "note": return <div className="tool note-line" title={title}>{e.text}</div>;
@@ -289,10 +338,15 @@ export function Log() {
           ))
         )}
         {b.stream ? <div className="msg bot streaming"><MdView text={b.stream} /></div> : null}
+        {b.draft && !b.stream ? (
+          <div className="msg bot draft" title="The bot is checking this answer; the checked one replaces it">
+            <MdView text={b.draft} />
+          </div>
+        ) : null}
         {b.busy && !b.stream ? (
           <div className="typing">
             <span className="ttt"><Board /></span>
-            <span className="txt">{(b.activity || "Working…").replace(/…$/, "")}</span>
+            <span className="txt">{(b.draft ? "Checking its answer…" : b.activity || "Working…").replace(/…$/, "")}</span>
           </div>
         ) : null}
       </>

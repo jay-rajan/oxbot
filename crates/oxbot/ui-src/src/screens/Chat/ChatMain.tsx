@@ -1,10 +1,11 @@
 // The open bot's chat: header, setup checks, the offline bar, the usage
 // alert banner, the log, the note about the AI account, the cards, and the
 // message box. Same ids, classes and words as the hand-written page.
+import { HOME_LEADS } from "../../state/sidebar";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { type App, useApp, useSel } from "../../app/context";
 import { avatarSvg } from "../../components/brand";
-import { Banner, Button, CloseIcon, IconButton, MenuIcon, MoreIcon } from "../../components/ui";
+import { Banner, Button, CloseIcon, IconButton, MenuIcon } from "../../components/ui";
 import type { BotInfo, UsageAlert } from "../../net/protocol";
 import { uploading } from "../../state/chat";
 import { local } from "../../state/store";
@@ -14,6 +15,8 @@ import { addFiles, follow, isLocked, openEngines, openReport, stopDictation } fr
 import { Composer } from "./Composer";
 import { Log } from "./Log";
 import { purposeLine } from "./purpose";
+import { HomeMode } from "../Calendar/HomeMode";
+import { HOME_ICONS, HomeIcon } from "../Sidebar/HomeIcon";
 import "./chat.css";
 
 const KEYCHAIN_WAITING = "Waiting for the Mac's Keychain: allow oxbot in the dialog.";
@@ -185,6 +188,8 @@ function statusText(info: BotInfo, busy: boolean, activity: string | null, dicta
   const shared = info.sharing === "people" ? `shared with ${info.members?.join(", ") || "picked people"}` : info.private ? "private" : "";
   if (busy) return activity || "Working…";
   if (info.central) return "leads your bots";
+  // The Home bots' examples roll in the message box instead.
+  if (HOME_LEADS.some((h) => h.id === info.id)) return "";
   return [shared, purposeLine(info.instructions)].filter(Boolean).join(" · ");
 }
 
@@ -228,6 +233,7 @@ export function ChatMain() {
   const { dispatch } = app;
   const current = useSel((s) => s.ui.current);
   const sideOpen = useSel((s) => s.ui.sideOpen);
+  const homeView = useSel((s) => (s.ui.page === "calendar" ? "Calendar" : s.ui.page === "notes" ? "Records" : null));
   const info = useSel((s) => (s.ui.current ? s.bots.byId[s.ui.current] : undefined));
   const chat = useSel((s) => (s.ui.current ? s.chat.bots[s.ui.current] : undefined));
   const dictating = useSel((s) => !!s.chat.dictating);
@@ -253,6 +259,7 @@ export function ChatMain() {
   const busy = chat ? chat.busy : !!info?.busy;
   const manage = !!info?.can_manage;
   const moreLabel = manage ? "Bot settings" : "Reports";
+  const openSettings = () => { if (info && !locked) dispatch(local("ui/open", { dialog: "botSettings" })); };
 
   // Drop anywhere on the chat (not the sidebar's own bot dragging).
   const hasFiles = (ev: DragEvent) => !!ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
@@ -268,28 +275,39 @@ export function ChatMain() {
     >
       <header className="chat-head">
         <IconButton className="menu" id="menu" label="Show bots" onClick={() => dispatch(local("ui/side", { open: !sideOpen }))}><MenuIcon /></IconButton>
-        <span
-          className={`avatar head-avatar${busy && !locked && info ? " working" : ""}`}
-          id="botAvatar"
-          hidden={!current}
-          // biome-ignore lint: a fixed SVG made from the bot id, no user text
-          dangerouslySetInnerHTML={{ __html: current ? avatarSvg(current, !!info?.central) : "" }}
-        />
-        <div className="head-text">
-          <div className="head-title">
-            <h1 id="botName">{current ? info?.name || current : "oxbot"}</h1>
-          </div>
-          <div className="status" id="botStatus" data-bot={current ?? undefined}>{info ? statusText(info, busy, chat?.activity ?? null, dictating) : ""}</div>
-        </div>
-        <IconButton
-          className="head-more"
+        {/* The bot's icon and name open its settings (or its reports). */}
+        <div
+          className="head-who"
           id="botMore"
-          label={info ? moreLabel : "Bot settings"}
-          hidden={!info || locked}
-          onClick={() => { if (info && !locked) dispatch(local("ui/open", { dialog: "botSettings" })); }}
+          role="button"
+          tabIndex={info && !locked ? 0 : -1}
+          aria-label={info ? moreLabel : "Bot settings"}
+          aria-disabled={!info || locked ? "true" : "false"}
+          title={info && !locked ? moreLabel : undefined}
+          onClick={openSettings}
+          onKeyDown={(ev) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              openSettings();
+            }
+          }}
         >
-          <MoreIcon />
-        </IconButton>
+          <span
+            className={`avatar head-avatar${busy && !locked && info ? " working" : ""}`}
+            id="botAvatar"
+            hidden={!current || !!HOME_ICONS[current]}
+            // biome-ignore lint: a fixed SVG made from the bot id, no user text
+            dangerouslySetInnerHTML={{ __html: current ? avatarSvg(current, !!info?.central) : "" }}
+          />
+          {current ? <HomeIcon id={current} /> : null}
+          <div className="head-text">
+            <div className="head-title">
+              <h1 id="botName">{current ? info?.name || current : "oxbot"}</h1>
+            </div>
+            <div className="status" id="botStatus" data-bot={current ?? undefined}>{info ? statusText(info, busy, chat?.activity ?? null, dictating) : ""}</div>
+          </div>
+        </div>
+        {homeView ? <HomeMode where="chat" view={homeView} /> : null}
       </header>
       <SetupBox />
       <Offline />

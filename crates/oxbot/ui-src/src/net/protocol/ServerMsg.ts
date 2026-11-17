@@ -11,6 +11,8 @@ import type { ComparePrefs } from "./ComparePrefs";
 import type { DeviceInfo } from "./DeviceInfo";
 import type { DoorState } from "./DoorState";
 import type { EnginesView } from "./EnginesView";
+import type { HomeEventInfo } from "./HomeEventInfo";
+import type { HomeNoteInfo } from "./HomeNoteInfo";
 import type { LogLine } from "./LogLine";
 import type { NetRow } from "./NetRow";
 import type { NetTotals } from "./NetTotals";
@@ -298,7 +300,48 @@ bot: string | null,
 /**
  * Soonest first.
  */
-schedules: Array<ScheduleInfo>, } | { "type": "schedules_changed" } | { "type": "profile" } & ProfileView | { "type": "profiles_changed" } | { "type": "notify", 
+schedules: Array<ScheduleInfo>, } | { "type": "schedules_changed" } | { "type": "home_events", 
+/**
+ * First day asked for.
+ */
+from: string, 
+/**
+ * Last day asked for.
+ */
+to: string, 
+/**
+ * Earliest first; repeating ones once, as they were first set.
+ */
+events: Array<HomeEventInfo>, } | { "type": "deleted_events", 
+/**
+ * The events.
+ */
+events: Array<HomeEventInfo>, } | { "type": "home_saved", 
+/**
+ * The change, for [`ClientMsg::UndoHomeChange`].
+ */
+change: number, 
+/**
+ * The event.
+ */
+id: number, 
+/**
+ * `add`, `change`, `delete`, `restore` or `undo`.
+ */
+action: string, 
+/**
+ * The event's title.
+ */
+title: string, 
+/**
+ * The bot that made the change (the Calendar bot, asked in its
+ * chat), sent to everyone who sees it; none for this client's own.
+ */
+bot: string | null, } | { "type": "home_changed" } | { "type": "home_notes", 
+/**
+ * Latest day first.
+ */
+notes: Array<HomeNoteInfo>, } | { "type": "profile" } & ProfileView | { "type": "profiles_changed" } | { "type": "notify", 
 /**
  * Bot id.
  */

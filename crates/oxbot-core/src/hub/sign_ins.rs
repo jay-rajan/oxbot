@@ -512,6 +512,19 @@ impl Hub {
         }
     }
 
+    /// Whether `bot`'s browser is signed in to the site of `page_url`. A
+    /// page off the web, or no browser, counts as signed in (oxbot can't
+    /// tell, so it stays careful).
+    pub(super) async fn signed_in_at(&self, bot: &Bot, page_url: Option<&str>) -> bool {
+        let Some(host) = page_url.filter(|u| !is_home_network(u)).and_then(web_host) else {
+            return true;
+        };
+        let Some(shared) = self.browser_of(bot) else {
+            return true;
+        };
+        self.signed_in_to(&shared, &site_of(&host)).await
+    }
+
     /// Before `action` (adding to a cart, checking out, booking…) on the
     /// page at `page_url`, makes sure `bot`'s browser (the one it drives:
     /// the home browser, or its maker's own) is signed in to the page's
@@ -540,28 +553,14 @@ impl Hub {
                 "sign in to {site} before {doing}"
             )));
         }
-        let scheme = url.split_once("://").map_or("https", |(s, _)| s);
-        let start = format!("{scheme}://{host}/");
-        let outcome = self
-            .sign_in_card(&bot.id, &shared, &start, site.clone(), "", Some(doing))
-            .await;
-        if outcome == SignInOutcome::Done && self.signed_in_to(&shared, &site).await {
-            return None;
-        }
-        let no = format!(
-            "Not signed in to {site}, so {}. Tell the person they need to sign in \
-             (Settings → Websites) and stop.",
+        // No sign-in card unless the person asked for their own account
+        // there: the bot asks with request_sign_in then.
+        Some(Decision::Deny(format!(
+            "Not signed in to {site}, so {}: that needs the person's account there. Skip it and \
+             carry on with the rest, and tell them at the end. Only if they asked you to use \
+             their own account or data on {site}, ask them to sign in with request_sign_in.",
             action.nothing()
-        );
-        if let Err(err) = self.record(
-            &bot.id,
-            EventKind::Blocked {
-                message: format!("oxbot refused: {no}"),
-            },
-        ) {
-            tracing::warn!(%err, "couldn't record the refusal");
-        }
-        Some(Decision::Deny(no))
+        )))
     }
 
     /// Opens the sign-in window for request `id`, in its bot's browser.

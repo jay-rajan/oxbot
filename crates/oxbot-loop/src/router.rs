@@ -127,6 +127,9 @@ pub struct TurnRouting {
     /// a window must never get a smaller one). Models the list doesn't
     /// describe are kept.
     pub min_window: Option<u64>,
+    /// The request has pictures: only models that take them (when any of
+    /// the candidates does).
+    pub needs_images: bool,
 }
 
 struct Cooling {
@@ -338,6 +341,13 @@ impl Router {
             })
             .filter(|c| free_ok || !c.free)
             .collect();
+        // Pictures: only models that see them, if there are any.
+        let sees = |c: &&Candidate| c.info.as_ref().is_some_and(|m| m.images_in);
+        let usable: Vec<&Candidate> = if turn.needs_images && usable.iter().any(sees) {
+            usable.into_iter().filter(sees).collect()
+        } else {
+            usable
+        };
         let ready: Vec<&Candidate> = usable
             .iter()
             .copied()
@@ -468,6 +478,35 @@ mod tests {
 
     fn ids(list: &[Candidate]) -> Vec<&str> {
         list.iter().map(|c| c.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_picture_goes_to_a_model_that_sees_pictures() {
+        let store = Arc::new(MemoryLoopStore::new());
+        let r = router(LoopPrefs::default(), Arc::clone(&store));
+        let mut sees = model("b:free", 64_000, true);
+        sees.images_in = true;
+        let mut catalog = (*r.catalog()).clone();
+        for m in &mut catalog.models {
+            if m.id == "b:free" {
+                *m = sees.clone();
+            }
+        }
+        r.catalog.set(catalog, 0);
+        let turn = TurnRouting::default();
+        let Pick::Route(plain) = r.pick(&turn, true) else {
+            panic!()
+        };
+        assert_eq!(plain.primary.id, "c:free", "the best one for text");
+        let pictures = TurnRouting {
+            needs_images: true,
+            ..TurnRouting::default()
+        };
+        let Pick::Route(route) = r.pick(&pictures, true) else {
+            panic!()
+        };
+        assert_eq!(route.primary.id, "b:free");
+        assert!(route.fallbacks.is_empty(), "no text-only fallback");
     }
 
     #[test]

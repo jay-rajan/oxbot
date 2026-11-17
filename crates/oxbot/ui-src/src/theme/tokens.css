@@ -41,6 +41,13 @@
   --warn-soft: #FFF5E3;
   --warn-ink: #5C3600;
   --busy: #E2701B;        /* reconnecting */
+  /* The Home's three: each its own color (icon on a soft tile). */
+  --home-cal: #2563D9;
+  --home-cal-soft: #E7EEFC;
+  --home-meals: #1E8A4C;
+  --home-meals-soft: #E3F4EA;
+  --home-notes: #B86E00;
+  --home-notes-soft: #FFF1D9;
 
   /* Chat */
   --me: #141414;          /* my messages */
@@ -127,6 +134,12 @@
     --warn-soft: #2A2416;
     --warn-ink: #FFD98F;
     --busy: #F08A3A;
+    --home-cal: #7AA7FF;
+    --home-cal-soft: #1C2A44;
+    --home-meals: #62C98F;
+    --home-meals-soft: #173024;
+    --home-notes: #F2B441;
+    --home-notes-soft: #33280F;
     --me: #0B0D10;
     --me-ink: #FFFFFF;
     --bubble: #242931;

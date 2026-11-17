@@ -157,6 +157,16 @@ pub async fn exchange_code(
     })
 }
 
+/// Standard base64 with padding (RFC 4648 §4), as data URLs use.
+#[must_use]
+pub fn base64(bytes: &[u8]) -> String {
+    let mut out = base64url(bytes).replace('-', "+").replace('_', "/");
+    while !out.len().is_multiple_of(4) {
+        out.push('=');
+    }
+    out
+}
+
 /// Base64url without padding (RFC 4648 §5), as PKCE uses.
 #[must_use]
 pub fn base64url(bytes: &[u8]) -> String {
@@ -179,6 +189,14 @@ pub fn base64url(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::types::Provider;
+
+    #[test]
+    fn standard_base64_pads() {
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(&[0xfb, 0xff]), "+/8=");
+    }
 
     #[test]
     fn rfc7636_test_vector() {

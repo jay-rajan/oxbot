@@ -36,6 +36,86 @@ pub const CENTRAL_NAME: &str = "Assistant";
 /// from names never have two dashes in a row, so no other bot gets one.
 pub const PERSONAL_ASSISTANT_PREFIX: &str = "assistant--";
 
+/// The family Home's three lead bots: id, name and built-in instructions.
+/// Every home gets them once (a deleted one stays deleted). The page shows
+/// each beside its own screen; the Assistant stays, out of the bot list.
+pub const HOME_LEADS: &[(&str, &str, &str)] = &[
+    (
+        "home-calendar",
+        "Calendar",
+        "You are the family's Calendar bot. You keep everyone's events: school, \
+         practice, appointments, birthdays and trips. When someone tells you about \
+         something coming up, add it to the calendar with add_event: the day, \
+         time, place and who it's for. Ask only when the day or what it is isn't \
+         clear. Look with calendar_events first so nothing is added twice, and to \
+         answer what's on. After a change, say in one line what you did. Keep replies short: the family may be reading on \
+         a phone. You can make helper bots for jobs like reading a school's calendar.",
+    ),
+    (
+        "home-meals",
+        "Meal Plan",
+        "You are the family's Meal Plan bot. You plan the week's dinners and keep \
+         the grocery list. The first time, ask a few questions: who eats, \
+         allergies and dislikes, busy nights, budget and favorite meals. Then plan \
+         a week and add what's needed to the grocery list. Keep replies short. You \
+         can suggest helper bots, such as one that orders groceries from a store.",
+    ),
+    (
+        "home-notes",
+        "Records",
+        "You are the family's Records bot. You keep the family's records (bills, \
+         insurance, receipts, warranties, forms) so anyone can find them again, from any device. A file attached here is \
+         filed in Records at once, with what the person said about it. When \
+         you may read it, read it and file it better with file_note: a short, \
+         findable title; the document's own date (a bill's, a visit's, a \
+         statement's) unless they gave one; one broad topic, reusing ones already \
+         there (find_notes lists them); a few tags; who it's about; a one-line \
+         summary. Then show_note it and say in one line where it went. A private \
+         file you can't read: file it only by what they tell you, and ask for a \
+         title or who it's for if they gave none. When someone asks for a file, \
+         find_notes and show_note the best match. Never ask for or repeat \
+         passwords, PINs or card numbers: say they're kept on the home computer \
+         only. Keep replies short: the family may be reading on a phone.",
+    ),
+];
+
+/// The Records bot's instructions from when it was Family Notes (Nov
+/// 2026): a home that still has them, unchanged, gets the new ones.
+const FAMILY_NOTES_INSTRUCTIONS: &str = "You are the family's Notes bot. You keep the family's files and notes so \
+         anyone can find them again, from any device. A file attached here is \
+         filed in Family Notes at once, with what the person said about it. When \
+         you may read it, read it and file it better with file_note: a short, \
+         findable title; the document's own date (a bill's, a visit's, a \
+         statement's) unless they gave one; one broad topic, reusing ones already \
+         there (find_notes lists them); a few tags; who it's about; a one-line \
+         summary. Then show_note it and say in one line where it went. A private \
+         file you can't read: file it only by what they tell you, and ask for a \
+         title or who it's for if they gave none. When someone asks for a file, \
+         find_notes and show_note the best match. Never ask for or repeat \
+         passwords, PINs or card numbers: say they're kept on the home computer \
+         only. Keep replies short: the family may be reading on a phone.";
+
+/// The Family Notes bot's first instructions, before it filed files:
+/// a home that still has them gets the new ones.
+const OLD_NOTES_INSTRUCTIONS: &str = "You are the family's Notes bot. Anyone can drop anything here: a Wi-Fi \
+         name, a doctor's number, a recipe, a warranty, a school form. File each \
+         note with a short title and tags so it's easy to find, and answer \
+         questions from the notes. Never ask for or repeat passwords, PINs or card \
+         numbers: say they're kept on the home computer only. Keep replies short.";
+
+/// Whether `id` is a Home bot that works without the web: the Calendar and
+/// Family Notes (Meal Plan may shop).
+#[must_use]
+pub fn needs_no_browser(id: &str) -> bool {
+    id == HOME_LEADS[0].0 || id == HOME_LEADS[2].0
+}
+
+/// Whether `id` is one of the Home's lead bots.
+#[must_use]
+pub fn is_home_lead(id: &str) -> bool {
+    HOME_LEADS.iter().any(|(i, ..)| *i == id)
+}
+
 /// Whether `id` is a person's own Assistant (not the home computer's, `assistant`).
 #[must_use]
 pub fn is_personal_assistant(id: &str) -> bool {
@@ -286,6 +366,12 @@ pub struct Bot {
     /// Runs the browser hidden (no window) while it browses. A sign-in or
     /// robot check still brings the browser forward.
     pub browser_hidden: bool,
+    /// A lead bot: like the Assistant, it can list the home's bots, give
+    /// them tasks and create helpers (see [`Bot::is_lead`]).
+    pub lead: bool,
+    /// The lead bot that created it, if one did: it's listed under that
+    /// lead as its helper.
+    pub helper_of: Option<BotId>,
     /// The bot's folder.
     pub dir: PathBuf,
 }
@@ -340,8 +426,16 @@ struct BotFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sharing: Option<Sharing>,
     /// Before the `[openrouter]` table: TOML writes plain values first.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// Hidden unless the file says `browser_hidden = false` (Nov 2026: every
+    /// bot's browser is hidden by default, shown only when the user is
+    /// needed).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
     browser_hidden: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    lead: bool,
+    /// The id of the lead bot that created it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    helper_of: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     openrouter: Option<LoopSettings>,
 }
@@ -416,6 +510,19 @@ pub enum BotError {
     Exists(BotId),
 }
 
+#[allow(clippy::unnecessary_wraps, reason = "serde's default takes a function")]
+const fn yes() -> bool {
+    true
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes a reference"
+)]
+const fn is_true(b: &bool) -> bool {
+    *b
+}
+
 fn io_err(path: &Path) -> impl FnOnce(io::Error) -> BotError + '_ {
     move |source| BotError::Io {
         path: path.to_owned(),
@@ -428,6 +535,14 @@ impl Bot {
     #[must_use]
     pub fn is_central(&self) -> bool {
         self.is_main_assistant() || is_personal_assistant(self.id.as_str())
+    }
+
+    /// Whether it can run a team: list the home's bots, give them tasks and
+    /// create helpers. The Assistant always can; any other bot when it's
+    /// made a lead.
+    #[must_use]
+    pub fn is_lead(&self) -> bool {
+        self.lead || self.is_central()
     }
 
     /// Whether this is the home computer's Assistant, whose instructions every person's
@@ -487,6 +602,8 @@ impl Bot {
             moved_from,
             loop_settings: file.openrouter.unwrap_or_default(),
             browser_hidden: file.browser_hidden,
+            lead: file.lead,
+            helper_of: file.helper_of.and_then(|h| BotId::new(h).ok()),
             instructions,
             dir: dir.to_owned(),
         })
@@ -546,7 +663,9 @@ impl Bot {
             private: false,
             sharing: Some(Sharing::Everyone),
             openrouter: None,
-            browser_hidden: false,
+            browser_hidden: true,
+            lead: false,
+            helper_of: None,
         };
         write_file(&dir, &file)?;
         let md = dir.join("instructions.md");
@@ -662,6 +781,8 @@ impl Bot {
                 sharing: Some(self.effective_sharing()),
                 openrouter: (!self.loop_settings.is_empty()).then(|| self.loop_settings.clone()),
                 browser_hidden: self.browser_hidden,
+                lead: self.lead,
+                helper_of: self.helper_of.as_ref().map(ToString::to_string),
             },
         )
     }
@@ -772,7 +893,44 @@ pub fn ensure_default(bots_dir: &Path) -> Result<(), BotError> {
         })?;
         Bot::create(bots_dir, id, CENTRAL_NAME, DEFAULT_INSTRUCTIONS)?;
     }
-    rename_old_central(bots_dir)
+    rename_old_central(bots_dir)?;
+    ensure_home_leads(bots_dir)
+}
+
+/// Makes the Home's lead bots ([`HOME_LEADS`]) once per home: a marker in
+/// `bots_dir` means it was done, so one the family deletes stays deleted.
+fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
+    let marker = bots_dir.join(".home-leads");
+    if marker.exists() {
+        // Family Notes' first instructions, never changed: the new ones.
+        let path = bots_dir.join(HOME_LEADS[2].0).join("instructions.md");
+        if fs::read_to_string(&path)
+            .is_ok_and(|t| [OLD_NOTES_INSTRUCTIONS, FAMILY_NOTES_INSTRUCTIONS].contains(&t.trim()))
+        {
+            fs::write(&path, HOME_LEADS[2].2).map_err(io_err(&path))?;
+        }
+        // Family Notes is called Records now (a name the person chose stays).
+        if let Ok(mut notes) = Bot::load(&bots_dir.join(HOME_LEADS[2].0))
+            && notes.name == "Family Notes"
+        {
+            HOME_LEADS[2].1.clone_into(&mut notes.name);
+            notes.save()?;
+        }
+        return Ok(());
+    }
+    for (id, name, instructions) in HOME_LEADS {
+        if bots_dir.join(id).exists() {
+            continue;
+        }
+        let id = BotId::new(*id).map_err(|source| BotError::BadId {
+            path: bots_dir.join(id),
+            source,
+        })?;
+        let mut bot = Bot::create(bots_dir, id, name, instructions)?;
+        bot.lead = true;
+        bot.save()?;
+    }
+    fs::write(&marker, "").map_err(io_err(&marker))
 }
 
 /// A central bot (the main one or a person's own) still called "Herder"
@@ -823,16 +981,51 @@ mod tests {
     }
 
     #[test]
+    fn family_notes_becomes_records_unless_renamed() {
+        let tmp = tempfile::tempdir().unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let dir = tmp.path().join(HOME_LEADS[2].0);
+        // As a home made before the rename has it.
+        let mut notes = Bot::load(&dir).unwrap();
+        "Family Notes".clone_into(&mut notes.name);
+        notes.save().unwrap();
+        fs::write(dir.join("instructions.md"), FAMILY_NOTES_INSTRUCTIONS).unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let notes = Bot::load(&dir).unwrap();
+        assert_eq!(notes.name, "Records");
+        assert_eq!(notes.instructions.trim(), HOME_LEADS[2].2);
+        // A name and instructions the person wrote stay.
+        let mut notes = notes;
+        "Our papers".clone_into(&mut notes.name);
+        notes.save().unwrap();
+        fs::write(dir.join("instructions.md"), "Keep it short.").unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let notes = Bot::load(&dir).unwrap();
+        assert_eq!(notes.name, "Our papers");
+        assert_eq!(notes.instructions.trim(), "Keep it short.");
+    }
+
+    #[test]
     fn default_bot_is_created_once() {
         let tmp = tempfile::tempdir().unwrap();
         ensure_default(tmp.path()).unwrap();
         ensure_default(tmp.path()).unwrap();
         let bots = load_all(tmp.path()).unwrap();
-        assert_eq!(bots.len(), 1);
-        assert_eq!(bots[0].id.as_str(), "assistant");
+        let ids: Vec<_> = bots.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["assistant", "home-calendar", "home-meals", "home-notes"]
+        );
         assert!(bots[0].instructions.contains("phone"));
         assert!(bots[0].work_dir().is_dir());
         assert_eq!(bots[0].name, CENTRAL_NAME);
+        assert!(bots[1..].iter().all(|b| b.lead && !b.is_central()));
+        assert_eq!(bots[2].name, "Meal Plan");
+
+        // A Home lead the family deletes stays deleted.
+        fs::remove_dir_all(tmp.path().join("home-notes")).unwrap();
+        ensure_default(tmp.path()).unwrap();
+        assert_eq!(load_all(tmp.path()).unwrap().len(), 3);
     }
 
     #[test]
@@ -989,13 +1182,25 @@ mod tests {
 
         bot.loop_settings.model = Some("auto".into());
         bot.loop_settings.daily_requests = Some(200);
+        // Hidden by default; only a shown browser is written down.
+        assert!(bot.browser_hidden);
+        assert!(!text.contains("browser_hidden"), "{text}");
+        bot.browser_hidden = false;
+        bot.save().unwrap();
+        let shown = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
+        assert!(shown.contains("browser_hidden = false"), "{shown}");
+        assert!(!Bot::load(&bot.dir).unwrap().browser_hidden);
         bot.browser_hidden = true;
+        bot.lead = true;
+        bot.helper_of = Some(BotId::new("meals").unwrap());
         bot.save().unwrap();
         let text = fs::read_to_string(bot.dir.join("bot.toml")).unwrap();
         assert!(text.contains("engine = \"codex\""), "{text}");
         assert!(text.contains("[openrouter]") && text.contains("daily_requests = 200"));
         let again = Bot::load(&bot.dir).unwrap();
         assert!(again.browser_hidden);
+        assert!(again.lead && again.is_lead() && !again.is_central());
+        assert_eq!(again.helper_of.as_ref().map(BotId::as_str), Some("meals"));
         assert_eq!(again.engine, EngineKind::Codex);
         assert_eq!(again.loop_settings.model.as_deref(), Some("auto"));
         assert_eq!(again.loop_settings.daily_requests, Some(200));

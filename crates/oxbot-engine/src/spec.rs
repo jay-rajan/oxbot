@@ -127,12 +127,20 @@ pub struct McpCommand {
 }
 
 /// Which of oxbot's own tools a bot gets.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one switch per group of tools"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HostTools {
     /// It's an Assistant: the team tools.
     pub central: bool,
     /// It has a browser: `save_report`.
     pub browser: bool,
+    /// It's the Home's Calendar bot: the calendar tools.
+    pub calendar: bool,
+    /// It's the Home's Records bot: the notes tools.
+    pub notes: bool,
 }
 
 /// One tool as a model sees it.

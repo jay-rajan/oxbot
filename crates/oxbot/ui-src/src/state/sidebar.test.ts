@@ -25,6 +25,8 @@ function bot(id: string, more: Partial<BotInfo> = {}): BotInfo {
     instructions: "",
     daily_requests: null,
     browser_hidden: false,
+    lead: false,
+    helper_of: null,
     sharing: "everyone",
     members: [],
     ...more,
@@ -49,13 +51,36 @@ describe("groupBots", () => {
   ];
   const secs = [{ id: "s1", name: "Kitchen" }];
 
-  it("puts Assistant first, then bots not in a section, then each section", () => {
+  it("leaves the Assistant out: bots not in a section, then each section", () => {
     const g = groupBots(list, secs, { recipes: "s1" }, "sections", "", "Jay");
     expect(g.map((x) => [x.key, x.ids])).toEqual([
-      ["assistant", ["assistant"]],
       ["none", ["bank", "cafe", "home"]],
       ["s:s1", ["recipes"]],
     ]);
+  });
+
+  it("puts lead bots on top with their helpers under them", () => {
+    const team = [
+      ...list,
+      bot("meals", { name: "Meal Plan", lead: true }),
+      bot("walmart", { name: "Walmart", helper_of: "meals" }),
+      bot("stray", { name: "Stray", helper_of: "gone" }),
+    ];
+    const g = groupBots(team, secs, { recipes: "s1", walmart: "s1" }, "sections", "", "Jay");
+    expect(g[0]?.ids).toEqual(["meals", "walmart"]);
+    expect(g.find((x) => x.key === "none")?.ids).toContain("stray");
+    expect(g.find((x) => x.key === "s:s1")?.ids).toEqual(["recipes"]);
+  });
+
+  it("leaves the Home's lead bots out, and lists their helpers on top", () => {
+    const home = [
+      ...list,
+      bot("home-meals", { name: "Meal Plan", lead: true }),
+      bot("walmart", { name: "Walmart", helper_of: "home-meals" }),
+    ];
+    const g = groupBots(home, secs, {}, "sections", "", "Jay");
+    expect(g[0]?.ids).toEqual(["walmart"]);
+    expect(g.flatMap((x) => x.ids)).not.toContain("home-meals");
   });
 
   it("ignores a placement in a section that's gone, and keeps empty sections", () => {
@@ -66,7 +91,7 @@ describe("groupBots", () => {
 
   it("groups by maker: you first, then A-Z, then the home computer", () => {
     const g = groupBots(list, secs, {}, "people", "", "Sam");
-    expect(g.map((x) => x.key)).toEqual(["assistant", "p:Sam", "p:Ann", "p:Jay", "p:"]);
+    expect(g.map((x) => x.key)).toEqual(["p:Sam", "p:Ann", "p:Jay", "p:"]);
     expect(g.at(-1)?.title).toBe("Home computer");
   });
 

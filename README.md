@@ -1,10 +1,175 @@
 # oxbot
 
-Always-on bots on your home computer (a Mac), used through the oxbot desktop app there and the
-oxbot Android app on devices on your home Wi-Fi. Bots answer with free and paid AI models through
-your home's OpenRouter account, free models first (see [AI models](#ai-models)). Model calls go
-only to OpenRouter, or later to a model on this computer; nothing else: no relay servers, no push
-services, no analytics, and nothing goes to Anthropic.
+**Your family's AI helpers, on your own Mac.** oxbot runs always-on bots that plan meals, book
+appointments, compare prices, keep up with school emails and remind you of what's coming. They
+run on your home computer, not in someone's cloud, and the whole household shares them from
+their own phones.
+
+### Private by design
+
+- **It stays home.** Bots, chats, files, schedules and every website sign-in live on your Mac.
+  There's no oxbot account, no oxbot server and no analytics.
+- **Phones talk only to your Mac,** over your home Wi-Fi, encrypted and paired. No relay in the
+  middle, no push service.
+- **Personal details are removed before the AI sees anything** (on by default): emails, phone numbers,
+  addresses, card numbers and the names of the people in your home become stand-ins like
+  `[person 1]`, and come back in the answer on your Mac.
+- **Bots never see your passwords.** When a site needs a sign-in, you do it yourself while the
+  bot waits.
+- **Nothing changes without your OK.** Reading and searching run on their own; sending, booking,
+  buying or deleting waits for you to tap Allow.
+- **You can check.** The network log shows everything that left the Mac in the last 30 days
+  (sizes and counts, never the content). The AI key stays in the Mac's Keychain.
+
+### Made for families, and for working together
+
+- **Everyone gets their own:** a name and colour, their own Assistant, their own phone or
+  tablet, their own schedules and sidebar.
+- **Share a bot the way you'd share a list:** with everyone at home, just you, or the people you
+  pick. Each message shows who sent it.
+- **The right person answers.** An approval goes to whoever asked for the task; a child's
+  requests go to a parent. Kids can't share a sign-in with everyone.
+- **Bots know the household,** only as far as each person allows: the home area, food needs,
+  languages, notes ("I prefer metric"). Never names.
+- **Private when it should be.** A private bot uses its maker's own sign-ins, and only they and
+  the owner can open it.
+
+Bots answer with free and paid AI models through your home's OpenRouter account, free models
+first (see [AI models](#ai-models)). Model calls go only to OpenRouter; nothing goes to Anthropic.
+
+```mermaid
+flowchart LR
+  subgraph phones["Devices: phones and tablets"]
+    P1["📱 Jay's phone"]
+    P2["📱 Sam's tablet"]
+  end
+  subgraph home["Home computer: a Mac running oxbot"]
+    APP["oxbot app<br/>chats, people, approvals"]
+    BOTS["Bots<br/>one AI helper each"]
+    BR["oxbot's browser<br/>your sign-ins stay here"]
+    RELAY["Relay<br/>removes personal details,<br/>meters, applies limits"]
+    APP --> BOTS
+    BOTS --> BR
+    BOTS --> RELAY
+  end
+  P1 -- "home Wi-Fi only,<br/>encrypted, paired" --> APP
+  P2 -- "home Wi-Fi only,<br/>encrypted, paired" --> APP
+  RELAY -- "the conversation,<br/>with your key" --> OR["OpenRouter → AI models"]
+  BR -- "browsing, as you" --> WEB["Websites"]
+```
+
+Everything lives on the home computer: bots, chats, the browser and its sign-ins, your AI key. Phones and
+tablets are windows onto it. Only two things leave the Mac: a bot's conversation goes to OpenRouter
+(personal details swapped out first), and the browser visits websites.
+
+## What happens when you send a message
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor You
+  participant App as oxbot (home computer)
+  participant Bot as Bot (AI helper)
+  participant Gate as oxbot's checks
+  participant Web as Browser → websites
+  participant AI as Relay → OpenRouter
+  You->>App: "Book a massage for Saturday"
+  App->>Bot: your message, with the bot's instructions and memory
+  Bot->>AI: what should I do?
+  AI-->>Bot: a plan and the first step
+  App-->>You: plan card: "Massage is starting on setmore.com" (OK / Stop)
+  loop each step
+    Bot->>Gate: open a page, click, fill in…
+    alt reading, searching, paging
+      Gate->>Web: runs at once
+    else sends, books, pays or changes something
+      Gate-->>You: approval card (Allow / Don't allow)
+      You->>Gate: Allow
+      Gate->>Web: runs
+    else the site needs a sign-in or a robot check
+      Gate-->>You: sign-in card (you sign in, the bot never sees it)
+    end
+    Web-->>Bot: what the page shows
+  end
+  Note over Bot,App: every 50 steps: a short check-in card that carries on unless you press Stop
+  Bot-->>App: the answer, with links to the pages it used
+  App-->>You: reply (and on every device of yours)
+```
+
+## Get oxbot
+
+oxbot runs on a Mac with an Apple chip (M1 or later), macOS 13 or newer. That Mac becomes the
+**home computer**; keep it plugged in.
+
+1. Download `oxbot_<version>_apple-chip.dmg`, open it and drag **oxbot** to Applications. It's
+   signed and notarized by Apple, so it opens with no warning. The browser, the AI helper (Codex)
+   and Node.js are inside: nothing else to install.
+2. Open oxbot. The welcome asks your name, signs you in to OpenRouter (the AI account, once),
+   and offers to keep the Mac awake while it's plugged in.
+3. Make a bot from the sidebar, or ask the Assistant to make one.
+
+Until public downloads exist, build the .dmg yourself (see [Desktop app](#desktop-app)).
+
+## Connect your devices
+
+Phones and tablets use the home computer's bots over your home Wi-Fi. Each device belongs to one
+person and acts as them: their own Assistant, their private bots, their approvals. A person can
+have several devices; pair each one once.
+
+```mermaid
+sequenceDiagram
+  actor Owner as You, at the Mac
+  participant Mac as oxbot on the Mac
+  participant Phone as oxbot app on the phone
+  Owner->>Mac: Settings → People → Add a device
+  Owner->>Mac: who it's for ("Sam") → Show pairing code
+  Mac-->>Owner: QR code + one-time code (works once, for 10 minutes)
+  Phone->>Mac: Scan the code (or paste the link)
+  Mac-->>Phone: the Mac's certificate fingerprint + the phone's own key
+  Note over Mac,Phone: from now on, encrypted and pinned: a fake "home computer" on the Wi-Fi is refused
+  Phone-->>Owner: Sam's welcome screen, then Sam's bots
+```
+
+1. **Install the app on the device.** Android: install the APK (see [Android app](#android-app-a-device));
+   iPhone and Google Play are on the way.
+2. **On the Mac:** oxbot → Settings → **People** → **Add a device**, type who it's for, then
+   **Show pairing code**. (The sidebar's **Connect a device** opens the same place.) The Mac must
+   be on the Wi-Fi the phone will use; pairing lets phones use that network.
+3. **On the device:** open oxbot, tap **Scan the code** and point it at the QR code. No camera?
+   Copy the link on the Mac and use **Paste the link instead**.
+4. The device shows its person's welcome screen, then their bots. Repeat for each device.
+
+A code works once, for 10 minutes, with a few tries. Only the home computer can pair devices.
+
+## Manage devices
+
+```mermaid
+flowchart TB
+  M["🖥 Home computer (the owner's Mac)<br/>pairs and removes devices"]
+  M --- J["Jay (owner)<br/>this Mac · Pixel, seen now"]
+  M --- S["Sam<br/>Galaxy Tab, seen 2 h ago"]
+  M --- K["Kid<br/>No devices yet"]
+```
+
+- **See them:** Settings → **People** lists each person with their devices and when each was last
+  seen. **Devices** on a person's row opens their list.
+- **Remove one:** **Remove**, then **Yes, remove**. The device is cut off at once; pairing it
+  again needs a new code.
+- **Away from home:** a device can't reach the Mac, by design (no relay, no cloud). It still
+  shows its own copy of recent chats (the latest 300 messages per bot, 30 days) and the last 50
+  reports it opened, and reconnects by itself back on home Wi-Fi.
+- **A new phone:** remove the old one, then pair the new one.
+
+| | Home computer | A device |
+|---|---|---|
+| Chat with bots, give tasks | ✓ | ✓ shared bots and its person's own |
+| Approve cards | ✓ | ✓ for its person's tasks |
+| Sign in to websites | ✓ the browser window | ✓ a live view of the sign-in page |
+| Pair or remove devices | ✓ | |
+| OpenRouter account and AI settings | ✓ | |
+| The Mac's microphone, files on the Mac's screen | ✓ | |
+
+## How oxbot works, in detail
 
 Status: the desktop app on the home computer plus the Android app for devices (milestone
 Foundations, issue #1). Shared bots share one home browser, oxbot's own Camoufox (a Firefox build
@@ -146,10 +311,9 @@ computer's secret (a key in the data folder, readable only by your Mac account);
 and `oxbot bots` read it; `oxbot serve` prints a link with it. Other pages and programs on the
 Mac can't act as the home computer.
 
-Setup: the browser (Camoufox), its tool and Node.js ship inside the app; you need Codex CLI
-0.148.x (installed separately for now: oxbot looks in `PATH`, `/opt/homebrew/bin` and
-`/usr/local/bin`, or where Settings says, or `OXBOT_CODEX` in a debug build), and the owner signs in to OpenRouter
-once. Settings (the gear) shows setup, AI spending and oxbot's activity log.
+Setup: the browser (Camoufox), Codex and Node.js ship with the app as packs (below); `oxbot serve`
+from a checkout looks for Codex 0.148.x in `PATH`, `/opt/homebrew/bin` and `/usr/local/bin`, or
+where Settings says, or `OXBOT_CODEX` in a debug build. The owner signs in to OpenRouter once. Settings (the gear) shows setup, AI spending and oxbot's activity log.
 
 Usage alerts: when the home nears or reaches one of its OpenRouter limits (free questions for the
 day, AI spending, credit left, or a bot's questions a day), oxbot shows a banner (until the limit
@@ -312,12 +476,19 @@ builds with no video frames or microphone), and packs the friends dmg.
 runs it from source. The app runs the server inside it; closing the window keeps oxbot in the
 menu bar (Open, Launch at login, Quit).
 
-For friends: `scripts/make-dmg.sh` builds two apps with a local signature, one for Apple chip Macs
-(`target/aarch64-apple-darwin/release/bundle/dmg/oxbot_<version>_apple-chip.dmg`) and one for Intel
-(`target/x86_64-apple-darwin/release/bundle/dmg/oxbot_<version>_intel.dmg`); `make-dmg.sh arm64` builds
-only the first. Codex is ~260 MB per chip, so one universal app would double everyone's download.
-There's no Apple developer account, so the first time they open it via System Settings →
-Privacy & Security → Open Anyway. Setup steps for friends: the oxbot Setup Guide doc.
+Releases: `scripts/make-dmg.sh arm64` builds the Apple-chip app (the beta is Apple chip only;
+`x64` builds Intel). With a Developer ID certificate in the Keychain it signs everything with the
+hardened runtime and has Apple notarize it (notarytool profile `oxbot`), so it opens with no
+warning; without one it gets a local signature (Open Anyway in Privacy & Security).
+
+The browser, Codex and Node.js are **packs** (`scripts/make-packs.sh`, `crates/oxbot/src/packs.rs`):
+each a versioned folder, made and signed once per version and cached in
+`~/Library/Caches/oxbot-release/packs`. The app carries `packs.json`, the exact pack versions it was
+tested with, and finds each in `<data>/tools/<name>-<version>` or inside the app. The .dmg's app
+carries all three (no download on a first install); the slim app beside it
+(`bundle/slim/oxbot.app`, notarized and stapled) has none, and is what updates will install,
+fetching only the packs that changed. Automatic updates are being built (plan:
+`docs/plan/updates-mac-build.html`).
 
 ## Dev mode (auto-rebuild)
 `brew install watchexec` once, then `scripts/dev.sh`. Rust edits rebuild and restart the server;

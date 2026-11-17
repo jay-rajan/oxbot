@@ -644,7 +644,10 @@ async fn responses(State(relay): State<Arc<Inner>>, headers: HeaderMap, body: By
         }
         let asker = asker_of(&info, t);
         t.requests += 1;
-        (asker, t.routing.clone(), t.start.meter.clone())
+        let mut routing = t.routing.clone();
+        // A picture in it (one the bot opened): a model that sees pictures.
+        routing.needs_images = shape::has_images(&request);
+        (asker, routing, t.start.meter.clone())
     };
     let mut net = NetNote::new(&relay, &info, &asker);
     let stand_ins = Some(relay.redact(&client, &info, &mut asker, &mut request, &mut net));

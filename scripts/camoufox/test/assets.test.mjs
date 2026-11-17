@@ -133,3 +133,44 @@ test("a full font bundle cannot slip into the reduced native package", async (t)
     /Unexpected full font bundle/,
   );
 });
+
+test("a browser kept as its own pack is found and checked there", async (t) => {
+  const root = await temporary(t),
+    driver = resolve(root, "driver"),
+    pack = resolve(root, "browser-pack");
+  const app = resolve(pack, "Camoufox.app/Contents");
+  await mkdir(resolve(app, "MacOS"), { recursive: true });
+  await mkdir(resolve(app, "Resources/addons/UBO"), { recursive: true });
+  await writeFile(resolve(app, "Resources/addons/UBO/manifest.json"), "{}");
+  const executable = resolve(app, "MacOS/camoufox");
+  await writeFile(executable, "browser");
+  await mkdir(driver);
+  await writeFile(
+    resolve(driver, "bundle.json"),
+    JSON.stringify({
+      schema: 1,
+      configuration: "native",
+      platform: "darwin",
+      arch: "arm64",
+      executable: "browser/Camoufox.app/Contents/MacOS/camoufox",
+      executableSha256: await sha256(executable),
+    }),
+  );
+  const found = await verifyBundle(driver, {
+    platform: "darwin",
+    arch: "arm64",
+    browser: pack,
+  });
+  assert.equal(found.executable, executable);
+  assert.equal(found.addon, resolve(app, "Resources/addons/UBO"));
+  // Without the pack, the driver alone has no browser.
+  await assert.rejects(
+    verifyBundle(driver, { platform: "darwin", arch: "arm64" }),
+    /ENOENT/,
+  );
+  await writeFile(executable, "tampered");
+  await assert.rejects(
+    verifyBundle(driver, { platform: "darwin", arch: "arm64", browser: pack }),
+    /damaged/,
+  );
+});

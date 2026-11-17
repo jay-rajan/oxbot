@@ -1,6 +1,11 @@
 //! Files uploaded for a message, from upload until the message is sent
 //! (see [`crate::attach`]). An upload belongs to the person who sent it and
 //! the bot it was sent for; one that isn't sent within an hour is deleted.
+//!
+//! An upload waits in the bot's `private/` folder, outside `work/`, where
+//! the bot's tools can't reach. When the message is sent, the files the
+//! person let the AI read move into `work/` (same place below it); the
+//! rest stay private for good.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -9,7 +14,7 @@ use oxbot_protocol::{Attachment, EventKind};
 
 use super::{Hub, HubError, lock};
 use crate::attach::{self, AttachError, Inbox};
-use crate::bot::Viewer;
+use crate::bot::{Bot, Viewer};
 use crate::id::{BotId, PersonId};
 
 /// The most files one person may have waiting to be sent, across bots.
@@ -44,8 +49,55 @@ impl Hub {
                 "You have {waiting} files waiting to be sent. Send or remove some first."
             )));
         }
-        let inbox = Inbox::new(bot.work_dir());
+        let inbox = Inbox::new(private_root(&bot));
         Ok((bot.id, inbox))
+    }
+
+    /// Puts files just claimed for `bot` where the person chose: those in
+    /// `ai` (upload ids) in its work folder for the AI to read, the rest
+    /// in its private folder, marked private. Moving back and forth is fine
+    /// (a send that failed may be tried again, chosen otherwise).
+    ///
+    /// # Errors
+    /// Fails if a file can't be moved.
+    pub(super) fn place_uploads(
+        &self,
+        bot: &Bot,
+        files: &mut [Attachment],
+        ai: &[String],
+    ) -> Result<(), HubError> {
+        let moved =
+            |e: std::io::Error| HubError::NotAllowed(format!("Couldn't put a file in place: {e}"));
+        let work = bot.work_dir();
+        let private = private_root(bot);
+        let mut uploads = lock(&self.uploads);
+        for f in files.iter_mut() {
+            f.private = !ai.contains(&f.id);
+            let (from, to) = if f.private {
+                (&work, &private)
+            } else {
+                (&private, &work)
+            };
+            let Some(p) = uploads.get_mut(&f.id) else {
+                continue;
+            };
+            for path in &mut p.accepted.saved {
+                let Ok(below) = path.strip_prefix(from) else {
+                    continue;
+                };
+                let dest = to.join(below);
+                if path.exists() {
+                    if let Some(parent) = dest.parent() {
+                        attach::make_dir_in(to, parent).map_err(moved)?;
+                    }
+                    std::fs::rename(&*path, &dest).map_err(moved)?;
+                }
+                // (A file inside a folder moved just before went with it.)
+                *path = dest;
+            }
+            p.accepted.attachment.private = f.private;
+        }
+        Ok(())
     }
 
     /// Takes a file `viewer` uploaded for `bot` (saved at `incoming`), to
@@ -199,7 +251,9 @@ impl Hub {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
-            .map(|b| Inbox::new(b.work_dir()).dir().join(".incoming"))
+            .flat_map(|b| {
+                [b.work_dir(), private_root(b)].map(|root| Inbox::new(root).dir().join(".incoming"))
+            })
             .collect();
         for dir in dirs {
             let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -246,12 +300,44 @@ impl Hub {
             return Err(missing());
         };
         let file = files.into_iter().find(|f| f.id == id).ok_or_else(missing)?;
-        let path = Inbox::new(bot.work_dir())
+        let root = if file.private {
+            private_root(&bot)
+        } else {
+            bot.work_dir()
+        };
+        let path = Inbox::new(root)
             .resolve(&file.path)
             .filter(|p| p.is_file())
             .ok_or_else(missing)?;
         Ok((file, path))
     }
+}
+
+/// Where a claimed upload for `bot` is saved now (in its private or work
+/// folder, as placed), to copy into Records.
+pub(super) fn upload_file(bot: &Bot, f: &Attachment) -> Option<PathBuf> {
+    let root = if f.private {
+        private_root(bot)
+    } else {
+        bot.work_dir()
+    };
+    Inbox::new(root).resolve(&f.path)
+}
+
+impl Hub {
+    /// Marks upload `id` as filed in Records as `note`, so a send
+    /// tried again doesn't file it twice.
+    pub(super) fn mark_filed(&self, id: &str, note: i64) {
+        if let Some(p) = lock(&self.uploads).get_mut(id) {
+            p.accepted.attachment.filed = Some(note);
+        }
+    }
+}
+
+/// Where a bot's uploads wait, and its private files stay: `private/` in
+/// its folder, beside (never inside) `work/`.
+pub(crate) fn private_root(bot: &Bot) -> PathBuf {
+    bot.dir.join("private")
 }
 
 fn gone() -> HubError {

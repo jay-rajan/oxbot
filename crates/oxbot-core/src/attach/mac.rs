@@ -36,6 +36,16 @@ impl Default for MacTools {
     }
 }
 
+/// What the helper made of a PDF: its text (`text.txt`), or for a scan,
+/// pictures of its first pages (`01.jpg`…).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PdfPages {
+    /// Its pages.
+    pub pages: u32,
+    /// Pictures of pages written (a scan); 0 when it has text.
+    pub images: u32,
+}
+
 /// What the helper made of a video.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frames {
@@ -178,6 +188,61 @@ impl MacTools {
         Ok(Frames {
             frames: frames.min(max),
             duration_ms: reply["duration_ms"].as_u64().unwrap_or(0),
+        })
+    }
+}
+
+impl MacTools {
+    /// Reads the PDF `from` into the folder `to`: its text as `text.txt`,
+    /// or for a scan, pictures of up to `max` pages (`01.jpg`…), at most
+    /// `size` pixels on their longer side. In the sandbox, as [`MacTools::frames`].
+    ///
+    /// # Errors
+    /// Says why, in a few words.
+    pub async fn pdf(
+        &self,
+        from: &Path,
+        to: &Path,
+        max: u32,
+        size: u32,
+    ) -> Result<PdfPages, String> {
+        let Some(helper) = self.helper.as_ref().filter(|h| h.exists()) else {
+            return Err("reading PDFs isn't available on the home computer.".to_owned());
+        };
+        if !Path::new(SANDBOX_EXEC).exists() {
+            return Err("this Mac can't open PDFs safely (its sandbox is missing).".to_owned());
+        }
+        let real =
+            |p: &Path| std::fs::canonicalize(p).map_err(|_| "it couldn't be opened.".to_owned());
+        std::fs::create_dir_all(to).map_err(|_| "its folder couldn't be made.".to_owned())?;
+        let (helper, from, to) = (real(helper)?, real(from)?, real(to)?);
+        let out = run_helper(
+            Command::new(SANDBOX_EXEC)
+                .arg("-p")
+                .arg(frames_profile(&helper, &from, &to))
+                .arg(&helper)
+                .arg("pdf")
+                .arg(&from)
+                .arg(&to)
+                .args(["--max", &max.to_string(), "--size", &size.to_string()]),
+            FRAMES_TIME,
+        )
+        .await?;
+        let reply: serde_json::Value =
+            serde_json::from_slice(out.stdout.trim_ascii()).unwrap_or_default();
+        if let Some(why) = reply["error"].as_str() {
+            return Err(why.to_owned());
+        }
+        let num = |k: &str| reply[k].as_u64().and_then(|n| u32::try_from(n).ok());
+        let (Some(pages), Some(images)) = (num("pages"), num("images")) else {
+            return Err("it couldn't be read.".to_owned());
+        };
+        if images == 0 && !to.join("text.txt").is_file() {
+            return Err("it couldn't be read.".to_owned());
+        }
+        Ok(PdfPages {
+            pages,
+            images: images.min(max),
         })
     }
 }

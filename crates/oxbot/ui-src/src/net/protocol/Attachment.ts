@@ -41,4 +41,13 @@ frames: number,
  * A few words about what oxbot did with it, for its chip, e.g. `as
  * text` or `3 still frames`.
  */
-note: string | null, };
+note: string | null, 
+/**
+ * Kept private: saved on the home computer outside the bot's folder,
+ * never read by the AI (the person didn't let it).
+ */
+private: boolean, 
+/**
+ * Filed in Records as this note.
+ */
+filed?: number | null, };
