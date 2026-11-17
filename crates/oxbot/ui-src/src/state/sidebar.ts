@@ -91,7 +91,7 @@ export const HOME_LEADS = [
   },
   {
     id: "home-notes",
-    name: "Family Notes",
+    name: "Records",
     page: "notes",
     btn: "notesBtn",
     hints: ["Attach a file to keep it", "Try: Akhila's blood test", "Try: Where's the car insurance?"],

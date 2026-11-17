@@ -139,7 +139,7 @@ pub struct HostTools {
     pub browser: bool,
     /// It's the Home's Calendar bot: the calendar tools.
     pub calendar: bool,
-    /// It's the Home's Family Notes bot: the notes tools.
+    /// It's the Home's Records bot: the notes tools.
     pub notes: bool,
 }
 

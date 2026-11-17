@@ -119,7 +119,7 @@ export function Sidebar() {
   );
 
   // A Home item: its bot (if the home still has it) and its page: the
-  // Calendar beside its bot's chat; Meal Plan and Family Notes their chat
+  // Calendar beside its bot's chat; Meal Plan and Records their chat
   // for now.
   const openHome = (h: (typeof HOME_LEADS)[number]) => {
     const s = store.getState();

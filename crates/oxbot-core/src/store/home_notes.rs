@@ -1,4 +1,4 @@
-//! Family Notes (migration 31): files the family keeps, each with what
+//! Records (migration 31): files the family keeps, each with what
 //! makes it easy to find again: a title, a day, a topic, tags and who it's
 //! about. Every note has a day: one a person gave, one read from the
 //! document, or else the day it was uploaded ([`DayFrom`]).
@@ -108,7 +108,7 @@ fn one_line(t: &str) -> String {
     t.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// A note in Family Notes.
+/// A note in Records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HomeNote {
     /// Its id.

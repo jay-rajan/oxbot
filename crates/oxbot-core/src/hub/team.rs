@@ -644,7 +644,7 @@ pub(super) fn team_label(name: &str) -> Option<&'static str> {
         tools::DELETE_SCHEDULE_TOOL => "deleting a schedule",
         tools::CALENDAR_EVENTS_TOOL => "looking at the calendar",
         tools::ADD_EVENT_TOOL => "adding to the calendar",
-        tools::FIND_NOTES_TOOL => "looking in Family Notes",
+        tools::FIND_NOTES_TOOL => "looking in Records",
         tools::FILE_NOTE_TOOL => "filing a note",
         tools::SHOW_NOTE_TOOL => "showing a note",
         tools::CHANGE_EVENT_TOOL => "changing an event",

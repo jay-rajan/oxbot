@@ -155,7 +155,7 @@ impl View {
             EventKind::HomeNote {
                 title, day, file, ..
             } => {
-                println!("   · Family Notes: {title} ({day}), at {file}");
+                println!("   · Records: {title} ({day}), at {file}");
             }
             EventKind::Report {
                 title,

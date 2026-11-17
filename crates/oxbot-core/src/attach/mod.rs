@@ -610,13 +610,13 @@ pub fn note(from: Option<&str>, files: &[Attachment], work_dir: &Path) -> String
         .collect();
     let files: Vec<&Attachment> = files.iter().filter(|f| !f.private).collect();
     // Private files: only that there are some (never their names); filed
-    // in Family Notes, their note ids, to file them by what the person says.
+    // in Records, their note ids, to file them by what the person says.
     let kept_line = match kept {
         0 => String::new(),
         n if filed_private.len() == n => {
             let ids: Vec<String> = filed_private.iter().map(|i| format!("note {i}")).collect();
             format!(
-                "(oxbot: {who} attached {} and kept {} private, filed in Family Notes as {}, by what they said as they attached {}. You can't open {}: don't guess what's in {}. File {} better only from what they tell you.)",
+                "(oxbot: {who} attached {} and kept {} private, filed in Records as {}, by what they said as they attached {}. You can't open {}: don't guess what's in {}. File {} better only from what they tell you.)",
                 if n == 1 { "a file" } else { "files" },
                 if n == 1 { "it" } else { "them" },
                 ids.join(", "),
@@ -652,7 +652,7 @@ pub fn note(from: Option<&str>, files: &[Attachment], work_dir: &Path) -> String
         out.push_str(&at(&f.path));
         out.push_str(" (");
         if let Some(id) = f.filed {
-            let _ = write!(out, "filed in Family Notes as note {id}; ");
+            let _ = write!(out, "filed in Records as note {id}; ");
         }
         let readable = f.readable.as_deref().map(at);
         let _ = match (f.kind, readable) {

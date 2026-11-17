@@ -103,8 +103,8 @@ impl Hub {
             .await
     }
 
-    /// Like [`Hub::send_files_choosing`]; to the Family Notes bot, each
-    /// file is filed in Family Notes first, by what the person said about
+    /// Like [`Hub::send_files_choosing`]; to the Records bot, each
+    /// file is filed in Records first, by what the person said about
     /// it (`notes`). Files that are all private, with nothing typed, don't
     /// involve the AI at all: the message and a card for each note go in
     /// the chat, and no turn starts.

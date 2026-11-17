@@ -1,11 +1,11 @@
-//! Family Notes: files the family keeps, filed so they're easy to get
-//! back. A file attached in the Family Notes chat is copied into the
+//! Records: files the family keeps, filed so they're easy to get
+//! back. A file attached in the Records chat is copied into the
 //! `family-notes` folder beside `bots/`, at
 //! `<year>/<topic>/<day> <title>.<ext>`, and recorded with what the
 //! person said about it as they attached it.
 //!
 //! Every note has a day: the one the person gave; or, if the AI may read
-//! the file, the one the Family Notes bot reads from it (`file_note`);
+//! the file, the one the Records bot reads from it (`file_note`);
 //! or else the day it was uploaded. A private file is filed with only
 //! what the person gave: the AI never sees it.
 //!
@@ -30,10 +30,10 @@ use crate::store::{
 };
 use crate::tools;
 
-/// The Family Notes bot's id.
+/// The Records bot's id.
 pub const NOTES_BOT: &str = HOME_LEADS[2].0;
 
-/// Where deleted notes' files wait, in the Family Notes folder.
+/// Where deleted notes' files wait, in the Records folder.
 const DELETED: &str = ".deleted";
 
 /// A note's folder when it has no topic.
@@ -43,13 +43,13 @@ const UNSORTED: &str = "Unsorted";
 const MAX_FOUND: usize = 30;
 
 impl Hub {
-    /// The Family Notes folder: beside `bots/` in oxbot's data folder.
+    /// The Records folder: beside `bots/` in oxbot's data folder.
     #[must_use]
     pub fn notes_root(&self) -> PathBuf {
         self.config.bots_dir.with_file_name("family-notes")
     }
 
-    /// Files claimed uploads for the Family Notes bot (already placed:
+    /// Files claimed uploads for the Records bot (already placed:
     /// private, or in its work folder for the AI), with what the person
     /// said about each (`notes`, by upload id): copies each into the Family
     /// Notes folder and records it. Marks each file `filed`. One filed
@@ -120,7 +120,7 @@ impl Hub {
         }
     }
 
-    /// Family Notes, latest day first.
+    /// Records, latest day first.
     ///
     /// # Errors
     /// `viewer` isn't in the home, or the database fails.
@@ -160,7 +160,7 @@ impl Hub {
         Ok(())
     }
 
-    /// Deletes note `id` as `viewer`: its file goes to the Family Notes
+    /// Deletes note `id` as `viewer`: its file goes to the Records
     /// folder's `.deleted` folder for [`KEEP_DELETED_DAYS`], when it's gone
     /// for good (see [`Hub::restore_home_note`]).
     ///
@@ -344,7 +344,7 @@ impl Hub {
         })
     }
 
-    /// Runs one of the Family Notes bot's tools (`tools::NOTES_TOOLS`) as
+    /// Runs one of the Records bot's tools (`tools::NOTES_TOOLS`) as
     /// `bot`.
     pub(super) fn notes_tool(&self, bot: &BotId, tool: &str, args: &Value) -> (bool, String) {
         let by = Actor::Bot(bot.clone());
@@ -353,7 +353,7 @@ impl Hub {
         match tool {
             tools::FIND_NOTES_TOOL => match self.store.notes() {
                 Ok(notes) => (true, found_text(notes, args, &names)),
-                Err(err) => (false, format!("Couldn't read Family Notes: {err}")),
+                Err(err) => (false, format!("Couldn't read Records: {err}")),
             },
             tools::SHOW_NOTE_TOOL => {
                 let Some(id) = id else {
@@ -384,7 +384,7 @@ impl Hub {
                 {
                     Ok(n) => {
                         let mut text = format!(
-                            "Filed: note {} \"{}\", {} ({}), at Family Notes/{}.",
+                            "Filed: note {} \"{}\", {} ({}), at Records/{}.",
                             n.id,
                             n.fields.title,
                             n.fields.day,
@@ -746,7 +746,7 @@ fn copy_in(root: &Path, from: &Path, file: &str) -> Result<(), HubError> {
 fn move_within(root: &Path, from: &str, to: &str) -> Result<(), HubError> {
     let (old, new) = (root.join(from), root.join(to));
     if !inside(root, &old) || !inside(root, &new) {
-        return Err(not_kept("that isn't in Family Notes"));
+        return Err(not_kept("that isn't in Records"));
     }
     if let Some(parent) = new.parent() {
         crate::home::private_dir(parent).map_err(|e| not_kept(&e.to_string()))?;
@@ -779,7 +779,7 @@ fn inside(root: &Path, path: &Path) -> bool {
 }
 
 fn not_kept(why: &str) -> HubError {
-    HubError::NotAllowed(format!("Couldn't file it in Family Notes: {why}."))
+    HubError::NotAllowed(format!("Couldn't file it in Records: {why}."))
 }
 
 /// An attachment kind as the store keeps it (`pdf`).

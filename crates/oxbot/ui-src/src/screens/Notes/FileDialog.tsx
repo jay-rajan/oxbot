@@ -1,4 +1,4 @@
-// Attaching files in Family Notes: a form for each file, asked right away:
+// Attaching files in Records: a form for each file, asked right away:
 // its title, date, who it's about, topic, tags, and whether the AI may read
 // it. Save files them (and sends anything typed in the box). A private file
 // is filed with only what's typed here; one the AI may read, the bot reads
@@ -51,7 +51,7 @@ export function FileDialog({ bot }: { bot: string }) {
     <Dialog id="noteFileDialog" open={open && !!live.length} onClose={() => setOpen(false)} size="md" labelledBy="noteFileTitle">
       <DialogForm
         titleId="noteFileTitle"
-        title={live.length === 1 ? "Keep in Family Notes" : `Keep ${live.length} files in Family Notes`}
+        title={live.length === 1 ? "Keep in Records" : `Keep ${live.length} files in Records`}
         onClose={() => setOpen(false)}
         onSubmit={save}
         className="note-file-form"

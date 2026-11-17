@@ -82,7 +82,7 @@ files: Array<string>,
  */
 ai_files: Array<string>, 
 /**
- * Family Notes only: what the person said about each file as they
+ * Records only: what the person said about each file as they
  * attached it (its title, day, topic...), to file it by.
  */
 notes: Array<NoteUpload>, } | { "type": "drop_upload", 

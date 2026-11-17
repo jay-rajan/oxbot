@@ -62,10 +62,10 @@ pub const HOME_LEADS: &[(&str, &str, &str)] = &[
     ),
     (
         "home-notes",
-        "Family Notes",
-        "You are the family's Notes bot. You keep the family's files and notes so \
-         anyone can find them again, from any device. A file attached here is \
-         filed in Family Notes at once, with what the person said about it. When \
+        "Records",
+        "You are the family's Records bot. You keep the family's records (bills, \
+         insurance, receipts, warranties, forms) so anyone can find them again, from any device. A file attached here is \
+         filed in Records at once, with what the person said about it. When \
          you may read it, read it and file it better with file_note: a short, \
          findable title; the document's own date (a bill's, a visit's, a \
          statement's) unless they gave one; one broad topic, reusing ones already \
@@ -78,6 +78,22 @@ pub const HOME_LEADS: &[(&str, &str, &str)] = &[
          only. Keep replies short: the family may be reading on a phone.",
     ),
 ];
+
+/// The Records bot's instructions from when it was Family Notes (Nov
+/// 2026): a home that still has them, unchanged, gets the new ones.
+const FAMILY_NOTES_INSTRUCTIONS: &str = "You are the family's Notes bot. You keep the family's files and notes so \
+         anyone can find them again, from any device. A file attached here is \
+         filed in Family Notes at once, with what the person said about it. When \
+         you may read it, read it and file it better with file_note: a short, \
+         findable title; the document's own date (a bill's, a visit's, a \
+         statement's) unless they gave one; one broad topic, reusing ones already \
+         there (find_notes lists them); a few tags; who it's about; a one-line \
+         summary. Then show_note it and say in one line where it went. A private \
+         file you can't read: file it only by what they tell you, and ask for a \
+         title or who it's for if they gave none. When someone asks for a file, \
+         find_notes and show_note the best match. Never ask for or repeat \
+         passwords, PINs or card numbers: say they're kept on the home computer \
+         only. Keep replies short: the family may be reading on a phone.";
 
 /// The Family Notes bot's first instructions, before it filed files:
 /// a home that still has them gets the new ones.
@@ -888,8 +904,17 @@ fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
     if marker.exists() {
         // Family Notes' first instructions, never changed: the new ones.
         let path = bots_dir.join(HOME_LEADS[2].0).join("instructions.md");
-        if fs::read_to_string(&path).is_ok_and(|t| t.trim() == OLD_NOTES_INSTRUCTIONS) {
+        if fs::read_to_string(&path)
+            .is_ok_and(|t| [OLD_NOTES_INSTRUCTIONS, FAMILY_NOTES_INSTRUCTIONS].contains(&t.trim()))
+        {
             fs::write(&path, HOME_LEADS[2].2).map_err(io_err(&path))?;
+        }
+        // Family Notes is called Records now (a name the person chose stays).
+        if let Ok(mut notes) = Bot::load(&bots_dir.join(HOME_LEADS[2].0))
+            && notes.name == "Family Notes"
+        {
+            HOME_LEADS[2].1.clone_into(&mut notes.name);
+            notes.save()?;
         }
         return Ok(());
     }
@@ -953,6 +978,31 @@ mod tests {
         // A bot named by a person never gets an Assistant's id.
         let id = BotId::from_name("Assistant -- Ann", |_| false);
         assert!(!is_personal_assistant(id.as_str()));
+    }
+
+    #[test]
+    fn family_notes_becomes_records_unless_renamed() {
+        let tmp = tempfile::tempdir().unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let dir = tmp.path().join(HOME_LEADS[2].0);
+        // As a home made before the rename has it.
+        let mut notes = Bot::load(&dir).unwrap();
+        "Family Notes".clone_into(&mut notes.name);
+        notes.save().unwrap();
+        fs::write(dir.join("instructions.md"), FAMILY_NOTES_INSTRUCTIONS).unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let notes = Bot::load(&dir).unwrap();
+        assert_eq!(notes.name, "Records");
+        assert_eq!(notes.instructions.trim(), HOME_LEADS[2].2);
+        // A name and instructions the person wrote stay.
+        let mut notes = notes;
+        "Our papers".clone_into(&mut notes.name);
+        notes.save().unwrap();
+        fs::write(dir.join("instructions.md"), "Keep it short.").unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let notes = Bot::load(&dir).unwrap();
+        assert_eq!(notes.name, "Our papers");
+        assert_eq!(notes.instructions.trim(), "Keep it short.");
     }
 
     #[test]

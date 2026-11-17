@@ -2949,7 +2949,7 @@ async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
     }
     let bots = tmp.path().join("bots");
     let notes_bot =
-        Bot::create(&bots, BotId::new("home-notes").unwrap(), "Family Notes", "").unwrap();
+        Bot::create(&bots, BotId::new("home-notes").unwrap(), "Records", "").unwrap();
     let fake = Arc::new(FakeBots {
         no_page: true,
         ..FakeBots::new(&bots, Tool::None)

@@ -1,4 +1,4 @@
-// Family Notes: the notes as the server last sent them, and a count bumped
+// Records: the notes as the server last sent them, and a count bumped
 // when the Home changed (the Notes screen then asks again). Also the search
 // the screen and its tests share.
 import type { HomeNoteInfo } from "../net/protocol";

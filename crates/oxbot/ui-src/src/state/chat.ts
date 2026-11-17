@@ -62,7 +62,7 @@ export interface Chip {
   /** The person let the AI read it (the whole file is sent to the AI
    *  provider). Off: it stays on the home computer, private. */
   ai?: boolean;
-  /** Family Notes: what the person said about it, to file it by. */
+  /** Records: what the person said about it, to file it by. */
   note?: NoteInput;
 }
 

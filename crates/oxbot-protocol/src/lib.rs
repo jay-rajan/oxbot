@@ -146,7 +146,7 @@ pub enum ClientMsg {
         /// out of the bot's reach.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         ai_files: Vec<String>,
-        /// Family Notes only: what the person said about each file as they
+        /// Records only: what the person said about each file as they
         /// attached it (its title, day, topic...), to file it by.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         notes: Vec<NoteUpload>,
@@ -373,11 +373,11 @@ pub enum ClientMsg {
     },
     /// Recently deleted events, answered with [`ServerMsg::DeletedEvents`].
     DeletedEvents,
-    /// Family Notes, answered with [`ServerMsg::HomeNotes`]. Everyone in
+    /// Records, answered with [`ServerMsg::HomeNotes`]. Everyone in
     /// the home.
     HomeNotes,
     /// Change a note's title, day, topic, tags or people; everyone showing
-    /// Family Notes is told ([`ServerMsg::HomeChanged`]).
+    /// Records is told ([`ServerMsg::HomeChanged`]).
     ChangeNote {
         /// [`HomeNoteInfo::id`].
         #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -1375,7 +1375,7 @@ pub enum ServerMsg {
     /// Something in the Home changed: a client showing it asks again.
     /// Says nothing about what.
     HomeChanged,
-    /// Family Notes: the answer to [`ClientMsg::HomeNotes`].
+    /// Records: the answer to [`ClientMsg::HomeNotes`].
     HomeNotes {
         /// Latest day first.
         notes: Vec<HomeNoteInfo>,
@@ -1757,7 +1757,7 @@ pub struct NoteInput {
     pub people: Vec<String>,
 }
 
-/// What a person said about one file they attached in Family Notes.
+/// What a person said about one file they attached in Records.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NoteUpload {
@@ -1767,7 +1767,7 @@ pub struct NoteUpload {
     pub note: NoteInput,
 }
 
-/// A note in Family Notes: a file the family keeps.
+/// A note in Records: a file the family keeps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HomeNoteInfo {
@@ -1788,7 +1788,7 @@ pub struct HomeNoteInfo {
     pub people: Vec<String>,
     /// A line about what's in it.
     pub summary: String,
-    /// Where it's kept, below the Family Notes folder
+    /// Where it's kept, below the Records folder
     /// (`2026/Medical/2026-11-17 Blood test.pdf`).
     pub file: String,
     /// Its name as uploaded.
@@ -2184,7 +2184,7 @@ pub struct Attachment {
     /// never read by the AI (the person didn't let it).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub private: bool,
-    /// Filed in Family Notes as this note.
+    /// Filed in Records as this note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(type = "number | null", optional))]
     pub filed: Option<i64>,
@@ -2457,7 +2457,7 @@ pub enum EventKind {
         /// The line.
         text: String,
     },
-    /// A note in Family Notes, as a card: one just filed, or one the
+    /// A note in Records, as a card: one just filed, or one the
     /// bot found for someone. Opens it (the note may have changed since).
     HomeNote {
         /// [`HomeNoteInfo::id`].
@@ -2467,7 +2467,7 @@ pub enum EventKind {
         title: String,
         /// Its day then.
         day: String,
-        /// Where it's kept then, below the Family Notes folder.
+        /// Where it's kept then, below the Records folder.
         file: String,
         /// Kept private.
         #[serde(default)]

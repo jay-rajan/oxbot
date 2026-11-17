@@ -124,7 +124,7 @@ title: string,
  */
 day: string, 
 /**
- * Where it's kept then, below the Family Notes folder.
+ * Where it's kept then, below the Records folder.
  */
 file: string, 
 /**

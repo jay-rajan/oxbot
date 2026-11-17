@@ -16,7 +16,7 @@ const notes = [
   note(4, "Receipt", "2026-11-17"),
 ];
 
-describe("family notes", () => {
+describe("records", () => {
   it("finds notes with every word, latest first", () => {
     expect(search(notes, "blood tests").map((n) => n.id)).toEqual([3, 1]);
     expect(search(notes, "akhila's blood").map((n) => n.id)).toEqual([1]);

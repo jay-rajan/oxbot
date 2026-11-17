@@ -314,7 +314,7 @@ impl Hub {
 }
 
 /// Where a claimed upload for `bot` is saved now (in its private or work
-/// folder, as placed), to copy into Family Notes.
+/// folder, as placed), to copy into Records.
 pub(super) fn upload_file(bot: &Bot, f: &Attachment) -> Option<PathBuf> {
     let root = if f.private {
         private_root(bot)
@@ -325,7 +325,7 @@ pub(super) fn upload_file(bot: &Bot, f: &Attachment) -> Option<PathBuf> {
 }
 
 impl Hub {
-    /// Marks upload `id` as filed in Family Notes as `note`, so a send
+    /// Marks upload `id` as filed in Records as `note`, so a send
     /// tried again doesn't file it twice.
     pub(super) fn mark_filed(&self, id: &str, note: i64) {
         if let Some(p) = lock(&self.uploads).get_mut(id) {

@@ -1,5 +1,5 @@
-// How a Home view (Calendar, Family Notes) and its bot's chat share the
-// screen: the view alone (named for it: "Calendar", "Notes"), the chat
+// How a Home view (Calendar, Records) and its bot's chat share the
+// screen: the view alone (named for it: "Calendar", "Records"), the chat
 // alone, or on a wide screen both side by side (Split). A phone has no
 // Split: it shows the view instead. Shown in both headers, so either way
 // back; the device remembers the choice.

@@ -1648,7 +1648,7 @@ fn handle_home(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerM
         ClientMsg::HomeNotes => hub
             .home_notes(viewer)
             .map(|notes| ServerMsg::HomeNotes { notes }),
-        // Everyone showing Family Notes asks again (HomeChanged).
+        // Everyone showing Records asks again (HomeChanged).
         ClientMsg::ChangeNote { id, note } => match hub.change_home_note(viewer, id, &note) {
             Ok(()) => return Vec::new(),
             Err(e) => Err(e),
@@ -2194,7 +2194,7 @@ fn open_file(state: &AppState, bot: &str, seq: u64, id: &str, viewer: &Viewer) -
     }
 }
 
-/// Opens a Family Notes file on this Mac's screen (as [`open_file`]), or
+/// Opens a Records file on this Mac's screen (as [`open_file`]), or
 /// shows it in Finder.
 fn open_note(state: &AppState, id: i64, reveal: bool, viewer: &Viewer) -> Vec<ServerMsg> {
     match state.hub.note_file(viewer, id) {
@@ -2216,7 +2216,7 @@ fn open_note(state: &AppState, id: i64, reveal: bool, viewer: &Viewer) -> Vec<Se
                         .status()
                         .await;
                     if !status.as_ref().is_ok_and(std::process::ExitStatus::success) {
-                        tracing::warn!(?status, "couldn't open a Family Notes file");
+                        tracing::warn!(?status, "couldn't open a Records file");
                     }
                 });
             }
@@ -2348,7 +2348,7 @@ struct Outgoing {
     text: String,
     files: Vec<String>,
     ai_files: Vec<String>,
-    /// Family Notes: what the person said about each file.
+    /// Records: what the person said about each file.
     notes: Vec<oxbot_protocol::NoteUpload>,
 }
 

@@ -47,7 +47,7 @@ const MAX_FILE = 25 * MB;
 const MAX_VIDEO = 200 * MB;
 export const MAX_TEXT = 1000000;
 const VIDEO = /\.(mov|mp4|m4v)$/i;
-/** The Family Notes bot: files sent to it are kept in Family Notes. */
+/** The Records bot: files sent to it are kept in Records. */
 export const NOTES_BOT = "home-notes";
 
 export const PHONE_FILES = "Sending files from a phone isn't possible yet. Send them from the home computer.";
@@ -129,7 +129,7 @@ export function sendMessage(app: App) {
   const files = ready.map((c) => (c.att as { id: string }).id);
   // Only the files the person let the AI read; the rest stay private.
   const ai_files = ready.filter((c) => c.ai).map((c) => (c.att as { id: string }).id);
-  // Family Notes: what the person said about each file, to file it by.
+  // Records: what the person said about each file, to file it by.
   const notes =
     bot === NOTES_BOT
       ? ready.map((c) => ({ id: (c.att as { id: string }).id, note: c.note ?? { title: "", day: "", topic: "", tags: [], people: [] } }))

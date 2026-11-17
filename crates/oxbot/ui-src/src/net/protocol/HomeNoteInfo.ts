@@ -2,7 +2,7 @@
 import type { AttachmentKind } from "./AttachmentKind";
 
 /**
- * A note in Family Notes: a file the family keeps.
+ * A note in Records: a file the family keeps.
  */
 export type HomeNoteInfo = { 
 /**
@@ -38,7 +38,7 @@ people: Array<string>,
  */
 summary: string, 
 /**
- * Where it's kept, below the Family Notes folder
+ * Where it's kept, below the Records folder
  * (`2026/Medical/2026-11-17 Blood test.pdf`).
  */
 file: string, 

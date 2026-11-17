@@ -112,8 +112,8 @@ function ReportCard({ e }: { e: Extract<BotEvent, { kind: "report" }> }) {
   );
 }
 
-/** A note in Family Notes, as kept then: opens on the home computer, or
- *  shows in Family Notes. */
+/** A note in Records, as kept then: opens on the home computer, or
+ *  shows in Records. */
 function NoteCard({ e, homeComputer }: { e: Extract<BotEvent, { kind: "home_note" }>; homeComputer: boolean }) {
   const { send, dispatch } = useApp();
   const day = new Date(`${e.day}T12:00`).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
@@ -122,12 +122,12 @@ function NoteCard({ e, homeComputer }: { e: Extract<BotEvent, { kind: "home_note
       <span className="note-icon" aria-hidden="true">{e.private ? "🔒" : "📄"}</span>
       <span className="note-text">
         <span className="note-title">{e.title}</span>
-        <span className="note-meta">{`${day} · Family Notes/${e.file.split("/").slice(0, -1).join("/")}`}</span>
+        <span className="note-meta">{`${day} · Records/${e.file.split("/").slice(0, -1).join("/")}`}</span>
       </span>
       {homeComputer ? (
         <Button kind="quiet" size="sm" onClick={() => send({ type: "open_note", id: e.id, reveal: false })}>Open</Button>
       ) : null}
-      <Button kind="quiet" size="sm" onClick={() => dispatch(local("ui/page", { page: "notes" }))}>All notes</Button>
+      <Button kind="quiet" size="sm" onClick={() => dispatch(local("ui/page", { page: "notes" }))}>All records</Button>
     </div>
   );
 }
@@ -138,7 +138,7 @@ function SentFiles({ e, homeComputer }: { e: Extract<BotEvent, { kind: "user_mes
   return (
     <div className="msg-files">
       {e.files.map((f) => {
-        const kept = f.filed != null ? " · in Family Notes" : "";
+        const kept = f.filed != null ? " · in Records" : "";
         const sub = f.private
           ? `Private · ${sizeText(f.size)}${kept}`
           : kept

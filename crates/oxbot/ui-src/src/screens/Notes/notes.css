@@ -1,4 +1,4 @@
-/* Family Notes: the list by year and topic, its search, and the forms that
+/* Records: the list by year and topic, its search, and the forms that
    file a note. The frame beside the chat is the calendar's (.cal). */
 .notes-find {
   display: flex; flex-direction: column; gap: var(--s-2);

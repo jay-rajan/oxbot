@@ -1,5 +1,5 @@
 // The fields a note is filed by: title, day, who it's about, topic and
-// tags. Shared by the form shown when files are attached in Family Notes
+// tags. Shared by the form shown when files are attached in Records
 // and by a note's edit dialog.
 import { Checkbox, Field, Input } from "../../components/ui";
 import type { NoteInput } from "../../net/protocol";

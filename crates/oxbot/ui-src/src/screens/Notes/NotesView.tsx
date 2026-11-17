@@ -1,4 +1,4 @@
-// Family Notes: every file the family kept, by year and topic, newest
+// Records: every file the family kept, by year and topic, newest
 // first, with a search box (title, topic, tags, people, summary, month).
 // A note opens on the home computer, or shows in Finder; tapping it shows
 // and changes what it's filed by. New files come in through the Family
@@ -39,14 +39,14 @@ export function NotesView() {
   const groups = useMemo(() => byYearTopic(found), [found]);
 
   return (
-    <main className="cal notes" id="notes" aria-label="Family Notes">
+    <main className="cal notes" id="notes" aria-label="Records">
       <header className="cal-head">
         <IconButton className="menu cal-menu" label="Bots" onClick={() => dispatch(local("ui/side", { open: true }))}>
           <MenuIcon />
         </IconButton>
         <HomeIcon id="home-notes" />
-        <h1>Family Notes</h1>
-        <HomeMode where="view" view="Notes" />
+        <h1>Records</h1>
+        <HomeMode where="view" view="Records" />
       </header>
       {deleted ? (
         <div className="cal-saved" role="status">
@@ -74,7 +74,7 @@ export function NotesView() {
           type="search"
           value={query}
           placeholder="Find: blood test, insurance 2025, Akhila…"
-          aria-label="Find a note"
+          aria-label="Find a record"
           onChange={(x) => setQuery(x.target.value)}
         />
         {topics.length > 1 ? (
@@ -90,10 +90,10 @@ export function NotesView() {
       <div className="cal-body notes-body">
         {!loaded ? null : !notes.length ? (
           <p className="cal-empty">
-            Nothing kept yet. Attach a file in the Family Notes chat: a bill, a report, a school form. You choose whether the AI may read it.
+            Nothing kept yet. Attach a file in the Records chat: a bill, a report, a school form. You choose whether the AI may read it.
           </p>
         ) : !found.length ? (
-          <p className="cal-empty">No notes match. Try fewer words, or ask the Family Notes bot.</p>
+          <p className="cal-empty">Nothing matches. Try fewer words, or ask the Records bot.</p>
         ) : (
           groups.map(([year, byTopic]) => (
             <section key={year} className="notes-year" aria-label={year}>

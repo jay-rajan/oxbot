@@ -61,13 +61,13 @@ pub const CALENDAR_TOOLS: &[&str] = &[
     CHANGE_EVENT_TOOL,
     DELETE_EVENT_TOOL,
 ];
-/// Finds notes in Family Notes (the Family Notes bot).
+/// Finds notes in Records (the Records bot).
 pub const FIND_NOTES_TOOL: &str = "find_notes";
-/// Files a note: its title, day, topic, tags, people (the Family Notes bot).
+/// Files a note: its title, day, topic, tags, people (the Records bot).
 pub const FILE_NOTE_TOOL: &str = "file_note";
-/// Shows a note as a card in the chat (the Family Notes bot).
+/// Shows a note as a card in the chat (the Records bot).
 pub const SHOW_NOTE_TOOL: &str = "show_note";
-/// The Family Notes bot's tools.
+/// The Records bot's tools.
 pub const NOTES_TOOLS: &[&str] = &[FIND_NOTES_TOOL, FILE_NOTE_TOOL, SHOW_NOTE_TOOL];
 /// Every bot's schedule tools.
 pub const SCHEDULE_TOOLS: &[&str] = &[
@@ -98,7 +98,7 @@ pub struct ToolSet {
     pub browser: bool,
     /// It's the Home's Calendar bot: the calendar tools.
     pub calendar: bool,
-    /// It's the Home's Family Notes bot: the notes tools.
+    /// It's the Home's Records bot: the notes tools.
     pub notes: bool,
 }
 
@@ -385,13 +385,13 @@ fn calendar_schemas() -> Vec<Value> {
     ]
 }
 
-/// The Family Notes bot's tools.
+/// The Records bot's tools.
 fn notes_schemas() -> Vec<Value> {
     let id = json!({ "type": "integer", "description": "The note's id: from the (oxbot: ...) line about a file just filed, or from find_notes." });
     vec![
         json!({
             "name": FIND_NOTES_TOOL,
-            "description": "Look for notes in Family Notes: the files the family keeps. It searches what's recorded \
+            "description": "Look for notes in Records: the files the family keeps. It searches what's recorded \
                 about each (title, day, topic, tags, people, summary), never the files, and lists the best \
                 matches, latest first, with their ids. Use it when someone asks for a file (\"Akhila's last \
                 blood test\", \"car insurance from last year\"), then show_note the one(s) they want. Work out \
@@ -410,7 +410,7 @@ fn notes_schemas() -> Vec<Value> {
         json!({
             "name": FILE_NOTE_TOOL,
             "description": "File a note better: set its title, day, topic, tags, people or summary. Give only what \
-                should change. The file moves to Family Notes/<year>/<topic>/<day> <title>. For a file you read: \
+                should change. The file moves to Records/<year>/<topic>/<day> <title>. For a file you read: \
                 its day is the document's own date (a bill's, a visit's, a statement's), with day_from \
                 \"document\"; a day the person gave stays. Never for a private file's content: you can't read it.",
             "inputSchema": {

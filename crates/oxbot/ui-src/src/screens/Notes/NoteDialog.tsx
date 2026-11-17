@@ -43,7 +43,7 @@ function NoteForm({ note, onClose, onDeleted }: { note: HomeNoteInfo; onClose: (
   return (
     <DialogForm
       titleId="noteTitle"
-      title="Note"
+      title="Record"
       onClose={onClose}
       onSubmit={submit}
       className="note-form"
@@ -72,7 +72,7 @@ function NoteForm({ note, onClose, onDeleted }: { note: HomeNoteInfo; onClose: (
     >
       <p className="note-where">
         {note.private ? "🔒 Private · " : "✦ The AI read it · "}
-        Family Notes/{note.file}
+        Records/{note.file}
         <br />
         {note.name} · uploaded {new Date(note.uploaded_ms).toLocaleDateString()}
         {note.uploaded_by ? ` by ${note.uploaded_by}` : ""} · {dayFrom(note)}

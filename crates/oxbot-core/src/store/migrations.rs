@@ -512,7 +512,7 @@ pub(super) const MIGRATIONS: &[Step] = &[
         );
         CREATE INDEX IF NOT EXISTS home_changes_event ON home_changes (event, id);",
     ),
-    // 31: Family Notes: files the family keeps, each with a title, a day
+    // 31: Records: files the family keeps, each with a title, a day
     // (and where that day came from), a topic, tags and who it's about.
     // The file itself is in the `family-notes` folder, at `file`.
     Step::Sql(

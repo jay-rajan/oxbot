@@ -48,6 +48,6 @@ note: string | null,
  */
 private: boolean, 
 /**
- * Filed in Family Notes as this note.
+ * Filed in Records as this note.
  */
 filed?: number | null, };

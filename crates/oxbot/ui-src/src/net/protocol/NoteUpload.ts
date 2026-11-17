@@ -2,7 +2,7 @@
 import type { NoteInput } from "./NoteInput";
 
 /**
- * What a person said about one file they attached in Family Notes.
+ * What a person said about one file they attached in Records.
  */
 export type NoteUpload = { 
 /**
