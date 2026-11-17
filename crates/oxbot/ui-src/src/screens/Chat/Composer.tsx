@@ -1,11 +1,12 @@
 // The message box: file chips, attach, the box itself, the microphone, Stop
 // and Send. Enter sends; the box grows with its text. It stays usable while
 // the bot works: a message then goes into its task.
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Button, Chip as ChipPiece, IconButton } from "../../components/ui";
 import type { BotInfo } from "../../net/protocol";
 import type { Chip } from "../../state/chat";
+import { HOME_LEADS } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { FileDialog } from "../Notes/FileDialog";
 import { NOTES_BOT, PHONE_FILES, addFiles, isLocked, removeChip, sendMessage, sizeText, startDictation, stopDictation } from "./actions";
@@ -87,6 +88,16 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
   // A bot opened: the cursor goes in the box.
   useEffect(() => { if (current) box.current?.focus(); }, [current]);
 
+  // A Home bot's examples, rolling in the empty box (every 4 s).
+  const hints = HOME_LEADS.find((h) => h.id === current)?.hints;
+  const [roll, setRoll] = useState(0);
+  useEffect(() => {
+    if (!hints || input) return;
+    const t = setInterval(() => setRoll((n) => n + 1), 4000);
+    return () => clearInterval(t);
+  }, [hints, input]);
+  const idle = hints ? hints[roll % hints.length] : current === NOTES_BOT ? "Ask, or attach a file" : "Message";
+
   const known = !!info;
   return (
     <>
@@ -125,7 +136,7 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
             className="composer-input"
             rows={1}
             ref={box}
-            placeholder={known && locked ? "Private" : dictating ? "Listening…" : current === NOTES_BOT ? "Ask, or attach a file" : "Message"}
+            placeholder={known && locked ? "Private" : dictating ? "Listening…" : idle}
             aria-label="Message"
             disabled={known && locked}
             value={input}

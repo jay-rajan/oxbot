@@ -3,7 +3,7 @@
 // phone it's a drawer over the chat, with a scrim behind it.
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, IconButton, Input, Pill, PlusIcon, Segmented } from "../../components/ui";
+import { Button, IconButton, Input, Pill, PlusIcon } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { groupBots, HOME_LEADS, initialSidebar } from "../../state/sidebar";
 import { local } from "../../state/store";
@@ -14,11 +14,6 @@ import { BrandMark } from "./BrandMark";
 import { HomeIcon } from "./HomeIcon";
 import { keep, keptJson } from "./storage";
 import "./sidebar.css";
-
-const GROUP_BY = [
-  ["sections", "Sections"],
-  ["people", "People"],
-] as const;
 
 export function Sidebar() {
   const { store, dispatch } = useApp();
@@ -32,7 +27,6 @@ export function Sidebar() {
   const signedIn = useSel((s) => s.home.homeSites.length + (s.connection.settings?.owner ? s.home.mySites.length : 0));
   const warnings = useSel((s) => s.sidebar.warnings);
   const query = useSel((s) => s.sidebar.query);
-  const groupBy = useSel((s) => s.sidebar.groupBy);
   const seen = useSel((s) => s.sidebar.seen);
   const collapsed = useSel((s) => s.sidebar.collapsed);
   const botsN = useSel((s) => s.sidebar.botsN);
@@ -44,7 +38,8 @@ export function Sidebar() {
     dispatch(
       local("sidebar/load", {
         seen: keptJson<Record<string, number>>("oxbot.seen", {}),
-        groupBy: keep.get("oxbot.groupBy"),
+        // Always by section (People grouping is gone).
+        groupBy: "sections",
         collapsed: keptJson<string[]>("oxbot.collapsed", []),
       }),
     );
@@ -150,12 +145,6 @@ export function Sidebar() {
     }
   };
 
-  // Group by sections or by people: this device remembers which. (Real
-  // radios: the arrow keys switch between them.)
-  const setGroupBy = (mode: "sections" | "people") => {
-    keep.set("oxbot.groupBy", mode);
-    dispatch(local("sidebar/groupBy", { groupBy: mode }));
-  };
 
   // The server's name; "Reconnecting…" once a connection is lost (or never came).
   const server = status !== "open" && (everConnected || status === "closed") ? "Reconnecting…" : serverName || "Connecting…";
@@ -166,36 +155,22 @@ export function Sidebar() {
         <div className="side-head">
           <div className="brand">
             <BrandMark />
-            <IconButton className="new-bot" id="newBot" size="sm" label="New bot" onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}>
+            <Button
+              kind="secondary"
+              size="sm"
+              className="new-bot"
+              id="newBot"
+              aria-label="New bot"
+              title="Make a new bot: say what it should do, in your own words"
+              onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}
+            >
               <PlusIcon />
-            </IconButton>
+              New bot
+            </Button>
           </div>
           <div className="server" id="server">
             {server}
           </div>
-        </div>
-        <div className="side-find">
-          <Input
-            type="search"
-            className="bot-search"
-            id="botSearch"
-            placeholder="Search bots"
-            aria-label="Search bots"
-            autoComplete="off"
-            spellCheck={false}
-            value={query}
-            onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
-            onKeyDown={searchKey}
-          />
-          <Segmented
-            className="group-by"
-            id="groupBy"
-            name="groupBy"
-            label="Group bots by"
-            options={GROUP_BY}
-            value={groupBy}
-            onChange={setGroupBy}
-          />
         </div>
         <nav className="side-home" aria-label="Home">
           {HOME_LEADS.map((h) => {
@@ -220,6 +195,20 @@ export function Sidebar() {
             );
           })}
         </nav>
+        <div className="side-find">
+          <Input
+            type="search"
+            className="bot-search"
+            id="botSearch"
+            placeholder="Search bots"
+            aria-label="Search bots"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
+            onKeyDown={searchKey}
+          />
+        </div>
         <BotList openMenu={openMenu} closeMenu={closeMenu} askName={askName} />
         <div className="side-foot">
           <IconButton className="gear" id="settingsBtn" label="Settings" onClick={() => toSettings()}>

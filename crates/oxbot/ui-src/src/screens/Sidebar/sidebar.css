@@ -1,5 +1,5 @@
-/* The sidebar: brand and New bot, the server line, search and group by, the
-   bot list, and the bottom row. Quiet on var(--side); the open bot's row on
+/* The sidebar: brand and New bot, the server line, the Home's views, search,
+   the bot list, and the bottom row. Quiet on var(--side); the open bot's row on
    var(--sunken). The phone drawer is in shell.css. */
 .side {
   display: flex; flex-direction: column; gap: var(--s-4); min-height: 0; min-width: 0;
@@ -19,17 +19,16 @@
 .mark-o { stroke: var(--mark-o); }
 .wm-red { stroke: var(--accent); }
 @media (prefers-color-scheme: dark) { .brand .mark { box-shadow: 0 0 0 1px var(--line); } }
-.brand .new-bot { margin-left: auto; }
+.brand .new-bot { margin-left: auto; flex: none; gap: var(--s-1); padding-left: var(--s-2); padding-right: var(--s-3); }
+.brand .new-bot svg { width: 16px; height: 16px; }
 .server {
   padding-left: var(--s-2); font-size: var(--text-xs); color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* Search and group by */
+/* Search, below the Home's views */
 .side-find { display: grid; gap: var(--s-2); }
 .side .bot-search { background: var(--surface); }
-.side .group-by { display: flex; }
-.side .group-by .seg-option { flex: 1 1 0; }
 
 /* The list */
 .bots {

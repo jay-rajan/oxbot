@@ -18,8 +18,11 @@
   font-size: var(--text-lg); font-weight: var(--weight-bold); line-height: var(--leading-tight);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.chat-head .status:empty { display: none; }
 /* An answer being checked: faded until the checked one replaces it. */
 .msg.bot.draft { opacity: .5; }
+/* One line of hint in the box, however narrow. */
+.composer-input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-head .status {
   font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-tight);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

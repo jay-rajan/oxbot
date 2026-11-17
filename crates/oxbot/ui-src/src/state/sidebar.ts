@@ -75,9 +75,27 @@ export interface Group {
 
 /** The family Home's lead bots, in the sidebar's Home row (never the bot list). */
 export const HOME_LEADS = [
-  { id: "home-calendar", name: "Calendar", page: "calendar", btn: "calendarBtn", hint: "try “Leo has soccer Tuesdays at 5:30”" },
-  { id: "home-meals", name: "Meal Plan", page: "chat", btn: "mealsBtn", hint: "plans dinners and the grocery list" },
-  { id: "home-notes", name: "Family Notes", page: "notes", btn: "notesBtn", hint: "attach a file to keep it, or ask for one" },
+  {
+    id: "home-calendar",
+    name: "Calendar",
+    page: "calendar",
+    btn: "calendarBtn",
+    hints: ["Try: Soccer Tuesdays at 5:30", "Try: What's on this weekend?", "Try: Dentist Friday at 10"],
+  },
+  {
+    id: "home-meals",
+    name: "Meal Plan",
+    page: "chat",
+    btn: "mealsBtn",
+    hints: ["Try: Dinners for this week", "Try: Add milk and eggs", "Try: A quick dinner Tuesday?"],
+  },
+  {
+    id: "home-notes",
+    name: "Family Notes",
+    page: "notes",
+    btn: "notesBtn",
+    hints: ["Attach a file to keep it", "Try: Akhila's blood test", "Try: Where's the car insurance?"],
+  },
 ] as const;
 const HOME_IDS: ReadonlySet<string> = new Set(HOME_LEADS.map((h) => h.id));
 /** Whether the bot list leaves this bot out: the Assistant (it stays, out of

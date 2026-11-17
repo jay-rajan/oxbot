@@ -188,8 +188,8 @@ function statusText(info: BotInfo, busy: boolean, activity: string | null, dicta
   const shared = info.sharing === "people" ? `shared with ${info.members?.join(", ") || "picked people"}` : info.private ? "private" : "";
   if (busy) return activity || "Working…";
   if (info.central) return "leads your bots";
-  const home = HOME_LEADS.find((h) => h.id === info.id);
-  if (home) return home.hint;
+  // The Home bots' examples roll in the message box instead.
+  if (HOME_LEADS.some((h) => h.id === info.id)) return "";
   return [shared, purposeLine(info.instructions)].filter(Boolean).join(" · ");
 }
 
