@@ -310,14 +310,17 @@ export function Cards() {
       );
     }
     if (a.kind === "script") {
-      // A small script in the bot's own folder: the program, word for word.
+      // A small script in the bot's own folder: what it does in the bot's
+      // words, then the program, word for word.
       const ask = `${a.action} ${a.target}?`;
+      const parts = /^What it does: ([\s\S]*?)\n\n([\s\S]*)$/.exec(a.detail || "");
       return (
         <Card tone="warn" className="script" key={key} title={`${ask.charAt(0).toUpperCase()}${ask.slice(1)}`}>
+          <p className="what">{parts ? parts[1] : "The bot didn't say what it does: read the program below, or say No."}</p>
           <div className="where">
             It can only see this bot's folder and can't use the internet. It runs on the home computer for at most 30 seconds. The program:
           </div>
-          <pre>{a.detail || ""}</pre>
+          <pre>{parts ? parts[2] : a.detail || ""}</pre>
           <div className="btn-row btns">
             <Btn label="Yes" kind="primary" onClick={() => answer(a.id, "allow_once")} />
             {a.always ? <Btn label="Always for this bot" kind="secondary" onClick={() => answer(a.id, "always_allow")} /> : null}

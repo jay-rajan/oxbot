@@ -31,10 +31,10 @@ pub const SOURCE: &str = "source";
 pub fn spec() -> ToolSpec {
     ToolSpec {
         name: READ_PAGES.to_owned(),
-        description: "Read many pages in one go with a small script, instead of opening and \
-            reading them one at a time. Use it for lists and tables, search results, several \
-            product pages, following \"Next\" through pages of results, or comparing products. \
-            oxbot opens each page in the browser (only pages bots may visit; nothing is clicked \
+        description: "Read several pages of one list with a small script: search results, a \
+            few product pages, following \"Next\" through pages of results. For one or two \
+            pages, open them yourself. oxbot opens the pages one at a time, with a pause between \
+            them so the site isn't strained, in the browser (only pages bots may visit; nothing is clicked \
             or sent), copies it, and runs your script on the copy in a sealed tab with no \
             network, so the script can only read. Give urls (up to 20 addresses), or follow (a \
             CSS selector or the words of the link to the next page) with max_pages (up to 20) \

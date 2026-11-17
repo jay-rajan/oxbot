@@ -149,6 +149,12 @@ async fn sealed(env: &ToolEnv<'_>, work: SealedWork) -> SealedReply {
     }
 }
 
+/// The pause between the pages `read_pages` opens.
+#[cfg(not(test))]
+const PAGE_GAP: std::time::Duration = std::time::Duration::from_secs(2);
+#[cfg(test)]
+const PAGE_GAP: std::time::Duration = std::time::Duration::ZERO;
+
 /// How opening one page of `read_pages` went.
 enum Visit {
     /// It's open.
@@ -162,6 +168,13 @@ enum Visit {
 /// Opens page `n` (`url`) of a `read_pages` call `parent`, as a visit the
 /// gate checks.
 async fn visit(gate: &GateCheck, env: &ToolEnv<'_>, parent: &str, n: usize, url: &str) -> Visit {
+    // A pause before each page after the first, so a site isn't strained.
+    if n > 1 {
+        tokio::select! {
+            () = tokio::time::sleep(PAGE_GAP) => {}
+            () = env.cancel.cancelled() => return Visit::Stop("the task was stopped.".to_owned()),
+        }
+    }
     let mut args = json!({"type": "url", "url": url});
     if let Some(id) = page_id(gate, env, parent).await {
         args["pageId"] = json!(id);

@@ -18,6 +18,7 @@
 .cards .card .where { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
 .cards .card-warn .where { color: var(--warn-ink); }
 .cards .card .plan-text { margin: 0; overflow-wrap: anywhere; }
+.cards .card.script .what { margin: 0 0 var(--s-2); font-size: var(--text-md); font-weight: var(--weight-mid); }
 .cards .card .hint { font-size: var(--text-xs); color: var(--muted); }
 .cards .card pre {
   margin: 0; padding: var(--s-2) var(--s-3); max-height: 180px; overflow-y: auto;
