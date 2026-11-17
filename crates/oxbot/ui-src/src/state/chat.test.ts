@@ -37,10 +37,14 @@ describe("chat", () => {
     expect(s.bots.b!.busy).toBe(false);
   });
 
-  it("a new request drops text streamed before it", () => {
-    const s = run([server({ type: "delta", bot: "b", text: "x" }), server({ type: "activity", bot: "b", text: "Working…" })]);
+  it("text streamed and not kept stays, faded, until the checked answer comes", () => {
+    let s = run([server({ type: "delta", bot: "b", text: "draft" }), server({ type: "activity", bot: "b", text: "Working…" })]);
     expect(s.bots.b!.stream).toBeNull();
+    expect(s.bots.b!.draft).toBe("draft");
     expect(s.bots.b!.activity).toBe("Working…");
+    // The checked answer streams in: it replaces the draft.
+    s = run([server({ type: "delta", bot: "b", text: "checked" })], s);
+    expect([s.bots.b!.stream, s.bots.b!.draft]).toEqual(["checked", null]);
   });
 
   it("opens with the latest page, then pages back", () => {

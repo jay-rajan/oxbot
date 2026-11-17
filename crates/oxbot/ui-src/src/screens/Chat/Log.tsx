@@ -323,10 +323,15 @@ export function Log() {
           ))
         )}
         {b.stream ? <div className="msg bot streaming"><MdView text={b.stream} /></div> : null}
+        {b.draft && !b.stream ? (
+          <div className="msg bot draft" title="The bot is checking this answer; the checked one replaces it">
+            <MdView text={b.draft} />
+          </div>
+        ) : null}
         {b.busy && !b.stream ? (
           <div className="typing">
             <span className="ttt"><Board /></span>
-            <span className="txt">{(b.activity || "Working…").replace(/…$/, "")}</span>
+            <span className="txt">{(b.draft ? "Checking its answer…" : b.activity || "Working…").replace(/…$/, "")}</span>
           </div>
         ) : null}
       </>
