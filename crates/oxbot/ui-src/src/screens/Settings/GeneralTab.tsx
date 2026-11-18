@@ -189,8 +189,10 @@ function LoginSection() {
   const at = useSel((s) => s.connection.settings?.launch_at_login);
   const awake = useSel((s) => s.connection.settings?.keep_awake);
   const owner = useSel((s) => !!s.connection.settings?.owner);
+  // Keeping awake is changed on the home computer only; another device doesn't show it.
+  const here = useSel((s) => !!s.connection.settings?.home_computer);
   const noLogin = at === null || at === undefined;
-  const noAwake = awake === null || awake === undefined || !owner;
+  const noAwake = awake === null || awake === undefined || !owner || !here;
   return (
     <Section id="loginSection" title="Startup and sleep" hidden={noLogin && noAwake}>
       <Switch id="launchAtLogin" rowHidden={noLogin} checked={!!at} onChange={(e) => send({ type: "set_launch_at_login", on: e.target.checked })}>
@@ -211,8 +213,9 @@ export function KeepAwakeSwitch({ id = "keepAwake", children }: { id?: string; c
   const { send } = useApp();
   const awake = useSel((s) => s.connection.settings?.keep_awake);
   const owner = useSel((s) => !!s.connection.settings?.owner);
+  const here = useSel((s) => !!s.connection.settings?.home_computer);
   return (
-    <Switch id={id} rowHidden={awake === null || awake === undefined || !owner} checked={!!awake} onChange={(e) => send({ type: "set_keep_awake", on: e.target.checked })}>
+    <Switch id={id} rowHidden={awake === null || awake === undefined || !owner || !here} checked={!!awake} onChange={(e) => send({ type: "set_keep_awake", on: e.target.checked })}>
       {children ?? "Keep the Mac awake while plugged in"}
     </Switch>
   );
@@ -238,7 +241,7 @@ function AboutSection() {
           ) : null}
         </span>
       </p>
-      <p className="field-hint mono" id="aboutData">
+      <p className="field-hint mono" id="aboutData" hidden={!settings?.home_computer}>
         {settings ? settings.data_dir : "…"}
       </p>
       {isOwner(settings) ? (

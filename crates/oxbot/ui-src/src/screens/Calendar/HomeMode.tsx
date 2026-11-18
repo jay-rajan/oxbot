@@ -12,17 +12,21 @@ import type { HomeMode as Mode } from "../../state/ui";
 const KEY = "oxbot.homeMode.";
 const PHONE = "(max-width: 720px)";
 
-/** Whether this is a phone-sized screen (no Split there). */
-function useNarrow(): boolean {
-  const [narrow, setNarrow] = useState(() => matchMedia(PHONE).matches);
+/** Whether the screen matches a media query, kept up to date. */
+export function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
   useEffect(() => {
-    const m = matchMedia(PHONE);
-    const on = () => setNarrow(m.matches);
-    m.addEventListener("change", on);
-    return () => m.removeEventListener("change", on);
-  }, []);
-  return narrow;
+    const m = matchMedia(query);
+    const change = () => setOn(m.matches);
+    change();
+    m.addEventListener("change", change);
+    return () => m.removeEventListener("change", change);
+  }, [query]);
+  return on;
 }
+
+/** Whether this is a phone-sized screen (no Split there). */
+const useNarrow = () => useMedia(PHONE);
 
 /** The open view's mode in effect: each view keeps its own (none yet:
  *  Split), and Split is the view alone on a phone. */

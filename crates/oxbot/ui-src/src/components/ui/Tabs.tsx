@@ -11,6 +11,7 @@ export function Tabs<T extends string>({
   onChange,
   vertical,
   className,
+  hidden,
 }: {
   label: string;
   /** [value, text, button id?] */
@@ -19,9 +20,11 @@ export function Tabs<T extends string>({
   onChange: (v: T) => void;
   vertical?: boolean;
   className?: string;
+  hidden?: boolean;
 }) {
   return (
     <div
+      hidden={hidden}
       className={cx("tabs", vertical && "tabs-vertical", className)}
       role="tablist"
       aria-label={label}
