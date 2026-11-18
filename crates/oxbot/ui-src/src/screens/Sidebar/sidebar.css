@@ -105,7 +105,12 @@
 @keyframes ttt-rock { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-16deg); } 75% { transform: rotate(16deg); } }
 @keyframes ttt-tick { 0%, 40%, 80%, 100% { transform: scale(1) rotate(0); } 20% { transform: scale(1.08) rotate(-10deg); } 60% { transform: scale(1.08) rotate(10deg); } }
 @keyframes avatar-fade { 50% { opacity: .45; } }
+/* A Home bot at work: its icon moves too (the cart rolls, the others rock). */
+.home-icon.working svg { animation: ttt-rock 1.4s ease-in-out infinite; transform-origin: 50% 60%; }
+.home-icon.working[data-home="home-groceries"] svg { animation: cart-roll 1.2s ease-in-out infinite; }
+@keyframes cart-roll { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
 @media (prefers-reduced-motion: reduce) {
+  .home-icon.working svg { animation: avatar-fade 1.6s ease-in-out infinite; }
   .bot-item .avatar.working .pc { animation: none; }
   .bot-item .avatar.working svg { animation: avatar-fade 1.6s ease-in-out infinite; }
 }

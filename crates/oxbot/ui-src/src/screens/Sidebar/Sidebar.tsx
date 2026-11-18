@@ -208,7 +208,7 @@ export function Sidebar() {
                 aria-current={String(here) as "true" | "false"}
                 onClick={() => openHome(h)}
               >
-                <HomeIcon id={h.id} />
+                <HomeIcon id={h.id} working={!!(busy[h.id] ?? hasBot[h.id]?.busy)} />
                 <span className="meta">
                   <span className="name">
                     <span>{h.name}</span>

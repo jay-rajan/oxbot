@@ -36,11 +36,11 @@ export const HOME_ICONS: Record<string, React.ReactNode> = {
   ),
 };
 
-/** A Home bot's icon, or nothing for any other bot. */
-export function HomeIcon({ id }: { id: string }) {
+/** A Home bot's icon, or nothing for any other bot. It moves while its bot works. */
+export function HomeIcon({ id, working }: { id: string; working?: boolean }) {
   const svg = HOME_ICONS[id];
   return svg ? (
-    <span className="avatar home-icon" data-home={id} aria-hidden="true">
+    <span className={working ? "avatar home-icon working" : "avatar home-icon"} data-home={id} aria-hidden="true">
       {svg}
     </span>
   ) : null;
