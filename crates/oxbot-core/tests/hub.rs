@@ -2573,27 +2573,30 @@ async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     let (hub, fake) = planning_hub(tmp.path(), Some(salmon_plan()), Tool::None).await;
     let mut updates = hub.subscribe();
 
-    // The card shows the site, place and plan, and the bot starts without
-    // waiting for an answer.
+    // A line in the chat says the site, place and plan (no card to answer),
+    // and the bot starts.
     hub.send("poster", "get me salmon", Some("Jay"))
         .await
         .unwrap();
-    let card = next_card(&mut updates).await;
-    assert_eq!(card.kind, ApprovalKind::Plan);
-    assert_eq!(card.site, "walmart.ca");
-    assert_eq!(card.target, "Find fresh salmon and add 1 lb to the cart.");
-    assert_eq!(card.detail.as_deref(), Some("Toronto, ON"));
-    assert_eq!(card.screenshot, None);
-    assert_eq!(card.asker.as_deref(), Some("Jay"));
     let (said, _) = ending(&hub, &mut updates).await;
     assert_eq!(said, "ok");
+    let notes: Vec<String> = hub
+        .history("poster", 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::Note { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        notes,
+        ["Starting on walmart.ca for Toronto, ON: Find fresh salmon and add 1 lb to the cart."]
+    );
     assert_eq!(fake.ran(), ["take_snapshot"]);
     assert!(fake.heard().iter().any(|r| r.contains("can see your plan")));
-    assert!(
-        hub.pending_approvals().is_empty(),
-        "the card goes with its task"
-    );
-    assert_eq!(approvals_in(&hub, "poster"), 0, "and isn't a no");
+    assert!(hub.pending_approvals().is_empty(), "nothing to answer");
+    assert_eq!(approvals_in(&hub, "poster"), 0);
 
     // The same person's follow-up browses on the same plan.
     hub.send("poster", "and some lemons", Some("Jay"))
@@ -2603,45 +2606,6 @@ async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     assert_eq!(said, "ok");
     assert_eq!(fake.ran(), ["take_snapshot", "take_snapshot"]);
     assert_eq!(hub.pending_approvals(), []);
-    hub.shutdown().await;
-}
-
-#[tokio::test]
-async fn stop_on_a_plan_takes_it_back() {
-    let tmp = tempfile::tempdir().unwrap();
-    if codex().await.is_none() {
-        return;
-    }
-    let (hub, fake) = planning_hub(tmp.path(), Some(salmon_plan()), Tool::Post).await;
-    let mut updates = hub.subscribe();
-    hub.send("poster", "post my update", Some("Jay"))
-        .await
-        .unwrap();
-    let plan = next_card(&mut updates).await;
-    assert_eq!(plan.kind, ApprovalKind::Plan);
-    // The bot went ahead: its post waits for its own card.
-    let post = next_card(&mut updates).await;
-    assert_ne!(post.kind, ApprovalKind::Plan);
-    hub.answer(plan.id, Answer::Deny);
-    for _ in 0..100 {
-        if approvals_in(&hub, "poster") > 0 {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-    assert_eq!(approvals_in(&hub, "poster"), 1, "the Stop is in the chat");
-    hub.answer(post.id, Answer::Deny);
-    ending(&hub, &mut updates).await;
-
-    // A follow-up needs a new plan: the old one was stopped.
-    hub.send("poster", "try again", Some("Jay")).await.unwrap();
-    ending(&hub, &mut updates).await;
-    assert_eq!(fake.ran(), ["take_snapshot"], "nothing more opened");
-    assert!(
-        fake.heard()
-            .iter()
-            .any(|r| r.contains("Not yet: before your first web visit"))
-    );
     hub.shutdown().await;
 }
 

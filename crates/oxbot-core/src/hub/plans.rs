@@ -19,8 +19,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use oxbot_protocol::{Answer, ApprovalKind, EventKind, Outcome};
-use tokio::sync::oneshot;
+use oxbot_protocol::{ApprovalKind, EventKind, Outcome};
 
 use super::engines::Entry;
 use super::profiles::{PREF_HOME_AREA, PREF_HOME_AREA_USE};
@@ -87,9 +86,6 @@ impl Hub {
         place: &str,
         plan: &str,
     ) -> (bool, String) {
-        let Ok(bot) = self.bot(bot_id.as_str()) else {
-            return (false, "oxbot lost track of this bot.".to_owned());
-        };
         {
             let mut runtimes = self.runtimes.lock().await;
             let Some(runtime) = runtimes.get_mut(bot_id) else {
@@ -100,59 +96,27 @@ impl Hub {
             }
             runtime.plan_ok = true;
         }
+        // A line in the chat, not a card: the person sees where it's going
+        // and what it will do, and can stop it or reply to change it.
+        let site = card_text(site);
         let place = card_text(place);
-        let ask = policy::Ask {
-            detail: (!place.is_empty()).then_some(place),
-            ..policy::Ask::new(
-                ApprovalKind::Plan,
-                "start",
-                card_text(plan),
-                card_text(site),
-            )
+        let plan = card_text(plan);
+        let place = if place.is_empty() {
+            String::new()
+        } else {
+            format!(" for {place}")
         };
-        let (id, rx) = self.open_card(&bot, &ask, None).await;
-        tracing::info!(bot = %bot_id, "showed its plan");
-        let hub = Arc::clone(self);
-        let bot_id = bot_id.clone();
-        tokio::spawn(async move { hub.watch_plan(&bot_id, id, rx, ask).await });
-        (true, PLAN_SHOWN.to_owned())
-    }
-
-    /// Waits on plan card `id`: Stop (the person's own, not a card closed
-    /// with its task or by their message) ends browsing for the task.
-    async fn watch_plan(
-        &self,
-        bot_id: &BotId,
-        id: u64,
-        rx: oneshot::Receiver<Answer>,
-        ask: policy::Ask,
-    ) {
-        let answer = tokio::time::timeout(self.config.approval_timeout, rx).await;
-        let by_message = lock(&self.answered_by_message).remove(&id);
-        let closed = lock(&self.notices_closed).remove(&id);
-        match answer {
-            Ok(Ok(Answer::Deny)) if !by_message && !closed => {
-                if let Some(runtime) = self.runtimes.lock().await.get_mut(bot_id) {
-                    runtime.plan_ok = false;
-                    runtime.plan_stopped = true;
-                }
-                tracing::info!(bot = %bot_id, "the person stopped its plan");
-                let _ = self.record(
-                    bot_id,
-                    EventKind::Approval {
-                        action: ask.action,
-                        target: ask.target,
-                        site: ask.site,
-                        outcome: Outcome::Denied,
-                    },
-                );
-            }
-            // Nobody answered: the card just goes.
-            Err(_) => {
-                self.answer(id, Answer::Deny);
-            }
-            _ => {}
+        let plan = if plan.is_empty() {
+            String::new()
+        } else {
+            format!(": {plan}")
+        };
+        let text = format!("Starting on {site}{place}{plan}");
+        if let Err(err) = self.record(bot_id, EventKind::Note { text }) {
+            tracing::warn!(%err, "couldn't note the plan");
         }
+        tracing::info!(bot = %bot_id, "showed its plan");
+        (true, PLAN_SHOWN.to_owned())
     }
 
     /// `save_home_area`: the owner's card, then the home's area.
