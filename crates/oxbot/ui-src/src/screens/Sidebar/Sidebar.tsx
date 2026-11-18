@@ -1,7 +1,7 @@
 // The sidebar: brand and New bot, the server line, search, group by, the bot
 // list, and the bottom row (Settings, Connect a device, Websites). On a
 // phone it's a drawer over the chat, with a scrim behind it.
-import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Button, IconButton, Input, Pill, PlusIcon } from "../../components/ui";
 import { botList } from "../../state/bots";
@@ -54,10 +54,17 @@ export function Sidebar() {
   useEffect(() => {
     if (collapsed !== initialSidebar.collapsed) keep.set("oxbot.collapsed", JSON.stringify(collapsed));
   }, [collapsed]);
-  // The open bot is remembered for next time.
+  // The open bot, and the Home view if one is open, are remembered for
+  // next time (a refresh comes back to them).
   useEffect(() => {
     if (current) keep.set("oxbot.bot", current);
   }, [current]);
+  // Read before anything is written: the first render's page is always the
+  // chat, and saving it first would forget the view to come back to.
+  const lastPage = useRef(keep.get("oxbot.page"));
+  useEffect(() => {
+    if (lastPage.current === null) keep.set("oxbot.page", page);
+  }, [page]);
 
   // Which bot to open when the list comes: one just made, the open one, the
   // one open last time, else the Calendar's bot, else the first. Never the
@@ -69,7 +76,16 @@ export function Sidebar() {
     const known = (id: string | null | undefined): id is string => !!id && ids.includes(id);
     const pending = s.ui.pendingSelect;
     const want = [pending, s.ui.current, keep.get("oxbot.bot"), HOME_LEADS[0].id, ids[0]].find(known);
-    if (want && want !== s.ui.current && (!pending || want === pending)) dispatch(local("ui/select", { bot: want }));
+    if (want && want !== s.ui.current && (!pending || want === pending)) {
+      dispatch(local("ui/select", { bot: want }));
+      // A Home view open last time, with its bot, opens again.
+      const home = HOME_LEADS.find((h) => h.page === lastPage.current && h.id === want);
+      if (home && !pending) dispatch(local("ui/page", { page: home.page }));
+    }
+    if (want) {
+      // From now on, each view is remembered as it's opened.
+      lastPage.current = null;
+    }
   }, [botsN, store, dispatch]);
   // A bot made from this page opens now if it's listed, else once it is.
   useEffect(() => {
