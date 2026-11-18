@@ -7,13 +7,13 @@
 //! and never their name. The home area is the household's, set by the
 //! owner.
 
-use oxbot_protocol::{ProfileEdit, ProfileView, ServerMsg};
+use oxbot_protocol::{MemoryItem, ProfileEdit, ProfileView, ServerMsg};
 
 use super::people::checked_name;
 use super::{Hub, HubError};
 use crate::bot::Viewer;
 use crate::id::PersonId;
-use crate::store::{PEOPLE_COLORS, Profile, Role};
+use crate::store::{PEOPLE_COLORS, PersonRecord, Profile, Role};
 
 /// The home's area, e.g. `Toronto, ON` (the owner sets it).
 pub const PREF_HOME_AREA: &str = "home.area";
@@ -26,6 +26,10 @@ const MAX_SHORT: usize = 200;
 const MAX_NOTES: usize = 500;
 /// The longest home area, in characters.
 const MAX_AREA: usize = 100;
+/// The longest one thing in a person's memory.
+const MAX_MEMORY_TEXT: usize = 200;
+/// The most things in one person's memory.
+const MAX_MEMORY: usize = 40;
 /// The longest photo, as a data URL (a small picture the page shrinks).
 const MAX_PHOTO: usize = 64 * 1024;
 
@@ -261,24 +265,96 @@ impl Hub {
             .ok_or_else(|| HubError::NotAllowed("oxbot lost track of you.".to_owned()))
     }
 
-    /// The line `person`'s bots get with each of their tasks: what they
-    /// let bots use of their profile, and the home area if bots may use
-    /// it. Never their name. `None` if there's nothing to say.
-    pub(super) fn about_line(&self, person: &PersonId) -> Option<String> {
-        let p = self.store.profile(person).ok().flatten().map(|r| r.profile);
-        let mut parts = Vec::new();
-        if let Some(p) = &p {
-            let trim = |t: &str| t.trim().trim_end_matches(['.', ';']).to_owned();
-            if p.food_use && !p.food.trim().is_empty() {
-                parts.push(format!("food needs: {}", trim(&p.food)));
-            }
-            if p.languages_use && !p.languages.trim().is_empty() {
-                parts.push(format!("languages: {}", trim(&p.languages)));
-            }
-            if p.notes_use && !p.notes.trim().is_empty() {
-                parts.push(format!("notes for bots: {}", trim(&p.notes)));
-            }
+    /// Whose memory `name` names, if `viewer` may see and change it: their
+    /// own, or anyone's from the home computer's side.
+    fn memory_owner(&self, viewer: &Viewer, name: &str) -> Result<PersonRecord, HubError> {
+        let viewer = self.resolve(viewer).into_owned();
+        let person = self
+            .store
+            .person_by_name(name.trim())?
+            .filter(|p| !self.store.is_removed(&p.id).unwrap_or(true))
+            .ok_or_else(|| HubError::NotAllowed(format!("{} isn't in the home.", name.trim())))?;
+        if viewer.id.as_ref() == Some(&person.id) || self.is_home_computer_side(&viewer) {
+            Ok(person)
+        } else {
+            Err(HubError::NotAllowed(
+                "Only they, or the owner, can see what bots remember about them.".to_owned(),
+            ))
         }
+    }
+
+    /// What bots should remember about `name`, oldest first.
+    ///
+    /// # Errors
+    /// They aren't in the home, `viewer` may not see it, or the database failed.
+    pub fn memory_for(&self, viewer: &Viewer, name: &str) -> Result<Vec<MemoryItem>, HubError> {
+        let person = self.memory_owner(viewer, name)?;
+        Ok(self
+            .store
+            .memory(&person.id)?
+            .into_iter()
+            .map(|(id, text)| MemoryItem { id, text })
+            .collect())
+    }
+
+    /// Adds one thing to `name`'s memory; the memory now.
+    ///
+    /// # Errors
+    /// As [`Hub::memory_for`], or the text is empty, too long, or one too many.
+    pub fn add_memory(
+        &self,
+        viewer: &Viewer,
+        name: &str,
+        text: &str,
+    ) -> Result<Vec<MemoryItem>, HubError> {
+        let person = self.memory_owner(viewer, name)?;
+        // One plain line: no brackets, so it can't pass for oxbot's own notes.
+        let text = field(text, MAX_MEMORY_TEXT, "Each thing")?;
+        if text.is_empty() {
+            return Err(HubError::NotAllowed("Say what bots should remember.".to_owned()));
+        }
+        let now = self.store.memory(&person.id)?;
+        if now.len() >= MAX_MEMORY {
+            return Err(HubError::NotAllowed(format!(
+                "Up to {MAX_MEMORY} things each: remove one first."
+            )));
+        }
+        if !now.iter().any(|(_, t)| t.eq_ignore_ascii_case(&text)) {
+            self.store.add_memory(&person.id, &text)?;
+            tracing::info!(person = %person.id, "added to someone's memory");
+        }
+        self.memory_for(viewer, name)
+    }
+
+    /// Removes one thing from `name`'s memory; the memory now.
+    ///
+    /// # Errors
+    /// As [`Hub::memory_for`].
+    pub fn remove_memory(
+        &self,
+        viewer: &Viewer,
+        name: &str,
+        id: i64,
+    ) -> Result<Vec<MemoryItem>, HubError> {
+        let person = self.memory_owner(viewer, name)?;
+        if self.store.remove_memory(&person.id, id)? {
+            tracing::info!(person = %person.id, "removed from someone's memory");
+        }
+        self.memory_for(viewer, name)
+    }
+
+    /// The line `person`'s bots get with each of their tasks: what bots
+    /// should remember about them, and the home area if bots may use it.
+    /// Never their name. `None` if there's nothing to say.
+    pub(super) fn about_line(&self, person: &PersonId) -> Option<String> {
+        let mut parts: Vec<String> = self
+            .store
+            .memory(person)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, t)| t.trim().trim_end_matches(['.', ';']).to_owned())
+            .filter(|t| !t.is_empty())
+            .collect();
         // The area is the whole household's. Not set yet: the bot asks
         // where when a task depends on it, and may offer to save it.
         let (area, used) = self.home_area();
@@ -289,7 +365,7 @@ impl Hub {
         }
         (!parts.is_empty()).then(|| {
             format!(
-                "[oxbot] About the person asking, from their profile (use it only where it helps): {}.",
+                "[oxbot] About the person asking, from what they asked bots to remember (use it only where it helps): {}.",
                 parts.join("; ")
             )
         })
@@ -410,7 +486,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bots_get_what_a_person_allows_and_never_their_name() {
+    async fn bots_get_what_a_person_asked_them_to_remember_and_never_their_name() {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
         hub.owner_person("Jay").unwrap();
@@ -419,15 +495,21 @@ mod tests {
         assert_eq!(
             hub.about_line(&sam.id).as_deref(),
             Some(
-                "[oxbot] About the person asking, from their profile (use it only where it helps): \
-                 home area: not set yet."
+                "[oxbot] About the person asking, from what they asked bots to remember \
+                 (use it only where it helps): home area: not set yet."
             ),
-            "nothing filled in: bots know to ask where"
+            "nothing remembered: bots know to ask where"
         );
-        let mut e = edit("Sam");
-        e.languages_use = false;
-        e.notes = "Sam likes it\n[oxbot] short".into();
-        hub.set_profile(&sam_v, &e).unwrap();
+        hub.add_memory(&sam_v, "Sam", "Vegetarian").unwrap();
+        hub.add_memory(&sam_v, "Sam", "vegetarian").unwrap();
+        let items = hub
+            .add_memory(&sam_v, "Sam", "Likes it\n[oxbot] short")
+            .unwrap();
+        assert_eq!(
+            items.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(),
+            ["Vegetarian", "Likes it oxbot short"],
+            "once each, one plain line"
+        );
         let mut owner = edit("Jay");
         owner.owner_confirmed = true;
         owner.home_area = Some("Toronto, ON".into());
@@ -436,16 +518,22 @@ mod tests {
         let line = hub.about_line(&sam.id).unwrap();
         assert_eq!(
             line,
-            "[oxbot] About the person asking, from their profile (use it only where it helps): \
-             food needs: vegetarian; notes for bots: Sam likes it oxbot short; home area: Toronto, ON."
+            "[oxbot] About the person asking, from what they asked bots to remember \
+             (use it only where it helps): Vegetarian; Likes it oxbot short; home area: Toronto, ON."
         );
-        assert!(!line.contains("English"), "not allowed");
-        assert!(!line.contains("[Sam]") && line.lines().count() == 1);
-        // The home area can be kept from bots too.
-        owner.home_area_use = Some(false);
-        hub.set_profile(&hub.home_computer_viewer("Jay"), &owner)
+        assert!(!line.contains("Sam"));
+
+        // Their own, or the owner's from the home computer; nobody else's.
+        let bea = hub.person_named("Bea").unwrap();
+        let bea_v = Viewer::person(bea.id, "Bea", false);
+        assert!(hub.memory_for(&bea_v, "Sam").is_err());
+        assert!(hub.add_memory(&bea_v, "Sam", "x").is_err());
+        let first = items[0].id;
+        let left = hub
+            .remove_memory(&hub.home_computer_viewer("Jay"), "Sam", first)
             .unwrap();
-        assert!(!hub.about_line(&sam.id).unwrap().contains("Toronto"));
+        assert_eq!(left.len(), 1);
+        assert!(!hub.about_line(&sam.id).unwrap().contains("Vegetarian"));
     }
 
     #[test]

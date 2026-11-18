@@ -1,6 +1,6 @@
-// Settings: one fixed-size window, five tabs down the side (General,
-// Websites, People, Schedules, Activity); only the right side scrolls. On a
-// phone it opens to a menu of the five, and each opens as its own page
+// Settings: one fixed-size window, six tabs down the side (General,
+// Websites, People, Memory, Schedules, Activity); only the right side scrolls.
+// On a phone it opens to a menu of the six, and each opens as its own page
 // with a back arrow, like a phone's own settings. Opened with
 // `ui/open {dialog:"settings", arg?}` (arg: a tab id, or "addDevice", which
 // opens that page straight away). The tab it was left on is kept for next time.
@@ -13,6 +13,7 @@ import { useMedia } from "../Calendar/HomeMode";
 import { expose } from "../../web/testBridge";
 import { ActivityTab, askNet } from "./ActivityTab";
 import { GeneralTab } from "./GeneralTab";
+import { MemoryTab } from "./MemoryTab";
 import { PeopleTab } from "./PeopleTab";
 import { SchedulesTab } from "./SchedulesTab";
 import { WebsitesTab } from "./WebsitesTab";
@@ -22,6 +23,7 @@ const TABS: (readonly [SettingsTab, string, string?])[] = [
   ["setGeneral", "General"],
   ["setSignins", "Websites"],
   ["setPeople", "People", "peopleTab"],
+  ["setMemory", "Memory", "memoryTab"],
   ["setSchedules", "Schedules", "schedulesTab"],
   ["setActivity", "Activity", "activityTab"],
 ];
@@ -49,6 +51,12 @@ const ICONS: Record<SettingsTab, ReactNode> = {
       <path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5M16 5.2a3 3 0 0 1 0 5.6M18 14.4c1.6.7 2.6 2.3 3 4.6" />
     </svg>
   ),
+  setMemory: (
+    <svg {...line}>
+      <path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-2 5.2A3.2 3.2 0 0 0 8 17.5a2.5 2.5 0 0 0 4 1V5.8a2.5 2.5 0 0 0-3-1.3z" />
+      <path d="M15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 2 5.2 3.2 3.2 0 0 1-4 4.8 2.5 2.5 0 0 1-4 1" />
+    </svg>
+  ),
   setSchedules: (
     <svg {...line}>
       <circle cx="12" cy="12" r="8.5" />
@@ -74,6 +82,7 @@ function SettingsMenu({ go }: { go: (tab: SettingsTab) => void }) {
     setGeneral: "AI, notifications, about",
     setSignins: sites ? `${sites} signed in` : "Sites your bots sign in to",
     setPeople: people ? `${people} of 6 people · join by QR code` : "Add the family; they join by QR code",
+    setMemory: "What bots remember about each person",
     setSchedules: schedules ? `${schedules} repeating` : "What bots do on their own",
     setActivity: "What went in and out today",
   };
@@ -185,6 +194,7 @@ export function SettingsDialog() {
           <GeneralTab hidden={tab !== "setGeneral"} />
           <WebsitesTab hidden={tab !== "setSignins"} />
           <PeopleTab hidden={tab !== "setPeople"} />
+          <MemoryTab hidden={!open || tab !== "setMemory"} />
           <SchedulesTab hidden={!open || tab !== "setSchedules"} />
           <ActivityTab hidden={tab !== "setActivity"} />
         </div>

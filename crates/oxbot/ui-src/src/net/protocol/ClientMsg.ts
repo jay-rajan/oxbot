@@ -472,7 +472,27 @@ on: boolean, } | { "type": "start_pairing",
 /**
  * Who the device is for, e.g. `Sam`.
  */
-person: string, } | { "type": "add_person", 
+person: string, } | { "type": "get_memory", 
+/**
+ * Their name.
+ */
+person: string, } | { "type": "add_memory", 
+/**
+ * Their name.
+ */
+person: string, 
+/**
+ * What bots should remember, e.g. `Vegetarian`.
+ */
+text: string, } | { "type": "remove_memory", 
+/**
+ * Their name.
+ */
+person: string, 
+/**
+ * The thing's id.
+ */
+id: number, } | { "type": "add_person", 
 /**
  * What to call them, e.g. `Sam`.
  */

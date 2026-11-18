@@ -16,6 +16,7 @@ import type { HomeEventInfo } from "./HomeEventInfo";
 import type { HomeNoteInfo } from "./HomeNoteInfo";
 import type { LogLine } from "./LogLine";
 import type { MealInfo } from "./MealInfo";
+import type { MemoryItem } from "./MemoryItem";
 import type { NetRow } from "./NetRow";
 import type { NetTotals } from "./NetTotals";
 import type { PairingCode } from "./PairingCode";
@@ -351,7 +352,15 @@ to: string,
 /**
  * By day, then breakfast, lunch, dinner.
  */
-meals: Array<MealInfo>, } | { "type": "groceries", 
+meals: Array<MealInfo>, } | { "type": "memory", 
+/**
+ * Whose (their name).
+ */
+person: string, 
+/**
+ * Oldest first.
+ */
+items: Array<MemoryItem>, } | { "type": "groceries", 
 /**
  * What's still to get first, by aisle.
  */

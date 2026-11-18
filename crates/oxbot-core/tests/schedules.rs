@@ -326,16 +326,13 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
     let profile = oxbot_protocol::ProfileEdit {
         name: "Jay".into(),
         color: oxbot_core::store::PEOPLE_COLORS[0].into(),
-        food: "vegetarian".into(),
-        food_use: true,
-        notes: "prefers metric".into(),
-        notes_use: false,
         home_area: Some("Toronto, ON".into()),
         home_area_use: Some(true),
         owner_confirmed: true,
         ..oxbot_protocol::ProfileEdit::default()
     };
     hub.set_profile(&home_computer, &profile).unwrap();
+    hub.add_memory(&home_computer, "Jay", "Vegetarian").unwrap();
     let mut updates = hub.subscribe();
     hub.send_as("prep", "plan dinner", &home_computer)
         .await
@@ -347,8 +344,7 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
         .find(|l| l.starts_with("[oxbot] About the person"))
         .unwrap();
     // The person let bots use the home area, so it goes as it is.
-    assert!(line.contains("food needs: vegetarian") && line.contains("home area: Toronto, ON"));
-    assert!(!line.contains("metric"), "kept from bots");
+    assert!(line.contains("Vegetarian") && line.contains("home area: Toronto, ON"));
     assert!(!line.contains("Jay"), "never their name: {line}");
     // The chat shows only what they typed.
     assert!(

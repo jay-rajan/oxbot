@@ -299,6 +299,7 @@ impl View {
             | ServerMsg::HomeSaved { .. }
             | ServerMsg::HomeChanged
             | ServerMsg::Profile(_)
+            | ServerMsg::Memory { .. }
             | ServerMsg::ProfilesChanged => {}
             ServerMsg::Error { message } => println!("   ! {message}"),
         }

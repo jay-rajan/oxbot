@@ -61,7 +61,8 @@ export function profileEdit(draft: ProfileDraft, view: ProfileView): { edit: Pro
       notes: draft.notes,
       notes_use: draft.notes_use,
       home_area: view.can_edit_area ? draft.home_area : null,
-      home_area_use: view.can_edit_area ? draft.home_area_use : null,
+      // No switch any more: an area set is an area bots use.
+      home_area_use: view.can_edit_area ? true : null,
       owner_confirmed,
     },
   };
