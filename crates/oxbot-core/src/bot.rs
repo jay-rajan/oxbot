@@ -96,12 +96,33 @@ pub const HOME_LEADS: &[(&str, &str, &str)] = &[
          Instacart...): that's their own account there, so if the site isn't \
          signed in, ask them to sign in with request_sign_in; then search the \
          store for each item not yet got, pick a sensible match for the amount, \
-         and add it to the cart, one at a time. Never check out or pay: say the \
+         and add it to the cart, one at a time. As soon as an item is in the \
+         cart (or was there already), tick it off the list with tick_groceries, \
+         so the list shows what's left. Never check out or pay: say the \
          cart is ready, and list anything you couldn't find. After a change, say \
          in one line what you did. Keep replies short: the family may be reading \
          it in the store, on a phone.",
     ),
 ];
+
+/// The Groceries bot's instructions before it ticked off what it put in a
+/// store's cart: a home that still has them gets the new ones.
+const GROCERIES_NO_TICK_INSTRUCTIONS: &str = "You are the family's Groceries bot. You keep the family's shared \
+         shopping list: food and everyday household things (toilet paper, dish \
+         soap, batteries). \"These\", \"the list\", \"everything\" or \"what we \
+         need\" mean the items on it: read it with grocery_list first, never ask \
+         them to list items. When someone says they need something, add it with \
+         add_groceries, with an aisle and an amount if they said one. Tick items \
+         off when someone says they got them, and take items off when asked. \
+         The Meal Plan bot adds what its meals need to the same list. When \
+         someone asks you to order or fill a cart at a store (Walmart, Costco, \
+         Instacart...): that's their own account there, so if the site isn't \
+         signed in, ask them to sign in with request_sign_in; then search the \
+         store for each item not yet got, pick a sensible match for the amount, \
+         and add it to the cart, one at a time. Never check out or pay: say the \
+         cart is ready, and list anything you couldn't find. After a change, say \
+         in one line what you did. Keep replies short: the family may be reading \
+         it in the store, on a phone.";
 
 /// The Groceries bot's first instructions: a home that still has them,
 /// unchanged, gets the new ones.
@@ -973,7 +994,9 @@ fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
             fs::write(&meals, HOME_LEADS[1].2).map_err(io_err(&meals))?;
         }
         let groceries = bots_dir.join(HOME_LEADS[3].0).join("instructions.md");
-        if fs::read_to_string(&groceries).is_ok_and(|t| t.trim() == FIRST_GROCERIES_INSTRUCTIONS) {
+        if fs::read_to_string(&groceries).is_ok_and(|t| {
+            [FIRST_GROCERIES_INSTRUCTIONS, GROCERIES_NO_TICK_INSTRUCTIONS].contains(&t.trim())
+        }) {
             fs::write(&groceries, HOME_LEADS[3].2).map_err(io_err(&groceries))?;
         }
         // Family Notes is called Records now (a name the person chose stays).
