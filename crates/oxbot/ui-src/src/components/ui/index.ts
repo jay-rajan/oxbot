@@ -7,7 +7,7 @@ export { Chip, Pill } from "./Chip";
 export { cx } from "./cx";
 export { Dialog, DialogForm, DialogFrame } from "./Dialog";
 export { ErrorText, Field, Hint, Input, Select, TextArea } from "./Field";
-export { CheckIcon, ChevronIcon, CloseIcon, MenuIcon, MoreIcon, PlusIcon } from "./icons";
+export { BackIcon, CheckIcon, ChevronIcon, CloseIcon, MenuIcon, MoreIcon, PlusIcon } from "./icons";
 export { List, ListRow, Note, Section } from "./List";
 export { Tabs } from "./Tabs";
 export { Toast } from "./Toast";

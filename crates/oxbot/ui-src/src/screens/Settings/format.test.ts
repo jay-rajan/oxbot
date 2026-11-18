@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SetupReport } from "../../net/protocol";
 import { bytes, doorHere, fixParts, missingChecks, money, setupReady, siteRows, swappedText } from "./format";
+import { machineKind } from "./PeopleTab";
 
 describe("format", () => {
   it("money and bytes", () => {
@@ -59,5 +60,13 @@ describe("format", () => {
     expect(doorHere(null)).toEqual({ here: null, listed: false });
     expect(doorHere({ open: true, why: "", networks: [], current: net, name: "" }).listed).toBe(false);
     expect(doorHere({ open: true, why: "", networks: [net], current: net, name: "" }).listed).toBe(true);
+  });
+});
+
+describe("the machine that runs the bots", () => {
+  it("is a personal laptop or computer, by its name", () => {
+    expect(machineKind("Jayadev’s MacBook Pro")).toBe("Personal laptop");
+    expect(machineKind("Jay's Mac mini")).toBe("Personal computer");
+    expect(machineKind(null)).toBe("Personal computer");
   });
 });

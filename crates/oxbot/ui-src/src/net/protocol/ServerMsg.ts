@@ -11,9 +11,11 @@ import type { ComparePrefs } from "./ComparePrefs";
 import type { DeviceInfo } from "./DeviceInfo";
 import type { DoorState } from "./DoorState";
 import type { EnginesView } from "./EnginesView";
+import type { GroceryInfo } from "./GroceryInfo";
 import type { HomeEventInfo } from "./HomeEventInfo";
 import type { HomeNoteInfo } from "./HomeNoteInfo";
 import type { LogLine } from "./LogLine";
+import type { MealInfo } from "./MealInfo";
 import type { NetRow } from "./NetRow";
 import type { NetTotals } from "./NetTotals";
 import type { PairingCode } from "./PairingCode";
@@ -337,7 +339,23 @@ title: string,
  * The bot that made the change (the Calendar bot, asked in its
  * chat), sent to everyone who sees it; none for this client's own.
  */
-bot: string | null, } | { "type": "home_changed" } | { "type": "home_notes", 
+bot: string | null, } | { "type": "home_changed" } | { "type": "home_meals", 
+/**
+ * First day asked for.
+ */
+from: string, 
+/**
+ * Last day asked for.
+ */
+to: string, 
+/**
+ * By day, then breakfast, lunch, dinner.
+ */
+meals: Array<MealInfo>, } | { "type": "groceries", 
+/**
+ * What's still to get first, by aisle.
+ */
+items: Array<GroceryInfo>, } | { "type": "home_notes", 
 /**
  * Latest day first.
  */

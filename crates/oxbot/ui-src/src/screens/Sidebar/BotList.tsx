@@ -2,7 +2,7 @@
 // each group foldable; a bot can be dragged onto a section, or out of them.
 import { type DragEvent, type KeyboardEvent, type MouseEvent, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { avatarSvg } from "../../components/brand";
+import { avatarColor, avatarSvg } from "../../components/brand";
 import { Button, ChevronIcon, Note, Pill, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { waitingBots } from "../../state/cards";
@@ -51,7 +51,7 @@ export function BotList({
   const searching = !!fold(side.query).trim();
   const groups = dragging.current
     ? frozen.current
-    : groupBots(botList(bots), sections, placed, side.groupBy, side.query, you);
+    : groupBots(botList(bots), sections, placed, side.groupBy, side.query, you, side.pinned);
   frozen.current = groups;
 
   // Dragging a bot onto a section, or out of them.
@@ -111,7 +111,7 @@ export function BotList({
     const busy = side.busy[id] ?? b.busy;
     const title = busy ? "Working…" : b.private ? (b.sharing === "people" ? "Shared with picked people" : "Private") : undefined;
     // Under the name: Assistant's job, the lead a helper works for, or who
-    // the bot belongs to.
+    // the bot belongs to when it isn't yours (like the Home items, one line).
     const lead = b.helper_of ? bots.byId[b.helper_of] : undefined;
     const helper = !!lead?.lead && !b.lead;
     // A Home lead's helper isn't under its lead (that's in the Home row): not indented.
@@ -122,7 +122,7 @@ export function BotList({
         ? `helps ${lead?.name || b.helper_of}`
         : b.lead
           ? "lead bot"
-          : b.created_by
+          : b.created_by && b.created_by !== you
             ? `by ${b.created_by}`
             : "";
     return (
@@ -147,7 +147,7 @@ export function BotList({
         }}
       >
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: oxbot's own SVG */}
-        <span className={`avatar${busy ? " working" : ""}`} dangerouslySetInnerHTML={{ __html: avatarSvg(id, b.central) }} />
+        <span className={`avatar${busy ? " working" : ""}`} style={vars({ tint: avatarColor(id) })} dangerouslySetInnerHTML={{ __html: avatarSvg(id, b.central) }} />
         <span className="meta">
           <span className="name">
             <span>{b.name || id}</span>

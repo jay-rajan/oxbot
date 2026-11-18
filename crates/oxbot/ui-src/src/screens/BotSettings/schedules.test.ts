@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScheduleInfo } from "../../net/protocol";
-import { lastResult, scheduleMeta } from "./schedules";
+import { lastResult, scheduleMeta, schedRule, schedShort } from "./schedules";
 
 const base: ScheduleInfo = {
   id: 1,
@@ -34,5 +34,11 @@ describe("schedule rows", () => {
   it("name the bot when listing every schedule", () => {
     expect(scheduleMeta({ ...base, paused: true }, true)).toBe("Recipes · paused");
     expect(scheduleMeta({ ...base, mine: false, next_run_ms: Date.UTC(2026, 10, 14, 8) }, false)).toMatch(/^as Jay · next Sat, Nov 14/);
+  });
+
+  it("in Settings, say just when it runs and when next, not the task", () => {
+    expect(schedRule(base)).toBe("Every Saturday at 8 AM");
+    expect(schedShort({ ...base, next_run_ms: Date.UTC(2026, 10, 14, 8) })).toMatch(/^Every Saturday at 8 AM · next Sat, Nov 14/);
+    expect(schedShort({ ...base, paused: true })).toBe("Every Saturday at 8 AM · paused");
   });
 });

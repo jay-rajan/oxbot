@@ -233,7 +233,7 @@ export function ChatMain() {
   const { dispatch } = app;
   const current = useSel((s) => s.ui.current);
   const sideOpen = useSel((s) => s.ui.sideOpen);
-  const homeView = useSel((s) => (s.ui.page === "calendar" ? "Calendar" : s.ui.page === "notes" ? "Records" : null));
+  const homeView = useSel((s) => (s.ui.page === "calendar" ? "Calendar" : s.ui.page === "notes" ? "Records" : s.ui.page === "meals" ? "Plan" : s.ui.page === "groceries" ? "List" : null));
   const info = useSel((s) => (s.ui.current ? s.bots.byId[s.ui.current] : undefined));
   const chat = useSel((s) => (s.ui.current ? s.chat.bots[s.ui.current] : undefined));
   const dictating = useSel((s) => !!s.chat.dictating);

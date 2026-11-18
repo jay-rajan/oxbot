@@ -1,0 +1,64 @@
+/* The Meal Plan: the week as a table of days by meal (a list of days on a
+   narrow screen), and the grocery list. The frame is the calendar's (.cal). */
+.meal-grid { display: grid; min-width: 0; }
+.meal-row { display: grid; grid-template-columns: 84px repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.meal-row.head { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.meal-slot { padding: var(--s-2) var(--s-3); font-size: var(--text-sm); font-weight: var(--weight-mid); color: var(--muted); }
+.meal-day { padding: var(--s-2); font-size: var(--text-sm); color: var(--muted); border-left: 1px solid var(--line); }
+.meal-day.today .cal-dn { color: var(--accent); font-weight: var(--weight-bold); }
+.meal-col { border-left: 1px solid var(--line); min-width: 0; }
+.meal-col.today { background: var(--accent-soft); }
+.meal-cell { display: flex; flex-direction: column; gap: var(--s-1); padding: var(--s-1); min-height: 52px; }
+.meal {
+  all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 1px;
+  padding: var(--s-1) var(--s-2); border: 1px solid var(--line); border-left: 3px solid var(--home-meals);
+  border-radius: var(--r-sm); background: var(--surface); min-width: 0;
+}
+.meal:hover { background: var(--sunken); }
+.meal:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.meal-title { font-size: var(--text-sm); font-weight: var(--weight-mid); overflow-wrap: anywhere; }
+.meal-who { font-size: var(--text-xs); color: var(--muted); }
+.meal-add {
+  all: unset; box-sizing: border-box; cursor: pointer; text-align: center; padding: 2px; border-radius: var(--r-sm);
+  color: var(--muted); border: 1px dashed var(--line-strong); opacity: 0; transition: opacity var(--fast) var(--ease);
+}
+.meal-cell:hover .meal-add, .meal-add:focus-visible { opacity: 1; }
+.meal-add:focus-visible { outline: 2px solid var(--focus); }
+@media (hover: none) { .meal-add { opacity: 1; } }
+.meal-add.more { border: 0; text-align: left; padding: 0 var(--s-2); font-size: var(--text-xs); }
+
+.meal-days { display: none; }
+.meal-daycard { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
+.meal-daycard h3 { margin: 0 0 var(--s-2); font-size: var(--text-md); font-weight: var(--weight-bold); }
+.meal-daycard.today h3 { color: var(--accent); }
+.meal-line { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: start; }
+.meal-line .meal-slot { padding: var(--s-2) 0; }
+.meal-line .meal-cell { min-height: 0; }
+.meal-line .meal-add { opacity: 1; justify-self: start; padding: 0 var(--s-3); }
+@media (max-width: 899px) {
+  .meal-grid { display: none; }
+  .meal-days { display: block; }
+}
+
+/* The grocery list (the Groceries view) */
+.groceries-left { margin-left: var(--s-1); font-size: var(--text-sm); font-weight: var(--weight-mid); color: var(--muted); }
+.groceries { padding: var(--s-3) var(--s-4) var(--s-6); max-width: 720px; }
+.grocery-add { display: grid; grid-template-columns: minmax(0, 1fr) 110px 140px auto; gap: var(--s-2); margin-bottom: var(--s-2); }
+@media (max-width: 720px) { .grocery-add { grid-template-columns: minmax(0, 1fr) 90px; } }
+@media (max-width: 720px) {
+  .groceries { padding-left: var(--s-4); padding-right: var(--s-4); }
+}
+.grocery-got { display: flex; align-items: center; justify-content: space-between; margin-top: var(--s-2); font-size: var(--text-sm); color: var(--muted); }
+.grocery-aisle h3 { display: flex; align-items: center; gap: var(--s-2); margin: var(--s-4) 0 var(--s-1); font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
+.grocery-aisle h3 span { font-weight: var(--weight-mid); }
+.grocery-aisle h3 .btn { margin-left: auto; }
+.grocery-aisle ul { list-style: none; margin: 0; padding: 0; }
+.grocery { display: flex; align-items: center; gap: var(--s-2); border-bottom: 1px solid var(--line); }
+.grocery label { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--s-3); padding: var(--s-2) var(--s-1); cursor: pointer; }
+.grocery input { width: 18px; height: 18px; margin: 0; accent-color: var(--home-groceries); flex: none; }
+.grocery-name { font-size: var(--text-md); overflow-wrap: break-word; min-width: 0; }
+.grocery-meta { font-size: var(--text-sm); color: var(--muted); }
+.grocery.got .grocery-name { text-decoration: line-through; color: var(--muted); }
+.grocery-x { all: unset; cursor: pointer; padding: 0 var(--s-2); font-size: var(--text-lg); color: var(--muted); border-radius: var(--r-sm); }
+.grocery-x:hover { color: var(--ink); background: var(--sunken); }
+.grocery-x:focus-visible { outline: 2px solid var(--focus); }

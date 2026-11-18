@@ -54,11 +54,15 @@ pub const HOME_LEADS: &[(&str, &str, &str)] = &[
     (
         "home-meals",
         "Meal Plan",
-        "You are the family's Meal Plan bot. You plan the week's dinners and keep \
-         the grocery list. The first time, ask a few questions: who eats, \
-         allergies and dislikes, busy nights, budget and favorite meals. Then plan \
-         a week and add what's needed to the grocery list. Keep replies short. You \
-         can suggest helper bots, such as one that orders groceries from a store.",
+        "You are the family's Meal Plan bot. You plan the week's meals, which \
+         everyone sees on the Meal Plan. The first time, ask a few questions: \
+         who eats, allergies and dislikes, busy nights, budget and favorite \
+         meals. Plan with plan_meal (one dish a call, for a day's breakfast, \
+         lunch or dinner; look with meal_plan first so nothing is planned \
+         twice), then put what's needed on Groceries, the family's shared \
+         shopping list, with add_groceries (with the meal's id and an aisle). \
+         After a change, say in one line what you did. Keep replies short: the \
+         family may be reading on a phone.",
     ),
     (
         "home-notes",
@@ -77,7 +81,81 @@ pub const HOME_LEADS: &[(&str, &str, &str)] = &[
          passwords, PINs or card numbers: say they're kept on the home computer \
          only. Keep replies short: the family may be reading on a phone.",
     ),
+    (
+        "home-groceries",
+        "Groceries",
+        "You are the family's Groceries bot. You keep the family's shared \
+         shopping list: food and everyday household things (toilet paper, dish \
+         soap, batteries). \"These\", \"the list\", \"everything\" or \"what we \
+         need\" mean the items on it: read it with grocery_list first, never ask \
+         them to list items. When someone says they need something, add it with \
+         add_groceries, with an aisle and an amount if they said one. Tick items \
+         off when someone says they got them, and take items off when asked. \
+         The Meal Plan bot adds what its meals need to the same list. When \
+         someone asks you to order or fill a cart at a store (Walmart, Costco, \
+         Instacart...): that's their own account there, so if the site isn't \
+         signed in, ask them to sign in with request_sign_in; then search the \
+         store for each item not yet got, pick a sensible match for the amount, \
+         and add it to the cart, one at a time. As soon as an item is in the \
+         cart (or was there already), tick it off the list with tick_groceries, \
+         so the list shows what's left. Never check out or pay: say the \
+         cart is ready, and list anything you couldn't find. After a change, say \
+         in one line what you did. Keep replies short: the family may be reading \
+         it in the store, on a phone.",
+    ),
 ];
+
+/// The Groceries bot's instructions before it ticked off what it put in a
+/// store's cart: a home that still has them gets the new ones.
+const GROCERIES_NO_TICK_INSTRUCTIONS: &str = "You are the family's Groceries bot. You keep the family's shared \
+         shopping list: food and everyday household things (toilet paper, dish \
+         soap, batteries). \"These\", \"the list\", \"everything\" or \"what we \
+         need\" mean the items on it: read it with grocery_list first, never ask \
+         them to list items. When someone says they need something, add it with \
+         add_groceries, with an aisle and an amount if they said one. Tick items \
+         off when someone says they got them, and take items off when asked. \
+         The Meal Plan bot adds what its meals need to the same list. When \
+         someone asks you to order or fill a cart at a store (Walmart, Costco, \
+         Instacart...): that's their own account there, so if the site isn't \
+         signed in, ask them to sign in with request_sign_in; then search the \
+         store for each item not yet got, pick a sensible match for the amount, \
+         and add it to the cart, one at a time. Never check out or pay: say the \
+         cart is ready, and list anything you couldn't find. After a change, say \
+         in one line what you did. Keep replies short: the family may be reading \
+         it in the store, on a phone.";
+
+/// The Groceries bot's first instructions: a home that still has them,
+/// unchanged, gets the new ones.
+const FIRST_GROCERIES_INSTRUCTIONS: &str = "You are the family's Groceries bot. You keep the family's shared \
+         shopping list: food and everyday household things (toilet paper, dish \
+         soap, batteries). When someone says they need something, add it with \
+         add_groceries, with an aisle and an amount if they said one; look with \
+         grocery_list to answer what's left. Tick items off when someone says \
+         they got them, and take items off when asked. The Meal Plan bot adds \
+         what its meals need to the same list. After a change, say in one line \
+         what you did. Keep replies short: the family may be reading it in the \
+         store, on a phone.";
+
+/// The Meal Plan bot's instructions from before Groceries was its own
+/// Home lead (Nov 2026): a home that still has them gets the new ones.
+const MEALS_WITH_GROCERIES_INSTRUCTIONS: &str = "You are the family's Meal Plan bot. You plan the week's meals and keep \
+         the grocery list, both of which everyone sees on the Meal Plan. The \
+         first time, ask a few questions: who eats, allergies and dislikes, busy \
+         nights, budget and favorite meals. Plan with plan_meal (one dish a call, \
+         for a day's breakfast, lunch or dinner; look with meal_plan first so \
+         nothing is planned twice), then add what's needed with add_groceries, \
+         with the meal's id and an aisle. Tick items off when someone says they \
+         got them. After a change, say in one line what you did. Keep replies \
+         short: the family may be reading on a phone. You can suggest helper \
+         bots, such as one that orders groceries from a store.";
+
+/// The Meal Plan bot's first instructions, before it had the Meal Plan's
+/// tools: a home that still has them, unchanged, gets the new ones.
+const OLD_MEALS_INSTRUCTIONS: &str = "You are the family's Meal Plan bot. You plan the week's dinners and keep \
+         the grocery list. The first time, ask a few questions: who eats, \
+         allergies and dislikes, busy nights, budget and favorite meals. Then plan \
+         a week and add what's needed to the grocery list. Keep replies short. You \
+         can suggest helper bots, such as one that orders groceries from a store.";
 
 /// The Records bot's instructions from when it was Family Notes (Nov
 /// 2026): a home that still has them, unchanged, gets the new ones.
@@ -909,6 +987,18 @@ fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
         {
             fs::write(&path, HOME_LEADS[2].2).map_err(io_err(&path))?;
         }
+        let meals = bots_dir.join(HOME_LEADS[1].0).join("instructions.md");
+        if fs::read_to_string(&meals).is_ok_and(|t| {
+            [OLD_MEALS_INSTRUCTIONS, MEALS_WITH_GROCERIES_INSTRUCTIONS].contains(&t.trim())
+        }) {
+            fs::write(&meals, HOME_LEADS[1].2).map_err(io_err(&meals))?;
+        }
+        let groceries = bots_dir.join(HOME_LEADS[3].0).join("instructions.md");
+        if fs::read_to_string(&groceries).is_ok_and(|t| {
+            [FIRST_GROCERIES_INSTRUCTIONS, GROCERIES_NO_TICK_INSTRUCTIONS].contains(&t.trim())
+        }) {
+            fs::write(&groceries, HOME_LEADS[3].2).map_err(io_err(&groceries))?;
+        }
         // Family Notes is called Records now (a name the person chose stays).
         if let Ok(mut notes) = Bot::load(&bots_dir.join(HOME_LEADS[2].0))
             && notes.name == "Family Notes"
@@ -916,7 +1006,7 @@ fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
             HOME_LEADS[2].1.clone_into(&mut notes.name);
             notes.save()?;
         }
-        return Ok(());
+        return ensure_new_leads(bots_dir);
     }
     for (id, name, instructions) in HOME_LEADS {
         if bots_dir.join(id).exists() {
@@ -930,7 +1020,30 @@ fn ensure_home_leads(bots_dir: &Path) -> Result<(), BotError> {
         bot.lead = true;
         bot.save()?;
     }
-    fs::write(&marker, "").map_err(io_err(&marker))
+    fs::write(&marker, "").map_err(io_err(&marker))?;
+    ensure_new_leads(bots_dir)
+}
+
+/// Home leads added after a home was made (Groceries, Nov 2026): made once,
+/// each with its own marker, so one the person deleted stays deleted.
+fn ensure_new_leads(bots_dir: &Path) -> Result<(), BotError> {
+    for (id, name, instructions) in &HOME_LEADS[3..] {
+        let marker = bots_dir.join(format!(".home-lead-{id}"));
+        if marker.exists() {
+            continue;
+        }
+        if !bots_dir.join(id).exists() {
+            let bot_id = BotId::new(*id).map_err(|source| BotError::BadId {
+                path: bots_dir.join(id),
+                source,
+            })?;
+            let mut bot = Bot::create(bots_dir, bot_id, name, instructions)?;
+            bot.lead = true;
+            bot.save()?;
+        }
+        fs::write(&marker, "").map_err(io_err(&marker))?;
+    }
+    Ok(())
 }
 
 /// A central bot (the main one or a person's own) still called "Herder"
@@ -1014,18 +1127,38 @@ mod tests {
         let ids: Vec<_> = bots.iter().map(|b| b.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["assistant", "home-calendar", "home-meals", "home-notes"]
+            [
+                "assistant",
+                "home-calendar",
+                "home-groceries",
+                "home-meals",
+                "home-notes"
+            ]
         );
         assert!(bots[0].instructions.contains("phone"));
         assert!(bots[0].work_dir().is_dir());
         assert_eq!(bots[0].name, CENTRAL_NAME);
         assert!(bots[1..].iter().all(|b| b.lead && !b.is_central()));
-        assert_eq!(bots[2].name, "Meal Plan");
+        assert_eq!(bots[2].name, "Groceries");
 
         // A Home lead the family deletes stays deleted.
         fs::remove_dir_all(tmp.path().join("home-notes")).unwrap();
+        fs::remove_dir_all(tmp.path().join("home-groceries")).unwrap();
         ensure_default(tmp.path()).unwrap();
         assert_eq!(load_all(tmp.path()).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_home_made_before_groceries_gets_it_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        ensure_default(tmp.path()).unwrap();
+        // As a home from before Groceries was a Home lead.
+        fs::remove_dir_all(tmp.path().join("home-groceries")).unwrap();
+        fs::remove_file(tmp.path().join(".home-lead-home-groceries")).unwrap();
+        ensure_default(tmp.path()).unwrap();
+        let groceries = Bot::load(&tmp.path().join("home-groceries")).unwrap();
+        assert!(groceries.lead);
+        assert_eq!(groceries.name, "Groceries");
     }
 
     #[test]

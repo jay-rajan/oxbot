@@ -2573,27 +2573,30 @@ async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     let (hub, fake) = planning_hub(tmp.path(), Some(salmon_plan()), Tool::None).await;
     let mut updates = hub.subscribe();
 
-    // The card shows the site, place and plan, and the bot starts without
-    // waiting for an answer.
+    // A line in the chat says the site, place and plan (no card to answer),
+    // and the bot starts.
     hub.send("poster", "get me salmon", Some("Jay"))
         .await
         .unwrap();
-    let card = next_card(&mut updates).await;
-    assert_eq!(card.kind, ApprovalKind::Plan);
-    assert_eq!(card.site, "walmart.ca");
-    assert_eq!(card.target, "Find fresh salmon and add 1 lb to the cart.");
-    assert_eq!(card.detail.as_deref(), Some("Toronto, ON"));
-    assert_eq!(card.screenshot, None);
-    assert_eq!(card.asker.as_deref(), Some("Jay"));
     let (said, _) = ending(&hub, &mut updates).await;
     assert_eq!(said, "ok");
+    let notes: Vec<String> = hub
+        .history("poster", 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::Note { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        notes,
+        ["Starting on walmart.ca for Toronto, ON: Find fresh salmon and add 1 lb to the cart."]
+    );
     assert_eq!(fake.ran(), ["take_snapshot"]);
     assert!(fake.heard().iter().any(|r| r.contains("can see your plan")));
-    assert!(
-        hub.pending_approvals().is_empty(),
-        "the card goes with its task"
-    );
-    assert_eq!(approvals_in(&hub, "poster"), 0, "and isn't a no");
+    assert!(hub.pending_approvals().is_empty(), "nothing to answer");
+    assert_eq!(approvals_in(&hub, "poster"), 0);
 
     // The same person's follow-up browses on the same plan.
     hub.send("poster", "and some lemons", Some("Jay"))
@@ -2603,45 +2606,6 @@ async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     assert_eq!(said, "ok");
     assert_eq!(fake.ran(), ["take_snapshot", "take_snapshot"]);
     assert_eq!(hub.pending_approvals(), []);
-    hub.shutdown().await;
-}
-
-#[tokio::test]
-async fn stop_on_a_plan_takes_it_back() {
-    let tmp = tempfile::tempdir().unwrap();
-    if codex().await.is_none() {
-        return;
-    }
-    let (hub, fake) = planning_hub(tmp.path(), Some(salmon_plan()), Tool::Post).await;
-    let mut updates = hub.subscribe();
-    hub.send("poster", "post my update", Some("Jay"))
-        .await
-        .unwrap();
-    let plan = next_card(&mut updates).await;
-    assert_eq!(plan.kind, ApprovalKind::Plan);
-    // The bot went ahead: its post waits for its own card.
-    let post = next_card(&mut updates).await;
-    assert_ne!(post.kind, ApprovalKind::Plan);
-    hub.answer(plan.id, Answer::Deny);
-    for _ in 0..100 {
-        if approvals_in(&hub, "poster") > 0 {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-    assert_eq!(approvals_in(&hub, "poster"), 1, "the Stop is in the chat");
-    hub.answer(post.id, Answer::Deny);
-    ending(&hub, &mut updates).await;
-
-    // A follow-up needs a new plan: the old one was stopped.
-    hub.send("poster", "try again", Some("Jay")).await.unwrap();
-    ending(&hub, &mut updates).await;
-    assert_eq!(fake.ran(), ["take_snapshot"], "nothing more opened");
-    assert!(
-        fake.heard()
-            .iter()
-            .any(|r| r.contains("Not yet: before your first web visit"))
-    );
     hub.shutdown().await;
 }
 
@@ -2948,8 +2912,7 @@ async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
         return;
     }
     let bots = tmp.path().join("bots");
-    let notes_bot =
-        Bot::create(&bots, BotId::new("home-notes").unwrap(), "Records", "").unwrap();
+    let notes_bot = Bot::create(&bots, BotId::new("home-notes").unwrap(), "Records", "").unwrap();
     let fake = Arc::new(FakeBots {
         no_page: true,
         ..FakeBots::new(&bots, Tool::None)
@@ -3057,5 +3020,65 @@ async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
     assert_eq!(
         hub.note_file(&jay, b.id).unwrap().0.fields.day_from,
         oxbot_core::store::DayFrom::You
+    );
+}
+
+#[tokio::test]
+async fn the_meal_plan_and_grocery_list_are_shared_by_the_home() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, _) = listening_hub(tmp.path()).await;
+    let mut updates = hub.subscribe();
+    let jay = Viewer::device("Jay");
+    let dish = |day: &str, slot: &str, title: &str| oxbot_protocol::MealInput {
+        day: day.into(),
+        slot: slot.into(),
+        title: title.into(),
+        notes: String::new(),
+        people: vec![],
+    };
+    hub.add_home_meal(&jay, &dish("2026-11-18", "dinner", "Tacos"))
+        .unwrap();
+    hub.add_home_meal(&jay, &dish("2026-11-18", "breakfast", "Oatmeal"))
+        .unwrap();
+    assert!(
+        hub.add_home_meal(&jay, &dish("2026-11-18", "brunch", "Eggs"))
+            .is_err()
+    );
+    let mut told = false;
+    while let Ok(msg) = updates.try_recv() {
+        told |= matches!(msg, ServerMsg::HomeChanged);
+    }
+    assert!(told, "everyone asks again");
+    let week = hub.home_meals(&jay, "2026-11-16", "2026-11-22").unwrap();
+    assert_eq!(
+        week.iter()
+            .map(|m| m.meal.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Oatmeal", "Tacos"]
+    );
+    assert_eq!(week[0].made_by, "Jay");
+
+    let item = |name: &str| oxbot_protocol::GroceryInput {
+        name: name.into(),
+        qty: String::new(),
+        aisle: "Dairy".into(),
+    };
+    hub.add_home_grocery(&jay, &item("Milk")).unwrap();
+    hub.add_home_grocery(&jay, &item("milk")).unwrap();
+    let list = hub.home_groceries(&jay).unwrap();
+    assert_eq!(list.len(), 1, "one milk");
+    hub.set_home_grocery(&jay, list[0].id, true).unwrap();
+    assert!(hub.home_groceries(&jay).unwrap()[0].done);
+    hub.clear_home_groceries(&jay).unwrap();
+    assert_eq!(hub.home_groceries(&jay).unwrap(), []);
+    hub.remove_home_meal(&jay, week[1].id).unwrap();
+    assert_eq!(
+        hub.home_meals(&jay, "2026-11-16", "2026-11-22")
+            .unwrap()
+            .len(),
+        1
     );
 }

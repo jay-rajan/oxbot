@@ -1,44 +1,51 @@
-// How a Home view (Calendar, Records) and its bot's chat share the
-// screen: the view alone (named for it: "Calendar", "Records"), the chat
-// alone, or on a wide screen both side by side (Split). A phone has no
-// Split: it shows the view instead. Shown in both headers, so either way
-// back; the device remembers the choice.
+// How a Home view (Calendar, Meal Plan, Groceries, Records) and its bot's chat share
+// the screen: the view alone (named for it: "Calendar", "Records",
+// "Plan", "List"), the chat alone, or on a wide screen both side by side (Split).
+// A phone has no Split: it shows the view instead. Shown in both headers,
+// so either way back; the device remembers each view's choice.
 import { useEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Segmented } from "../../components/ui";
 import { local } from "../../state/store";
 import type { HomeMode as Mode } from "../../state/ui";
 
-const KEY = "oxbot.homeMode";
+const KEY = "oxbot.homeMode.";
 const PHONE = "(max-width: 720px)";
 
-/** Whether this is a phone-sized screen (no Split there). */
-function useNarrow(): boolean {
-  const [narrow, setNarrow] = useState(() => matchMedia(PHONE).matches);
+/** Whether the screen matches a media query, kept up to date. */
+export function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
   useEffect(() => {
-    const m = matchMedia(PHONE);
-    const on = () => setNarrow(m.matches);
-    m.addEventListener("change", on);
-    return () => m.removeEventListener("change", on);
-  }, []);
-  return narrow;
+    const m = matchMedia(query);
+    const change = () => setOn(m.matches);
+    change();
+    m.addEventListener("change", change);
+    return () => m.removeEventListener("change", change);
+  }, [query]);
+  return on;
 }
 
-/** The mode in effect: Split is the view alone on a phone. */
+/** Whether this is a phone-sized screen (no Split there). */
+const useNarrow = () => useMedia(PHONE);
+
+/** The open view's mode in effect: each view keeps its own (none yet:
+ *  Split), and Split is the view alone on a phone. */
 export function useHomeMode(): Mode {
-  const mode = useSel((s) => s.ui.homeMode);
+  const mode = useSel((s) => s.ui.homeMode[s.ui.page] ?? "split");
   return useNarrow() && mode === "split" ? "full" : mode;
 }
 
-/** This device's last choice, once (none, or storage off: Split). */
+/** Each view's last choice on this device, once (none, or storage off: Split). */
 export function useSavedHomeMode() {
   const { dispatch } = useApp();
   useEffect(() => {
-    try {
-      const m = localStorage.getItem(KEY);
-      if (m === "full" || m === "chat") dispatch(local("ui/homeMode", { mode: m }));
-    } catch {
-      // Storage off: Split.
+    for (const page of ["calendar", "notes", "meals", "groceries"]) {
+      try {
+        const m = localStorage.getItem(KEY + page);
+        if (m === "split" || m === "full" || m === "chat") dispatch(local("ui/homeMode", { page, mode: m }));
+      } catch {
+        // Storage off: Split.
+      }
     }
   }, [dispatch]);
 }
@@ -47,10 +54,11 @@ export function HomeMode({ where, view }: { where: string; view: string }) {
   const { dispatch } = useApp();
   const narrow = useNarrow();
   const mode = useHomeMode();
+  const page = useSel((s) => s.ui.page);
   const choose = (m: Mode) => {
-    dispatch(local("ui/homeMode", { mode: m }));
+    dispatch(local("ui/homeMode", { page, mode: m }));
     try {
-      localStorage.setItem(KEY, m);
+      localStorage.setItem(KEY + page, m);
     } catch {
       // Not kept on this device: fine.
     }

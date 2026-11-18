@@ -4,6 +4,8 @@ import type { ComparePrefs } from "./ComparePrefs";
 import type { EngineKind } from "./EngineKind";
 import type { EnginePrefs } from "./EnginePrefs";
 import type { EventInput } from "./EventInput";
+import type { GroceryInput } from "./GroceryInput";
+import type { MealInput } from "./MealInput";
 import type { NetKind } from "./NetKind";
 import type { NoteInput } from "./NoteInput";
 import type { NoteUpload } from "./NoteUpload";
@@ -273,7 +275,47 @@ id: number, } | { "type": "undo_home_change",
 /**
  * The change.
  */
-change: number, } | { "type": "deleted_events" } | { "type": "home_notes" } | { "type": "change_note", 
+change: number, } | { "type": "deleted_events" } | { "type": "home_meals", 
+/**
+ * First day.
+ */
+from: string, 
+/**
+ * Last day (included).
+ */
+to: string, } | { "type": "add_meal", 
+/**
+ * What it says.
+ */
+meal: MealInput, } | { "type": "change_meal", 
+/**
+ * [`MealInfo::id`].
+ */
+id: number, 
+/**
+ * What it says now.
+ */
+meal: MealInput, } | { "type": "remove_meal", 
+/**
+ * [`MealInfo::id`].
+ */
+id: number, } | { "type": "groceries" } | { "type": "add_grocery", 
+/**
+ * What to buy.
+ */
+item: GroceryInput, } | { "type": "set_grocery", 
+/**
+ * [`GroceryInfo::id`].
+ */
+id: number, 
+/**
+ * Got it.
+ */
+done: boolean, } | { "type": "remove_grocery", 
+/**
+ * [`GroceryInfo::id`].
+ */
+id: number, } | { "type": "clear_groceries" } | { "type": "home_notes" } | { "type": "change_note", 
 /**
  * [`HomeNoteInfo::id`].
  */
@@ -430,7 +472,23 @@ on: boolean, } | { "type": "start_pairing",
 /**
  * Who the device is for, e.g. `Sam`.
  */
-person: string, } | { "type": "cancel_pairing" } | { "type": "remove_device", 
+person: string, } | { "type": "add_person", 
+/**
+ * What to call them, e.g. `Sam`.
+ */
+name: string, } | { "type": "rename_person", 
+/**
+ * Their name now.
+ */
+name: string, 
+/**
+ * Their new name.
+ */
+to: string, } | { "type": "remove_person", 
+/**
+ * Their name.
+ */
+name: string, } | { "type": "cancel_pairing" } | { "type": "remove_device", 
 /**
  * [`DeviceInfo::id`].
  */

@@ -130,6 +130,8 @@ impl Hub {
             browser: shared.is_some(),
             calendar: bot.id.as_str() == crate::bot::HOME_LEADS[0].0,
             notes: bot.id.as_str() == crate::bot::HOME_LEADS[2].0,
+            meals: bot.id.as_str() == crate::bot::HOME_LEADS[1].0,
+            groceries: bot.id.as_str() == crate::bot::HOME_LEADS[3].0,
         };
         let gate_mode = overrides.gate_mode;
         let spec = SessionSpec {

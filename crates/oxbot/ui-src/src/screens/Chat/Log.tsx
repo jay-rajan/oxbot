@@ -9,6 +9,7 @@ import { local } from "../../state/store";
 import { isLocked, maybeLoadOlder, openReport, sizeText } from "./actions";
 import { type MdNode, md } from "./md";
 import { Board } from "../../components/Board";
+import { doneLine, foldSteps, statusLine } from "./steps";
 import { Button, Chip, vars } from "../../components/ui";
 
 const LOCK = (
@@ -186,13 +187,8 @@ const EventView = memo(function EventView({ e, ctx }: { e: BotEvent; ctx: Ctx })
       );
     }
     case "assistant_message": return <div className="msg bot" title={title}><MdView text={e.text} /><When ms={e.ts_ms} /></div>;
-    case "tool_use": {
-      // Older lines kept a tool's raw name ("mcp__oxbot__ask_user").
-      const raw = /^mcp__[^_]+(?:_[^_]+)*?__(.+)$/.exec(e.name)?.[1];
-      if (raw === "ask_user" || raw === "show_note") return null;
-      const name = raw ? raw.replace(/_/g, " ") : e.name;
-      return <div className="tool" title={title}>{`${name} ${e.summary}`.trim()}</div>;
-    }
+    // Folded into one line per run of steps by the log itself.
+    case "tool_use": return null;
     case "turn_done":
       return (
         <div className="done" title={title}>
@@ -324,18 +320,25 @@ export function Log() {
     const empty = b.events.length === 0 && !b.stream;
     const meters = new Map<number, Meter[]>();
     for (const m of b.meters) meters.set(m.after, [...(meters.get(m.after) ?? []), m.meter]);
+    const steps = foldSteps(b.events);
     const where = info?.private ? `${info.created_by || "its maker"}'s own browser` : "the home browser";
     body = (
       <>
         {empty ? (
           <div className="empty">{`Send a message to start. The bot follows its instructions, browses the web in ${where}, and keeps files in its own folder.`}</div>
         ) : (
-          b.events.map((e) => (
-            <Fragment key={e.seq}>
-              <EventView e={e} ctx={ctx} />
-              {meters.get(e.seq)?.map((m, i) => <MeterView key={i} m={m} />)}
-            </Fragment>
-          ))
+          b.events.map((e) => {
+            // A run of steps is one line at its first step; the run still
+            // going shows in the status line below instead.
+            const run = e.kind === "tool_use" && !(b.busy && e.seq === steps.tailSeq) ? steps.runs.get(e.seq) : undefined;
+            const line = run ? doneLine(run) : null;
+            return (
+              <Fragment key={e.seq}>
+                {line ? <div className="tool" title={new Date(e.ts_ms).toLocaleString()}>{line}</div> : <EventView e={e} ctx={ctx} />}
+                {meters.get(e.seq)?.map((m, i) => <MeterView key={i} m={m} />)}
+              </Fragment>
+            );
+          })
         )}
         {b.stream ? <div className="msg bot streaming"><MdView text={b.stream} /></div> : null}
         {b.draft && !b.stream ? (
@@ -346,7 +349,7 @@ export function Log() {
         {b.busy && !b.stream ? (
           <div className="typing">
             <span className="ttt"><Board /></span>
-            <span className="txt">{(b.draft ? "Checking its answer…" : b.activity || "Working…").replace(/…$/, "")}</span>
+            <span className="txt">{(b.draft ? "Checking its answer…" : statusLine(b.activity, steps.tail, steps.site)).replace(/…$/, "")}</span>
           </div>
         ) : null}
       </>

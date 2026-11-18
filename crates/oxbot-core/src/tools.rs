@@ -69,6 +69,40 @@ pub const FILE_NOTE_TOOL: &str = "file_note";
 pub const SHOW_NOTE_TOOL: &str = "show_note";
 /// The Records bot's tools.
 pub const NOTES_TOOLS: &[&str] = &[FIND_NOTES_TOOL, FILE_NOTE_TOOL, SHOW_NOTE_TOOL];
+/// Lists the Meal Plan's dishes between two days (the Meal Plan bot).
+pub const MEAL_PLAN_TOOL: &str = "meal_plan";
+/// Lists the grocery list (the Meal Plan bot).
+pub const GROCERY_LIST_TOOL: &str = "grocery_list";
+/// Plans a dish for a day's breakfast, lunch or dinner (the Meal Plan bot).
+pub const PLAN_MEAL_TOOL: &str = "plan_meal";
+/// Changes a planned dish (the Meal Plan bot).
+pub const CHANGE_MEAL_TOOL: &str = "change_meal";
+/// Takes dishes off the plan (the Meal Plan bot).
+pub const REMOVE_MEAL_TOOL: &str = "remove_meal";
+/// Adds items to the grocery list (the Meal Plan bot).
+pub const ADD_GROCERIES_TOOL: &str = "add_groceries";
+/// Ticks grocery items off, or back on (the Meal Plan bot).
+pub const TICK_GROCERIES_TOOL: &str = "tick_groceries";
+/// Takes items off the grocery list (the Meal Plan bot).
+pub const REMOVE_GROCERIES_TOOL: &str = "remove_groceries";
+/// The Meal Plan bot's tools.
+pub const MEALS_TOOLS: &[&str] = &[
+    MEAL_PLAN_TOOL,
+    GROCERY_LIST_TOOL,
+    PLAN_MEAL_TOOL,
+    CHANGE_MEAL_TOOL,
+    REMOVE_MEAL_TOOL,
+    ADD_GROCERIES_TOOL,
+    TICK_GROCERIES_TOOL,
+    REMOVE_GROCERIES_TOOL,
+];
+/// The Groceries bot's tools: the list only.
+pub const GROCERY_TOOLS: &[&str] = &[
+    GROCERY_LIST_TOOL,
+    ADD_GROCERIES_TOOL,
+    TICK_GROCERIES_TOOL,
+    REMOVE_GROCERIES_TOOL,
+];
 /// Every bot's schedule tools.
 pub const SCHEDULE_TOOLS: &[&str] = &[
     SCHEDULE_TASK_TOOL,
@@ -100,6 +134,10 @@ pub struct ToolSet {
     pub calendar: bool,
     /// It's the Home's Records bot: the notes tools.
     pub notes: bool,
+    /// It's the Home's Meal Plan bot: the meal plan and grocery tools.
+    pub meals: bool,
+    /// It's the Home's Groceries bot: the grocery tools.
+    pub groceries: bool,
 }
 
 impl From<crate::engine::HostTools> for ToolSet {
@@ -109,6 +147,8 @@ impl From<crate::engine::HostTools> for ToolSet {
             browser: tools.browser,
             calendar: tools.calendar,
             notes: tools.notes,
+            meals: tools.meals,
+            groceries: tools.groceries,
         }
     }
 }
@@ -124,6 +164,8 @@ impl ToolSet {
             || (self.central && CENTRAL_TOOLS.contains(&tool))
             || (self.calendar && CALENDAR_TOOLS.contains(&tool))
             || (self.notes && NOTES_TOOLS.contains(&tool))
+            || (self.meals && MEALS_TOOLS.contains(&tool))
+            || (self.groceries && GROCERY_TOOLS.contains(&tool))
     }
 }
 
@@ -165,6 +207,7 @@ pub fn check_call(tool: &str, arguments: &Value, set: ToolSet) -> Result<(), Str
 }
 
 /// The tools a bot sees: name, description and input schema.
+#[allow(clippy::too_many_lines, reason = "one block per group of tools")]
 fn tools(set: ToolSet) -> Vec<Value> {
     let mut list = vec![json!({
         "name": SIGN_IN_TOOL,
@@ -190,6 +233,15 @@ fn tools(set: ToolSet) -> Vec<Value> {
     }
     if set.notes {
         list.extend(notes_schemas());
+    }
+    if set.meals {
+        list.extend(meals_schemas());
+    } else if set.groceries {
+        list.extend(meals_schemas().into_iter().filter(|t| {
+            t["name"]
+                .as_str()
+                .is_some_and(|n| GROCERY_TOOLS.contains(&n))
+        }));
     }
     list.push(home_area_schema());
     if set.browser {
@@ -385,6 +437,78 @@ fn calendar_schemas() -> Vec<Value> {
     ]
 }
 
+/// The Meal Plan bot's tools.
+fn meals_schemas() -> Vec<Value> {
+    let dish = json!({
+        "day": { "type": "string", "description": "The day, YYYY-MM-DD. Work it out from today's (the [oxbot] line)." },
+        "slot": { "type": "string", "enum": ["breakfast", "lunch", "dinner"], "description": "Which meal." },
+        "title": { "type": "string", "description": "The dish, short: \"Chicken tacos\". One dish a call; a meal may have several." },
+        "notes": { "type": "string", "description": "A recipe link, what to prep ahead, who's cooking, if useful." },
+        "people": { "type": "array", "items": { "type": "string" }, "description": "Who it's for, by name, when not everyone (a packed lunch for Leo). Leave out for the family." }
+    });
+    let mut change = dish.clone();
+    change["id"] = json!({ "type": "integer", "description": "The meal's id, from meal_plan." });
+    let ids = json!({ "type": "array", "items": { "type": "integer" }, "description": "The ids, from grocery_list." });
+    vec![
+        json!({
+            "name": MEAL_PLAN_TOOL,
+            "description": "List what's planned from one day to another: each dish's id, day, meal (breakfast, lunch, dinner), \
+                name, who it's for and notes, after who's in the home. Look before planning so nothing is planned twice.",
+            "inputSchema": { "type": "object", "properties": {
+                "from": { "type": "string", "description": "The first day, YYYY-MM-DD." },
+                "to": { "type": "string", "description": "The last day, YYYY-MM-DD." }
+            }, "required": ["from", "to"] }
+        }),
+        json!({
+            "name": GROCERY_LIST_TOOL,
+            "description": "List the grocery list: each item's id, name, amount, aisle, the dish it's for, and [got] once ticked off. \
+                When someone says \"these\", \"the list\" or \"everything\", this is what they mean: read it first.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": PLAN_MEAL_TOOL,
+            "description": "Put a dish on the Meal Plan, for a day's breakfast, lunch or dinner. It shows on everyone's Meal Plan \
+                at once. Planning a week: one call a dish, then add_groceries for what's needed (with its meal id).",
+            "inputSchema": { "type": "object", "properties": dish, "required": ["day", "slot", "title"] }
+        }),
+        json!({
+            "name": CHANGE_MEAL_TOOL,
+            "description": "Change a planned dish: give its id and only what changes (another day or meal, a new name, notes).",
+            "inputSchema": { "type": "object", "properties": change, "required": ["id"] }
+        }),
+        json!({
+            "name": REMOVE_MEAL_TOOL,
+            "description": "Take dishes off the plan, when someone asks. Their groceries stay on the list.",
+            "inputSchema": { "type": "object", "properties": {
+                "ids": { "type": "array", "items": { "type": "integer" }, "description": "The meals' ids, from meal_plan." }
+            }, "required": ["ids"] }
+        }),
+        json!({
+            "name": ADD_GROCERIES_TOOL,
+            "description": "Add items to the grocery list: what someone asks for, or what planned dishes need (leave out pantry \
+                basics like salt and oil unless asked). An item already on it, not yet got, isn't added twice.",
+            "inputSchema": { "type": "object", "properties": {
+                "items": { "type": "array", "items": { "type": "object", "properties": {
+                    "name": { "type": "string", "description": "What to buy: \"Milk\"." },
+                    "qty": { "type": "string", "description": "How much, if known: \"2 L\", \"6\"." },
+                    "aisle": { "type": "string", "description": "Where in the store: Produce, Dairy, Meat & fish, Bakery, Pantry, Frozen, Drinks, Household, Other." }
+                }, "required": ["name"] } },
+                "meal": { "type": "integer", "description": "The meal they're for, from plan_meal or meal_plan, if any." }
+            }, "required": ["items"] }
+        }),
+        json!({
+            "name": TICK_GROCERIES_TOOL,
+            "description": "Tick items off the grocery list when someone says they got them (done false puts them back).",
+            "inputSchema": { "type": "object", "properties": { "ids": ids, "done": { "type": "boolean" } }, "required": ["ids"] }
+        }),
+        json!({
+            "name": REMOVE_GROCERIES_TOOL,
+            "description": "Take items off the grocery list, when someone asks.",
+            "inputSchema": { "type": "object", "properties": { "ids": ids }, "required": ["ids"] }
+        }),
+    ]
+}
+
 /// The Records bot's tools.
 fn notes_schemas() -> Vec<Value> {
     let id = json!({ "type": "integer", "description": "The note's id: from the (oxbot: ...) line about a file just filed, or from find_notes." });
@@ -528,24 +652,32 @@ mod tests {
         browser: false,
         calendar: false,
         notes: false,
+        meals: false,
+        groceries: false,
     };
     const CENTRAL: ToolSet = ToolSet {
         central: true,
         browser: false,
         calendar: false,
         notes: false,
+        meals: false,
+        groceries: false,
     };
     const BROWSING: ToolSet = ToolSet {
         central: false,
         browser: true,
         calendar: false,
         notes: false,
+        meals: false,
+        groceries: false,
     };
     const BOTH: ToolSet = ToolSet {
         central: true,
         browser: true,
         calendar: false,
         notes: false,
+        meals: false,
+        groceries: false,
     };
 
     fn names(set: ToolSet) -> Vec<String> {

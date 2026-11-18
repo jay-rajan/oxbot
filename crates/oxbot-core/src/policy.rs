@@ -501,6 +501,7 @@ fn decide_oxbot_tool(tool: &str, input: &Value) -> Option<Verdict> {
         .chain(SCHEDULE_TOOLS.iter())
         .chain(tools::CALENDAR_TOOLS.iter())
         .chain(tools::NOTES_TOOLS.iter())
+        .chain(tools::MEALS_TOOLS.iter())
         .any(|t| tool == tools::full_name(t))
     {
         return Some(Verdict::Allow);

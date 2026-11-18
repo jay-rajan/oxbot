@@ -6,6 +6,7 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useApp, useSel } from "../../app/context";
+import { HOME_LEADS } from "../../state/sidebar";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
 import { mayKeepPrivate } from "../BotSettings/sharing";
@@ -60,6 +61,7 @@ export function BotMenu({
   const placed = useSel((s) => s.home.placed);
   const busyNow = useSel((s) => s.sidebar.busy);
   const settings = useSel((s) => s.connection.settings);
+  const pinned = useSel((s) => s.sidebar.pinned);
   const [openSub, setOpenSub] = useState(false);
   const [armed, setArmed] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -116,6 +118,17 @@ export function BotMenu({
     const b = byId[id];
     if (b) {
       const name = b.name || id;
+      // Pinned bots sit under the Home items, on this device.
+      if (!HOME_LEADS.some((h) => h.id === id)) {
+        const on = pinned.includes(id);
+        items.push({
+          label: on ? "Unpin" : "Pin under Home",
+          act: () => {
+            close();
+            dispatch(local("sidebar/pin", { bot: id, pinned: !on }));
+          },
+        });
+      }
       if (b.can_manage) {
         items.push({
           label: "Rename…",

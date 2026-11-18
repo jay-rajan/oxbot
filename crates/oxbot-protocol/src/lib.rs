@@ -373,6 +373,56 @@ pub enum ClientMsg {
     },
     /// Recently deleted events, answered with [`ServerMsg::DeletedEvents`].
     DeletedEvents,
+    /// The Meal Plan's dishes from day `from` to day `to` (both
+    /// `2026-11-16`), answered with [`ServerMsg::HomeMeals`].
+    HomeMeals {
+        /// First day.
+        from: String,
+        /// Last day (included).
+        to: String,
+    },
+    /// Plan a dish; everyone showing the plan is told ([`ServerMsg::HomeChanged`]).
+    AddMeal {
+        /// What it says.
+        meal: Box<MealInput>,
+    },
+    /// Change a planned dish.
+    ChangeMeal {
+        /// [`MealInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// What it says now.
+        meal: Box<MealInput>,
+    },
+    /// Take a dish off the plan.
+    RemoveMeal {
+        /// [`MealInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// The grocery list, answered with [`ServerMsg::Groceries`].
+    Groceries,
+    /// Add an item to the grocery list.
+    AddGrocery {
+        /// What to buy.
+        item: GroceryInput,
+    },
+    /// Tick a grocery item off (or back on).
+    SetGrocery {
+        /// [`GroceryInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+        /// Got it.
+        done: bool,
+    },
+    /// Take an item off the grocery list.
+    RemoveGrocery {
+        /// [`GroceryInfo::id`].
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
+    /// Take every ticked-off item off the grocery list.
+    ClearGroceries,
     /// Records, answered with [`ServerMsg::HomeNotes`]. Everyone in
     /// the home.
     HomeNotes,
@@ -592,6 +642,25 @@ pub enum ClientMsg {
     StartPairing {
         /// Who the device is for, e.g. `Sam`.
         person: String,
+    },
+    /// Home computer only: add someone to the household (up to six people),
+    /// or bring back someone removed. The answer is [`ServerMsg::People`].
+    AddPerson {
+        /// What to call them, e.g. `Sam`.
+        name: String,
+    },
+    /// Home computer only: rename someone in the household (not the owner).
+    RenamePerson {
+        /// Their name now.
+        name: String,
+        /// Their new name.
+        to: String,
+    },
+    /// Home computer only: take someone (not the owner) off the household
+    /// list and unpair their devices. Their bots and history stay.
+    RemovePerson {
+        /// Their name.
+        name: String,
     },
     /// Home computer only: stop showing the pairing code; it stops working.
     CancelPairing,
@@ -1375,6 +1444,20 @@ pub enum ServerMsg {
     /// Something in the Home changed: a client showing it asks again.
     /// Says nothing about what.
     HomeChanged,
+    /// The Meal Plan's dishes: the answer to [`ClientMsg::HomeMeals`].
+    HomeMeals {
+        /// First day asked for.
+        from: String,
+        /// Last day asked for.
+        to: String,
+        /// By day, then breakfast, lunch, dinner.
+        meals: Vec<MealInfo>,
+    },
+    /// The grocery list: the answer to [`ClientMsg::Groceries`].
+    Groceries {
+        /// What's still to get first, by aisle.
+        items: Vec<GroceryInfo>,
+    },
     /// Records: the answer to [`ClientMsg::HomeNotes`].
     HomeNotes {
         /// Latest day first.
@@ -1733,6 +1816,69 @@ pub struct EventRepeat {
     /// Its last day (`2027-06-30`), if it has one.
     #[serde(default)]
     pub until: Option<String>,
+}
+
+/// A planned dish as a person writes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MealInput {
+    /// Its day, `2026-11-17`.
+    pub day: String,
+    /// `breakfast`, `lunch` or `dinner`.
+    pub slot: String,
+    /// What it is ("Chicken tacos").
+    pub title: String,
+    /// More: a recipe link, what to prep, who's cooking.
+    #[serde(default)]
+    pub notes: String,
+    /// Who it's for, by name; none: everyone.
+    #[serde(default)]
+    pub people: Vec<String>,
+}
+
+/// A planned dish on the Meal Plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MealInfo {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What it says.
+    pub meal: MealInput,
+    /// Who planned it (a person's or bot's name).
+    pub made_by: String,
+}
+
+/// A grocery item as a person writes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct GroceryInput {
+    /// What to buy.
+    pub name: String,
+    /// How much ("2 L"), if said.
+    #[serde(default)]
+    pub qty: String,
+    /// Where in the store ("Dairy"); empty: oxbot doesn't know.
+    #[serde(default)]
+    pub aisle: String,
+}
+
+/// An item on the grocery list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct GroceryInfo {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What it says.
+    pub item: GroceryInput,
+    /// Got (ticked off).
+    pub done: bool,
+    /// The dish it's for, if any.
+    #[serde(default)]
+    pub for_meal: String,
+    /// Who added it.
+    pub added_by: String,
 }
 
 /// A note as a person writes it (or changes it).
@@ -3305,6 +3451,15 @@ mod tests {
             msg,
             ClientMsg::StartPairing {
                 person: "Sam".into()
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"rename_person","name":"Sam","to":"Sammy"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::RenamePerson {
+                name: "Sam".into(),
+                to: "Sammy".into()
             }
         );
         let msg: ClientMsg = serde_json::from_str(r#"{"type":"remove_device","id":"g1"}"#).unwrap();

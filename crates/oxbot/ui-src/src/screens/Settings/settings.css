@@ -10,16 +10,44 @@
 .settings-panes { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--s-4) var(--s-5) var(--s-5); }
 .settings-pane { display: grid; gap: var(--s-5); align-content: start; min-width: 0; }
 
+/* A phone: a menu of the parts first, then each as its own page; a grey
+   page with each section on a white card, like a phone's own settings. */
 @media (max-width: 600px) {
   .dlg.settings-dlg { height: calc(100dvh - var(--s-6)); }
-  .settings-body.dlg-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .settings-tabs.tabs-vertical {
-    flex-direction: row; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-    padding: var(--s-2) var(--s-3); border-right: 0; border-bottom: 1px solid var(--line);
+  .settings-body.dlg-body {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+    background: var(--sunken);
   }
-  .settings-tabs button { flex: none; }
-  .settings-panes { padding: var(--s-4); }
+  .settings-panes { padding: var(--s-4) var(--s-3) max(var(--s-5), env(safe-area-inset-bottom)); }
+  .settings-pane { gap: var(--s-4); }
+  .settings-pane > .section {
+    padding: var(--s-4); border-radius: var(--r-lg);
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  .settings-frame.phone .dlg-title { display: flex; align-items: center; gap: var(--s-1); }
+  .set-back { margin-left: calc(-1 * var(--s-3)); }
 }
+.settings-menu {
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: grid; gap: var(--s-3); align-content: start;
+  padding: var(--s-4) var(--s-3) var(--s-5);
+}
+.set-card { border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); overflow: hidden; }
+.set-row {
+  all: unset; box-sizing: border-box; width: 100%; cursor: pointer;
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: var(--s-3);
+  min-height: 60px; padding: var(--s-2) var(--s-4);
+}
+.set-row + .set-row { border-top: 1px solid var(--line); }
+.set-row:active { background: var(--pressed); }
+.set-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.set-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-md); background: var(--sunken); color: var(--ink); }
+.set-icon svg { width: 20px; height: 20px; }
+.set-text { display: grid; gap: 2px; min-width: 0; }
+.set-name { font-weight: var(--weight-mid); }
+.set-text small { font-size: var(--text-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-go { font-size: var(--text-lg); color: var(--muted); }
+.set-foot { margin: 0; text-align: center; font-size: var(--text-sm); color: var(--muted); }
 
 /* General */
 .setup-line { font-weight: var(--weight-bold); }
@@ -103,3 +131,10 @@
 .loglist li > span:not(:last-child) { color: var(--muted); }
 .loglist li.WARN > span:nth-child(2), .loglist li.warn > span:nth-child(2) { color: var(--warn); }
 .loglist li.ERROR > span:nth-child(2), .loglist li.error > span:nth-child(2) { color: var(--danger); }
+
+/* People: the home computer, then each person with their QR and edit buttons. */
+.machine-icon { width: 24px; height: 24px; display: grid; place-items: center; color: var(--muted); }
+.machine-icon svg { width: 22px; height: 22px; }
+.person-acts { display: flex; gap: var(--s-1); }
+.person-acts .on { background: var(--sunken); color: var(--ink); }
+.danger-text { color: var(--danger); }

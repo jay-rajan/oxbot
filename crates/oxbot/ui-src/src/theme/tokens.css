@@ -13,6 +13,7 @@
   --raised: #FFFFFF;      /* menus and popovers */
   --sunken: #F3F3F0;      /* rows on hover, chips, the bot's bubbles, code */
   --pressed: #E9E9E5;     /* rows and buttons while pressed */
+  --selected: #E2E2DC;    /* the open item in the sidebar */
 
   /* Text */
   --ink: #141414;
@@ -46,6 +47,8 @@
   --home-cal-soft: #E7EEFC;
   --home-meals: #1E8A4C;
   --home-meals-soft: #E3F4EA;
+  --home-groceries: #B5551C;
+  --home-groceries-soft: #FCEDE3;
   --home-notes: #B86E00;
   --home-notes-soft: #FFF1D9;
 
@@ -114,6 +117,7 @@
     --raised: #242931;
     --sunken: #242931;
     --pressed: #2D333C;
+    --selected: #343B46;
     --ink: #F2F2F0;
     --muted: #A3A8B0;
     --faint: #737983;
@@ -138,6 +142,8 @@
     --home-cal-soft: #1C2A44;
     --home-meals: #62C98F;
     --home-meals-soft: #173024;
+    --home-groceries: #F09A62;
+    --home-groceries-soft: #33211A;
     --home-notes: #F2B441;
     --home-notes-soft: #33280F;
     --me: #0B0D10;

@@ -1,15 +1,16 @@
 // The sidebar: brand and New bot, the server line, search, group by, the bot
-// list, and the bottom row (Settings, Connect a device, Websites). On a
+// list, and the bottom row (Settings, People, Signed-in websites). On a
 // phone it's a drawer over the chat, with a scrim behind it.
-import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, IconButton, Input, Pill, PlusIcon } from "../../components/ui";
+import { Button, IconButton, Input, Pill, PlusIcon, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { groupBots, HOME_LEADS, initialSidebar } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { type NameAsk as AskName, askName as askNameDialog } from "../Welcome/NameDialog";
 import { BotList } from "./BotList";
-import { BotMenu, type MenuAt, type MenuFor, refocus } from "./BotMenu";
+import { BotMenu, type MenuAt, type MenuFor, menuKey, refocus } from "./BotMenu";
+import { avatarColor, avatarSvg } from "../../components/brand";
 import { BrandMark } from "./BrandMark";
 import { HomeIcon } from "./HomeIcon";
 import { keep, keptJson } from "./storage";
@@ -29,8 +30,10 @@ export function Sidebar() {
   const query = useSel((s) => s.sidebar.query);
   const seen = useSel((s) => s.sidebar.seen);
   const collapsed = useSel((s) => s.sidebar.collapsed);
+  const pinned = useSel((s) => s.sidebar.pinned);
   const botsN = useSel((s) => s.sidebar.botsN);
   const created = useSel((s) => s.sidebar.created);
+  const busy = useSel((s) => s.sidebar.busy);
   const hasBot = useSel((s) => s.bots.byId);
 
   // What this device kept: seen marks (green dots), grouping, folded groups.
@@ -41,6 +44,7 @@ export function Sidebar() {
         // Always by section (People grouping is gone).
         groupBy: "sections",
         collapsed: keptJson<string[]>("oxbot.collapsed", []),
+        pinned: keptJson<string[]>("oxbot.pinned", []),
       }),
     );
     const vis = () => dispatch(local("sidebar/visible", { visible: document.visibilityState === "visible" }));
@@ -52,12 +56,22 @@ export function Sidebar() {
     if (seen !== initialSidebar.seen) keep.set("oxbot.seen", JSON.stringify(seen));
   }, [seen]);
   useEffect(() => {
+    if (pinned !== initialSidebar.pinned) keep.set("oxbot.pinned", JSON.stringify(pinned));
+  }, [pinned]);
+  useEffect(() => {
     if (collapsed !== initialSidebar.collapsed) keep.set("oxbot.collapsed", JSON.stringify(collapsed));
   }, [collapsed]);
-  // The open bot is remembered for next time.
+  // The open bot, and the Home view if one is open, are remembered for
+  // next time (a refresh comes back to them).
   useEffect(() => {
     if (current) keep.set("oxbot.bot", current);
   }, [current]);
+  // Read before anything is written: the first render's page is always the
+  // chat, and saving it first would forget the view to come back to.
+  const lastPage = useRef(keep.get("oxbot.page"));
+  useEffect(() => {
+    if (lastPage.current === null) keep.set("oxbot.page", page);
+  }, [page]);
 
   // Which bot to open when the list comes: one just made, the open one, the
   // one open last time, else the Calendar's bot, else the first. Never the
@@ -69,7 +83,16 @@ export function Sidebar() {
     const known = (id: string | null | undefined): id is string => !!id && ids.includes(id);
     const pending = s.ui.pendingSelect;
     const want = [pending, s.ui.current, keep.get("oxbot.bot"), HOME_LEADS[0].id, ids[0]].find(known);
-    if (want && want !== s.ui.current && (!pending || want === pending)) dispatch(local("ui/select", { bot: want }));
+    if (want && want !== s.ui.current && (!pending || want === pending)) {
+      dispatch(local("ui/select", { bot: want }));
+      // A Home view open last time, with its bot, opens again.
+      const home = HOME_LEADS.find((h) => h.page === lastPage.current && h.id === want);
+      if (home && !pending) dispatch(local("ui/page", { page: home.page }));
+    }
+    if (want) {
+      // From now on, each view is remembered as it's opened.
+      lastPage.current = null;
+    }
   }, [botsN, store, dispatch]);
   // A bot made from this page opens now if it's listed, else once it is.
   useEffect(() => {
@@ -137,7 +160,7 @@ export function Sidebar() {
     if (ev.key === "Enter") {
       ev.preventDefault();
       const s = store.getState();
-      const first = groupBots(botList(s.bots), s.home.sections, s.home.placed, s.sidebar.groupBy, s.sidebar.query, s.connection.settings?.you).flatMap((g) => g.ids)[0];
+      const first = groupBots(botList(s.bots), s.home.sections, s.home.placed, s.sidebar.groupBy, s.sidebar.query, s.connection.settings?.you, s.sidebar.pinned).flatMap((g) => g.ids)[0];
       if (first) dispatch(local("ui/select", { bot: first }));
     } else if (ev.key === "Escape" && ev.currentTarget.value) {
       ev.stopPropagation();
@@ -174,7 +197,7 @@ export function Sidebar() {
         </div>
         <nav className="side-home" aria-label="Home">
           {HOME_LEADS.map((h) => {
-            const here = h.page !== "chat" ? page === h.page : page === "chat" && current === h.id;
+            const here = page === h.page;
             if (h.page !== "calendar" && !hasBot[h.id]) return null;
             return (
               <button
@@ -185,10 +208,43 @@ export function Sidebar() {
                 aria-current={String(here) as "true" | "false"}
                 onClick={() => openHome(h)}
               >
-                <HomeIcon id={h.id} />
+                <HomeIcon id={h.id} working={!!(busy[h.id] ?? hasBot[h.id]?.busy)} />
                 <span className="meta">
                   <span className="name">
                     <span>{h.name}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {pinned.map((id) => {
+            const b = hasBot[id];
+            if (!b || b.central) return null;
+            return (
+              <button
+                key={id}
+                type="button"
+                className="bot-item pinned"
+                data-bot={id}
+                aria-current={String(id === current && page === "chat") as "true" | "false"}
+                title="Pinned (right-click to unpin)"
+                onClick={() => dispatch(local("ui/select", { bot: id }))}
+                onContextMenu={(ev: MouseEvent) => {
+                  ev.preventDefault();
+                  openMenu({ bot: id }, ev.clientX, ev.clientY);
+                }}
+                onKeyDown={(ev: KeyboardEvent<HTMLButtonElement>) => {
+                  if (!menuKey(ev)) return;
+                  ev.preventDefault();
+                  const r = ev.currentTarget.getBoundingClientRect();
+                  openMenu({ bot: id }, r.left + 24, r.bottom);
+                }}
+              >
+                {/* biome-ignore lint/security/noDangerouslySetInnerHtml: oxbot's own SVG */}
+                <span className={`avatar${busy[id] ?? b.busy ? " working" : ""}`} style={vars({ tint: avatarColor(id) })} dangerouslySetInnerHTML={{ __html: avatarSvg(id, false) }} />
+                <span className="meta">
+                  <span className="name">
+                    <span>{b.name || id}</span>
                   </span>
                 </span>
               </button>
@@ -223,12 +279,12 @@ export function Sidebar() {
           </IconButton>
           <Button
             kind="quiet"
-            className="foot-btn"
+            className="foot-btn reveal"
             id="deviceBtn"
-            aria-label="Connect a device"
-            title="Connect a device: pair a phone, tablet or laptop"
+            aria-label="People"
+            title="People: add a person by scanning a QR code from their phone"
             hidden={!homeComputer}
-            onClick={() => toSettings("addDevice")}
+            onClick={() => toSettings("setPeople")}
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" />
@@ -241,14 +297,14 @@ export function Sidebar() {
               </svg>
             }
           >
-            <span className="label">Connect a device</span>
+            <span className="label">People</span>
           </Button>
           <Button
             kind="quiet"
-            className="foot-btn end"
+            className="foot-btn end reveal"
             id="signedInBtn"
-            aria-label="Websites"
-            title="Websites: the ones your bots are signed in to (Settings → Websites)"
+            aria-label="Signed-in websites"
+            title="Signed-in websites: the ones your bots are signed in to (Settings → Websites)"
             onClick={() => toSettings("setSignins")}
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -257,6 +313,7 @@ export function Sidebar() {
               </svg>
             }
           >
+            <span className="label">Signed-in websites</span>
             <span className="count" id="signedInCount" hidden={signedIn === 0}>
               <Pill>{String(signedIn)}</Pill>
             </span>
