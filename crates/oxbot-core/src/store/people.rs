@@ -120,6 +120,11 @@ pub(super) fn find_or_create_with(
     legacy: bool,
 ) -> Result<(PersonRecord, bool), StoreError> {
     if let Some(found) = find_person(conn, "name", name)? {
+        // Someone taken off the household list is back.
+        conn.execute(
+            "UPDATE people SET removed_ms = NULL WHERE id = ?1 AND removed_ms IS NOT NULL",
+            [found.id.as_str()],
+        )?;
         return Ok((found, false));
     }
     let id = PersonId::random();
@@ -324,7 +329,59 @@ impl Store {
         Ok(true)
     }
 
-    /// Everyone who has sent a message, in the order oxbot first saw them.
+    /// Takes a person off the household list and unpairs their devices.
+    /// Their row, bots and history stay (adding them again brings them
+    /// back). Returns the ids of the devices that were theirs.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn remove_person(&self, id: &PersonId) -> Result<Vec<String>, StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let devices: Vec<String> = {
+            let mut stmt = tx.prepare("SELECT id FROM devices WHERE person_id = ?1")?;
+            let rows = stmt.query_map([id.as_str()], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        tx.execute("DELETE FROM devices WHERE person_id = ?1", [id.as_str()])?;
+        tx.execute(
+            "UPDATE people SET removed_ms = ?2 WHERE id = ?1",
+            params![id.as_str(), now_ms()],
+        )?;
+        tx.commit()?;
+        Ok(devices)
+    }
+
+    /// How many people are on the household list.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn household_size(&self) -> Result<usize, StoreError> {
+        let n: i64 = self.conn().query_row(
+            "SELECT COUNT(*) FROM people WHERE removed_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
+
+    /// Whether the person was taken off the household list.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn is_removed(&self, id: &PersonId) -> Result<bool, StoreError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT removed_ms IS NOT NULL FROM people WHERE id = ?1",
+                [id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(false))
+    }
+
+    /// The household: everyone on its list, in the order oxbot first saw them.
     ///
     /// # Errors
     /// Fails if SQLite fails.
@@ -333,6 +390,7 @@ impl Store {
         let mut stmt = conn.prepare(
             "SELECT p.name, p.color, COALESCE(f.role, CASE WHEN p.owner = 1 THEN 'owner' ELSE 'adult' END), f.photo
              FROM people p LEFT JOIN profiles f ON f.person = p.id
+             WHERE p.removed_ms IS NULL
              ORDER BY p.first_ms, p.rowid",
         )?;
         let rows = stmt.query_map([], |r| {

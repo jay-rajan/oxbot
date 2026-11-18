@@ -139,6 +139,9 @@ fn needs_hand_over(bot: &Bot, owner: &PersonId) -> bool {
 ///
 /// # Errors
 /// What's wrong with it.
+/// At most this many people on the household list.
+pub const MAX_HOUSEHOLD: usize = 6;
+
 pub(super) fn checked_name(name: &str, empty: &str) -> Result<String, HubError> {
     let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
     let refuse = |why: &str| Err(HubError::NotAllowed(why.to_owned()));
@@ -588,16 +591,111 @@ impl Hub {
         let name = checked_name(name, "Say who the device is for.")?;
         let known = self.store.person_records()?;
         if let Some(person) = known.iter().find(|p| p.name == name) {
+            if self.store.is_removed(&person.id)? {
+                self.room_for_one_more()?;
+            }
             return Ok((name, Some(person.id.clone())));
         }
         let lower = name.to_lowercase();
         let mut alike = known
             .into_iter()
             .filter(|p| !p.owner && p.name.to_lowercase() == lower);
-        match (alike.next(), alike.next()) {
-            (Some(one), None) => Ok((one.name, Some(one.id))),
-            _ => Ok((name, None)),
+        if let (Some(one), None) = (alike.next(), alike.next()) {
+            if self.store.is_removed(&one.id)? {
+                self.room_for_one_more()?;
+            }
+            return Ok((one.name, Some(one.id)));
         }
+        self.room_for_one_more()?;
+        Ok((name, None))
+    }
+
+    /// Refuses if the household list is full.
+    fn room_for_one_more(&self) -> Result<(), HubError> {
+        if self.store.household_size()? >= MAX_HOUSEHOLD {
+            return Err(HubError::NotAllowed(format!(
+                "A home has up to {MAX_HOUSEHOLD} people. Remove someone first."
+            )));
+        }
+        Ok(())
+    }
+
+    /// Adds someone to the household list (Settings → People), or brings
+    /// back someone taken off it. They pick their own details when they
+    /// first open oxbot on their phone.
+    ///
+    /// # Errors
+    /// The name isn't usable, they're already listed, the list is full, or
+    /// the database failed.
+    pub fn add_household_person(&self, name: &str) -> Result<(), HubError> {
+        let name = checked_name(name, "Say who to add.")?;
+        if let Some(found) = self.store.person_by_name(&name)?
+            && !self.store.is_removed(&found.id)?
+        {
+            return Err(HubError::NotAllowed(format!(
+                "{name} is already in the home."
+            )));
+        }
+        self.room_for_one_more()?;
+        let (person, _) = self.store.find_or_create_person(&name)?;
+        self.store
+            .start_profile(&person.id, crate::store::Role::Adult, true)?;
+        tracing::info!(person = %person.id, "added someone to the home");
+        self.announce_people();
+        Ok(())
+    }
+
+    /// Renames someone on the household list (not the owner: they change
+    /// their own name in their details).
+    ///
+    /// # Errors
+    /// They aren't listed, are the owner, the new name is unusable or taken,
+    /// or the database failed.
+    pub fn rename_household_person(&self, name: &str, to: &str) -> Result<(), HubError> {
+        let person = self.listed_person(name)?;
+        let to = checked_name(to, "Say what to call them.")?;
+        if to == person.name {
+            return Ok(());
+        }
+        if !self.store.rename_person(&person.id, &to)? {
+            return Err(HubError::NotAllowed(format!(
+                "Someone else in the home is called {to}."
+            )));
+        }
+        tracing::info!(person = %person.id, "renamed someone in the home");
+        self.announce_people();
+        let _ = self.updates.send(ServerMsg::ProfilesChanged);
+        Ok(())
+    }
+
+    /// Takes someone (not the owner) off the household list and unpairs
+    /// their devices; their bots and history stay. Returns their devices'
+    /// ids, so their connections can be closed.
+    ///
+    /// # Errors
+    /// They aren't listed, are the owner, or the database failed.
+    pub fn remove_household_person(&self, name: &str) -> Result<Vec<String>, HubError> {
+        let person = self.listed_person(name)?;
+        let devices = self.store.remove_person(&person.id)?;
+        tracing::info!(person = %person.id, devices = devices.len(), "took someone off the home's list");
+        self.announce_people();
+        Ok(devices)
+    }
+
+    /// Someone on the household list who isn't the owner.
+    fn listed_person(&self, name: &str) -> Result<PersonRecord, HubError> {
+        let person = self
+            .store
+            .person_by_name(name.trim())?
+            .filter(|p| !self.store.is_removed(&p.id).unwrap_or(true))
+            .ok_or_else(|| HubError::NotAllowed(format!("{} isn't in the home.", name.trim())))?;
+        if person.owner {
+            return Err(HubError::NotAllowed(
+                "The owner changes their own name in their details, and can't be removed."
+                    .to_owned(),
+            ));
+        }
+        Ok(person)
     }
 
     /// Remembers a newly paired device for the person called exactly `person`

@@ -1994,6 +1994,31 @@ async fn handle_home_computer(
                 Err(e) => error(&format!("{e:#}")),
             }
         }
+        ClientMsg::AddPerson { name } => match state.hub.add_household_person(&name) {
+            Ok(()) => Vec::new(),
+            Err(e) => error(&e),
+        },
+        ClientMsg::RenamePerson { name, to } => {
+            match state.hub.rename_household_person(&name, &to) {
+                Ok(()) => Vec::new(),
+                Err(e) => error(&e),
+            }
+        }
+        ClientMsg::RemovePerson { name } => {
+            // Their devices first, through the door, so their connections close.
+            if let Some(door) = &state.door {
+                let theirs = state.hub.devices().unwrap_or_default();
+                for g in theirs.iter().filter(|g| g.person == name.trim()) {
+                    if let Err(e) = door.remove(&g.id).await {
+                        tracing::warn!(err = %format!("{e:#}"), "couldn't unpair a device");
+                    }
+                }
+            }
+            match state.hub.remove_household_person(&name) {
+                Ok(_) => Vec::new(),
+                Err(e) => error(&e),
+            }
+        }
         ClientMsg::SetLaunchAtLogin { on } => {
             let Some(app) = &state.app else {
                 return Ok(error(&"Launch at login is only in the oxbot app."));
@@ -2142,6 +2167,10 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             | ClientMsg::AddDoorNetwork
             | ClientMsg::RemoveDoorNetwork { .. }
             | ClientMsg::SetDoorName { .. }
+            // Who's in the household.
+            | ClientMsg::AddPerson { .. }
+            | ClientMsg::RenamePerson { .. }
+            | ClientMsg::RemovePerson { .. }
             | ClientMsg::SetLaunchAtLogin { .. }
             | ClientMsg::SetUsageAlerts { .. }
             // The Mac's own sleep.

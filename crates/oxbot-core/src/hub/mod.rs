@@ -1281,6 +1281,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_household_holds_six_and_a_removed_person_comes_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        hub.owner_person("Jay").unwrap();
+        for name in ["Ann", "Bo", "Cy", "Di", "Ed"] {
+            hub.add_household_person(name).unwrap();
+        }
+        let names = |hub: &Hub| {
+            hub.people()
+                .unwrap()
+                .into_iter()
+                .map(|p| p.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&hub).len(), 6);
+        assert!(
+            hub.add_household_person("Flo").is_err(),
+            "a seventh is refused"
+        );
+        assert!(
+            hub.device_pick("Flo").is_err(),
+            "pairing someone new counts too"
+        );
+        assert!(
+            hub.add_household_person("Ann").is_err(),
+            "already in the home"
+        );
+        assert!(
+            hub.remove_household_person("Jay").is_err(),
+            "never the owner"
+        );
+        assert!(hub.rename_household_person("Jay", "J").is_err());
+
+        hub.rename_household_person("Ann", "Anna").unwrap();
+        let anna = hub.store.person_by_name("Anna").unwrap().unwrap();
+        hub.store
+            .add_device("g1", "Anna", "Pixel", "hash1")
+            .unwrap();
+        assert_eq!(
+            hub.remove_household_person("Anna").unwrap(),
+            vec!["g1".to_owned()]
+        );
+        assert!(!names(&hub).contains(&"Anna".to_owned()));
+        assert!(
+            hub.devices().unwrap().is_empty(),
+            "her devices are unpaired"
+        );
+
+        // Room again, and adding her back keeps who she was.
+        hub.add_household_person("Anna").unwrap();
+        assert_eq!(
+            hub.store.person_by_name("Anna").unwrap().unwrap().id,
+            anna.id
+        );
+        assert_eq!(names(&hub).len(), 6);
+    }
+
+    #[tokio::test]
     async fn only_the_account_name_renames_the_home_computers_person() {
         let tmp = tempfile::tempdir().unwrap();
         let db = tmp.path().join("oxbot.db");

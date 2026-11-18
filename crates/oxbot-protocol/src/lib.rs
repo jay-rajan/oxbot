@@ -643,6 +643,25 @@ pub enum ClientMsg {
         /// Who the device is for, e.g. `Sam`.
         person: String,
     },
+    /// Home computer only: add someone to the household (up to six people),
+    /// or bring back someone removed. The answer is [`ServerMsg::People`].
+    AddPerson {
+        /// What to call them, e.g. `Sam`.
+        name: String,
+    },
+    /// Home computer only: rename someone in the household (not the owner).
+    RenamePerson {
+        /// Their name now.
+        name: String,
+        /// Their new name.
+        to: String,
+    },
+    /// Home computer only: take someone (not the owner) off the household
+    /// list and unpair their devices. Their bots and history stay.
+    RemovePerson {
+        /// Their name.
+        name: String,
+    },
     /// Home computer only: stop showing the pairing code; it stops working.
     CancelPairing,
     /// Home computer only: unpair a device. Its key stops working and it's
@@ -3432,6 +3451,15 @@ mod tests {
             msg,
             ClientMsg::StartPairing {
                 person: "Sam".into()
+            }
+        );
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{"type":"rename_person","name":"Sam","to":"Sammy"}"#).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::RenamePerson {
+                name: "Sam".into(),
+                to: "Sammy".into()
             }
         );
         let msg: ClientMsg = serde_json::from_str(r#"{"type":"remove_device","id":"g1"}"#).unwrap();

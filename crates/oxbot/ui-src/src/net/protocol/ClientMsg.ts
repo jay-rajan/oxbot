@@ -472,7 +472,23 @@ on: boolean, } | { "type": "start_pairing",
 /**
  * Who the device is for, e.g. `Sam`.
  */
-person: string, } | { "type": "cancel_pairing" } | { "type": "remove_device", 
+person: string, } | { "type": "add_person", 
+/**
+ * What to call them, e.g. `Sam`.
+ */
+name: string, } | { "type": "rename_person", 
+/**
+ * Their name now.
+ */
+name: string, 
+/**
+ * Their new name.
+ */
+to: string, } | { "type": "remove_person", 
+/**
+ * Their name.
+ */
+name: string, } | { "type": "cancel_pairing" } | { "type": "remove_device", 
 /**
  * [`DeviceInfo::id`].
  */

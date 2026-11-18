@@ -565,6 +565,9 @@ pub(super) const MIGRATIONS: &[Step] = &[
             updated_ms  INTEGER NOT NULL
         );",
     ),
+    // 33: a person taken off the household list (Settings → People) keeps
+    // their row, bots and history; they come back if added again.
+    Step::Sql("ALTER TABLE people ADD COLUMN removed_ms INTEGER"),
 ];
 
 /// Migration 29. Skipped if the column is already there (a database
