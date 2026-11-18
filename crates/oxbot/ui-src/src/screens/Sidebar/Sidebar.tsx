@@ -1,15 +1,16 @@
 // The sidebar: brand and New bot, the server line, search, group by, the bot
 // list, and the bottom row (Settings, Connect a device, Websites). On a
 // phone it's a drawer over the chat, with a scrim behind it.
-import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, IconButton, Input, Pill, PlusIcon } from "../../components/ui";
+import { Button, IconButton, Input, Pill, PlusIcon, vars } from "../../components/ui";
 import { botList } from "../../state/bots";
 import { groupBots, HOME_LEADS, initialSidebar } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { type NameAsk as AskName, askName as askNameDialog } from "../Welcome/NameDialog";
 import { BotList } from "./BotList";
-import { BotMenu, type MenuAt, type MenuFor, refocus } from "./BotMenu";
+import { BotMenu, type MenuAt, type MenuFor, menuKey, refocus } from "./BotMenu";
+import { avatarColor, avatarSvg } from "../../components/brand";
 import { BrandMark } from "./BrandMark";
 import { HomeIcon } from "./HomeIcon";
 import { keep, keptJson } from "./storage";
@@ -29,8 +30,10 @@ export function Sidebar() {
   const query = useSel((s) => s.sidebar.query);
   const seen = useSel((s) => s.sidebar.seen);
   const collapsed = useSel((s) => s.sidebar.collapsed);
+  const pinned = useSel((s) => s.sidebar.pinned);
   const botsN = useSel((s) => s.sidebar.botsN);
   const created = useSel((s) => s.sidebar.created);
+  const busy = useSel((s) => s.sidebar.busy);
   const hasBot = useSel((s) => s.bots.byId);
 
   // What this device kept: seen marks (green dots), grouping, folded groups.
@@ -41,6 +44,7 @@ export function Sidebar() {
         // Always by section (People grouping is gone).
         groupBy: "sections",
         collapsed: keptJson<string[]>("oxbot.collapsed", []),
+        pinned: keptJson<string[]>("oxbot.pinned", []),
       }),
     );
     const vis = () => dispatch(local("sidebar/visible", { visible: document.visibilityState === "visible" }));
@@ -51,6 +55,9 @@ export function Sidebar() {
   useEffect(() => {
     if (seen !== initialSidebar.seen) keep.set("oxbot.seen", JSON.stringify(seen));
   }, [seen]);
+  useEffect(() => {
+    if (pinned !== initialSidebar.pinned) keep.set("oxbot.pinned", JSON.stringify(pinned));
+  }, [pinned]);
   useEffect(() => {
     if (collapsed !== initialSidebar.collapsed) keep.set("oxbot.collapsed", JSON.stringify(collapsed));
   }, [collapsed]);
@@ -153,7 +160,7 @@ export function Sidebar() {
     if (ev.key === "Enter") {
       ev.preventDefault();
       const s = store.getState();
-      const first = groupBots(botList(s.bots), s.home.sections, s.home.placed, s.sidebar.groupBy, s.sidebar.query, s.connection.settings?.you).flatMap((g) => g.ids)[0];
+      const first = groupBots(botList(s.bots), s.home.sections, s.home.placed, s.sidebar.groupBy, s.sidebar.query, s.connection.settings?.you, s.sidebar.pinned).flatMap((g) => g.ids)[0];
       if (first) dispatch(local("ui/select", { bot: first }));
     } else if (ev.key === "Escape" && ev.currentTarget.value) {
       ev.stopPropagation();
@@ -205,6 +212,39 @@ export function Sidebar() {
                 <span className="meta">
                   <span className="name">
                     <span>{h.name}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {pinned.map((id) => {
+            const b = hasBot[id];
+            if (!b || b.central) return null;
+            return (
+              <button
+                key={id}
+                type="button"
+                className="bot-item pinned"
+                data-bot={id}
+                aria-current={String(id === current && page === "chat") as "true" | "false"}
+                title="Pinned (right-click to unpin)"
+                onClick={() => dispatch(local("ui/select", { bot: id }))}
+                onContextMenu={(ev: MouseEvent) => {
+                  ev.preventDefault();
+                  openMenu({ bot: id }, ev.clientX, ev.clientY);
+                }}
+                onKeyDown={(ev: KeyboardEvent<HTMLButtonElement>) => {
+                  if (!menuKey(ev)) return;
+                  ev.preventDefault();
+                  const r = ev.currentTarget.getBoundingClientRect();
+                  openMenu({ bot: id }, r.left + 24, r.bottom);
+                }}
+              >
+                {/* biome-ignore lint/security/noDangerouslySetInnerHtml: oxbot's own SVG */}
+                <span className={`avatar${busy[id] ?? b.busy ? " working" : ""}`} style={vars({ tint: avatarColor(id) })} dangerouslySetInnerHTML={{ __html: avatarSvg(id, false) }} />
+                <span className="meta">
+                  <span className="name">
+                    <span>{b.name || id}</span>
                   </span>
                 </span>
               </button>

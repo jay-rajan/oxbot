@@ -51,7 +51,7 @@ export function BotList({
   const searching = !!fold(side.query).trim();
   const groups = dragging.current
     ? frozen.current
-    : groupBots(botList(bots), sections, placed, side.groupBy, side.query, you);
+    : groupBots(botList(bots), sections, placed, side.groupBy, side.query, you, side.pinned);
   frozen.current = groups;
 
   // Dragging a bot onto a section, or out of them.

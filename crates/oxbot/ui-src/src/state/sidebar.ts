@@ -2,7 +2,7 @@
 // - Each bot's working state and latest reply, kept from `bots`, `event` and
 //   `history` (so a working bot's piece moves, and a new reply shows a green
 //   dot until the user opens the bot).
-// - The "seen" marks, grouping, collapsed groups and the search: this
+// - The "seen" marks, grouping, collapsed groups, pins and the search: this
 //   device's alone. The page loads and saves them (`sidebar/load`); this
 //   file never touches storage.
 // - The Settings gear's warning count.
@@ -29,6 +29,8 @@ export interface SidebarState {
   groupBy: GroupBy;
   /** Group keys folded shut ("s:<section id>", "p:<name>"). */
   collapsed: readonly string[];
+  /** Bots pinned under the Home items, in the order they were pinned. */
+  pinned: readonly string[];
   /** Warnings and errors logged while Settings was closed. */
   warnings: number;
   /** Our copy of the open dialog (ui.dialog). */
@@ -49,6 +51,7 @@ export const initialSidebar: SidebarState = {
   query: "",
   groupBy: "sections",
   collapsed: [],
+  pinned: [],
   warnings: 0,
   dialog: null,
   botsN: 0,
@@ -113,8 +116,9 @@ export const offList = (b: BotInfo) => b.central || HOME_IDS.has(b.id);
  *  lead bots first, each lead's helpers under it (no title), then by
  *  section (bots not in one first, without a title) or by who made them
  *  (you first, then A-Z, then the home computer's). Bots keep the server's
- *  order. The Assistant and the Home's lead bots aren't listed. A search
- *  keeps the bots whose names match and drops groups left empty. */
+ *  order. The Assistant, the Home's lead bots and pinned bots aren't
+ *  listed (a search finds pinned ones too). A search keeps the bots whose
+ *  names match and drops groups left empty. */
 export function groupBots(
   all: readonly BotInfo[],
   secs: readonly SectionInfo[],
@@ -122,10 +126,11 @@ export function groupBots(
   mode: GroupBy,
   query: string,
   you: string | null | undefined,
+  pinned: readonly string[] = [],
 ): Group[] {
   const q = fold(query).trim();
   const hit = (b: BotInfo) => !q || fold(b.name || b.id).includes(q);
-  const list = all.filter((b) => !offList(b));
+  const list = all.filter((b) => !offList(b) && (q !== "" || !pinned.includes(b.id)));
   // The top: the Home leads' helpers, then each other lead with its helpers under it.
   const leads = list.filter((b) => b.lead);
   const helpers = (lead: string) => list.filter((b) => !b.lead && b.helper_of === lead);
@@ -289,7 +294,8 @@ export function sidebarReducer(state: SidebarState, action: Action): SidebarStat
       const seen = { ...state.seen, ...((action.seen as Record<string, number> | undefined) ?? {}) };
       const groupBy: GroupBy = action.groupBy === "people" ? "people" : "sections";
       const collapsed = Array.isArray(action.collapsed) ? (action.collapsed as unknown[]).filter((k): k is string => typeof k === "string") : state.collapsed;
-      return { ...state, seen, groupBy, collapsed };
+      const pinned = Array.isArray(action.pinned) ? (action.pinned as unknown[]).filter((k): k is string => typeof k === "string") : state.pinned;
+      return { ...state, seen, groupBy, collapsed, pinned };
     }
     case "sidebar/visible": {
       const visible = Boolean(action.visible);
@@ -310,6 +316,11 @@ export function sidebarReducer(state: SidebarState, action: Action): SidebarStat
       const key = String(action.key);
       const collapsed = state.collapsed.includes(key) ? state.collapsed.filter((k) => k !== key) : [...state.collapsed, key];
       return { ...state, collapsed };
+    }
+    case "sidebar/pin": {
+      const bot = String(action.bot);
+      const pinned = state.pinned.filter((b) => b !== bot);
+      return { ...state, pinned: action.pinned ? [...pinned, bot] : pinned };
     }
     case "ui/select": {
       const id = (action.bot as string | null) ?? null;

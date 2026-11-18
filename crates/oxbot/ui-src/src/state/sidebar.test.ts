@@ -59,6 +59,13 @@ describe("groupBots", () => {
     ]);
   });
 
+  it("leaves pinned bots out of the list, but a search finds them", () => {
+    const g = groupBots(list, secs, { recipes: "s1" }, "sections", "", "Jay", ["cafe"]);
+    expect(g[0]?.ids).toEqual(["bank", "home"]);
+    const found = groupBots(list, secs, {}, "sections", "caf", "Jay", ["cafe"]);
+    expect(found.flatMap((x) => x.ids)).toEqual(["cafe"]);
+  });
+
   it("puts lead bots on top with their helpers under them", () => {
     const team = [
       ...list,
@@ -174,6 +181,13 @@ describe("sidebar reducer", () => {
     expect(s.collapsed).toEqual(["s:x", "p:Jay"]);
     s = sidebarReducer(s, server({ type: "sections", sections: [], placed: {} }));
     expect(s.collapsed).toEqual(["p:Jay"]);
+  });
+
+  it("pins bots in order, once each, and unpins them", () => {
+    let s = run(local("sidebar/pin", { bot: "a", pinned: true }), local("sidebar/pin", { bot: "b", pinned: true }), local("sidebar/pin", { bot: "a", pinned: true }));
+    expect(s.pinned).toEqual(["b", "a"]);
+    s = sidebarReducer(s, local("sidebar/pin", { bot: "b", pinned: false }));
+    expect(s.pinned).toEqual(["a"]);
   });
 
   it("notes each bot made from this page", () => {
