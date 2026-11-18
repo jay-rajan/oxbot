@@ -131,3 +131,10 @@
 .loglist li > span:not(:last-child) { color: var(--muted); }
 .loglist li.WARN > span:nth-child(2), .loglist li.warn > span:nth-child(2) { color: var(--warn); }
 .loglist li.ERROR > span:nth-child(2), .loglist li.error > span:nth-child(2) { color: var(--danger); }
+
+/* People: the home computer, then each person with their QR and edit buttons. */
+.machine-icon { width: 24px; height: 24px; display: grid; place-items: center; color: var(--muted); }
+.machine-icon svg { width: 22px; height: 22px; }
+.person-acts { display: flex; gap: var(--s-1); }
+.person-acts .on { background: var(--sunken); color: var(--ink); }
+.danger-text { color: var(--danger); }
