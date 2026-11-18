@@ -558,7 +558,8 @@ impl Hub {
         Some(Decision::Deny(format!(
             "Not signed in to {site}, so {}: that needs the person's account there. Skip it and \
              carry on with the rest, and tell them at the end. Only if they asked you to use \
-             their own account or data on {site}, ask them to sign in with request_sign_in.",
+             their own account or data on {site} (adding to their cart there, ordering, booking, \
+             or checking their things), ask them to sign in with request_sign_in.",
             action.nothing()
         )))
     }

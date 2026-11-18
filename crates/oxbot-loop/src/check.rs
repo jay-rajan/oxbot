@@ -51,6 +51,9 @@ pub fn note(goal: &str, ungrounded: &[String], browser: bool) -> String {
     }
     note.push_str(
         " Check each part the task asked for (every filter, the number of items, each field). \
+         If the task was to do something (add to a cart, book, send, save), make sure it really \
+         happened where they asked, in their account: if you didn't look again and see it there, \
+         do now; if it didn't happen, or you did something else instead, say so first. \
          Then reply to the person with your complete answer, written for them: they never see \
          this note, so don't describe your checks. Start with the answer itself, never with \
          \"All values check out\", \"I checked\" or \"Confirmed\".",
@@ -353,27 +356,28 @@ mod tests {
 
     #[test]
     fn the_note_quotes_the_task_and_names_the_values() {
+        let rest = "Check each part the task asked for (every filter, the number of items, each \
+             field). If the task was to do something (add to a cart, book, send, save), make sure \
+             it really happened where they asked, in their account: if you didn't look again and \
+             see it there, do now; if it didn't happen, or you did something else instead, say so \
+             first. Then reply to the person with your complete answer, written for them: they \
+             never see this note, so don't describe your checks. Start with the answer itself, \
+             never with \"All values check out\", \"I checked\" or \"Confirmed\".";
         assert_eq!(
             note(
                 "[Jay] the 5 tallest finished towers",
                 &["351.8".into(), "13".into()],
                 true
             ),
-            "[oxbot] Before you answer, check it. The task was: «[Jay] the 5 tallest finished \
-             towers». These values aren't in anything you read in this task: 351.8, 13. Check \
-             them (find_in_page, read_section or query_rows) or remove them. Check each part the \
-             task asked for (every filter, the number of items, each field). Then reply to the \
-             person with your complete answer, written for them: they never see this note, so \
-             don't describe your checks. Start with the answer itself, never with \"All values \
-             check out\", \"I checked\" or \"Confirmed\"."
+            format!(
+                "[oxbot] Before you answer, check it. The task was: «[Jay] the 5 tallest finished \
+                 towers». These values aren't in anything you read in this task: 351.8, 13. Check \
+                 them (find_in_page, read_section or query_rows) or remove them. {rest}"
+            )
         );
         assert_eq!(
             note(" [Sam] sum the file ", &[], false),
-            "[oxbot] Before you answer, check it. The task was: «[Sam] sum the file». Check each \
-             part the task asked for (every filter, the number of items, each field). Then reply \
-             to the person with your complete answer, written for them: they never see this \
-             note, so don't describe your checks. Start with the answer itself, never with \"All values \
-             check out\", \"I checked\" or \"Confirmed\"."
+            format!("[oxbot] Before you answer, check it. The task was: «[Sam] sum the file». {rest}")
         );
         assert!(
             note("[Sam] go", &["12".into()], false).contains("(read_result or the file tools)")
