@@ -141,6 +141,10 @@ pub struct HostTools {
     pub calendar: bool,
     /// It's the Home's Records bot: the notes tools.
     pub notes: bool,
+    /// It's the Home's Meal Plan bot: the meal plan and grocery tools.
+    pub meals: bool,
+    /// It's the Home's Groceries bot: the grocery tools.
+    pub groceries: bool,
 }
 
 /// One tool as a model sees it.

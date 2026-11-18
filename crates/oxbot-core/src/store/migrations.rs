@@ -538,6 +538,33 @@ pub(super) const MIGRATIONS: &[Step] = &[
         );
         CREATE INDEX IF NOT EXISTS home_notes_day ON home_notes (day);",
     ),
+    // 32: the Meal Plan: what's planned for each day's breakfast, lunch and
+    // dinner (several dishes a meal), and the grocery list (an item stays,
+    // ticked, until the list is cleared of what's done).
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS home_meals (
+            id          INTEGER PRIMARY KEY,
+            day         TEXT    NOT NULL,              -- 2026-11-17
+            slot        TEXT    NOT NULL,              -- breakfast | lunch | dinner
+            title       TEXT    NOT NULL,
+            notes       TEXT    NOT NULL DEFAULT '',
+            people      TEXT    NOT NULL DEFAULT '[]', -- JSON: person ids it's for; none: everyone
+            made_by     TEXT    NOT NULL,              -- p:<person id> or b:<bot id>
+            changed_by  TEXT    NOT NULL,
+            updated_ms  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS home_meals_day ON home_meals (day);
+        CREATE TABLE IF NOT EXISTS home_groceries (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT    NOT NULL,
+            qty         TEXT    NOT NULL DEFAULT '',   -- \"2\", \"1 kg\"
+            aisle       TEXT    NOT NULL DEFAULT '',   -- Produce, Dairy...
+            done        INTEGER NOT NULL DEFAULT 0,
+            meal        INTEGER,                       -- home_meals.id it's for
+            added_by    TEXT    NOT NULL,
+            updated_ms  INTEGER NOT NULL
+        );",
+    ),
 ];
 
 /// Migration 29. Skipped if the column is already there (a database

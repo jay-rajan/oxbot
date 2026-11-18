@@ -402,6 +402,8 @@ impl Hub {
             browser: self.trial_browser(&key).is_some(),
             calendar: false,
             notes: false,
+            meals: false,
+            groceries: false,
         };
         let (ok, text) = match tools::check_call(&name, &args, set) {
             Ok(()) => self.trial_tool(&key, &name, &args).await,

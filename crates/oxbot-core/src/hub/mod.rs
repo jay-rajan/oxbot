@@ -33,6 +33,7 @@ mod engine_prefs;
 mod engines;
 mod home;
 mod looped;
+mod meals;
 mod net_log;
 mod notes;
 mod pace;

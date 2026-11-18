@@ -293,6 +293,8 @@ impl View {
             | ServerMsg::SchedulesChanged
             | ServerMsg::HomeEvents { .. }
             | ServerMsg::HomeNotes { .. }
+            | ServerMsg::HomeMeals { .. }
+            | ServerMsg::Groceries { .. }
             | ServerMsg::DeletedEvents { .. }
             | ServerMsg::HomeSaved { .. }
             | ServerMsg::HomeChanged

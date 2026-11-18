@@ -2948,8 +2948,7 @@ async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
         return;
     }
     let bots = tmp.path().join("bots");
-    let notes_bot =
-        Bot::create(&bots, BotId::new("home-notes").unwrap(), "Records", "").unwrap();
+    let notes_bot = Bot::create(&bots, BotId::new("home-notes").unwrap(), "Records", "").unwrap();
     let fake = Arc::new(FakeBots {
         no_page: true,
         ..FakeBots::new(&bots, Tool::None)
@@ -3057,5 +3056,65 @@ async fn a_private_file_is_filed_in_family_notes_without_the_ai() {
     assert_eq!(
         hub.note_file(&jay, b.id).unwrap().0.fields.day_from,
         oxbot_core::store::DayFrom::You
+    );
+}
+
+#[tokio::test]
+async fn the_meal_plan_and_grocery_list_are_shared_by_the_home() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, _) = listening_hub(tmp.path()).await;
+    let mut updates = hub.subscribe();
+    let jay = Viewer::device("Jay");
+    let dish = |day: &str, slot: &str, title: &str| oxbot_protocol::MealInput {
+        day: day.into(),
+        slot: slot.into(),
+        title: title.into(),
+        notes: String::new(),
+        people: vec![],
+    };
+    hub.add_home_meal(&jay, &dish("2026-11-18", "dinner", "Tacos"))
+        .unwrap();
+    hub.add_home_meal(&jay, &dish("2026-11-18", "breakfast", "Oatmeal"))
+        .unwrap();
+    assert!(
+        hub.add_home_meal(&jay, &dish("2026-11-18", "brunch", "Eggs"))
+            .is_err()
+    );
+    let mut told = false;
+    while let Ok(msg) = updates.try_recv() {
+        told |= matches!(msg, ServerMsg::HomeChanged);
+    }
+    assert!(told, "everyone asks again");
+    let week = hub.home_meals(&jay, "2026-11-16", "2026-11-22").unwrap();
+    assert_eq!(
+        week.iter()
+            .map(|m| m.meal.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Oatmeal", "Tacos"]
+    );
+    assert_eq!(week[0].made_by, "Jay");
+
+    let item = |name: &str| oxbot_protocol::GroceryInput {
+        name: name.into(),
+        qty: String::new(),
+        aisle: "Dairy".into(),
+    };
+    hub.add_home_grocery(&jay, &item("Milk")).unwrap();
+    hub.add_home_grocery(&jay, &item("milk")).unwrap();
+    let list = hub.home_groceries(&jay).unwrap();
+    assert_eq!(list.len(), 1, "one milk");
+    hub.set_home_grocery(&jay, list[0].id, true).unwrap();
+    assert!(hub.home_groceries(&jay).unwrap()[0].done);
+    hub.clear_home_groceries(&jay).unwrap();
+    assert_eq!(hub.home_groceries(&jay).unwrap(), []);
+    hub.remove_home_meal(&jay, week[1].id).unwrap();
+    assert_eq!(
+        hub.home_meals(&jay, "2026-11-16", "2026-11-22")
+            .unwrap()
+            .len(),
+        1
     );
 }

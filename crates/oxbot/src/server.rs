@@ -1522,6 +1522,7 @@ fn handle_sections(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<Ser
 }
 
 /// Handles one client message; returns what to send back right away.
+#[allow(clippy::too_many_lines, reason = "one arm per group of messages")]
 async fn handle(
     msg: ClientMsg,
     state: &AppState,
@@ -1617,7 +1618,16 @@ async fn handle(
         | ClientMsg::HomeNotes
         | ClientMsg::ChangeNote { .. }
         | ClientMsg::DeleteNote { .. }
-        | ClientMsg::RestoreNote { .. } => handle_home(msg, state, &viewer),
+        | ClientMsg::RestoreNote { .. }
+        | ClientMsg::HomeMeals { .. }
+        | ClientMsg::AddMeal { .. }
+        | ClientMsg::ChangeMeal { .. }
+        | ClientMsg::RemoveMeal { .. }
+        | ClientMsg::Groceries
+        | ClientMsg::AddGrocery { .. }
+        | ClientMsg::SetGrocery { .. }
+        | ClientMsg::RemoveGrocery { .. }
+        | ClientMsg::ClearGroceries => handle_home(msg, state, &viewer),
         ClientMsg::OpenNote { id, reveal } => open_note(state, id, reveal, &viewer),
         ClientMsg::ListSchedules { .. }
         | ClientMsg::PauseSchedule { .. }
@@ -1661,6 +1671,20 @@ fn handle_home(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerM
             Ok(()) => return Vec::new(),
             Err(e) => Err(e),
         },
+        ClientMsg::HomeMeals { from, to } => hub
+            .home_meals(viewer, &from, &to)
+            .map(|meals| ServerMsg::HomeMeals { from, to, meals }),
+        ClientMsg::Groceries => hub
+            .home_groceries(viewer)
+            .map(|items| ServerMsg::Groceries { items }),
+        // The rest answer with HomeChanged, to everyone showing the plan.
+        ClientMsg::AddMeal { meal } => quiet(hub.add_home_meal(viewer, &meal)),
+        ClientMsg::ChangeMeal { id, meal } => quiet(hub.change_home_meal(viewer, id, &meal)),
+        ClientMsg::RemoveMeal { id } => quiet(hub.remove_home_meal(viewer, id)),
+        ClientMsg::AddGrocery { item } => quiet(hub.add_home_grocery(viewer, &item)),
+        ClientMsg::SetGrocery { id, done } => quiet(hub.set_home_grocery(viewer, id, done)),
+        ClientMsg::RemoveGrocery { id } => quiet(hub.remove_home_grocery(viewer, id)),
+        ClientMsg::ClearGroceries => quiet(hub.clear_home_groceries(viewer)),
         _ => return Vec::new(),
     };
     match answer {
@@ -1669,6 +1693,14 @@ fn handle_home(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerM
             message: e.to_string(),
         }],
     }
+}
+
+/// A change that answers only with [`ServerMsg::HomeChanged`] (to
+/// everyone), or its error.
+fn quiet(
+    done: Result<(), oxbot_core::hub::HubError>,
+) -> Result<ServerMsg, oxbot_core::hub::HubError> {
+    done.map(|()| ServerMsg::HomeChanged)
 }
 
 /// One's own profile, and schedules: lists, pauses and deletes them (the
@@ -2500,6 +2532,8 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::Schedules { .. }
         | ServerMsg::HomeEvents { .. }
         | ServerMsg::HomeNotes { .. }
+        | ServerMsg::HomeMeals { .. }
+        | ServerMsg::Groceries { .. }
         | ServerMsg::DeletedEvents { .. }
         | ServerMsg::HomeSaved { .. }
         | ServerMsg::Profile(_)

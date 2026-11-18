@@ -44,6 +44,8 @@ impl Hub {
                 .is_some_and(|r| r.browser.is_some()),
             calendar: bot.as_str() == crate::bot::HOME_LEADS[0].0,
             notes: bot.as_str() == crate::bot::HOME_LEADS[2].0,
+            meals: bot.as_str() == crate::bot::HOME_LEADS[1].0,
+            groceries: bot.as_str() == crate::bot::HOME_LEADS[3].0,
         };
         let HostToolCall { name, args, reply } = call;
         let name = name
@@ -175,6 +177,7 @@ impl Hub {
             }
             t if tools::CALENDAR_TOOLS.contains(&t) => self.calendar_tool(bot, t, args),
             t if tools::NOTES_TOOLS.contains(&t) => self.notes_tool(bot, t, args),
+            t if tools::MEALS_TOOLS.contains(&t) => self.meals_tool(bot, t, args),
             _ => (false, "unknown tool".to_owned()),
         }
     }
@@ -647,6 +650,14 @@ pub(super) fn team_label(name: &str) -> Option<&'static str> {
         tools::FIND_NOTES_TOOL => "looking in Records",
         tools::FILE_NOTE_TOOL => "filing a note",
         tools::SHOW_NOTE_TOOL => "showing a note",
+        tools::MEAL_PLAN_TOOL => "looking at the meal plan",
+        tools::GROCERY_LIST_TOOL => "looking at the grocery list",
+        tools::PLAN_MEAL_TOOL => "planning a meal",
+        tools::CHANGE_MEAL_TOOL => "changing a meal",
+        tools::REMOVE_MEAL_TOOL => "taking a meal off the plan",
+        tools::ADD_GROCERIES_TOOL => "adding to the grocery list",
+        tools::TICK_GROCERIES_TOOL => "ticking off groceries",
+        tools::REMOVE_GROCERIES_TOOL => "taking groceries off the list",
         tools::CHANGE_EVENT_TOOL => "changing an event",
         tools::DELETE_EVENT_TOOL => "deleting an event",
         _ => return None,

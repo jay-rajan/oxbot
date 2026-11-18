@@ -27,6 +27,8 @@ pub use home::{
     Action as HomeAction, Actor, EventFields, Every, HomeChange, HomeEvent, KEEP_DELETED_DAYS,
     Repeat,
 };
+mod home_meals;
+pub use home_meals::{Grocery, GroceryFields, Meal, MealFields, Slot};
 mod home_notes;
 pub use home_notes::{DayFrom, HomeNote, NewNote, NoteFields, is_day};
 mod loop_state;
