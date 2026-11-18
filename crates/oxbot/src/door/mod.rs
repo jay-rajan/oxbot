@@ -271,11 +271,12 @@ impl Door {
     fn wanted(&self) -> (bool, String) {
         let here = lock(&self.here).clone();
         let Some(here) = here else {
-            return (
-                false,
-                "oxbot can't tell which network the home computer is on, so phones can't connect."
-                    .to_owned(),
-            );
+            let why = if network::router_hidden() {
+                "macOS is hiding the home network from oxbot, so phones can't connect. Turn on oxbot in System Settings → Privacy & Security → Local Network, then try again."
+            } else {
+                "oxbot can't tell which network the home computer is on, so phones can't connect. Check that Wi-Fi or Ethernet is connected."
+            };
+            return (false, why.to_owned());
         };
         if !lock(&self.settings).allows(&here.id) {
             return (

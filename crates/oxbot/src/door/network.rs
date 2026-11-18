@@ -9,6 +9,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use oxbot_protocol::DoorNetwork;
 use serde::{Deserialize, Serialize};
@@ -146,7 +147,18 @@ pub fn fixed_probe(id: &str, label: &str) -> Probe {
     Arc::new(move || Some(network.clone()))
 }
 
+/// Whether the last look found a router but macOS hid its hardware address
+/// (oxbot without Local Network access sees an empty neighbor table).
+static ROUTER_HIDDEN: AtomicBool = AtomicBool::new(false);
+
+/// Whether macOS hid the router from oxbot the last time it looked.
+#[must_use]
+pub fn router_hidden() -> bool {
+    ROUTER_HIDDEN.load(Ordering::Relaxed)
+}
+
 fn current_network() -> Option<DoorNetwork> {
+    ROUTER_HIDDEN.store(false, Ordering::Relaxed);
     let route = run("route", &["-n", "get", "default"])?;
     let (gateway, interface) = parse_route(&route)?;
     let mac = run("arp", &["-n", &gateway])
@@ -157,7 +169,14 @@ fn current_network() -> Option<DoorNetwork> {
                 .args(["-c", "1", "-t", "1", &gateway])
                 .output();
             run("arp", &["-n", &gateway]).and_then(|out| parse_arp(&out))
-        })?;
+        });
+    let Some(mac) = mac else {
+        // The whole neighbor table empty (it always holds the Mac's own
+        // address): macOS is hiding it from oxbot, not a missing router.
+        let empty = run("arp", &["-an"]).is_some_and(|out| out.trim().is_empty());
+        ROUTER_HIDDEN.store(empty, Ordering::Relaxed);
+        return None;
+    };
     let wifi = run("ipconfig", &["getsummary", &interface]).and_then(|out| parse_ssid(&out));
     let label = wifi.unwrap_or_else(|| range_label(&gateway));
     Some(DoorNetwork {
