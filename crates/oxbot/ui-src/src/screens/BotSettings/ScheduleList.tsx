@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useApp } from "../../app/context";
 import { Button, cx, List, ListRow, Note, Pill } from "../../components/ui";
 import type { ScheduleInfo } from "../../net/protocol";
-import { lastResult, scheduleMeta, schedWhen } from "./schedules";
+import { lastResult, scheduleMeta, schedShort, schedWhen } from "./schedules";
 
 /** The last run: a pill (ran, late, missed, failed…), when, and why if it didn't run. */
 function LastRun({ sc }: { sc: ScheduleInfo }) {
@@ -49,13 +49,19 @@ export function ScheduleList({
           <ListRow
             className={cx("sched-row", sc.paused && "paused")}
             key={sc.id}
-            title={sc.text}
+            // Every bot's schedules (Settings): just the bot, when, and next;
+            // the task on hover. A bot's own list keeps the task and last run.
+            title={withBot ? sc.bot_name : sc.text}
             data-id={sc.id}
             sub={
-              <>
-                {scheduleMeta(sc, withBot)}
-                <LastRun sc={sc} />
-              </>
+              withBot ? (
+                <span title={sc.task}>{schedShort(sc)}</span>
+              ) : (
+                <>
+                  {scheduleMeta(sc, withBot)}
+                  <LastRun sc={sc} />
+                </>
+              )
             }
             trail={
               sc.can_change ? (

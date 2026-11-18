@@ -39,6 +39,20 @@ export function schedWhen(ms: number, tz: string): string {
   }
 }
 
+/** When a schedule runs, in words, without its task: "Every day at 8 AM". */
+export function schedRule(sc: ScheduleInfo): string {
+  const tail = `: ${sc.task}`;
+  if (sc.text.endsWith(tail)) return sc.text.slice(0, -tail.length);
+  const cut = sc.text.indexOf(": ");
+  return cut > 0 ? sc.text.slice(0, cut) : sc.text;
+}
+
+/** Settings → Schedules' short line: when it runs, and its next run. */
+export function schedShort(sc: ScheduleInfo): string {
+  const next = sc.paused ? "paused" : sc.next_run_ms ? `next ${schedWhen(sc.next_run_ms, sc.tz)}` : "done: it ran once";
+  return [schedRule(sc), !sc.mine && sc.person ? `as ${sc.person}` : "", next].filter(Boolean).join(" · ");
+}
+
 /** The line under a schedule: where (`withBot`), as whom, and its next run. */
 export function scheduleMeta(sc: ScheduleInfo, withBot: boolean): string {
   const parts: string[] = [];
