@@ -568,6 +568,27 @@ pub(super) const MIGRATIONS: &[Step] = &[
     // 33: a person taken off the household list (Settings → People) keeps
     // their row, bots and history; they come back if added again.
     Step::Sql("ALTER TABLE people ADD COLUMN removed_ms INTEGER"),
+    // 34: each person's memory: short things bots should know about them,
+    // added and removed one by one. It starts with what they let bots use
+    // of their profile's food needs, languages and notes.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS person_memory (
+            id        INTEGER PRIMARY KEY,
+            person    TEXT    NOT NULL,              -- person id
+            text      TEXT    NOT NULL,
+            added_ms  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS person_memory_person ON person_memory (person);
+        INSERT INTO person_memory (person, text, added_ms)
+            SELECT person, 'Food: ' || trim(food), updated_ms FROM profiles
+            WHERE food_use = 1 AND trim(food) <> '';
+        INSERT INTO person_memory (person, text, added_ms)
+            SELECT person, 'Languages: ' || trim(languages), updated_ms FROM profiles
+            WHERE languages_use = 1 AND trim(languages) <> '';
+        INSERT INTO person_memory (person, text, added_ms)
+            SELECT person, trim(notes), updated_ms FROM profiles
+            WHERE notes_use = 1 AND trim(notes) <> '';",
+    ),
 ];
 
 /// Migration 29. Skipped if the column is already there (a database

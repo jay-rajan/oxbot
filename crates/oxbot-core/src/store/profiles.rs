@@ -244,6 +244,44 @@ impl Store {
     }
 }
 
+impl Store {
+    /// What bots should remember about `person`, oldest first: (id, text).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn memory(&self, person: &PersonId) -> Result<Vec<(i64, String)>, StoreError> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT id, text FROM person_memory WHERE person = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([person.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Adds one thing to `person`'s memory; its id.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn add_memory(&self, person: &PersonId, text: &str) -> Result<i64, StoreError> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO person_memory (person, text, added_ms) VALUES (?1, ?2, ?3)",
+            params![person.as_str(), text, now_ms()],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Removes one thing from `person`'s memory. Returns whether it was there.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn remove_memory(&self, person: &PersonId, id: i64) -> Result<bool, StoreError> {
+        Ok(self.conn().execute(
+            "DELETE FROM person_memory WHERE person = ?1 AND id = ?2",
+            params![person.as_str(), id],
+        )? > 0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

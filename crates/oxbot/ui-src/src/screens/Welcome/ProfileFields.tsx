@@ -1,8 +1,9 @@
-// The profile fields, shared by the welcome screen and Settings → People.
-// Each detail says whether bots may use it (never the name, color or photo).
+// The profile fields, shared by the welcome screen and Settings → People:
+// name, color and photo (never sent to bots), and the home's area. What bots
+// should know about a person is their memory list (Settings → People).
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../app/context";
-import { Button, Checkbox, Field, Hint, Input, TextArea, vars } from "../../components/ui";
+import { Button, Checkbox, Field, Hint, Input, vars } from "../../components/ui";
 import type { ProfileView } from "../../net/protocol";
 import { type ProfileDraft, ROLES, draftFrom } from "./profile";
 import "./welcome.css";
@@ -19,8 +20,7 @@ export function useProfileDraft(view: ProfileView | null) {
   return { formRef, draft, setDraft };
 }
 
-type TextKey = "name" | "home_area" | "food" | "languages" | "notes";
-type UseKey = "home_area_use" | "food_use" | "languages_use" | "notes_use";
+type TextKey = "name" | "home_area";
 
 /** A photo, made small (96 px, JPEG) in the page before it's sent. */
 function shrinkPhoto(file: File, done: (url: string) => void, fail: () => void) {
@@ -60,38 +60,15 @@ export function ProfileFields({
   const pickRef = useRef<HTMLInputElement>(null);
   const set = (patch: Partial<ProfileDraft>) => onChange({ ...draft, ...patch });
 
-  const field = (label: string, key: TextKey, max: number, use: UseKey | null, area = false, placeholder?: string) => {
-    const common = {
-      "data-key": key,
-      maxLength: max,
-      autoComplete: "off",
-      placeholder,
-      value: draft[key],
-    };
-    const input = area ? (
-      <TextArea {...common} onChange={(e) => set({ [key]: e.target.value })} />
-    ) : (
-      <Input {...common} onChange={(e) => set({ [key]: e.target.value })} />
-    );
-    if (use === null)
-      return (
-        <Field label={label} hint="Bots may use this: never">
-          {input}
-        </Field>
-      );
-    return (
-      <div className="pf">
-        <Field label={label}>{input}</Field>
-        <Checkbox className="use" data-use={key} checked={draft[use]} onChange={(e) => set({ [use]: e.target.checked })}>
-          Bots may use this
-        </Checkbox>
-      </div>
-    );
-  };
+  const field = (label: string, key: TextKey, max: number, hint: string, placeholder?: string) => (
+    <Field label={label} hint={hint}>
+      <Input data-key={key} maxLength={max} autoComplete="off" placeholder={placeholder} value={draft[key]} onChange={(e) => set({ [key]: e.target.value })} />
+    </Field>
+  );
 
   return (
     <div id={boxId} className="profile-fields">
-      {field("Name", "name", 40, null)}
+      {field("Name", "name", 40, "Bots never see your name.")}
       {/* Color and photo: shown with your messages, never sent to bots. */}
       <div className="pf">
         <span className="pf-label">Color and photo</span>
@@ -122,17 +99,14 @@ export function ProfileFields({
             }}
           />
         </div>
-        <p className="use">Bots may use this: never</p>
+        <p className="use">Shown with your messages; bots never see them.</p>
       </div>
       <p className="role">{`In the home: ${ROLES[view.role] || view.role}`}</p>
       {view.can_edit_area ? (
-        field("Home area", "home_area", 100, "home_area_use", false, "City, region")
+        field("Home area", "home_area", 100, "The whole home's: bots use it for local results.", "City, region")
       ) : view.home_area ? (
         <Hint>{`Home area: ${view.home_area} (the owner sets it)`}</Hint>
       ) : null}
-      {field("Food needs", "food", 200, "food_use", false, "Optional: vegetarian, no nuts")}
-      {field("Languages", "languages", 200, "languages_use", false, "Optional")}
-      {field("Notes for bots", "notes", 500, "notes_use", true, "Optional: I prefer metric; no paid apps")}
       {view.owner_confirm ? (
         <div className="confirms">
           <Checkbox data-confirm="adult" checked={draft.adult} onChange={(e) => set({ adult: e.target.checked })}>

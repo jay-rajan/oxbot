@@ -1,6 +1,7 @@
 // The home area: what the server says about the home as a whole, kept as
 // sent (latest wins). Every screen reads it; nothing here is drawn.
 import type {
+  MemoryItem,
   DoorState,
   EnginesView,
   DeviceInfo,
@@ -23,6 +24,8 @@ export interface HomeState {
   profile: ProfileView | null;
   /** Bumped when someone's profile changed (Settings → People asks again). */
   profilesChanged: number;
+  /** What bots should remember about each person this client may see, by name. */
+  memory: Record<string, MemoryItem[]>;
   /** The home browser's sign-ins. */
   homeSites: SiteInfo[];
   /** This person's own browser's sign-ins (owner only). */
@@ -51,6 +54,7 @@ export const initialHome: HomeState = {
   people: [],
   profile: null,
   profilesChanged: 0,
+  memory: {},
   homeSites: [],
   mySites: [],
   fineSites: [],
@@ -87,6 +91,8 @@ export function homeReducer(state: HomeState, action: Action): HomeState {
       return { ...state, people: msg.people };
     case "profile":
       return { ...state, profile: untagged(msg) };
+    case "memory":
+      return { ...state, memory: { ...state.memory, [msg.person]: msg.items } };
     case "profiles_changed":
       return { ...state, profilesChanged: state.profilesChanged + 1 };
     case "sites":

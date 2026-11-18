@@ -643,6 +643,27 @@ pub enum ClientMsg {
         /// Who the device is for, e.g. `Sam`.
         person: String,
     },
+    /// What bots should remember about a person. Their own, or anyone's on
+    /// the home computer. The answer is [`ServerMsg::Memory`].
+    GetMemory {
+        /// Their name.
+        person: String,
+    },
+    /// Adds one thing to a person's memory (as [`ClientMsg::GetMemory`]).
+    AddMemory {
+        /// Their name.
+        person: String,
+        /// What bots should remember, e.g. `Vegetarian`.
+        text: String,
+    },
+    /// Removes one thing from a person's memory (as [`ClientMsg::GetMemory`]).
+    RemoveMemory {
+        /// Their name.
+        person: String,
+        /// The thing's id.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: i64,
+    },
     /// Home computer only: add someone to the household (up to six people),
     /// or bring back someone removed. The answer is [`ServerMsg::People`].
     AddPerson {
@@ -1453,6 +1474,14 @@ pub enum ServerMsg {
         /// By day, then breakfast, lunch, dinner.
         meals: Vec<MealInfo>,
     },
+    /// A person's memory: the answer to [`ClientMsg::GetMemory`], and after
+    /// each change to it.
+    Memory {
+        /// Whose (their name).
+        person: String,
+        /// Oldest first.
+        items: Vec<MemoryItem>,
+    },
     /// The grocery list: the answer to [`ClientMsg::Groceries`].
     Groceries {
         /// What's still to get first, by aisle.
@@ -1861,6 +1890,17 @@ pub struct GroceryInput {
     /// Where in the store ("Dairy"); empty: oxbot doesn't know.
     #[serde(default)]
     pub aisle: String,
+}
+
+/// One thing bots should remember about a person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MemoryItem {
+    /// Its id.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub id: i64,
+    /// What to remember, e.g. `Vegetarian`.
+    pub text: String,
 }
 
 /// An item on the grocery list.

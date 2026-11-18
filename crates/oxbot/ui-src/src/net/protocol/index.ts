@@ -35,6 +35,7 @@ export type { KeyLimits } from "./KeyLimits";
 export type { LogLine } from "./LogLine";
 export type { MealInfo } from "./MealInfo";
 export type { MealInput } from "./MealInput";
+export type { MemoryItem } from "./MemoryItem";
 export type { ModelList } from "./ModelList";
 export type { ModelRow } from "./ModelRow";
 export type { NetKind } from "./NetKind";

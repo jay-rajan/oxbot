@@ -1634,7 +1634,10 @@ async fn handle(
         | ClientMsg::DeleteSchedule { .. }
         | ClientMsg::E2eAdvanceClock { .. }
         | ClientMsg::SetProfile { .. }
-        | ClientMsg::GetProfile => handle_own(msg, state, &viewer).await,
+        | ClientMsg::GetProfile
+        | ClientMsg::GetMemory { .. }
+        | ClientMsg::AddMemory { .. }
+        | ClientMsg::RemoveMemory { .. } => handle_own(msg, state, &viewer).await,
         other => handle_sign_ins(other, state, &viewer).await,
     }
 }
@@ -1697,6 +1700,17 @@ fn handle_home(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<ServerM
 
 /// A change that answers only with [`ServerMsg::HomeChanged`] (to
 /// everyone), or its error.
+/// A person's memory as the reply, or what went wrong.
+fn memory(
+    items: Result<Vec<oxbot_protocol::MemoryItem>, oxbot_core::hub::HubError>,
+    person: String,
+) -> Vec<ServerMsg> {
+    match items {
+        Ok(items) => vec![ServerMsg::Memory { person, items }],
+        Err(e) => reply(Err(e)),
+    }
+}
+
 fn quiet(
     done: Result<(), oxbot_core::hub::HubError>,
 ) -> Result<ServerMsg, oxbot_core::hub::HubError> {
@@ -1712,6 +1726,13 @@ async fn handle_own(msg: ClientMsg, state: &AppState, viewer: &Viewer) -> Vec<Se
             Ok(view) => vec![ServerMsg::Profile(view)],
             Err(e) => reply(Err(e)),
         },
+        ClientMsg::GetMemory { person } => memory(state.hub.memory_for(viewer, &person), person),
+        ClientMsg::AddMemory { person, text } => {
+            memory(state.hub.add_memory(viewer, &person, &text), person)
+        }
+        ClientMsg::RemoveMemory { person, id } => {
+            memory(state.hub.remove_memory(viewer, &person, id), person)
+        }
         ClientMsg::GetProfile => match state.hub.profile_for(viewer) {
             Ok(Some(view)) => vec![ServerMsg::Profile(view)],
             Ok(None) => Vec::new(),
@@ -2566,6 +2587,7 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::DeletedEvents { .. }
         | ServerMsg::HomeSaved { .. }
         | ServerMsg::Profile(_)
+        | ServerMsg::Memory { .. }
         | ServerMsg::NetLog { .. } => None,
         ServerMsg::Report(ref r) => client.sees(&r.bot).then_some(msg),
         ServerMsg::Bots { bots } => {

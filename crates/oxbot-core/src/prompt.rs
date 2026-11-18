@@ -182,6 +182,14 @@ pub fn codex_rules(caps: Capabilities) -> String {
         );
     }
     p.push_str("- If an action fails twice, stop and say what happened instead of repeating it.\n");
+    if caps.browser {
+        p.push_str(
+            "- \"Add X on <a store's site>\" means that site's cart, in the person's account \
+             (request_sign_in first if needed), not your own lists.\n\
+             - After an action (a cart, a booking, a message), look again and see it done before \
+             you say so; if it isn't, or you did something else, say that first.\n",
+        );
+    }
     p
 }
 
