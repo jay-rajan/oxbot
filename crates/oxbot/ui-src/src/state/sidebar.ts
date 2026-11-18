@@ -85,9 +85,16 @@ export const HOME_LEADS = [
   {
     id: "home-meals",
     name: "Meal Plan",
-    page: "chat",
+    page: "meals",
     btn: "mealsBtn",
     hints: ["Try: Dinners for this week", "Try: Add milk and eggs", "Try: A quick dinner Tuesday?"],
+  },
+  {
+    id: "home-groceries",
+    name: "Groceries",
+    page: "groceries",
+    btn: "groceriesBtn",
+    hints: ["Try: Add eggs and dish soap", "Try: What's left on the list?", "Try: Got the milk"],
   },
   {
     id: "home-notes",

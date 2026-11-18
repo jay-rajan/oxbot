@@ -174,7 +174,7 @@ export function Sidebar() {
         </div>
         <nav className="side-home" aria-label="Home">
           {HOME_LEADS.map((h) => {
-            const here = h.page !== "chat" ? page === h.page : page === "chat" && current === h.id;
+            const here = page === h.page;
             if (h.page !== "calendar" && !hasBot[h.id]) return null;
             return (
               <button

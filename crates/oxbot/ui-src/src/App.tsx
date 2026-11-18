@@ -5,6 +5,8 @@ import { useSel } from "./app/context";
 import { Toast } from "./components/ui";
 import { CalendarView } from "./screens/Calendar/CalendarView";
 import { NotesView } from "./screens/Notes/NotesView";
+import { MealsView } from "./screens/Meals/MealsView";
+import { GroceriesView } from "./screens/Meals/GroceriesView";
 import { useHomeMode, useSavedHomeMode } from "./screens/Calendar/HomeMode";
 import { BotSettingsDialog } from "./screens/BotSettings/BotSettingsDialog";
 import { ChatMain } from "./screens/Chat/ChatMain";
@@ -30,6 +32,8 @@ export function App() {
         <Sidebar />
         {page === "calendar" ? <CalendarView /> : null}
         {page === "notes" ? <NotesView /> : null}
+        {page === "meals" ? <MealsView /> : null}
+        {page === "groceries" ? <GroceriesView /> : null}
         <ChatMain />
       </div>
       <NewBotDialog />

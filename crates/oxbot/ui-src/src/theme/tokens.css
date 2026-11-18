@@ -46,6 +46,8 @@
   --home-cal-soft: #E7EEFC;
   --home-meals: #1E8A4C;
   --home-meals-soft: #E3F4EA;
+  --home-groceries: #B5551C;
+  --home-groceries-soft: #FCEDE3;
   --home-notes: #B86E00;
   --home-notes-soft: #FFF1D9;
 
@@ -138,6 +140,8 @@
     --home-cal-soft: #1C2A44;
     --home-meals: #62C98F;
     --home-meals-soft: #173024;
+    --home-groceries: #F09A62;
+    --home-groceries-soft: #33211A;
     --home-notes: #F2B441;
     --home-notes-soft: #33280F;
     --me: #0B0D10;

@@ -136,5 +136,6 @@
 .home-icon svg { width: var(--icon); height: var(--icon); }
 .home-icon[data-home="home-calendar"] { --tint: var(--home-cal); --tint-soft: var(--home-cal-soft); }
 .home-icon[data-home="home-meals"] { --tint: var(--home-meals); --tint-soft: var(--home-meals-soft); }
+.home-icon[data-home="home-groceries"] { --tint: var(--home-groceries); --tint-soft: var(--home-groceries-soft); }
 .home-icon[data-home="home-notes"] { --tint: var(--home-notes); --tint-soft: var(--home-notes-soft); }
 .home-icon { flex: none; }

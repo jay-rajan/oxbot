@@ -27,7 +27,7 @@ export interface UiState {
   /** The sidebar on a narrow screen. */
   sideOpen: boolean;
   /** What the main column shows: the open bot's chat, or a Home view. */
-  page: "chat" | "calendar" | "notes";
+  page: "chat" | "calendar" | "notes" | "meals" | "groceries";
   /** How a Home view and its bot's chat share the screen. */
   homeMode: HomeMode;
 }
