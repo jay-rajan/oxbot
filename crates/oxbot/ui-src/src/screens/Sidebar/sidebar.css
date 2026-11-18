@@ -32,9 +32,9 @@
 
 /* The list */
 .bots {
-  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
   display: flex; flex-direction: column; gap: var(--s-1);
-  margin: 0 calc(-1 * var(--s-1)); padding: 0 var(--s-1);
+  margin: 0 calc(-1 * var(--s-1)); padding: 0 calc(var(--s-1) + var(--s-2));
 }
 .bots .note-text { padding: var(--s-2); overflow-wrap: anywhere; }
 .bots .new-section { align-self: flex-start; margin-top: var(--s-1); }
@@ -62,7 +62,7 @@
 
 /* A bot's row: avatar, name (bold), a muted second line */
 .bot-item {
-  all: unset; box-sizing: border-box; cursor: pointer;
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
   -webkit-touch-callout: none; user-select: none;
   display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: var(--s-3);
   min-height: calc(var(--control) + var(--s-2)); padding: var(--s-1) var(--s-2);
@@ -71,13 +71,13 @@
 }
 .bot-item:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); }
 .bot-item:active { background: var(--pressed); }
-.bot-item[aria-current="true"] { background: var(--sunken); }
+.bot-item[aria-current="true"] { background: var(--selected); }
 .bot-item.helper { padding-left: 28px; }
 .bot-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .bot-item .meta { display: grid; gap: 1px; min-width: 0; }
 .bot-item .name {
   display: flex; align-items: center; gap: var(--s-1); min-width: 0;
-  font-size: var(--text-md); font-weight: var(--weight-bold); line-height: var(--leading-tight);
+  font-size: var(--text-md); font-weight: var(--weight-mid); line-height: var(--leading-tight);
 }
 .bot-item .name span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-item .central {
@@ -95,8 +95,9 @@
 
 /* A bot's avatar. A working bot's piece moves: an O rocks like a rolling
    ring, an X ticks (tic… tac). (The chat's header avatar is in chat.css.) */
-.bot-item .avatar { width: 32px; height: 32px; display: grid; place-items: center; flex: none; }
-.bot-item .avatar svg { width: 100%; height: 100%; display: block; }
+/* On a soft tile, like the Home items' icons. */
+.bot-item .avatar { width: 32px; height: 32px; display: grid; place-items: center; flex: none; border-radius: var(--r-md); background: color-mix(in srgb, var(--tint, var(--muted)) 14%, transparent); }
+.bot-item .avatar svg { width: 24px; height: 24px; display: block; }
 .bot-item svg.assistant { color: var(--ink); }
 .bot-item .avatar .pc { transform-box: view-box; transform-origin: 50px 54px; }
 .bot-item .avatar.working .pc-o { animation: ttt-rock 1.4s ease-in-out infinite; }
@@ -120,7 +121,9 @@
 @media (max-width: 340px) { #deviceBtn .label { display: none; } }
 
 /* The Home's views, above the bots. */
-.side-home { padding: var(--s-1) var(--s-2) var(--s-2); border-bottom: 1px solid var(--line); }
+/* Keeps the same scrollbar room as the bot list, so their rows (and
+   highlights) are the same width when scrollbars always show. */
+.side-home { padding: var(--s-1) var(--s-2) var(--s-2); border-bottom: 1px solid var(--line); flex: none; overflow-y: auto; scrollbar-gutter: stable; }
 .home-item {
   all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
   display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: var(--s-3);
@@ -130,7 +133,7 @@
 }
 .home-item:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); }
 .home-item:active { background: var(--pressed); }
-.home-item[aria-current="true"] { background: var(--sunken); }
+.home-item[aria-current="true"] { background: var(--selected); }
 .home-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .home-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-md); color: var(--tint); background: var(--tint-soft); }
 .home-icon svg { width: var(--icon); height: var(--icon); }

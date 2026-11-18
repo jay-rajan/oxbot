@@ -27,6 +27,11 @@ export function avatarSvg(id: string, central: boolean): string {
   if (central) return ASSISTANT;
   const h = hash(id);
   const shape = AVATARS[h % AVATARS.length] ?? "";
-  const color = AVATAR_COLORS[Math.floor(h / AVATARS.length) % AVATAR_COLORS.length] ?? "#111111";
-  return shape.replaceAll("{C}", color);
+  return shape.replaceAll("{C}", avatarColor(id));
+}
+
+/** A bot's color, for its piece and the soft tile behind it. */
+export function avatarColor(id: string): string {
+  const h = hash(id);
+  return AVATAR_COLORS[Math.floor(h / AVATARS.length) % AVATAR_COLORS.length] ?? "#111111";
 }
