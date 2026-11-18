@@ -1,5 +1,5 @@
 // The sidebar: brand and New bot, the server line, search, group by, the bot
-// list, and the bottom row (Settings, Connect a device, Websites). On a
+// list, and the bottom row (Settings, People, Signed-in websites). On a
 // phone it's a drawer over the chat, with a scrim behind it.
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
@@ -279,12 +279,12 @@ export function Sidebar() {
           </IconButton>
           <Button
             kind="quiet"
-            className="foot-btn"
+            className="foot-btn reveal"
             id="deviceBtn"
-            aria-label="Connect a device"
-            title="Connect a device: pair a phone, tablet or laptop"
+            aria-label="People"
+            title="People: add a person by scanning a QR code from their phone"
             hidden={!homeComputer}
-            onClick={() => toSettings("addDevice")}
+            onClick={() => toSettings("setPeople")}
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" />
@@ -297,14 +297,14 @@ export function Sidebar() {
               </svg>
             }
           >
-            <span className="label">Connect a device</span>
+            <span className="label">People</span>
           </Button>
           <Button
             kind="quiet"
-            className="foot-btn end"
+            className="foot-btn end reveal"
             id="signedInBtn"
-            aria-label="Websites"
-            title="Websites: the ones your bots are signed in to (Settings → Websites)"
+            aria-label="Signed-in websites"
+            title="Signed-in websites: the ones your bots are signed in to (Settings → Websites)"
             onClick={() => toSettings("setSignins")}
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -313,6 +313,7 @@ export function Sidebar() {
               </svg>
             }
           >
+            <span className="label">Signed-in websites</span>
             <span className="count" id="signedInCount" hidden={signedIn === 0}>
               <Pill>{String(signedIn)}</Pill>
             </span>
