@@ -3,7 +3,7 @@
   <application>
     <!-- Hands one kept record at a time to the app that opens it, read-only. -->
     <provider
-        android:name="androidx.core.content.FileProvider"
+        android:name="dev.oxbot.openrecord.RecordFileProvider"
         android:authorities="${applicationId}.records"
         android:exported="false"
         android:grantUriPermissions="true">
