@@ -125,6 +125,13 @@ function installDevice(homeComputer, person) {
     // opened in the phone's own app for its kind of file.
     syncRecords: () => T.invoke("records_sync"),
     openRecord: (id) => T.invoke("record_open", { id }),
+    // A file attached on the phone, sent over its link; the answer is the
+    // home computer's (the attachment, JSON text).
+    upload: async (bot, name, file) => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const q = new URLSearchParams({ bot, name }).toString();
+      return T.invoke("device_upload", bytes, { headers: { "x-upload": q } });
+    },
   };
   // A home computer not yet updated reads the bridge by its old name.
   window.oxbotGate = { socket: window.oxbotDevice.socket, farm: homeComputer, person };

@@ -653,6 +653,31 @@ async fn opening_a_bot_is_checked_like_subscribing() {
 }
 
 #[tokio::test]
+async fn a_phone_sends_files_over_its_link() {
+    let mut home_computer = home_computer().await;
+    let ann = paired(&mut home_computer, "Ann").await;
+    home_computer
+        .hub
+        .create_bot("Recipes", "Keeps recipes.", None)
+        .await
+        .unwrap();
+    // Taken as the page's own uploads are: the attachment comes back.
+    let answer = oxbot_device::upload(&ann, "recipes", "soup notes.txt", b"leeks, potatoes")
+        .await
+        .unwrap();
+    let att: serde_json::Value = serde_json::from_slice(&answer).unwrap();
+    assert!(att["id"].as_str().is_some_and(|id| !id.is_empty()), "{att}");
+    assert_eq!(att["name"], "soup notes.txt");
+    // A bot that isn't there: refused, in plain words.
+    let Err(DeviceError::Refused(why)) =
+        oxbot_device::upload(&ann, "nope", "x.txt", b"x").await
+    else {
+        panic!("refused")
+    };
+    assert!(!why.starts_with('{'), "{why}");
+}
+
+#[tokio::test]
 async fn a_phone_keeps_copies_of_its_records_only() {
     use oxbot_core::store::{Actor, DayFrom, NewNote, NoteFields};
     let mut home_computer = home_computer().await;

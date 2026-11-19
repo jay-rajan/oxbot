@@ -9,7 +9,7 @@ import type { Chip } from "../../state/chat";
 import { HOME_LEADS } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { FileDialog } from "../Notes/FileDialog";
-import { NOTES_BOT, PHONE_FILES, addFiles, isLocked, removeChip, sendMessage, sizeText, startDictation, stopDictation } from "./actions";
+import { NOTES_BOT, PHONE_FILES, addFiles, canAttach, isLocked, removeChip, sendMessage, sizeText, startDictation, stopDictation } from "./actions";
 
 const MIC_TITLE = "Dictate with the home computer's microphone (the audio stays on the home computer)";
 const NO_CHIPS: Chip[] = [];
@@ -118,7 +118,7 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
             label="Attach files"
             title="Attach files (you can also drop or paste them)"
             disabled={known && locked}
-            onClick={() => { if (app.phone) { app.toast(PHONE_FILES, true); return; } fileInput.current?.click(); }}
+            onClick={() => { if (!canAttach(app)) { app.toast(PHONE_FILES, true); return; } fileInput.current?.click(); }}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </IconButton>

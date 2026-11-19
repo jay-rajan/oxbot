@@ -234,6 +234,48 @@ pub async fn kept_record(paired: &Paired, id: i64) -> Result<Vec<u8>, DeviceErro
     Ok(body)
 }
 
+/// Sends a file for the next message to bot `bot`, as the page's own
+/// uploads do (`POST /upload`). The answer is the file as the home computer
+/// took it (an `Attachment`, JSON), for the page.
+///
+/// # Errors
+/// The home computer can't be reached, or refuses the file (too big, a
+/// kind it can't read, not a bot this person may use): the reason in
+/// plain words.
+pub async fn upload(
+    paired: &Paired,
+    bot: &str,
+    name: &str,
+    bytes: &[u8],
+) -> Result<Vec<u8>, DeviceError> {
+    let query: String = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("bot", bot)
+        .append_pair("name", name)
+        .finish();
+    let path = format!("/upload?{query}");
+    let limits = (64 * 1024, Duration::from_secs(600));
+    match request_within(
+        &paired.home_computer,
+        "POST",
+        &path,
+        Some(&paired.key),
+        Some(bytes),
+        limits,
+    )
+    .await
+    {
+        Ok((_, body)) => Ok(body),
+        // The home computer says why in `{"error": "…"}`.
+        Err(DeviceError::Refused(text)) => Err(DeviceError::Refused(
+            serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v.get("error")?.as_str().map(str::to_owned))
+                .unwrap_or(text),
+        )),
+        Err(e) => Err(e),
+    }
+}
+
 /// A WebSocket message.
 pub use tokio_tungstenite::tungstenite::Message;
 

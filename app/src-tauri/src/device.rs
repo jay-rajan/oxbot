@@ -233,6 +233,45 @@ async fn record_open(
     tauri_plugin_open_record::open(&app, &path)
 }
 
+/// A file the page attached, sent to the home computer over the phone's
+/// link. The file comes as the request's body; which bot and its name in
+/// the `x-upload` header (`bot=…&name=…`). The answer is the home
+/// computer's (the file as an attachment, JSON) for the page.
+#[tauri::command]
+async fn device_upload(
+    app: AppHandle,
+    device: State<'_, Arc<Device>>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("The file didn't come through.".to_owned());
+    };
+    let header = request
+        .headers()
+        .get("x-upload")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let url = tauri::Url::parse(&format!("oxbot:?{header}")).map_err(|e| e.to_string())?;
+    let (mut bot, mut name) = (String::new(), String::new());
+    for (k, v) in url.query_pairs() {
+        match k.as_ref() {
+            "bot" => bot = v.into_owned(),
+            "name" => name = v.into_owned(),
+            _ => {}
+        }
+    }
+    let Some(paired) = paired(&app, &device).await? else {
+        return Err("This phone isn't paired.".to_owned());
+    };
+    let answer = oxbot_device::upload(&paired, &bot, &name, bytes)
+        .await
+        .map_err(|e| match e {
+            DeviceError::Refused(why) => why,
+            other => format!("The file didn't upload: {other}"),
+        })?;
+    Ok(String::from_utf8_lossy(&answer).into_owned())
+}
+
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -665,7 +704,8 @@ pub fn run() -> anyhow::Result<()> {
             device_send,
             device_close,
             records_sync,
-            record_open
+            record_open,
+            device_upload
         ])
         .run(tauri::generate_context!())
         .context("couldn't run the app")

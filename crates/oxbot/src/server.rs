@@ -612,6 +612,11 @@ pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
         // The records this phone keeps a copy of, and each one's file.
         .route("/records", get(kept_records))
         .route("/records/{id}", get(kept_record))
+        // Files sent from the phone, like the page's own uploads.
+        .route(
+            "/upload",
+            post(device_upload).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(door),
             crate::door::http::require_key,
@@ -845,12 +850,35 @@ async fn upload(
     Query(query): Query<HashMap<String, String>>,
     body: axum::body::Body,
 ) -> Response {
-    use oxbot_core::attach;
     let key = headers.get("x-oxbot-key").and_then(|v| v.to_str().ok());
     let viewer = match local_viewer(&state, &headers, key, query.get("as").map(String::as_str)) {
         Ok(viewer) => viewer,
         Err(refused) => return refused,
     };
+    upload_as(state, viewer, &headers, &query, body).await
+}
+
+/// `POST /upload?bot=<id>&name=<file name>` from a paired phone, over its
+/// link: the same as [`upload`], as the phone's person.
+async fn device_upload(
+    State(state): State<AppState>,
+    Extension(auth): Extension<crate::door::http::DeviceAuth>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    body: axum::body::Body,
+) -> Response {
+    upload_as(state, auth.viewer, &headers, &query, body).await
+}
+
+/// Saves an upload for `viewer` (see [`upload`]).
+async fn upload_as(
+    state: AppState,
+    viewer: Viewer,
+    headers: &HeaderMap,
+    query: &HashMap<String, String>,
+    body: axum::body::Body,
+) -> Response {
+    use oxbot_core::attach;
     let Some(bot) = query.get("bot").filter(|b| !b.is_empty()) else {
         return upload_error(StatusCode::BAD_REQUEST, "Say which bot the file is for.");
     };

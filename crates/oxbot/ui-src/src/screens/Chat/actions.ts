@@ -4,6 +4,7 @@ import type { App } from "../../app/context";
 import type { BotInfo } from "../../net/protocol";
 import { type BotChat, type ChatState, PAGE, reportKey, uploading } from "../../state/chat";
 import { local } from "../../state/store";
+import { deviceBridge } from "../../web/address";
 
 /** Whether it's someone else's private bot (listed, but it won't open). */
 export const isLocked = (info: BotInfo | undefined) => !!info?.locked;
@@ -50,7 +51,7 @@ const VIDEO = /\.(mov|mp4|m4v)$/i;
 /** The Records bot: files sent to it are kept in Records. */
 export const NOTES_BOT = "home-notes";
 
-export const PHONE_FILES = "Sending files from a phone isn't possible yet. Send them from the home computer.";
+export const PHONE_FILES = "Update the Oxbot app on this phone to send files from it.";
 
 export function sizeText(n: number): string {
   return n >= MB ? `${(n / MB).toFixed(n >= 10 * MB ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
@@ -64,8 +65,9 @@ export function addFiles(app: App, list: FileList | File[] | null) {
   const s = app.store.getState();
   const bot = s.ui.current;
   if (!bot || !files.length) return;
-  // A phone or laptop reaches the home computer only through its app.
-  if (app.phone) { app.toast(PHONE_FILES, true); return; }
+  // A phone reaches the home computer only through its app, which sends
+  // files too (an older app can't).
+  if (!canAttach(app)) { app.toast(PHONE_FILES, true); return; }
   if (!s.bots.byId[bot] || isLocked(s.bots.byId[bot])) return;
   for (const file of files) {
     const chips = app.store.getState().chat.drafts[bot] ?? [];
@@ -85,7 +87,39 @@ export function addFiles(app: App, list: FileList | File[] | null) {
   }
 }
 
+/** Whether files can be attached here: always on the home computer or a
+ *  browser, on a phone only through an app that sends them. */
+export function canAttach(app: App): boolean {
+  return !app.phone || !!deviceBridge(window)?.upload;
+}
+
+/** Chips removed while their file was still going over a phone's link. */
+const dropped = new Set<number>();
+
+/** Sends a file over the phone's link (no progress to show: it's one go). */
+function uploadFromPhone(app: App, bot: string, key: number, name: string, file: File) {
+  const device = deviceBridge(window);
+  const patch = (p: Record<string, unknown>) => app.dispatch(local("chat/chip", { bot, key, patch: p }));
+  if (!device?.upload) { patch({ state: "error", error: PHONE_FILES }); return; }
+  patch({ progress: 0.5 });
+  device.upload(bot, name, file).then(
+    (text) => {
+      let body: { id?: string; error?: string } | null = null;
+      try { body = JSON.parse(text); } catch { body = null; }
+      if (dropped.delete(key)) {
+        // Removed while it went: the home computer deletes it.
+        if (body?.id) app.send({ type: "drop_upload", bot, id: body.id });
+        return;
+      }
+      if (body?.id) patch({ state: "ready", att: body });
+      else patch({ state: "error", error: body?.error || "The file didn't upload." });
+    },
+    (why) => { if (!dropped.delete(key)) patch({ state: "error", error: String(why) || "The file didn't upload." }); },
+  );
+}
+
 function upload(app: App, bot: string, key: number, name: string, file: File) {
+  if (app.phone) { uploadFromPhone(app, bot, key, name, file); return; }
   const as = new URLSearchParams(location.search).get("as");
   const q = new URLSearchParams({ bot, name });
   if (as) q.set("as", as);
@@ -112,6 +146,7 @@ export function removeChip(app: App, bot: string, key: number) {
   if (!chip) return;
   xhrs.get(key)?.abort();
   xhrs.delete(key);
+  if (chip.state === "uploading") dropped.add(key);
   // Uploaded but not sent: the home computer deletes it.
   if (chip.state === "ready" && chip.att) app.send({ type: "drop_upload", bot, id: chip.att.id });
   app.dispatch(local("chat/removeChip", { bot, key }));

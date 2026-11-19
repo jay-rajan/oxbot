@@ -13,6 +13,10 @@ export interface DeviceBridge {
   syncRecords?(): Promise<void>;
   /** Opens record `id`, from the phone's copy, in the phone's own app. */
   openRecord?(id: number): Promise<void>;
+  /** Sends a file for the next message to `bot` over the phone's link: the
+   *  home computer's answer (the attachment, JSON), or a refusal in plain
+   *  words. A phone app made before this has none. */
+  upload?(bot: string, name: string, file: Blob): Promise<string>;
 }
 
 declare global {
