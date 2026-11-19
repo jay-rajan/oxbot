@@ -16,6 +16,7 @@ import { CompareDialog } from "./screens/Compare/CompareDialog";
 import { PiecesDialog } from "./screens/Pieces/PiecesDialog";
 import { SettingsDialog } from "./screens/Settings/SettingsDialog";
 import { NewBotDialog } from "./screens/Sidebar/NewBotDialog";
+import { PhoneTabs } from "./screens/Sidebar/PhoneTabs";
 import { Sidebar } from "./screens/Sidebar/Sidebar";
 import { NameDialog } from "./screens/Welcome/NameDialog";
 import { WelcomeDialog } from "./screens/Welcome/WelcomeDialog";
@@ -36,6 +37,7 @@ export function App() {
         {page === "groceries" ? <GroceriesView /> : null}
         <ChatMain />
       </div>
+      <PhoneTabs />
       <NewBotDialog />
       <BotSettingsDialog />
       <ReportDialog />

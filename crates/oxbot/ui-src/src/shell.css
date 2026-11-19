@@ -8,6 +8,9 @@
   min-height: 0;
 }
 
+/* A phone's tab bar (PhoneTabs): hidden where the sidebar shows. */
+.phone-tabs { display: none; }
+
 /* Behind the open drawer on a phone: a tap here closes it. */
 .scrim { display: none; position: fixed; inset: 0; z-index: 4; background: var(--scrim); }
 
@@ -22,5 +25,29 @@
   }
   .app > .side.open { transform: none; box-shadow: var(--shadow-dialog); }
   .side.open + .scrim { display: block; animation: scrim-in var(--slow) var(--ease); }
+
+  /* The tab bar replaces the menu buttons at the top. */
+  .app { box-sizing: border-box; padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); }
+  .chat-head .menu, .cal-head .cal-menu { display: none !important; }
+  /* The bar keeps clear of the phone's home indicator, so the box needn't. */
+  .app .composer { padding-bottom: var(--s-3); }
+  .phone-tabs {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+    height: calc(var(--tabs-h) + env(safe-area-inset-bottom));
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--surface); border-top: 1px solid var(--line);
+  }
+  .phone-tab {
+    display: grid; justify-items: center; align-content: center; gap: 2px; min-width: 0;
+    border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--text-xs, 11px); padding: 0; cursor: pointer;
+  }
+  .phone-tab > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .phone-tab[aria-current="true"] { color: var(--ink); font-weight: var(--weight-mid); }
+  .phone-tab .avatar, .phone-tab-icon { width: 24px; height: 24px; display: grid; place-items: center; }
+  .phone-tab .avatar svg, .phone-tab-icon svg { width: 100%; height: 100%; }
+  .phone-tab:not([aria-current="true"]) .avatar { opacity: .6; }
+  .phone-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 }
+:root { --tabs-h: 56px; }
 @keyframes scrim-in { from { opacity: 0; } }

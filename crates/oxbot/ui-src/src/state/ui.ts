@@ -1,6 +1,13 @@
 // The ui area: which bot is open, which dialog is open, and the toast.
 // Shared by every screen; each screen's own details live in its area.
+import { HOME_LEADS } from "./sidebar";
 import type { Action } from "./store";
+
+/** The Home view a bot leads (its Calendar, Meal Plan…), else the plain chat:
+ *  a Home bot's chat always opens in its view, whose switcher leads back. */
+function pageFor(bot: string | null): UiState["page"] {
+  return HOME_LEADS.find((h) => h.id === bot)?.page ?? "chat";
+}
 
 /** The page's dialogs, one open at a time (the toast shows inside it). */
 export type DialogName =
@@ -62,7 +69,7 @@ export function uiReducer(state: UiState, action: Action): UiState {
   if (action.kind !== "local") return state;
   switch (action.type) {
     case "ui/select":
-      return { ...state, current: action.bot as string | null, pendingSelect: null, sideOpen: false, page: action.keepPage ? state.page : "chat" };
+      return { ...state, current: action.bot as string | null, pendingSelect: null, sideOpen: false, page: action.keepPage ? state.page : pageFor(action.bot as string | null) };
     case "ui/page":
       return { ...state, page: action.page as UiState["page"], sideOpen: false };
     case "ui/pendingSelect":
