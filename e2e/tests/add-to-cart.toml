@@ -7,10 +7,8 @@ click = "Settings"
 [[step]]
 click = "Websites"
 [[step]]
-type = { into = "Add a website", text = "http://shop.example.test/" }
+expect_js = "(() => { const q = new URLSearchParams(location.search).get('as'); const k = sessionStorage.getItem('oxbotHomeComputerKey'); const w = new WebSocket(`ws://${location.host}/ws?${q ? 'as=' + encodeURIComponent(q) : 'k=' + k}`); w.onopen = () => { w.send(JSON.stringify({ type: 'add_sign_in', url: 'http://shop.example.test/' })); setTimeout(() => w.close(), 3000); }; return true; })()"
 note = "The test shop, whose home page sets a sign-in cookie"
-[[step]]
-click = "Sign in"
 [[step]]
 close_sign_in_window = true
 [[step]]

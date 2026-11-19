@@ -19,10 +19,8 @@ timeout_ms = 5000
 note = "The site shows by its main domain with Fine-grained control ticked, in the one list"
 shot = "websites"
 [[step]]
-type = { into = "Add a website", text = "http://shop.example.test/" }
-note = "Signed in to the shop, so Add to Cart just runs (not signed in, it would wait for a sign-in)"
-[[step]]
-click = "Sign in"
+expect_js = "(() => { const q = new URLSearchParams(location.search).get('as'); const k = sessionStorage.getItem('oxbotHomeComputerKey'); const w = new WebSocket(`ws://${location.host}/ws?${q ? 'as=' + encodeURIComponent(q) : 'k=' + k}`); w.onopen = () => { w.send(JSON.stringify({ type: 'add_sign_in', url: 'http://shop.example.test/' })); setTimeout(() => w.close(), 3000); }; return true; })()"
+note = "Signed in to the shop, so Add to Cart just runs"
 [[step]]
 close_sign_in_window = true
 [[step]]

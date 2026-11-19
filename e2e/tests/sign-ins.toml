@@ -1,5 +1,5 @@
-name = "Adding a website signs in the home browser"
-about = "Settings → Websites has one form, Add a website: it always signs in the home browser (no shared-or-mine picker), and the site lands in the one list as a home row with its actions on the row (Fine-grained control, Open, Sign out). Sam's own sign-ins never show for Jay."
+name = "A website signed in lands in the one list"
+about = "Settings → Websites has no Add a website box (bots ask to sign in when they need to). A sign-in goes to the home browser, and the site lands in the one list as a home row with its actions on the row (Fine-grained control, Open, Sign out). Sam's own sign-ins never show for Jay."
 covers = ["crates/oxbot/ui-src/**", "crates/oxbot-core/src/hub.rs", "crates/oxbot-core/src/store.rs", "crates/oxbot-browser/**", "crates/oxbot/src/server.rs"]
 
 [[step]]
@@ -12,10 +12,8 @@ expect = "wikipedia.org"
 expect_not = "Only for my private bots"
 note = "No picker: the home browser, always"
 [[step]]
-type = { into = "Add a website", text = "{server}/" }
-note = "Signs in to a local page (oxbot's own), never a real site"
-[[step]]
-click = "Sign in"
+expect_js = "(() => { const q = new URLSearchParams(location.search).get('as'); const k = sessionStorage.getItem('oxbotHomeComputerKey'); const w = new WebSocket(`ws://${location.host}/ws?${q ? 'as=' + encodeURIComponent(q) : 'k=' + k}`); w.onopen = () => { w.send(JSON.stringify({ type: 'add_sign_in', url: location.origin + '/' })); setTimeout(() => w.close(), 3000); }; return true; })()"
+note = "Signs in to a local page (oxbot's own), never a real site, as a bot's sign-in request would"
 [[step]]
 close_sign_in_window = true
 note = "As a person would after signing in (once the window is open)"

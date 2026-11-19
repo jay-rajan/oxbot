@@ -50,7 +50,7 @@
   /* Typing: the keyboard is up, so the bar steps aside for the message box. */
   .kb-open .phone-tabs { display: none; }
   .kb-open .app { padding-bottom: 0; }
-  /* Settings and People: easy to see and tap. */
+  /* Settings, People and Signed-in websites: easy to see and tap. */
   .side-foot { gap: var(--s-2); padding-block: var(--s-1); }
   .side-foot .gear { width: 48px; height: 48px; }
   .side-foot .gear svg, .side-foot .foot-btn .btn-icon { width: 28px; height: 28px; }

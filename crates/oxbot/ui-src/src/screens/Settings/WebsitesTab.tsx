@@ -4,9 +4,8 @@
 // row's actions are on the row: Fine-grained control, Open, Sign out (Open
 // and Sign out only on the home computer); a private row's only action is
 // Share with the home.
-import { type FormEvent, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, Checkbox, cx, Hint, Input, List, ListRow, Note, Section } from "../../components/ui";
+import { Button, Checkbox, cx, Hint, List, ListRow, Note, Section } from "../../components/ui";
 import type { SiteInfo } from "../../net/protocol";
 import { siteRows } from "./format";
 import { useArm } from "./useArm";
@@ -28,7 +27,7 @@ function SiteMark({ s }: { s: SiteInfo }) {
 const NO_SITES: SiteInfo[] = [];
 
 export function WebsitesTab({ hidden }: { hidden: boolean }) {
-  const { send, toast } = useApp();
+  const { send } = useApp();
   const homeComputer = useSel((s) => !!s.connection.settings?.home_computer);
   const homeSites = useSel((s) => s.home.homeSites);
   // Only the owner of the home computer has private sign-ins.
@@ -36,44 +35,18 @@ export function WebsitesTab({ hidden }: { hidden: boolean }) {
   const allMine = useSel((s) => s.home.mySites);
   const mySites = ownsHome ? allMine : NO_SITES;
   const fineSites = useSel((s) => s.home.fineSites);
-  const urlRef = useRef<HTMLInputElement>(null);
   const row = useArm();
   const all = useArm();
   const mineAll = useArm();
   const rows = siteRows(homeSites, mySites, fineSites);
 
-  const addSite = (ev: FormEvent) => {
-    ev.preventDefault();
-    const input = urlRef.current;
-    const url = input?.value.trim() ?? "";
-    if (!url || !input) return;
-    send({ type: "add_sign_in", url });
-    input.value = "";
-    toast(`Opening ${url} in the home's Chrome window. Sign in there, then close the window.`);
-  };
-
   const homeAll = homeSites.length > 0 && homeComputer;
   return (
     <div id="setSignins" className="settings-pane" role="tabpanel" hidden={hidden}>
       <Section>
-        <form className="add-site" id="addSiteForm" onSubmit={addSite}>
-          <Input
-            id="addSiteUrl"
-            ref={urlRef}
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="e.g. gmail.com"
-            aria-label="Add a website"
-          />
-          <Button kind="primary" type="submit">
-            Sign in
-          </Button>
-        </form>
         <Hint id="siteHint">
           {ownsHome
-            ? "Sign in once here and shared bots use it. Private bots ask for their own."
+            ? "Bots ask you to sign in when a website needs it; shared bots then use it. Private bots ask for their own."
             : "Bots use the home browser and the websites the home is signed in to."}
         </Hint>
       </Section>

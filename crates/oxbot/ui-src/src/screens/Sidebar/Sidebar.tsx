@@ -1,5 +1,5 @@
 // The sidebar: brand and New bot, the server line, search, group by, the bot
-// list, and the bottom row (Settings, People). On a
+// list, and the bottom row (Settings, People, Signed-in websites). On a
 // phone it's a drawer over the chat, with a scrim behind it.
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
@@ -149,6 +149,7 @@ export function Sidebar() {
     dispatch(local("ui/page", { page: h.page }));
   };
 
+  const signedIn = useSel((s) => s.home.homeSites.length + (s.connection.settings?.owner ? s.home.mySites.length : 0));
   const [finding, setFinding] = useState(false);
   const findBox = useRef<HTMLInputElement>(null);
 
@@ -322,6 +323,25 @@ export function Sidebar() {
             }
           >
             <span className="label">People</span>
+          </Button>
+          <Button
+            kind="quiet"
+            className="foot-btn end reveal"
+            id="signedInBtn"
+            aria-label="Signed-in websites"
+            title="Signed-in websites: the ones your bots are signed in to (Settings → Websites)"
+            onClick={() => toSettings("setSignins")}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="12" r="8.5" />
+                <path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z" strokeLinejoin="round" />
+              </svg>
+            }
+          >
+            <span className="label">Signed-in websites</span>
+            <span className="count" id="signedInCount" hidden={signedIn === 0}>
+              <Pill>{String(signedIn)}</Pill>
+            </span>
           </Button>
         </div>
       </aside>
