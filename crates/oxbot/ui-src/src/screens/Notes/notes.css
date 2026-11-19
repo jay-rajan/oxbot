@@ -21,19 +21,20 @@
   border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
 }
 .note-main {
-  flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-2) var(--s-3);
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3);
   border: 0; background: none; color: inherit; font-family: inherit; text-align: left; cursor: pointer; border-radius: var(--r-md);
 }
 .note-main:hover { background: var(--sunken); }
 .note-main:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .note-icon { flex: none; font-size: var(--text-lg); line-height: var(--leading-tight); }
 .note-text { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
-.note-title { font-size: var(--text-md); font-weight: var(--weight-mid); overflow-wrap: anywhere; }
-.note-meta { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
+/* One line each: long titles end in …; the full one is in the details. */
+.note-title, .note-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-title { font-size: var(--text-md); font-weight: var(--weight-mid); }
+.note-meta { font-size: var(--text-sm); color: var(--muted); }
 .note-actions { flex: none; display: flex; gap: var(--s-1); padding-right: var(--s-2); }
 @media (max-width: 720px) {
   .notes-find, .notes-body { padding-left: var(--s-4); padding-right: var(--s-4); }
-  .note-actions { display: none; }
 }
 
 /* The forms: a note's fields, and the files being kept. */

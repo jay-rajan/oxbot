@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Hands one kept record at a time to the app that opens it, read-only. -->
+    <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.records"
+        android:exported="false"
+        android:grantUriPermissions="true">
+      <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/open_record_paths" />
+    </provider>
+  </application>
+</manifest>

@@ -224,6 +224,52 @@ impl Hub {
         }
     }
 
+    /// The records `viewer`'s phone keeps a copy of, to open in its own
+    /// apps even away from home: an administrator's, every one; a kid's,
+    /// only those about them; anyone else's, those about them and those
+    /// about nobody in particular (the whole family's).
+    ///
+    /// # Errors
+    /// `viewer` isn't in the home, or the database fails.
+    pub fn records_to_keep(&self, viewer: &Viewer) -> Result<Vec<HomeNote>, HubError> {
+        let Actor::Person(me) = self.home_actor(viewer)? else {
+            return Ok(Vec::new());
+        };
+        let all = self.resolve(viewer).sees_all();
+        let kid = self.role_of(&me) == crate::store::Role::Kid;
+        Ok(self
+            .store
+            .notes()?
+            .into_iter()
+            .filter(|n| {
+                let about_me = n.fields.people.contains(&me);
+                if kid {
+                    about_me
+                } else {
+                    all || about_me || n.fields.people.is_empty()
+                }
+            })
+            .collect())
+    }
+
+    /// Record `id`'s file, for `viewer`'s phone to keep: only one
+    /// [`Hub::records_to_keep`] lists for them.
+    ///
+    /// # Errors
+    /// Not one of theirs, or the record or its file is gone.
+    pub fn record_to_keep(
+        &self,
+        viewer: &Viewer,
+        id: i64,
+    ) -> Result<(HomeNote, PathBuf), HubError> {
+        if !self.records_to_keep(viewer)?.iter().any(|n| n.id == id) {
+            return Err(HubError::NotAllowed(
+                "That record isn't one this phone keeps.".to_owned(),
+            ));
+        }
+        self.note_file(viewer, id)
+    }
+
     /// Note `id`'s file, for `viewer` to open on the home computer.
     ///
     /// # Errors
@@ -848,6 +894,80 @@ mod tests {
             people: vec![],
             summary: String::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn each_phone_keeps_its_persons_and_the_familys_records() {
+        use crate::store::Role;
+        use crate::{Bot, BotId, HubConfig, Store};
+        let tmp = tempfile::tempdir().unwrap();
+        let bots = vec![
+            Bot::create(
+                tmp.path(),
+                BotId::new("assistant").unwrap(),
+                "Assistant",
+                "",
+            )
+            .unwrap(),
+        ];
+        let hub = Hub::new(
+            bots,
+            Store::open_in_memory().unwrap(),
+            HubConfig::new(tmp.path()),
+        );
+        let jay = hub.owner_person("Jay").unwrap();
+        hub.add_household_person("Ann").unwrap();
+        hub.add_household_person("Leo").unwrap();
+        let person = |name: &str| hub.store.person_by_name(name).unwrap().unwrap();
+        let (ann, leo) = (person("Ann"), person("Leo"));
+        hub.store.start_profile(&leo.id, Role::Kid, false).unwrap();
+        hub.store.set_role(&leo.id, Role::Kid).unwrap();
+        let root = hub.notes_root();
+        let add = |title: &str, people: Vec<PersonId>| {
+            let file = format!("2026/Family/{title}.pdf");
+            std::fs::create_dir_all(root.join("2026/Family")).unwrap();
+            std::fs::write(root.join(&file), b"pdf").unwrap();
+            let mut f = fields(title, "Family");
+            f.people = people;
+            hub.store
+                .add_note(
+                    NewNote {
+                        fields: f,
+                        file,
+                        name: format!("{title}.pdf"),
+                        kind: "pdf".into(),
+                        size: 3,
+                        private: false,
+                    },
+                    &Actor::Person(jay.id.clone()),
+                )
+                .unwrap()
+                .id
+        };
+        let house = add("Home insurance", vec![]);
+        let anns = add("Ann blood test", vec![ann.id.clone()]);
+        let leos = add("Leo report card", vec![leo.id.clone()]);
+        let phone =
+            |p: &crate::store::PersonRecord| Viewer::person(p.id.clone(), p.name.clone(), false);
+        let keeps = |v: &Viewer| -> Vec<i64> {
+            let mut ids: Vec<i64> = hub
+                .records_to_keep(v)
+                .unwrap()
+                .iter()
+                .map(|n| n.id)
+                .collect();
+            ids.sort_unstable();
+            ids
+        };
+        // Ann: hers and the family's. Leo (a kid): only his own.
+        assert_eq!(keeps(&phone(&ann)), vec![house, anns]);
+        assert_eq!(keeps(&phone(&leo)), vec![leos]);
+        // An administrator's phone keeps every record.
+        let jays = phone(&person("Jay"));
+        assert_eq!(keeps(&jays), vec![house, anns, leos]);
+        // A phone gets only its own records' files.
+        assert!(hub.record_to_keep(&phone(&leo), anns).is_err());
+        assert!(hub.record_to_keep(&phone(&ann), anns).is_ok());
     }
 
     #[test]

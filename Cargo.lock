@@ -3341,6 +3341,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-autostart",
  "tauri-plugin-notification",
+ "tauri-plugin-open-record",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tokio",
@@ -5087,6 +5088,15 @@ dependencies = [
  "time",
  "url",
  "zbus",
+]
+
+[[package]]
+name = "tauri-plugin-open-record"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

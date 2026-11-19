@@ -38,7 +38,12 @@ struct Device {
     paired: Mutex<Option<Paired>>,
     link: Mutex<Option<mpsc::Sender<String>>>,
     copy: std::sync::Mutex<Option<ChatCopy>>,
+    /// Held while the Records copies are brought up to date: one at a time.
+    syncing: Mutex<()>,
 }
+
+/// The phone's copies of the family's Records ([`oxbot_device::records`]).
+const RECORDS_DIR: &str = "records";
 
 /// The saved pairing's format. A newer app reads older versions.
 const SAVED_VERSION: u32 = 1;
@@ -162,6 +167,67 @@ async fn forget(app: &AppHandle, device: &Device) {
             let _ = std::fs::remove_file(path);
         }
     }
+    if let Ok(dir) = data_path(app, RECORDS_DIR) {
+        oxbot_device::records::wipe(&dir);
+    }
+}
+
+/// Brings the phone's copies of the family's Records up to date: fetches
+/// what's new or changed, removes what's no longer this phone's.
+async fn sync_records(
+    app: &AppHandle,
+    device: &Device,
+) -> Result<oxbot_device::records::Synced, String> {
+    let _one = device.syncing.lock().await;
+    let Some(paired) = paired(app, device).await? else {
+        return Err("This phone isn't paired.".to_owned());
+    };
+    let dir = data_path(app, RECORDS_DIR).map_err(|e| format!("{e:#}"))?;
+    let list = oxbot_device::kept_records(&paired)
+        .await
+        .map_err(|e| e.to_string())?;
+    let done = oxbot_device::records::sync(&dir, &list, |id| {
+        let paired = paired.clone();
+        async move { oxbot_device::kept_record(&paired, id).await }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if done.fetched > 0 || done.removed > 0 || !done.failed.is_empty() {
+        tracing::info!(
+            fetched = done.fetched,
+            removed = done.removed,
+            failed = done.failed.len(),
+            "synced the Records"
+        );
+    }
+    Ok(done)
+}
+
+/// The page asks for the Records to be brought up to date (they changed).
+#[tauri::command]
+async fn records_sync(app: AppHandle, device: State<'_, Arc<Device>>) -> Result<(), String> {
+    sync_records(&app, &device).await.map(|_| ())
+}
+
+/// Opens record `id` in the phone's own app for its kind of file, from the
+/// phone's copy (fetched now if it isn't here yet).
+#[tauri::command]
+async fn record_open(
+    app: AppHandle,
+    device: State<'_, Arc<Device>>,
+    id: i64,
+) -> Result<(), String> {
+    let dir = data_path(&app, RECORDS_DIR).map_err(|e| format!("{e:#}"))?;
+    let path = if let Some(path) = oxbot_device::records::copy_of(&dir, id) {
+        path
+    } else {
+        let done = sync_records(&app, &device).await?;
+        if let Some((_, why)) = done.failed.iter().find(|(f, _)| *f == id) {
+            return Err(format!("That record couldn't be fetched: {why}"));
+        }
+        oxbot_device::records::copy_of(&dir, id).ok_or("That record isn't one this phone keeps.")?
+    };
+    tauri_plugin_open_record::open(&app, &path)
 }
 
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -355,6 +421,13 @@ async fn device_open(
         let socket = match oxbot_device::connect(&paired).await {
             Ok((host, socket)) => {
                 remember_host(&app, &device, &host).await;
+                // Connected: the Records copies catch up, out of the way.
+                let (app, device) = (app.clone(), Arc::clone(&device));
+                tauri::async_runtime::spawn(async move {
+                    if let Err(err) = sync_records(&app, &device).await {
+                        tracing::warn!(%err, "couldn't sync the Records");
+                    }
+                });
                 socket
             }
             Err(e) => {
@@ -516,7 +589,7 @@ fn view_intent(
 
 /// Opens the device window.
 pub fn run() -> anyhow::Result<()> {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_open_record::init());
     // Safari opens web links on an iPhone (see `open_outside`).
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_opener::init());
@@ -562,7 +635,9 @@ pub fn run() -> anyhow::Result<()> {
             device_page,
             device_open,
             device_send,
-            device_close
+            device_close,
+            records_sync,
+            record_open
         ])
         .run(tauri::generate_context!())
         .context("couldn't run the app")

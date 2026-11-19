@@ -1,14 +1,17 @@
 // Records: every file the family kept, by year and topic, newest
 // first, with a search box (title, topic, tags, people, summary, month).
-// A note opens on the home computer, or shows in Finder; tapping it shows
-// and changes what it's filed by. New files come in through the Family
-// Notes chat beside it.
+// One short row each: what it is, its day and who it's about. Open shows
+// it in the device's own app (a phone keeps copies of its records; the
+// home computer opens its own file, or shows it in Finder); tapping the
+// row shows and changes what it's filed by. New files come in through the
+// Records chat beside it.
 import { useEffect, useMemo, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Button, IconButton, Input, MenuIcon } from "../../components/ui";
 import type { HomeNoteInfo } from "../../net/protocol";
 import { byYearTopic, dayFrom, search, topics as topicsOf } from "../../state/notes";
 import { local } from "../../state/store";
+import { deviceBridge } from "../../web/address";
 import { longDay } from "../Calendar/CalendarView";
 import { HomeMode } from "../Calendar/HomeMode";
 import { HomeIcon } from "../Sidebar/HomeIcon";
@@ -19,7 +22,7 @@ import "./notes.css";
 const KIND_ICON: Record<string, string> = { pdf: "📄", image: "🖼️", text: "📝", document: "📃", sheet: "📊", slides: "📽️", video: "🎞️" };
 
 export function NotesView() {
-  const { send, dispatch } = useApp();
+  const { send, dispatch, toast } = useApp();
   const notes = useSel((s) => s.notes.notes);
   const loaded = useSel((s) => s.notes.loaded);
   const changed = useSel((s) => s.notes.changed);
@@ -33,6 +36,17 @@ export function NotesView() {
   useEffect(() => {
     if (status === "open") send({ type: "home_notes" });
   }, [changed, status, send]);
+
+  // A phone keeps copies of its records: a new list may mean new ones.
+  const device = useMemo(() => deviceBridge(window), []);
+  useEffect(() => {
+    if (loaded) device?.syncRecords?.().catch(() => {});
+  }, [notes, loaded, device]);
+  const open = (n: HomeNoteInfo) => {
+    if (device?.openRecord) device.openRecord(n.id).catch((e) => toast(String(e), true));
+    else send({ type: "open_note", id: n.id, reveal: false });
+  };
+  const canOpen = homeComputer || !!device?.openRecord;
 
   const topics = useMemo(() => topicsOf(notes), [notes]);
   const found = useMemo(() => search(notes, query, topic), [notes, query, topic]);
@@ -117,21 +131,20 @@ export function NotesView() {
                             </span>
                             <span className="note-meta" title={dayFrom(n)}>
                               {longDay(n.day, { month: "short", day: "numeric", year: "numeric" })}
-                              {n.day_from === "upload" ? " · uploaded" : n.day_from === "document" ? " · from the document" : ""}
                               {n.people.length ? ` · ${n.people.join(", ")}` : ""}
-                              {n.tags.length ? ` · ${n.tags.join(", ")}` : ""}
                             </span>
-                            {n.summary ? <span className="note-meta">{n.summary}</span> : null}
                           </span>
                         </button>
-                        {homeComputer ? (
+                        {canOpen ? (
                           <span className="note-actions">
-                            <Button kind="quiet" size="sm" onClick={() => send({ type: "open_note", id: n.id, reveal: false })}>
+                            <Button kind="quiet" size="sm" onClick={() => open(n)}>
                               Open
                             </Button>
-                            <Button kind="quiet" size="sm" onClick={() => send({ type: "open_note", id: n.id, reveal: true })}>
-                              Finder
-                            </Button>
+                            {homeComputer ? (
+                              <Button kind="quiet" size="sm" onClick={() => send({ type: "open_note", id: n.id, reveal: true })}>
+                                Finder
+                              </Button>
+                            ) : null}
                           </span>
                         ) : null}
                       </li>

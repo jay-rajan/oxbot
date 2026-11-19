@@ -119,7 +119,13 @@ function installDevice(homeComputer, person) {
     send(text) { if (this.readyState === 1) T.invoke("device_send", { text }).catch((e) => console.warn("oxbot device: send:", e)); }
     close() { this.readyState = 3; T.invoke("device_close").catch(() => {}); }
   }
-  window.oxbotDevice = { socket: () => new DeviceSocket(), homeComputer, person };
+  window.oxbotDevice = {
+    socket: () => new DeviceSocket(), homeComputer, person,
+    // The family's Records, kept on this phone: brought up to date, and one
+    // opened in the phone's own app for its kind of file.
+    syncRecords: () => T.invoke("records_sync"),
+    openRecord: (id) => T.invoke("record_open", { id }),
+  };
   // A home computer not yet updated reads the bridge by its old name.
   window.oxbotGate = { socket: window.oxbotDevice.socket, farm: homeComputer, person };
 }

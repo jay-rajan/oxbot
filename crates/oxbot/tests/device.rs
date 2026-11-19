@@ -50,6 +50,8 @@ struct HomeComputer {
     door: Arc<Door>,
     hub: Arc<Hub>,
     on: Network,
+    /// The home's database, for a test to add to as another part of oxbot would.
+    db: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -72,9 +74,10 @@ async fn home_computer_with(allow: bool, port: u16) -> HomeComputer {
         no_page: true,
         ..FakeBots::new(dir.path(), Tool::None)
     });
+    let db = dir.path().join("oxbot.db");
     let hub = Hub::new(
         vec![assistant, shared, private],
-        Store::open_in_memory().unwrap(),
+        Store::open(&db).unwrap(),
         HubConfig {
             browser: None,
             ..testing::config(dir.path(), &dir.path().join(".home"), &fake, codex().await)
@@ -116,6 +119,7 @@ async fn home_computer_with(allow: bool, port: u16) -> HomeComputer {
         door,
         hub,
         on,
+        db,
         _dir: dir,
     }
 }
@@ -646,4 +650,78 @@ async fn opening_a_bot_is_checked_like_subscribing() {
     assert_eq!(bot, "assistant");
     assert!(!events.is_empty() && events.len() <= 5);
     assert!(events.iter().all(|e| e.bot == "assistant"));
+}
+
+#[tokio::test]
+async fn a_phone_keeps_copies_of_its_records_only() {
+    use oxbot_core::store::{Actor, DayFrom, NewNote, NoteFields};
+    let mut home_computer = home_computer().await;
+    let ann = paired(&mut home_computer, "Ann").await;
+    let sam = paired(&mut home_computer, "Sam").await;
+    // Records, as the Records bot would file them.
+    let store = Store::open(&home_computer.db).unwrap();
+    let id_of = |name: &str| store.person_by_name(name).unwrap().unwrap().id;
+    let root = home_computer.hub.notes_root();
+    std::fs::create_dir_all(root.join("2026/Health")).unwrap();
+    let add = |title: &str, people| {
+        let file = format!("2026/Health/{title}.pdf");
+        std::fs::write(root.join(&file), title.as_bytes()).unwrap();
+        store
+            .add_note(
+                NewNote {
+                    fields: NoteFields {
+                        title: title.into(),
+                        day: "2026-11-13".into(),
+                        day_from: DayFrom::Upload,
+                        topic: "Health".into(),
+                        tags: vec![],
+                        people,
+                        summary: String::new(),
+                    },
+                    file,
+                    name: format!("{title}.pdf"),
+                    kind: "pdf".into(),
+                    size: title.len() as u64,
+                    private: true,
+                },
+                &Actor::Person(id_of("Ann")),
+            )
+            .unwrap()
+            .id
+    };
+    let family = add("Home insurance", vec![]);
+    let anns = add("Ann blood test", vec![id_of("Ann")]);
+
+    // Ann's phone keeps both; Sam's only the family's.
+    let ids = |list: Vec<oxbot_protocol::KeptRecord>| list.iter().map(|r| r.id).collect::<Vec<_>>();
+    let mut mine = ids(oxbot_device::kept_records(&ann).await.unwrap());
+    mine.sort_unstable();
+    assert_eq!(mine, vec![family, anns]);
+    assert_eq!(
+        ids(oxbot_device::kept_records(&sam).await.unwrap()),
+        vec![family]
+    );
+    // The file comes through the pinned link, as it is.
+    assert_eq!(
+        oxbot_device::kept_record(&ann, anns).await.unwrap(),
+        b"Ann blood test"
+    );
+    assert!(matches!(
+        oxbot_device::kept_record(&sam, anns).await,
+        Err(DeviceError::Refused(_))
+    ));
+
+    // The phone's copies: fetched once, kept by name.
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("records");
+    let list = oxbot_device::kept_records(&ann).await.unwrap();
+    let done = oxbot_device::records::sync(&dir, &list, |id| {
+        let ann = ann.clone();
+        async move { oxbot_device::kept_record(&ann, id).await }
+    })
+    .await
+    .unwrap();
+    assert_eq!(done.fetched, 2);
+    let copy = oxbot_device::records::copy_of(&dir, anns).unwrap();
+    assert!(copy.ends_with("Ann blood test.pdf"));
 }

@@ -49,6 +49,8 @@ oxbot-device.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.5", features = [] }
+# Opens the family's Records, kept on the phone, in the phone's own apps.
+tauri-plugin-open-record = { path = "../../crates/tauri-plugin-open-record" }
 # Reads the pairing QR code on the phone itself (pure Rust): no Google
 # Play services or ML Kit, which would talk to Google.
 rqrr = { version = "0.11.0", default-features = false }

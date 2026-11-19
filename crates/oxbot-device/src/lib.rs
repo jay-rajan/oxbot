@@ -16,6 +16,7 @@
 //!   reading away from home.
 
 pub mod copy;
+pub mod records;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -202,6 +203,37 @@ pub async fn fetch(paired: &Paired, path: &str) -> Result<(String, Vec<u8>), Dev
     request(&paired.home_computer, "GET", path, Some(&paired.key), None).await
 }
 
+/// The records this phone keeps a copy of (see [`records`]).
+///
+/// # Errors
+/// The home computer can't be reached, refuses, or answers something else.
+pub async fn kept_records(paired: &Paired) -> Result<Vec<oxbot_protocol::KeptRecord>, DeviceError> {
+    let (_, body) = fetch(paired, "/records").await?;
+    serde_json::from_slice(&body).map_err(|e| DeviceError::BadReply(e.to_string()))
+}
+
+/// The largest record a phone keeps a copy of.
+const MAX_RECORD: usize = 200 * 1024 * 1024;
+
+/// Record `id`'s file. A big one may take minutes on slow Wi-Fi.
+///
+/// # Errors
+/// The home computer can't be reached, or refuses (not this phone's record).
+pub async fn kept_record(paired: &Paired, id: i64) -> Result<Vec<u8>, DeviceError> {
+    let path = format!("/records/{id}");
+    let limits = (MAX_RECORD, Duration::from_secs(600));
+    let (_, body) = request_within(
+        &paired.home_computer,
+        "GET",
+        &path,
+        Some(&paired.key),
+        None,
+        limits,
+    )
+    .await?;
+    Ok(body)
+}
+
 /// A WebSocket message.
 pub use tokio_tungstenite::tungstenite::Message;
 
@@ -237,6 +269,27 @@ async fn request(
     key: Option<&str>,
     body: Option<&[u8]>,
 ) -> Result<(String, Vec<u8>), DeviceError> {
+    request_within(
+        home_computer,
+        method,
+        path,
+        key,
+        body,
+        (MAX_BODY, ANSWER_TIMEOUT),
+    )
+    .await
+}
+
+/// [`request`] with its own limits: the most bytes the answer may have, and
+/// how long it may take.
+async fn request_within(
+    home_computer: &HomeComputer,
+    method: &str,
+    path: &str,
+    key: Option<&str>,
+    body: Option<&[u8]>,
+    (max_body, answer_timeout): (usize, Duration),
+) -> Result<(String, Vec<u8>), DeviceError> {
     let bad = |e: &dyn std::fmt::Display| DeviceError::BadReply(e.to_string());
     let (host, tls) = open(home_computer).await?;
     let (mut sender, connection) =
@@ -266,7 +319,7 @@ async fn request(
         let resp = sender.send_request(req).await.map_err(|e| bad(&e))?;
         let status = resp.status().as_u16();
         // A cut-off answer is an error here, never a short page.
-        let body = Limited::new(resp.into_body(), MAX_BODY)
+        let body = Limited::new(resp.into_body(), max_body)
             .collect()
             .await
             .map_err(|e| bad(&e))?
@@ -274,7 +327,7 @@ async fn request(
             .to_vec();
         Ok::<_, DeviceError>((status, body))
     };
-    let (status, body) = tokio::time::timeout(ANSWER_TIMEOUT, answer)
+    let (status, body) = tokio::time::timeout(answer_timeout, answer)
         .await
         .map_err(|_| bad(&"the home computer took too long to answer"))??;
     match status {

@@ -2025,6 +2025,21 @@ pub struct NoteUpload {
     pub note: NoteInput,
 }
 
+/// A record a phone keeps a copy of (the device door's `GET /records`):
+/// enough to tell whether its copy is current.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptRecord {
+    /// [`HomeNoteInfo::id`].
+    pub id: i64,
+    /// Its file's name as uploaded (`Report card.pdf`): the phone keeps it
+    /// under this name, so the app that opens it sees the right kind.
+    pub name: String,
+    /// Its size in bytes.
+    pub size: u64,
+    /// When it last changed: a copy older than this is fetched again.
+    pub updated_ms: i64,
+}
+
 /// A note in Records: a file the family keeps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

@@ -609,6 +609,9 @@ pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
         // hashes in its own policy: see `inline_into`).
         .route("/", get(|| async { Html(inline_page()) }))
         .route("/ws", get(ws_upgrade))
+        // The records this phone keeps a copy of, and each one's file.
+        .route("/records", get(kept_records))
+        .route("/records/{id}", get(kept_record))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(door),
             crate::door::http::require_key,
@@ -619,6 +622,50 @@ pub fn door_router(state: AppState, door: &Arc<crate::door::Door>) -> Router {
                 .route("/pair", post(crate::door::http::pair))
                 .with_state(Arc::clone(door)),
         )
+}
+
+/// `GET /records`: the records the asking phone keeps a copy of.
+async fn kept_records(
+    State(state): State<AppState>,
+    Extension(auth): Extension<crate::door::http::DeviceAuth>,
+) -> Response {
+    match state.hub.records_to_keep(&auth.viewer) {
+        Ok(list) => axum::Json(
+            list.into_iter()
+                .map(|n| oxbot_protocol::KeptRecord {
+                    id: n.id,
+                    name: n.name,
+                    size: n.size,
+                    updated_ms: n.updated_ms,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => (StatusCode::FORBIDDEN, e.to_string()).into_response(),
+    }
+}
+
+/// `GET /records/{id}`: one of those records' file.
+async fn kept_record(
+    State(state): State<AppState>,
+    Extension(auth): Extension<crate::door::http::DeviceAuth>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    let path = match state.hub.record_to_keep(&auth.viewer, id) {
+        Ok((_, path)) => path,
+        Err(e) => return (StatusCode::FORBIDDEN, e.to_string()).into_response(),
+    };
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response(),
+        Err(err) => {
+            tracing::warn!(%err, "couldn't read a record for a phone");
+            (
+                StatusCode::NOT_FOUND,
+                "That record's file isn't there any more.",
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Serves until `shutdown` resolves.

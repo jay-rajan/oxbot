@@ -8,6 +8,11 @@ export interface DeviceBridge {
   homeComputer?: string;
   /** The person this phone is paired as. */
   person?: string;
+  /** Brings the phone's copies of the family's Records up to date (a phone
+   *  app made before Records were kept on phones has none). */
+  syncRecords?(): Promise<void>;
+  /** Opens record `id`, from the phone's copy, in the phone's own app. */
+  openRecord?(id: number): Promise<void>;
 }
 
 declare global {
