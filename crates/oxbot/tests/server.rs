@@ -789,7 +789,7 @@ async fn usage_alerts_reach_everyone_with_one_notification_each() {
 }
 
 #[tokio::test]
-async fn only_the_home_computer_turns_usage_alerts_off_and_then_none_come() {
+async fn only_admins_turn_usage_alerts_off_and_then_none_come() {
     if codex().await.is_none() {
         return;
     }
@@ -801,7 +801,7 @@ async fn only_the_home_computer_turns_usage_alerts_off_and_then_none_come() {
     loop {
         if let ServerMsg::Error { message } = next(&mut sam).await {
             assert!(
-                message.contains("only be done on the home computer"),
+                message.contains("Only the home's administrators"),
                 "{message}"
             );
             break;

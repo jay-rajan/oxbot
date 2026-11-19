@@ -265,7 +265,8 @@ async fn a_phone_pairs_once_and_then_acts_as_its_person() {
     })
     .await;
     assert!(bots.iter().any(|b| b.id == "bank" && b.private));
-    for home_computer_only in [
+    // Pairing and the home's networks: administrators only.
+    for admin_only in [
         ClientMsg::StartPairing {
             person: "Mallory".into(),
         },
@@ -274,11 +275,11 @@ async fn a_phone_pairs_once_and_then_acts_as_its_person() {
             name: "Mine".into(),
         },
     ] {
-        send(&mut phone, &home_computer_only).await;
+        send(&mut phone, &admin_only).await;
         assert!(
             error(&mut phone)
                 .await
-                .contains("only be done on the home computer")
+                .contains("Only the home's administrators")
         );
     }
     send(

@@ -204,7 +204,8 @@ impl Updates {
             }
             Err(why) => {
                 tracing::warn!(%version, %why, "couldn't download the update");
-                self.set(UpdateState::Failed, Some(&version), Some(why)).await;
+                self.set(UpdateState::Failed, Some(&version), Some(why))
+                    .await;
             }
         }
     }
@@ -271,8 +272,13 @@ impl Updates {
                 });
             }
         };
-        oxbot::update::gather(&packs, &data.join("tools"), &resources().join("tools"), &on_fetch)
-            .await?;
+        oxbot::update::gather(
+            &packs,
+            &data.join("tools"),
+            &resources().join("tools"),
+            &on_fetch,
+        )
+        .await?;
         Ok(bytes)
     }
 
@@ -290,8 +296,12 @@ impl Updates {
         let Some(hub) = self.hub().await else { return };
         if let Some(why) = hub.restart_waits_for(oxbot::runtime::now_ms()).await {
             if soon {
-                self.set(UpdateState::Ready, Some(&version), Some(waiting_line(Some(&why))))
-                    .await;
+                self.set(
+                    UpdateState::Ready,
+                    Some(&version),
+                    Some(waiting_line(Some(&why))),
+                )
+                .await;
             }
             return;
         }

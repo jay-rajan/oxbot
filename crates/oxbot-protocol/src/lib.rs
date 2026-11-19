@@ -551,6 +551,15 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
+    /// Administrators only: make someone on the household list an
+    /// administrator, or not (a home keeps at least one). Everyone gets the
+    /// new [`ServerMsg::People`].
+    SetAdmin {
+        /// Who, by name.
+        name: String,
+        /// Administrator or not.
+        on: bool,
+    },
     /// Home computer only: ask now whether a newer oxbot is out (it also
     /// asks on its own every few hours). Progress comes as
     /// [`ServerMsg::Settings`].
@@ -1569,6 +1578,11 @@ pub struct AppSettings {
     /// delete every bot, private ones included.
     #[serde(default)]
     pub home_computer: bool,
+    /// Whether this client may administer the home: the home computer, or
+    /// one of its administrators on any device. They see and manage every
+    /// bot, the people and the home's settings.
+    #[serde(default)]
+    pub admin: bool,
     /// Whether oxbot tells the user when use passes 50% and 80% of the
     /// household's `OpenRouter` limits.
     #[serde(default = "yes")]
@@ -2110,6 +2124,10 @@ pub struct Person {
     /// Their photo, a small `data:image/…` URL, if they chose one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub photo: Option<String>,
+    /// An administrator: sees and manages every bot, the people and the
+    /// home's settings, from any device.
+    #[serde(default)]
+    pub admin: bool,
 }
 
 /// One's own profile, as Settings → People and the welcome screen show it.
@@ -3332,6 +3350,7 @@ mod tests {
             launch_at_login: None,
             you: "Jay".into(),
             home_computer: true,
+            admin: true,
             usage_alerts: true,
             dictation: false,
             owner: true,

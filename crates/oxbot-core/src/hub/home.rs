@@ -515,6 +515,7 @@ mod tests {
             id: None,
             name: String::new(),
             home_computer: false,
+            admin: false,
         };
         assert!(
             hub.home_events(&stranger, "2026-11-16", "2026-11-22")

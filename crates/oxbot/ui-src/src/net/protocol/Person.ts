@@ -19,4 +19,9 @@ role: string,
 /**
  * Their photo, a small `data:image/…` URL, if they chose one.
  */
-photo: string | null, };
+photo: string | null, 
+/**
+ * An administrator: sees and manages every bot, the people and the
+ * home's settings, from any device.
+ */
+admin: boolean, };

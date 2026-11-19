@@ -19,6 +19,7 @@ pub(super) fn person(name: &str, color: i64) -> Person {
         color: color_name(color),
         role: String::new(),
         photo: None,
+        admin: false,
     }
 }
 
@@ -307,9 +308,54 @@ impl Store {
             "UPDATE people SET owner = 0 WHERE owner <> 0 AND id <> ?1",
             [id.as_str()],
         )?;
-        tx.execute("UPDATE people SET owner = 1 WHERE id = ?1", [id.as_str()])?;
+        // The home computer's person is always an administrator.
+        tx.execute(
+            "UPDATE people SET owner = 1, admin = 1 WHERE id = ?1",
+            [id.as_str()],
+        )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Whether `id` is an administrator (and still on the household list).
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn is_admin(&self, id: &PersonId) -> Result<bool, StoreError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT admin = 1 AND removed_ms IS NULL FROM people WHERE id = ?1",
+                [id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(false))
+    }
+
+    /// Makes `id` an administrator, or not.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn set_admin(&self, id: &PersonId, on: bool) -> Result<(), StoreError> {
+        self.conn().execute(
+            "UPDATE people SET admin = ?2 WHERE id = ?1",
+            params![id.as_str(), i64::from(on)],
+        )?;
+        Ok(())
+    }
+
+    /// How many administrators are on the household list.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn admin_count(&self) -> Result<usize, StoreError> {
+        let n: i64 = self.conn().query_row(
+            "SELECT COUNT(*) FROM people WHERE admin = 1 AND removed_ms IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(usize::try_from(n).unwrap_or(0))
     }
 
     /// Changes a person's name. Returns `false` (and changes nothing) if
@@ -388,7 +434,7 @@ impl Store {
     pub fn people(&self) -> Result<Vec<Person>, StoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT p.name, p.color, COALESCE(f.role, CASE WHEN p.owner = 1 THEN 'owner' ELSE 'adult' END), f.photo
+            "SELECT p.name, p.color, COALESCE(f.role, CASE WHEN p.owner = 1 THEN 'owner' ELSE 'adult' END), f.photo, p.admin = 1
              FROM people p LEFT JOIN profiles f ON f.person = p.id
              WHERE p.removed_ms IS NULL
              ORDER BY p.first_ms, p.rowid",
@@ -397,6 +443,7 @@ impl Store {
             Ok(Person {
                 role: r.get(2)?,
                 photo: r.get(3)?,
+                admin: r.get(4)?,
                 ..person(&r.get::<_, String>(0)?, r.get(1)?)
             })
         })?;

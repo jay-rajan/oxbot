@@ -274,11 +274,14 @@ impl Hub {
             .person_by_name(name.trim())?
             .filter(|p| !self.store.is_removed(&p.id).unwrap_or(true))
             .ok_or_else(|| HubError::NotAllowed(format!("{} isn't in the home.", name.trim())))?;
-        if viewer.id.as_ref() == Some(&person.id) || self.is_home_computer_side(&viewer) {
+        if viewer.id.as_ref() == Some(&person.id)
+            || viewer.sees_all()
+            || self.is_home_computer_side(&viewer)
+        {
             Ok(person)
         } else {
             Err(HubError::NotAllowed(
-                "Only they, or the owner, can see what bots remember about them.".to_owned(),
+                "Only they, or an administrator, can see what bots remember about them.".to_owned(),
             ))
         }
     }
@@ -311,7 +314,9 @@ impl Hub {
         // One plain line: no brackets, so it can't pass for oxbot's own notes.
         let text = field(text, MAX_MEMORY_TEXT, "Each thing")?;
         if text.is_empty() {
-            return Err(HubError::NotAllowed("Say what bots should remember.".to_owned()));
+            return Err(HubError::NotAllowed(
+                "Say what bots should remember.".to_owned(),
+            ));
         }
         let now = self.store.memory(&person.id)?;
         if now.len() >= MAX_MEMORY {

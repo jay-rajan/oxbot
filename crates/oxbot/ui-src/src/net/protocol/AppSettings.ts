@@ -28,6 +28,12 @@ you: string,
  */
 home_computer: boolean, 
 /**
+ * Whether this client may administer the home: the home computer, or
+ * one of its administrators on any device. They see and manage every
+ * bot, the people and the home's settings.
+ */
+admin: boolean, 
+/**
  * Whether oxbot tells the user when use passes 50% and 80% of the
  * household's `OpenRouter` limits.
  */

@@ -19,7 +19,8 @@ export function NewBotDialog() {
 function NewBotForm({ close }: { close: () => void }) {
   const { send } = useApp();
   // Only the owner of the home computer can have private bots.
-  const ownsHome = useSel((s) => !!s.connection.settings?.owner);
+  // Only administrators keep bots private.
+  const ownsHome = useSel((s) => !!s.connection.settings?.admin);
   const [priv, setPriv] = useState(false);
   const name = useRef<HTMLInputElement>(null);
   const instr = useRef<HTMLTextAreaElement>(null);

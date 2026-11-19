@@ -166,7 +166,7 @@ export function BotMenu({
             act: () => {
               close(true);
               send({ type: "set_private", bot: id, private: true });
-              toast("Private now: only you see it.");
+              toast("Private now: only you and the home's administrators see it.");
             },
           });
         }

@@ -589,6 +589,13 @@ pub(super) const MIGRATIONS: &[Step] = &[
             SELECT person, trim(notes), updated_ms FROM profiles
             WHERE notes_use = 1 AND trim(notes) <> '';",
     ),
+    // 35: administrators, any number of them (at least one): they see and
+    // manage every bot and the home's settings from any device. The home
+    // computer's own person is the first.
+    Step::Sql(
+        "ALTER TABLE people ADD COLUMN admin INTEGER NOT NULL DEFAULT 0;
+        UPDATE people SET admin = 1 WHERE owner = 1;",
+    ),
 ];
 
 /// Migration 29. Skipped if the column is already there (a database

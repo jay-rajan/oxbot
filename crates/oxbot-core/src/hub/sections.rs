@@ -337,10 +337,8 @@ mod tests {
             hub.move_bot(sams_assistant.as_str(), Some(&mine), &sam)
                 .is_err()
         );
-        assert!(matches!(
-            hub.move_bot(sams_assistant.as_str(), None, &jay),
-            Err(HubError::UnknownBot(_))
-        ));
+        // Not even by an administrator (Jay sees it, but no Assistant is filed).
+        assert!(hub.move_bot(sams_assistant.as_str(), None, &jay).is_err());
         assert!(matches!(
             hub.move_bot("nobody", Some(&mine), &sam),
             Err(HubError::UnknownBot(_))

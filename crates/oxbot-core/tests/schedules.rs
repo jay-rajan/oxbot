@@ -373,12 +373,19 @@ async fn an_update_waits_for_a_working_bot_and_a_schedule_about_to_run() {
     assert_eq!(hub.restart_waits_for(now).await, None, "a quiet home");
 
     let mut updates = hub.subscribe();
-    hub.send_as("prep", "every weekday at 8:15 send me today's prep plan", &home_computer)
-        .await
-        .unwrap();
+    hub.send_as(
+        "prep",
+        "every weekday at 8:15 send me today's prep plan",
+        &home_computer,
+    )
+    .await
+    .unwrap();
     // Its card waits for Jay mid-turn.
     let card = next_card(&mut updates).await;
-    assert_eq!(hub.restart_waits_for(now).await.as_deref(), Some("prep is working"));
+    assert_eq!(
+        hub.restart_waits_for(now).await.as_deref(),
+        Some("prep is working")
+    );
     hub.answer_as(card.id, Answer::AllowOnce, &home_computer)
         .unwrap();
     turn_done(&mut updates, "prep").await;

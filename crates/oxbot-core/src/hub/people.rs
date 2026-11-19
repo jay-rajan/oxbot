@@ -88,7 +88,10 @@ pub(super) fn hand_over_private_bots(
     owner: &PersonRecord,
 ) -> usize {
     let mut handed = 0;
-    for bot in bots.iter_mut().filter(|b| needs_hand_over(b, &owner.id)) {
+    for bot in bots
+        .iter_mut()
+        .filter(|b| needs_hand_over(b, &owner.id, store))
+    {
         let from = bot.owner.clone();
         let was = bot.effective_sharing();
         // The picked people go first: a file saved without them would
@@ -108,7 +111,7 @@ pub(super) fn hand_over_private_bots(
                     from = from.as_ref().map_or("nobody", PersonId::as_str),
                     ?was,
                     to = %owner.id,
-                    "only the owner may have private bots: handed this one to the owner"
+                    "only administrators may have private bots: handed this one to the owner"
                 );
                 *bot = handed_bot;
                 handed += 1;
@@ -123,13 +126,16 @@ pub(super) fn hand_over_private_bots(
 }
 
 /// Whether `bot` is a private bot (not shared with everyone) that someone
-/// other than `owner` made, so it goes to them (see
+/// other than `owner`, and not an administrator, made, so it goes to them (see
 /// [`hand_over_private_bots`]). One nobody is recorded as making is left
 /// alone: only the home computer itself can open it already.
-fn needs_hand_over(bot: &Bot, owner: &PersonId) -> bool {
+fn needs_hand_over(bot: &Bot, owner: &PersonId, store: &Store) -> bool {
     !bot.is_central()
         && bot.effective_sharing() != Sharing::Everyone
-        && bot.owner.as_ref().is_some_and(|o| o != owner)
+        && bot
+            .owner
+            .as_ref()
+            .is_some_and(|o| o != owner && !store.is_admin(o).unwrap_or(false))
 }
 
 /// A person's name made safe: trimmed, one space between words, at most
@@ -141,6 +147,10 @@ fn needs_hand_over(bot: &Bot, owner: &PersonId) -> bool {
 /// What's wrong with it.
 /// At most this many people on the household list.
 pub const MAX_HOUSEHOLD: usize = 6;
+
+/// Why the last administrator stays one.
+pub const LAST_ADMIN: &str =
+    "A home needs at least one administrator. Make someone else one first.";
 
 pub(super) fn checked_name(name: &str, empty: &str) -> Result<String, HubError> {
     let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -176,13 +186,22 @@ impl Hub {
     /// [`HubConfig::enrol_named_viewers`]: super::HubConfig
     #[must_use]
     pub fn resolve<'a>(&self, viewer: &'a Viewer) -> Cow<'a, Viewer> {
-        if viewer.id.is_some() {
-            return Cow::Borrowed(viewer);
+        if let Some(id) = &viewer.id {
+            // Whether they're an administrator is the hub's to say, now.
+            let admin = self.is_admin_person(id.as_str());
+            if admin == viewer.admin {
+                return Cow::Borrowed(viewer);
+            }
+            return Cow::Owned(Viewer {
+                admin,
+                ..viewer.clone()
+            });
         }
         let nobody = Viewer {
             id: None,
             name: String::new(),
             home_computer: viewer.home_computer,
+            admin: false,
         };
         if viewer.name.trim().is_empty() {
             return Cow::Owned(nobody);
@@ -196,7 +215,11 @@ impl Hub {
         };
         match found {
             Ok(Some(person)) => {
-                Cow::Owned(Viewer::person(person.id, person.name, viewer.home_computer))
+                let admin = self.is_admin_person(person.id.as_str());
+                Cow::Owned(Viewer {
+                    admin,
+                    ..Viewer::person(person.id, person.name, viewer.home_computer)
+                })
             }
             Ok(None) => Cow::Owned(nobody),
             Err(err) => {
@@ -396,7 +419,19 @@ impl Hub {
         }
     }
 
-    /// Whether `id` (a person id) is the home computer's own person's.
+    /// Whether `id` (a person id) is one of the home's administrators.
+    #[must_use]
+    pub fn is_admin_person(&self, id: &str) -> bool {
+        PersonId::new(id).is_ok_and(|id| {
+            self.store.is_admin(&id).unwrap_or_else(|err| {
+                // Not an administrator rather than one by mistake.
+                tracing::warn!(%err, "couldn't read who the administrators are");
+                false
+            })
+        })
+    }
+
+    /// Whether `id` is the home computer's own person.
     #[must_use]
     pub fn is_owner_person(&self, id: &str) -> bool {
         self.owner_person_id().is_some_and(|f| f.as_str() == id)
@@ -438,7 +473,7 @@ impl Hub {
             let mut bots = self.bots.write().unwrap_or_else(PoisonError::into_inner);
             let mut list: Vec<Bot> = bots
                 .values()
-                .filter(|b| needs_hand_over(b, &owner.id))
+                .filter(|b| needs_hand_over(b, &owner.id, &self.store))
                 .cloned()
                 .collect();
             if list.is_empty() {
@@ -458,10 +493,9 @@ impl Hub {
         }
     }
 
-    /// Whether `person` may have private bots: only the owner (the home
-    /// computer's own person) may.
+    /// Whether `person` may have private bots: only administrators may.
     pub(super) fn may_keep_private(&self, person: Option<&PersonId>) -> bool {
-        person.is_some_and(|p| self.is_owner_person(p.as_str()))
+        person.is_some_and(|p| self.is_admin_person(p.as_str()))
     }
 
     /// Whether `assistant` is `asker`'s own Assistant: their personal one, or the
@@ -668,6 +702,56 @@ impl Hub {
         Ok(())
     }
 
+    /// Makes someone on the household list an administrator, or not. A
+    /// home always keeps at least one. Someone who stops being one hands
+    /// their private bots to the home computer's person (as at start).
+    ///
+    /// # Errors
+    /// They aren't listed, they're the last administrator, or the database
+    /// failed.
+    pub fn set_household_admin(&self, name: &str, on: bool) -> Result<(), HubError> {
+        let person = self
+            .store
+            .person_by_name(name.trim())?
+            .filter(|p| !self.store.is_removed(&p.id).unwrap_or(true))
+            .ok_or_else(|| HubError::NotAllowed(format!("{} isn't in the home.", name.trim())))?;
+        if self.store.is_admin(&person.id)? == on {
+            return Ok(());
+        }
+        if !on && self.store.admin_count()? <= 1 {
+            return Err(HubError::NotAllowed(LAST_ADMIN.to_owned()));
+        }
+        self.store.set_admin(&person.id, on)?;
+        tracing::info!(person = %person.id, admin = on, "changed who administers the home");
+        if !on
+            && let Some(owner) = self.store.owner_person()?
+            && owner.id != person.id
+        {
+            self.hand_over_to(&owner);
+        }
+        self.announce_people();
+        let _ = self.updates.send(ServerMsg::ProfilesChanged);
+        if let Some(hub) = self.me.upgrade()
+            && let Ok(rt) = tokio::runtime::Handle::try_current()
+        {
+            rt.spawn(async move { hub.announce_bots().await });
+        }
+        Ok(())
+    }
+
+    /// Makes `person` an administrator if the home has none (the first
+    /// person in, on a computer with no person of its own).
+    fn first_admin(&self, person: &PersonId) {
+        match self.store.admin_count() {
+            Ok(0) => match self.store.set_admin(person, true) {
+                Ok(()) => tracing::info!(%person, "the home's first administrator"),
+                Err(err) => tracing::warn!(%err, "couldn't make the first administrator"),
+            },
+            Ok(_) => {}
+            Err(err) => tracing::warn!(%err, "couldn't count the administrators"),
+        }
+    }
+
     /// Takes someone (not the owner) off the household list and unpairs
     /// their devices; their bots and history stay. Returns their devices'
     /// ids, so their connections can be closed.
@@ -676,6 +760,9 @@ impl Hub {
     /// They aren't listed, are the owner, or the database failed.
     pub fn remove_household_person(&self, name: &str) -> Result<Vec<String>, HubError> {
         let person = self.listed_person(name)?;
+        if self.store.is_admin(&person.id)? && self.store.admin_count()? <= 1 {
+            return Err(HubError::NotAllowed(LAST_ADMIN.to_owned()));
+        }
         let devices = self.store.remove_person(&person.id)?;
         tracing::info!(person = %person.id, devices = devices.len(), "took someone off the home's list");
         self.announce_people();
@@ -713,6 +800,7 @@ impl Hub {
     ) -> Result<DeviceInfo, HubError> {
         let (device, new) = self.store.add_device(id, person, device, key_hash)?;
         if let Some(found) = self.store.person_by_name(person)? {
+            self.first_admin(&found.id);
             self.welcome_new_device(&found.id)?;
         }
         if new {
@@ -734,6 +822,7 @@ impl Hub {
         key_hash: &str,
     ) -> Result<DeviceInfo, HubError> {
         let device = self.store.add_device_for(id, person, device, key_hash)?;
+        self.first_admin(person);
         self.welcome_new_device(person)?;
         Ok(device)
     }

@@ -423,7 +423,8 @@ impl Hub {
         let (bots, _) = people::adopt_bots(bots, &store, owner.as_ref());
         // Who each bot is shared with: its file says how, the database whom.
         let mut bots = access::with_members(bots, &store);
-        // Only the owner may have private bots: anyone else's become theirs.
+        // Only administrators may have private bots: anyone else's become
+        // the owner's.
         if let Some(owner) = owner.as_ref() {
             people::hand_over_private_bots(&mut bots, &store, owner);
         }
@@ -880,14 +881,18 @@ mod tests {
             "nobody gets no Assistant"
         );
 
-        // The home computer's person on their phone (by id) uses the home computer's Assistant,
-        // but only the home computer secret gives home computer rights.
+        // The home computer's person on their phone (by id) uses the home
+        // computer's Assistant, and as an administrator (by id, never by
+        // name) sees every bot.
         let phone = Viewer::person(jay.id.clone(), "Jay", false);
         assert_eq!(
             hub.assistant_of(&phone).unwrap().as_str(),
             crate::bot::DEFAULT_BOT
         );
-        assert!(hub.bot_for(bank, &phone).is_err());
+        assert!(hub.bot_for(bank, &phone).is_ok());
+        hub.set_household_admin("Ann", true).unwrap();
+        hub.set_household_admin("Jay", false).unwrap();
+        assert!(hub.bot_for(bank, &phone).is_err(), "no longer one");
         let home_computer = hub.home_computer_viewer("Jay");
         assert!(home_computer.home_computer && home_computer.id == Some(jay.id.clone()));
         assert!(hub.bot_for(bank, &home_computer).is_ok());
@@ -931,7 +936,8 @@ mod tests {
         assert!(hub.bot_for(sams.as_str(), &sam).is_ok());
         assert!(hub.bot_for(sams.as_str(), &home_computer).is_ok());
         assert!(hub.bot_for(sams.as_str(), &ann).is_err());
-        assert!(hub.bot_for(sams.as_str(), &phone).is_err());
+        // An administrator (Jay, on his phone) sees every bot.
+        assert!(hub.bot_for(sams.as_str(), &phone).is_ok());
         assert!(!hub.visible_ids(&ann).contains(sams.as_str()));
     }
 
@@ -1243,7 +1249,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_private_bot_nobody_made_stays_the_home_computers_alone() {
+    async fn a_private_bot_nobody_made_stays_the_home_computers_and_admins() {
         let tmp = tempfile::tempdir().unwrap();
         let mut diary = Bot::create(tmp.path(), BotId::new("diary").unwrap(), "Diary", "").unwrap();
         diary.private = true;
@@ -1253,8 +1259,9 @@ mod tests {
         let diary = hub.bot("diary").unwrap();
         assert_eq!(diary.owner, None, "not given to the Mac owner");
         assert_eq!(Bot::load(&diary.dir).unwrap().owner, None);
+        // The home's administrators see it too (Jay is one); nobody else.
         let phone = Viewer::person(jay.id, "Jay", false);
-        assert!(hub.bot_for("diary", &phone).is_err());
+        assert!(hub.bot_for("diary", &phone).is_ok());
         let home_computer = hub.home_computer_viewer("Jay");
         let list = hub.bots_for(&home_computer).await.unwrap();
         assert!(
@@ -1337,6 +1344,78 @@ mod tests {
             anna.id
         );
         assert_eq!(names(&hub).len(), 6);
+    }
+
+    #[tokio::test]
+    async fn administrators_see_every_bot_and_a_home_keeps_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        let jay = hub.owner_person("Jay").unwrap();
+        hub.add_household_person("Ann").unwrap();
+        hub.add_household_person("Sam").unwrap();
+        let person = |name: &str| hub.store.person_by_name(name).unwrap().unwrap();
+        let (ann, sam) = (person("Ann"), person("Sam"));
+        let phone =
+            |p: &crate::store::PersonRecord| Viewer::person(p.id.clone(), p.name.clone(), false);
+        // The home computer's person is the first administrator.
+        assert!(hub.is_admin_person(jay.id.as_str()));
+        assert!(!hub.is_admin_person(ann.id.as_str()));
+        // A viewer can't call itself one: the hub says.
+        let claims = Viewer {
+            admin: true,
+            ..phone(&sam)
+        };
+        assert!(!hub.resolve(&claims).admin);
+
+        hub.create_bot_with("Bank", "", Some("Jay"), true)
+            .await
+            .unwrap();
+        assert!(!hub.visible_ids(&phone(&ann)).contains("bank"));
+        // Ann can't keep a bot private yet.
+        hub.create_bot_with("Diary", "", Some("Ann"), false)
+            .await
+            .unwrap();
+        assert!(hub.set_private("diary", true, &phone(&ann)).await.is_err());
+
+        // Made an administrator: she sees Jay's private bot and may keep
+        // her own private.
+        hub.set_household_admin("Ann", true).unwrap();
+        assert!(hub.resolve(&phone(&ann)).admin);
+        assert!(hub.visible_ids(&phone(&ann)).contains("bank"));
+        hub.set_private("diary", true, &phone(&ann)).await.unwrap();
+        assert!(
+            hub.visible_ids(&phone(&jay)).contains("diary"),
+            "Jay is one too"
+        );
+        assert!(!hub.visible_ids(&phone(&sam)).contains("diary"));
+
+        // Jay steps down; Ann is then the last one and stays.
+        hub.set_household_admin("Jay", false).unwrap();
+        assert!(hub.set_household_admin("Ann", false).is_err());
+        assert!(hub.remove_household_person("Ann").is_err());
+        assert!(!hub.visible_ids(&phone(&jay)).contains("diary"));
+        // Jay again; Ann steps down, and her private bot goes to Jay.
+        hub.set_household_admin("Jay", true).unwrap();
+        hub.set_household_admin("Ann", false).unwrap();
+        let diary = hub.bot("diary").unwrap();
+        assert_eq!(diary.owner.as_ref(), Some(&jay.id));
+        assert!(!hub.visible_ids(&phone(&ann)).contains("diary"));
+    }
+
+    #[tokio::test]
+    async fn the_first_person_in_is_the_administrator_when_there_is_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A computer with no person of its own (a rented one, later).
+        let hub = strict_hub(tmp.path(), vec![], Store::open_in_memory().unwrap());
+        hub.add_household_person("Ann").unwrap();
+        hub.add_household_person("Sam").unwrap();
+        let ann = hub.store.person_by_name("Ann").unwrap().unwrap();
+        let sam = hub.store.person_by_name("Sam").unwrap().unwrap();
+        hub.add_device_for("g1", &sam.id, "Pixel", "hash1").unwrap();
+        hub.add_device_for("g2", &ann.id, "iPhone", "hash2")
+            .unwrap();
+        assert!(hub.is_admin_person(sam.id.as_str()), "the first phone in");
+        assert!(!hub.is_admin_person(ann.id.as_str()));
     }
 
     #[tokio::test]

@@ -259,9 +259,10 @@ other bots. Keep replies short: the user may be reading on a phone.";
 
 /// Who is asking: a person, and whether they're on the home computer itself.
 ///
-/// The home computer (the Mac that runs the bots) can see and change every bot.
-/// Anyone else sees shared bots and their own private ones. These are the
-/// only rules for that: the page and the Assistant get their answers from here.
+/// The home computer (the Mac that runs the bots) and the home's
+/// administrators can see and change every bot. Anyone else sees shared bots
+/// and their own private ones. These are the only rules for that: the page
+/// and the Assistant get their answers from here.
 ///
 /// A viewer tied to a person (every viewer the server and hub make) is
 /// matched with bots by person id; names are only for showing. One with
@@ -276,6 +277,9 @@ pub struct Viewer {
     /// On the home computer itself. Only the home computer secret makes a connection this,
     /// never a name.
     pub home_computer: bool,
+    /// One of the home's administrators. Only the hub says so (`Hub::resolve`,
+    /// from the person's id), never a name or the viewer itself.
+    pub admin: bool,
 }
 
 impl Viewer {
@@ -286,6 +290,7 @@ impl Viewer {
             id: None,
             name: name.into(),
             home_computer: true,
+            admin: false,
         }
     }
 
@@ -296,6 +301,7 @@ impl Viewer {
             id: None,
             name: name.into(),
             home_computer: false,
+            admin: false,
         }
     }
 
@@ -306,6 +312,7 @@ impl Viewer {
             id: Some(id),
             name: name.into(),
             home_computer,
+            admin: false,
         }
     }
 
@@ -321,7 +328,7 @@ impl Viewer {
     /// (person ids; picked people). A member is matched by id only.
     #[must_use]
     pub fn can_see_shared(&self, made_by: Option<&str>, private: bool, members: &[String]) -> bool {
-        self.home_computer || !private || self.made(made_by) || self.is_member(members)
+        self.sees_all() || !private || self.made(made_by) || self.is_member(members)
     }
 
     /// Whether they're one of `members` (person ids), by id.
@@ -336,7 +343,14 @@ impl Viewer {
     /// `made_by` (as for [`Viewer::can_see`]).
     #[must_use]
     pub fn can_manage(&self, made_by: Option<&str>) -> bool {
-        self.home_computer || self.made(made_by)
+        self.sees_all() || self.made(made_by)
+    }
+
+    /// The home computer or an administrator: every bot, and the home's
+    /// people and settings.
+    #[must_use]
+    pub fn sees_all(&self) -> bool {
+        self.home_computer || self.admin
     }
 
     /// Who made a bot, as this viewer is matched against it: its owner's

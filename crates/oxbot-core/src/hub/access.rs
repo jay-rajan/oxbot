@@ -14,7 +14,7 @@ use crate::store::Store;
 pub const MAX_MEMBERS: usize = 20;
 
 /// What anyone but the owner hears when they ask for a private bot.
-pub const PRIVATE_IS_OWNERS: &str = "Only the owner of the home computer can have private bots. \
+pub const PRIVATE_IS_OWNERS: &str = "Only the home's administrators can have private bots. \
      Bots you make are shared with everyone in the home.";
 
 /// The longest a bot's instructions may be, in characters.
@@ -263,9 +263,9 @@ impl Hub {
             ));
         }
         let owner = bot.owner.clone().or_else(|| viewer.id.clone());
-        // Only the owner may have private bots, and only their own.
+        // Only administrators may have private bots, and only their own.
         if sharing != Sharing::Everyone && !self.may_keep_private(owner.as_ref()) {
-            return Err(HubError::NotAllowed(if self.is_owner_viewer(viewer) {
+            return Err(HubError::NotAllowed(if self.resolve(viewer).admin {
                 match maker_name(&bot, &self.person_names()) {
                     Some(who) => format!(
                         "Only your own bots can be private. {} is {who}'s, so it stays shared with everyone in the home.",

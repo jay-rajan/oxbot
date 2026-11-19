@@ -135,6 +135,7 @@ impl PersonRecord {
             color: self.color.clone(),
             role: if self.owner { "owner" } else { "adult" }.to_owned(),
             photo: None,
+            admin: self.owner,
         }
     }
 }

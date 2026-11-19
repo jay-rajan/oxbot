@@ -223,8 +223,13 @@ async fn download(http: &reqwest::Client, pack: &Pack, own: &Path) -> Result<u64
     let mut got = 0u64;
     let mut body = resp.bytes_stream();
     while let Some(chunk) = body.next().await {
-        let chunk =
-            chunk.map_err(|e| format!("the download of {} stopped: {}", pack.folder(), e.without_url()))?;
+        let chunk = chunk.map_err(|e| {
+            format!(
+                "the download of {} stopped: {}",
+                pack.folder(),
+                e.without_url()
+            )
+        })?;
         got += chunk.len() as u64;
         if got + if resumed { have } else { 0 } > pack.size {
             break;
@@ -300,11 +305,16 @@ async fn sha256_of(path: &Path) -> Option<String> {
             }
             ctx.update(&buf[..n]);
         }
-        Some(ctx.finish().as_ref().iter().fold(String::new(), |mut hex, b| {
-            use std::fmt::Write as _;
-            let _ = write!(hex, "{b:02x}");
-            hex
-        }))
+        Some(
+            ctx.finish()
+                .as_ref()
+                .iter()
+                .fold(String::new(), |mut hex, b| {
+                    use std::fmt::Write as _;
+                    let _ = write!(hex, "{b:02x}");
+                    hex
+                }),
+        )
     })
     .await
     .ok()
@@ -366,7 +376,14 @@ mod tests {
             .unwrap();
         assert!(made.success());
         let list = packs_in_update(&archive).await.unwrap();
-        assert_eq!(list, [Pack { sha256: "ab".into(), size: 5, ..pack(packs::NODE, "24.22.2") }]);
+        assert_eq!(
+            list,
+            [Pack {
+                sha256: "ab".into(),
+                size: 5,
+                ..pack(packs::NODE, "24.22.2")
+            }]
+        );
         // Something else isn't an update.
         let not = tmp.path().join("other.tar.gz");
         std::fs::write(&not, b"not an archive").unwrap();
@@ -388,15 +405,19 @@ mod tests {
         std::fs::create_dir_all(own.join("notes")).unwrap();
 
         let fetched = std::sync::Mutex::new(Vec::new());
-        gather(std::slice::from_ref(&node), &own, &inside, &|f| fetched.lock().unwrap().push(f))
-            .await
-            .unwrap();
+        gather(std::slice::from_ref(&node), &own, &inside, &|f| {
+            fetched.lock().unwrap().push(f);
+        })
+        .await
+        .unwrap();
         assert!(fetched.lock().unwrap().is_empty(), "nothing downloaded");
         let copy = own.join("node-24.22.2");
         assert!(packs::is_marked(&copy, &node));
         assert_eq!(std::fs::read(copy.join("bin/node")).unwrap(), b"#!");
         // Already there: left as it is.
-        gather(std::slice::from_ref(&node), &own, &inside, &|_| {}).await.unwrap();
+        gather(std::slice::from_ref(&node), &own, &inside, &|_| {})
+            .await
+            .unwrap();
 
         tidy(std::slice::from_ref(&node), &own);
         let mut left: Vec<String> = std::fs::read_dir(&own)

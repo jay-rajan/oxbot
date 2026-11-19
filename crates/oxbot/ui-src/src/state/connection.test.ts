@@ -10,6 +10,7 @@ const settings: AppSettings = {
   launch_at_login: null,
   you: "Jay",
   home_computer: true,
+  admin: true,
   usage_alerts: true,
   dictation: false,
   owner: true,

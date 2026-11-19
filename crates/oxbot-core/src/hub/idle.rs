@@ -19,7 +19,10 @@ impl Hub {
             runtimes
                 .iter()
                 .filter(|(_, r)| r.busy)
-                .map(|(id, _)| bots.get(id).map_or_else(|| id.to_string(), |b| b.name.clone()))
+                .map(|(id, _)| {
+                    bots.get(id)
+                        .map_or_else(|| id.to_string(), |b| b.name.clone())
+                })
                 .collect()
         };
         if let Some(first) = busy.first() {

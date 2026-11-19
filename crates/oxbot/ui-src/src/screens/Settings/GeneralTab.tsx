@@ -73,14 +73,14 @@ function NotifySection() {
       <Switch
         id="usageAlerts"
         checked={!!settings && settings.usage_alerts !== false}
-        disabled={!!settings && !settings.home_computer}
+        disabled={!!settings && !settings.admin}
         onChange={(e) => send({ type: "set_usage_alerts", on: e.target.checked })}
       >
         Tell me when AI use passes 50% and 80% of a limit
       </Switch>
       {/* A bot waiting for an OK or a sign-in while oxbot is hidden always notifies. */}
       <Hint id="notifyHint">
-        {!settings ? "" : settings.home_computer ? "Mac notifications need permission in System Settings → Notifications." : "Set on the home computer."}
+        {!settings ? "" : settings.home_computer ? "Mac notifications need permission in System Settings → Notifications." : settings.admin ? "Shown on the home computer." : "Set by the home's administrators."}
       </Hint>
     </Section>
   );
@@ -97,6 +97,9 @@ function AiSection() {
   const capFormRef = useRef<HTMLFormElement>(null);
 
   const homeComputer = !!settings?.home_computer;
+  // An administrator manages the account from any device; connecting it
+  // happens in the home computer's browser.
+  const admin = !!settings?.admin;
   const or = engines?.openrouter ?? null;
   const waiting = !!settings?.keychain_waiting;
   const signed = !!or?.signed_in;
@@ -111,7 +114,9 @@ function AiSection() {
       : !signed
         ? homeComputer
           ? "Not connected. Bots need an AI account to think."
-          : `Not connected yet; ask ${owner}.`
+          : admin
+            ? "Not connected. Connect it on the home computer."
+            : `Not connected yet; ask ${owner}.`
         : "Connected to OpenRouter · free models first";
 
   // This month's paid AI against its limit, and today's free questions.
@@ -122,7 +127,7 @@ function AiSection() {
   const used = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
   const parts = [key?.is_free_tier ? "No credit bought: free models only" : `${money(spent)} of ${money(cap)} paid AI this month`];
   if (key?.free_limit) parts.push(`${key.free_used ?? 0} of ${key.free_limit} free questions today`);
-  const capShown = signed && homeComputer && !key?.is_free_tier;
+  const capShown = signed && admin && !key?.is_free_tier;
 
   // The limit field follows the server, except while it's being typed in.
   useEffect(() => {
@@ -152,7 +157,7 @@ function AiSection() {
         <Button kind="primary" id="orSignIn" hidden={!homeComputer || signed || waiting || !or} onClick={() => send({ type: "open_router_sign_in" })}>
           Connect OpenRouter
         </Button>
-        <Button size="sm" id="orSignOut" hidden={!homeComputer || !signed} onClick={() => send({ type: "open_router_sign_out" })}>
+        <Button size="sm" id="orSignOut" hidden={!admin || !signed} onClick={() => send({ type: "open_router_sign_out" })}>
           Sign out
         </Button>
       </div>
@@ -188,11 +193,10 @@ function LoginSection() {
   const { send } = useApp();
   const at = useSel((s) => s.connection.settings?.launch_at_login);
   const awake = useSel((s) => s.connection.settings?.keep_awake);
-  const owner = useSel((s) => !!s.connection.settings?.owner);
-  // Keeping awake is changed on the home computer only; another device doesn't show it.
-  const here = useSel((s) => !!s.connection.settings?.home_computer);
+  // Keeping awake is the administrators' (the server sends it only to them).
+  const admin = useSel((s) => !!s.connection.settings?.admin);
   const noLogin = at === null || at === undefined;
-  const noAwake = awake === null || awake === undefined || !owner || !here;
+  const noAwake = awake === null || awake === undefined || !admin;
   return (
     <Section id="loginSection" title="Startup and sleep" hidden={noLogin && noAwake}>
       <Switch id="launchAtLogin" rowHidden={noLogin} checked={!!at} onChange={(e) => send({ type: "set_launch_at_login", on: e.target.checked })}>
@@ -208,14 +212,13 @@ function LoginSection() {
 
 export const KEEP_AWAKE_HINT = "Bots can run schedules; the screen still sleeps.";
 
-/** "Keep the Mac awake while plugged in": the owner at the home computer only (else hidden). */
+/** "Keep the Mac awake while plugged in": administrators only (else hidden). */
 export function KeepAwakeSwitch({ id = "keepAwake", children }: { id?: string; children?: ReactNode }) {
   const { send } = useApp();
   const awake = useSel((s) => s.connection.settings?.keep_awake);
-  const owner = useSel((s) => !!s.connection.settings?.owner);
-  const here = useSel((s) => !!s.connection.settings?.home_computer);
+  const admin = useSel((s) => !!s.connection.settings?.admin);
   return (
-    <Switch id={id} rowHidden={awake === null || awake === undefined || !owner || !here} checked={!!awake} onChange={(e) => send({ type: "set_keep_awake", on: e.target.checked })}>
+    <Switch id={id} rowHidden={awake === null || awake === undefined || !admin} checked={!!awake} onChange={(e) => send({ type: "set_keep_awake", on: e.target.checked })}>
       {children ?? "Keep the Mac awake while plugged in"}
     </Switch>
   );

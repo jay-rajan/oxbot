@@ -1,6 +1,6 @@
 // Settings → Memory: what bots remember about each person, as a list to add
 // to and take from. Bots get the asker's list with each task, never their
-// name. On the home computer everyone's list shows; on a phone, your own.
+// name. Administrators see everyone's list; anyone else, their own.
 import { type FormEvent, useEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Button, CloseIcon, IconButton, Input, Section, vars } from "../../components/ui";
@@ -8,9 +8,9 @@ import { Button, CloseIcon, IconButton, Input, Section, vars } from "../../compo
 export function MemoryTab({ hidden }: { hidden: boolean }) {
   const settings = useSel((s) => s.connection.settings);
   const people = useSel((s) => s.home.people);
-  const homeComputer = !!settings?.home_computer;
+  const admin = !!settings?.admin;
   const you = settings?.you;
-  const shown = homeComputer ? people : people.filter((p) => p.name === you);
+  const shown = admin ? people : people.filter((p) => p.name === you);
   return (
     <div id="setMemory" className="settings-pane" role="tabpanel" hidden={hidden}>
       <p className="note-text">Things bots should keep in mind when someone asks them for help, like "Vegetarian" or "Speaks Malayalam". Bots see the list of whoever is asking, never their name.</p>

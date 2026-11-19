@@ -1,12 +1,13 @@
 // Settings → People: the home computer that runs the bots, then the
-// household (up to six people). On the home computer each person has a QR
-// code to join their phone and an edit button (rename, their phones,
-// Remove from home); Add person adds someone by name. Your own row edits
+// household (up to six people). For the home's administrators (on the home
+// computer or any device) each person has a QR code to join their phone and
+// an edit button (rename, Administrator, their phones, Remove from home);
+// Add person adds someone by name. Your own row edits
 // your details. The Wi-Fi networks phones may use are hidden: pairing lets
 // phones use the network the home computer is on.
 import { type FormEvent, useEffect, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Banner, Button, cx, ErrorText, IconButton, Input, List, ListRow, PlusIcon, Section, vars } from "../../components/ui";
+import { Banner, Button, cx, ErrorText, IconButton, Input, List, ListRow, PlusIcon, Section, Switch, vars } from "../../components/ui";
 import type { DeviceInfo, Person } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ProfileFields, useProfileDraft } from "../Welcome/ProfileFields";
@@ -157,12 +158,12 @@ function PairingBox() {
 /** + Add person: a name, and they pick the rest on their phone. */
 function AddPerson() {
   const { send, dispatch } = useApp();
-  const homeComputer = useSel((s) => !!s.connection.settings?.home_computer);
+  const admin = useSel((s) => !!s.connection.settings?.admin);
   const people = useSel((s) => s.home.people);
   const open = useSel((s) => s.activity.pairFormOpen);
   const [name, setName] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  if (!homeComputer) return null;
+  if (!admin) return null;
   const full = people.length >= MAX_PEOPLE;
   if (!open)
     return (
@@ -206,24 +207,26 @@ function PeopleRows() {
   const live = useLivePairing();
   const startPairing = useStartPairing();
   const arm = useArm();
-  const homeComputer = !!settings?.home_computer;
+  // The home computer and administrators manage people, on any device.
+  const admin = !!settings?.admin;
   const you = settings?.you;
+  const admins = people.filter((p) => p.admin).length;
 
   // Everyone, and anyone with a device who isn't listed yet.
   const list: Person[] = [...people];
   for (const g of devices)
     if (!list.some((p) => p.name === g.person))
-      list.push({ name: g.person, color: people.find((p) => p.name === g.person)?.color || "var(--muted)", role: "adult", photo: null });
+      list.push({ name: g.person, color: people.find((p) => p.name === g.person)?.color || "var(--muted)", role: "adult", photo: null, admin: false });
 
   return (
     <List className="people-rows" id="peopleRows">
       {list.map((p) => {
         const devs = devices.filter((g) => g.person === p.name);
         const owner = p.role === "owner";
-        const role = owner ? "owner" : p.role === "kid" ? "kid account" : "";
+        const role = p.admin ? "admin" : p.role === "kid" ? "kid account" : "";
         const devText = devs.map((g) => `${g.name}, ${seenText(g)}`).join(" · ") || "No phone yet";
         const mine = p.name === you;
-        const canEdit = mine || homeComputer;
+        const canEdit = mine || admin;
         const isOpen = personOpen === p.name;
         const pairingHere = live?.pairing.person === p.name;
         return (
@@ -242,7 +245,7 @@ function PeopleRows() {
             sub={devText}
             trail={
               <span className="person-acts">
-                {homeComputer ? (
+                {admin ? (
                   <IconButton label={`Show a QR code for ${p.name} to scan from their phone`} className={cx("qr-btn", pairingHere && "on")} onClick={() => (pairingHere ? send({ type: "cancel_pairing" }) : startPairing(p.name))}>
                     <QrIcon />
                   </IconButton>
@@ -266,15 +269,16 @@ function PeopleRows() {
             {pairingHere ? <div className="person-edit"><PairingBox /></div> : null}
             {isOpen ? (
               <div className="person-edit">
-                {mine ? <MeForm /> : homeComputer && !owner ? <RenameForm name={p.name} /> : null}
-                {homeComputer && devs.length ? (
+                {mine ? <MeForm /> : admin && !owner ? <RenameForm name={p.name} /> : null}
+                {admin ? <AdminSwitch person={p} last={p.admin && admins <= 1} /> : null}
+                {admin && devs.length ? (
                   <List className="device-list">
                     {devs.map((g) => (
                       <DeviceRow key={g.id} g={g} armed={arm.armed === g.id} onRemove={() => arm.fire(g.id) && send({ type: "remove_device", id: g.id })} />
                     ))}
                   </List>
                 ) : null}
-                {homeComputer && !owner ? (
+                {admin && !owner && !(p.admin && admins <= 1) ? (
                   <div className="btn-row">
                     <Button kind="quiet" className="danger-text" id="removePerson" onClick={() => arm.fire(`p:${p.name}`) && send({ type: "remove_person", name: p.name })}>
                       {arm.armed === `p:${p.name}` ? `Yes, remove ${p.name}` : "Remove from home"}
@@ -298,7 +302,21 @@ function PeopleRows() {
   );
 }
 
-/** Someone else's name, changed by the owner on the home computer. */
+/** Administrator or not: sees and manages every bot (private ones too),
+ *  the people and the home's settings, from any device. A home keeps one. */
+function AdminSwitch({ person, last }: { person: Person; last: boolean }) {
+  const { send } = useApp();
+  return (
+    <div className="admin-switch">
+      <Switch id={`admin-${person.name}`} checked={person.admin} disabled={last} onChange={(e) => send({ type: "set_admin", name: person.name, on: e.target.checked })}>
+        Administrator
+      </Switch>
+      <small className="field-hint">{last ? "A home needs at least one administrator. Make someone else one first." : "Sees every bot, private ones too, and manages the people and the home's settings from any device."}</small>
+    </div>
+  );
+}
+
+/** Someone else's name, changed by an administrator. */
 function RenameForm({ name }: { name: string }) {
   const { send } = useApp();
   const [to, setTo] = useState(name);

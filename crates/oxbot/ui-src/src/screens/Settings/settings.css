@@ -88,6 +88,7 @@
 /* People */
 .person-photo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; display: block; }
 .person-row .person-dot { width: 12px; height: 12px; }
+.admin-switch { display: grid; gap: var(--s-1); }
 .person-edit { grid-column: 1 / -1; display: grid; gap: var(--s-4); padding: var(--s-2) 0 var(--s-3); min-width: 0; }
 .profile-form { display: grid; gap: var(--s-4); min-width: 0; }
 

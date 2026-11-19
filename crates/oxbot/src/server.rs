@@ -21,8 +21,8 @@ use oxbot_core::id::BrowserOwner;
 use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
-    AppSettings, AppUpdate, ClientMsg, DEFAULT_PAGE, EnginesView, KeyLimits, LogLine, MAX_PAGE, ModelRow,
-    OpenRouterView, ServerHello, ServerMsg, SetupReport,
+    AppSettings, AppUpdate, ClientMsg, DEFAULT_PAGE, EnginesView, KeyLimits, LogLine, MAX_PAGE,
+    ModelRow, OpenRouterView, ServerHello, ServerMsg, SetupReport,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
@@ -123,14 +123,14 @@ pub trait AppControls: Send + Sync + std::fmt::Debug {
 const NO_UPDATES: &str = "Updates are only in the oxbot app.";
 
 /// Settings' "Check for updates" (or, with `install`, "Restart to update").
-fn update_request(state: &AppState, install: bool) -> Vec<ServerMsg> {
+fn update_request(state: &AppState, viewer: &Viewer, install: bool) -> Vec<ServerMsg> {
     let asked = match &state.app {
         None => Err(NO_UPDATES.to_owned()),
         Some(app) if install => app.install_update(),
         Some(app) => app.check_for_update(),
     };
     match asked {
-        Ok(()) => vec![ServerMsg::Settings(state.settings())],
+        Ok(()) => vec![ServerMsg::Settings(state.settings_for(viewer))],
         Err(message) => vec![ServerMsg::Error { message }],
     }
 }
@@ -145,6 +145,7 @@ impl AppState {
     /// The app's settings as `viewer` gets them.
     #[must_use]
     pub fn settings_for(&self, viewer: &Viewer) -> AppSettings {
+        let viewer = &*self.hub.resolve(viewer);
         AppSettings {
             codex_ready: self.hub.engine_ready(EngineKind::Codex).is_ok(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -152,6 +153,7 @@ impl AppState {
             launch_at_login: self.app.as_ref().and_then(|a| a.launch_at_login()),
             you: viewer.name.clone(),
             home_computer: viewer.home_computer,
+            admin: viewer.sees_all(),
             usage_alerts: self.hub.usage_alerts_on(),
             // The Mac's own microphone: the home computer's alone.
             dictation: viewer.home_computer && self.dictation.available(),
@@ -163,27 +165,27 @@ impl AppState {
                 .openrouter
                 .as_ref()
                 .is_some_and(|a| a.waiting_for_keychain()),
-            // The Mac's own sleep: the home computer's alone.
+            // The Mac's own sleep and the app's own update: the home
+            // computer's and the administrators'.
             keep_awake: self
                 .awake
                 .as_ref()
-                .filter(|_| viewer.home_computer)
+                .filter(|_| viewer.sees_all())
                 .map(|_| self.hub.keep_awake_on()),
-            // The app's own update: the home computer's alone.
             update: self
                 .app
                 .as_ref()
-                .filter(|_| viewer.home_computer)
+                .filter(|_| viewer.sees_all())
                 .and_then(|a| a.update()),
         }
     }
 
     /// Settings → Engines as `viewer` gets it: everyone the notice and
-    /// whether each engine is ready; the home computer also `OpenRouter`'s account
-    /// and what was found of Codex.
+    /// whether each engine is ready; the home computer and the
+    /// administrators also `OpenRouter`'s account and what was found of Codex.
     #[must_use]
     pub fn engines_for(&self, viewer: &Viewer) -> EnginesView {
-        let home_computer = viewer.home_computer;
+        let home_computer = self.hub.resolve(viewer).sees_all();
         let catalog = self.catalog();
         let models = catalog
             .as_ref()
@@ -1357,6 +1359,10 @@ async fn connection(
     .await;
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one connection's life: what it's sent first, then its loop"
+)]
 async fn serve_client(
     socket: WebSocket,
     state: &AppState,
@@ -1370,6 +1376,8 @@ async fn serve_client(
     // Subscribe before replaying history, so nothing falls in the gap.
     let mut updates = state.hub.subscribe();
     let (out_tx, mut out_rx) = mpsc::channel::<ServerMsg>(64);
+    // An administrator sees what the home computer sees.
+    let viewer = state.hub.resolve(&viewer).into_owned();
     let assistant = assistant_for(&state, &viewer);
     let visible = state.hub.visible_ids(&viewer);
     let mut client = Client::with_visible(viewer, visible, assistant);
@@ -1395,7 +1403,7 @@ async fn serve_client(
     first.extend(state.hub.sections_for(&client.viewer));
     // Only once there are devices, so clients that don't know devices (an older
     // `oxbot chat`) never see the message on a home computer that has none.
-    if let Some(door) = state.door.as_ref().filter(|_| client.viewer.home_computer) {
+    if let Some(door) = state.door.as_ref().filter(|_| client.viewer.sees_all()) {
         let devices = door.devices();
         if !devices.is_empty() {
             first.push(ServerMsg::Devices { devices });
@@ -1443,7 +1451,16 @@ async fn serve_client(
                 Some(Ok(_)) => continue, // pings, binary: ignore
             },
             update = updates.recv() => match update {
-                Ok(msg) => forward(msg, &mut client).into_iter().collect(),
+                Ok(msg) => {
+                    let mut out = Vec::new();
+                    // The household changed: they may have been made (or
+                    // stopped being) an administrator.
+                    if matches!(msg, ServerMsg::People { .. }) {
+                        out.extend(refresh_admin(&state, &mut client));
+                    }
+                    out.extend(forward(msg, &mut client));
+                    out
+                }
                 Err(broadcast::error::RecvError::Lagged(n)) => vec![ServerMsg::Error {
                     message: format!("missed {n} updates; subscribe again to catch up"),
                 }],
@@ -1570,6 +1587,9 @@ async fn handle(
     client: &mut Client,
     out: &mpsc::Sender<ServerMsg>,
 ) -> Vec<ServerMsg> {
+    // Who they are now: someone may have been made (or stopped being) an
+    // administrator since they connected.
+    client.viewer = state.hub.resolve(&client.viewer).into_owned();
     let viewer = client.viewer.clone();
     let msg = client.inbound(msg);
     let error = |e: &dyn std::fmt::Display| {
@@ -1580,12 +1600,15 @@ async fn handle(
     if !viewer.home_computer && home_computer_only(&msg) {
         return error(&"That can only be done on the home computer.");
     }
+    if !viewer.sees_all() && admin_only(&msg) {
+        return error(&"Only the home's administrators can do that.");
+    }
     // Comparing engines and models: the owner's only (the hub checks).
     let msg = match crate::compare::handle(msg, &state.hub, &viewer, state.dev_tools).await {
         Ok(reply) => return reply,
         Err(other) => other,
     };
-    let msg = match handle_home_computer(msg, state).await {
+    let msg = match handle_home_computer(msg, state, &viewer).await {
         Ok(reply) => return reply,
         Err(other) => other,
     };
@@ -2035,6 +2058,7 @@ fn history(bot: String, page: oxbot_core::store::HistoryPage) -> ServerMsg {
 async fn handle_home_computer(
     msg: ClientMsg,
     state: &AppState,
+    viewer: &Viewer,
 ) -> Result<Vec<ServerMsg>, ClientMsg> {
     let error = |e: &dyn std::fmt::Display| {
         vec![ServerMsg::Error {
@@ -2056,6 +2080,10 @@ async fn handle_home_computer(
                 Err(e) => error(&format!("{e:#}")),
             }
         }
+        ClientMsg::SetAdmin { name, on } => match state.hub.set_household_admin(&name, on) {
+            Ok(()) => Vec::new(),
+            Err(e) => error(&e),
+        },
         ClientMsg::AddPerson { name } => match state.hub.add_household_person(&name) {
             Ok(()) => Vec::new(),
             Err(e) => error(&e),
@@ -2086,14 +2114,14 @@ async fn handle_home_computer(
                 return Ok(error(&"Launch at login is only in the oxbot app."));
             };
             match app.set_launch_at_login(on) {
-                Ok(()) => vec![ServerMsg::Settings(state.settings())],
+                Ok(()) => vec![ServerMsg::Settings(state.settings_for(viewer))],
                 Err(e) => error(&e),
             }
         }
-        ClientMsg::CheckForUpdate => update_request(state, false),
-        ClientMsg::InstallUpdate => update_request(state, true),
+        ClientMsg::CheckForUpdate => update_request(state, viewer, false),
+        ClientMsg::InstallUpdate => update_request(state, viewer, true),
         ClientMsg::SetUsageAlerts { on } => match state.hub.set_usage_alerts(on) {
-            Ok(()) => vec![ServerMsg::Settings(state.settings())],
+            Ok(()) => vec![ServerMsg::Settings(state.settings_for(viewer))],
             Err(e) => error(&e),
         },
         ClientMsg::SetKeepAwake { on } => {
@@ -2105,7 +2133,7 @@ async fn handle_home_computer(
             match state.hub.set_keep_awake(on) {
                 Ok(()) => {
                     awake.set(on);
-                    vec![ServerMsg::Settings(state.settings())]
+                    vec![ServerMsg::Settings(state.settings_for(viewer))]
                 }
                 Err(e) => error(&e),
             }
@@ -2220,12 +2248,29 @@ async fn handle_door(msg: ClientMsg, door: &crate::door::Door) -> anyhow::Result
     })
 }
 
-/// What only the home computer itself may do: pair and remove devices, pick the
-/// networks phones use, change the Mac's setup and its notifications.
+/// What needs the home computer itself: its own microphone and screen,
+/// starting at login, where Codex is on it, and signing in to `OpenRouter`
+/// (in its browser).
 fn home_computer_only(msg: &ClientMsg) -> bool {
     matches!(
         msg,
-        ClientMsg::StartPairing { .. }
+        ClientMsg::SetLaunchAtLogin { .. }
+            | ClientMsg::OpenRouterSignIn
+            | ClientMsg::FindCodex { .. }
+            | ClientMsg::Dictate { .. }
+            | ClientMsg::OpenFile { .. }
+            | ClientMsg::OpenNote { .. }
+    )
+}
+
+/// What the home computer and the home's administrators (on any device)
+/// may do: the people and their devices, the networks phones use, the
+/// home's settings, updates, and the AI account's settings.
+fn admin_only(msg: &ClientMsg) -> bool {
+    home_computer_only(msg)
+        || matches!(
+            msg,
+            ClientMsg::StartPairing { .. }
             | ClientMsg::CancelPairing
             | ClientMsg::RemoveDevice { .. }
             | ClientMsg::AddDoorNetwork
@@ -2235,7 +2280,7 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             | ClientMsg::AddPerson { .. }
             | ClientMsg::RenamePerson { .. }
             | ClientMsg::RemovePerson { .. }
-            | ClientMsg::SetLaunchAtLogin { .. }
+            | ClientMsg::SetAdmin { .. }
             | ClientMsg::SetUsageAlerts { .. }
             // The Mac's own sleep.
             | ClientMsg::SetKeepAwake { .. }
@@ -2243,19 +2288,12 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             | ClientMsg::CheckForUpdate
             | ClientMsg::InstallUpdate
             // The household's OpenRouter account and settings.
-            | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut
             | ClientMsg::RefreshModels
             | ClientMsg::SetEnginePrefs { .. }
-            // Which program runs Codex bots on this Mac.
-            | ClientMsg::FindCodex { .. }
             // Websites with fine-grained control (one step at a time).
             | ClientMsg::SetFineGrainedSite { .. }
-            // The Mac's own microphone, and opening files on its screen.
-            | ClientMsg::Dictate { .. }
-            | ClientMsg::OpenFile { .. }
-            | ClientMsg::OpenNote { .. }
-    )
+        )
 }
 
 /// How `/usr/bin/open` shows a file sent in a chat (`kind`, saved at
@@ -2684,10 +2722,12 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::OpenRouterAuth { .. }
         | ServerMsg::Dictation { .. }
         | ServerMsg::SignInFrame { .. }
-        | ServerMsg::Pairing(_)
+        => client.viewer.home_computer.then_some(msg),
+        // Pairing and devices: the home computer's and the administrators'.
+        ServerMsg::Pairing(_)
         | ServerMsg::PairingClosed
         | ServerMsg::Devices { .. }
-        | ServerMsg::Door(_) => client.viewer.home_computer.then_some(msg),
+        | ServerMsg::Door(_) => client.viewer.sees_all().then_some(msg),
         // Comparisons of engines and models: the owner's alone. Practice
         // runs are never a chat's events.
         ServerMsg::Ratings { .. }
@@ -2740,6 +2780,25 @@ fn forward(msg: ServerMsg, client: &mut Client) -> Option<ServerMsg> {
         | ServerMsg::Engines(_)
         | ServerMsg::Error { .. } => Some(msg),
     }
+}
+
+/// After a change to the household: if this client became (or stopped
+/// being) an administrator, what they see changes, and they're told.
+fn refresh_admin(state: &AppState, client: &mut Client) -> Vec<ServerMsg> {
+    let fresh = state.hub.resolve(&client.viewer).into_owned();
+    if fresh.admin == client.viewer.admin {
+        return Vec::new();
+    }
+    client.viewer = fresh;
+    client.visible = state.hub.visible_ids(&client.viewer);
+    let mut out = vec![ServerMsg::Settings(state.settings_for(&client.viewer))];
+    if let Some(door) = state.door.as_ref().filter(|_| client.viewer.sees_all()) {
+        out.push(ServerMsg::Devices {
+            devices: door.devices(),
+        });
+        out.push(ServerMsg::Door(door.state()));
+    }
+    out
 }
 
 async fn send<S>(sink: &mut S, msg: &ServerMsg) -> Result<(), S::Error>
@@ -3556,7 +3615,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_home_computer_keeps_the_mac_awake_and_turns_it_off() {
+    async fn only_the_home_computer_and_admins_keep_the_mac_awake() {
         let tmp = tempfile::tempdir().unwrap();
         let base = state(tmp.path());
         let awake = Arc::new(crate::awake::KeepAwake::start(
@@ -3568,12 +3627,12 @@ mod tests {
             awake: Some(Arc::clone(&awake)),
             ..base
         };
-        // On by default, and only the home computer sees it.
+        // On by default, and only the home computer (and administrators) see it.
         assert_eq!(state.settings().keep_awake, Some(true));
         assert!(awake.is_on());
         let sam = Viewer::device("Sam");
         assert_eq!(state.settings_for(&sam).keep_awake, None);
-        assert!(home_computer_only(&ClientMsg::SetKeepAwake { on: false }));
+        assert!(admin_only(&ClientMsg::SetKeepAwake { on: false }));
         let (out, _rx) = mpsc::channel(4);
         let mut phone = Client::new(sam, &[]);
         let replies = handle(
@@ -3584,11 +3643,12 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("home computer"))
+            matches!(&replies[..], [ServerMsg::Error { message }] if message.contains("administrators"))
         );
         assert!(state.hub.keep_awake_on());
         // The home computer turns it off: kept, and the program stops.
-        let replies = handle_home_computer(ClientMsg::SetKeepAwake { on: false }, &state)
+        let mac = state.home_computer_viewer();
+        let replies = handle_home_computer(ClientMsg::SetKeepAwake { on: false }, &state, &mac)
             .await
             .unwrap();
         assert!(matches!(&replies[..], [ServerMsg::Settings(s)] if s.keep_awake == Some(false)));
@@ -3601,7 +3661,7 @@ mod tests {
         };
         assert_eq!(none.settings().keep_awake, None);
         assert!(
-            handle_home_computer(ClientMsg::SetKeepAwake { on: true }, &none)
+            handle_home_computer(ClientMsg::SetKeepAwake { on: true }, &none, &mac)
                 .await
                 .is_ok_and(|r| matches!(&r[..], [ServerMsg::Error { .. }]))
         );
@@ -4270,6 +4330,51 @@ mod tests {
 
     /// [`engines_state`] signed in to a stand-in `OpenRouter` nobody
     /// answers on, listening on a real port.
+    #[tokio::test]
+    async fn an_administrators_phone_runs_the_home_but_not_the_macs_own_things() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (state, sam, _) = signed_in_state(tmp.path()).await;
+        let (out, _rx) = mpsc::channel(8);
+        let mut phone = Client::with_visible(
+            sam.clone(),
+            state.hub.visible_ids(&sam),
+            assistant_for(&state, &sam),
+        );
+        let refused = handle(
+            ClientMsg::SetUsageAlerts { on: false },
+            &state,
+            &mut phone,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&refused[..], [ServerMsg::Error { message }] if message.contains("administrators"))
+        );
+        assert!(!state.settings_for(&sam).admin);
+        assert!(state.engines_for(&sam).openrouter.is_none());
+
+        state.hub.set_household_admin(&sam.name, true).unwrap();
+        // The same connection, without reconnecting.
+        let replies = handle(
+            ClientMsg::SetUsageAlerts { on: false },
+            &state,
+            &mut phone,
+            &out,
+        )
+        .await;
+        assert!(
+            matches!(&replies[..], [ServerMsg::Settings(s)] if s.admin && !s.home_computer && !s.usage_alerts),
+            "{replies:?}"
+        );
+        assert!(phone.viewer.admin);
+        assert!(state.engines_for(&sam).openrouter.is_some());
+        // Signing in to OpenRouter happens in the Mac's browser.
+        let mac_only = handle(ClientMsg::OpenRouterSignIn, &state, &mut phone, &out).await;
+        assert!(
+            matches!(&mac_only[..], [ServerMsg::Error { message }] if message.contains("home computer"))
+        );
+    }
+
     async fn signed_in_state(
         dir: &std::path::Path,
     ) -> (AppState, Viewer, Arc<oxbot_llm::MemorySecrets>) {
@@ -4371,7 +4476,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_home_computer_signs_in_and_the_key_never_reaches_a_page() {
+    async fn only_admins_change_the_ai_account_and_the_key_never_reaches_a_page() {
         let tmp = tempfile::tempdir().unwrap();
         let (state, sam, _) = signed_in_state(tmp.path()).await;
         let (out, _rx) = mpsc::channel(4);
@@ -4387,7 +4492,7 @@ mod tests {
                 path: "/tmp/not-codex".into(),
             },
         ] {
-            assert!(home_computer_only(&msg));
+            assert!(admin_only(&msg));
             let mut client = Client::with_visible(
                 sam.clone(),
                 state.hub.visible_ids(&sam),
@@ -4395,7 +4500,7 @@ mod tests {
             );
             let replies = handle(msg, &state, &mut client, &out).await;
             assert!(
-                matches!(&replies[..], [ServerMsg::Error { message }] if message == "That can only be done on the home computer."),
+                matches!(&replies[..], [ServerMsg::Error { message }] if message == "That can only be done on the home computer." || message == "Only the home's administrators can do that."),
                 "{replies:?}"
             );
         }
