@@ -1,7 +1,6 @@
 // The open bot's chat: header, setup checks, the offline bar, the usage
 // alert banner, the log, the note about the AI account, the cards, and the
 // message box. Same ids, classes and words as the hand-written page.
-import { HOME_LEADS } from "../../state/sidebar";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { type App, useApp, useSel } from "../../app/context";
 import { avatarSvg } from "../../components/brand";
@@ -14,7 +13,6 @@ import { Cards, Waiting } from "../Cards/Cards";
 import { addFiles, follow, isLocked, openEngines, openReport, stopDictation } from "./actions";
 import { Composer } from "./Composer";
 import { Log } from "./Log";
-import { purposeLine } from "./purpose";
 import { HomeMode } from "../Calendar/HomeMode";
 import { HOME_ICONS, HomeIcon } from "../Sidebar/HomeIcon";
 import "./chat.css";
@@ -185,12 +183,11 @@ function EngineNote({ info }: { info: BotInfo | undefined }) {
 function statusText(info: BotInfo, busy: boolean, activity: string | null, dictating: boolean): string {
   if (isLocked(info)) return `private to ${info.created_by || "someone"}`;
   if (dictating) return "Listening… (on the home computer)";
-  const shared = info.sharing === "people" ? `shared with ${info.members?.join(", ") || "picked people"}` : info.private ? "private" : "";
   if (busy) return activity || "Working…";
   if (info.central) return "leads your bots";
-  // The Home bots' examples roll in the message box instead.
-  if (HOME_LEADS.some((h) => h.id === info.id)) return "";
-  return [shared, purposeLine(info.instructions)].filter(Boolean).join(" · ");
+  // At rest the header is just the name: what a bot does and who shares it
+  // are in its settings (tap the name).
+  return "";
 }
 
 /** Follows the open bot and catches up after a reconnect, like the old page. */

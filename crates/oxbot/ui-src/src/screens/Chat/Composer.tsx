@@ -85,8 +85,9 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
     if (caret.focus) t.focus();
   }, [caret]);
 
-  // A bot opened: the cursor goes in the box.
-  useEffect(() => { if (current) box.current?.focus(); }, [current]);
+  // A bot opened: the cursor goes in the box, except on a touch screen, where focus
+  // brings up the keyboard over the chat before anyone asked for it.
+  useEffect(() => { if (current && !matchMedia("(hover: none)").matches) box.current?.focus(); }, [current]);
 
   // A Home bot's examples, rolling in the empty box (every 4 s).
   const hints = HOME_LEADS.find((h) => h.id === current)?.hints;
