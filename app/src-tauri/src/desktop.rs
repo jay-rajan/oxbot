@@ -31,6 +31,8 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_notification::NotificationExt as _;
 
 use crate::links::{self, Link};
+use crate::update::Updates;
+use oxbot_protocol::AppUpdate;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
@@ -47,10 +49,10 @@ fn port() -> u16 {
 }
 
 /// What the app holds on to.
-struct Oxbot {
+pub(crate) struct Oxbot {
     /// Our own server, or `None` when showing an `oxbot serve` that was
     /// already running.
-    server: tokio::sync::Mutex<Option<RunningServer>>,
+    pub(crate) server: tokio::sync::Mutex<Option<RunningServer>>,
 }
 
 /// The menu bar's "Launch at login" checkbox, once it exists.
@@ -80,7 +82,29 @@ impl AppControls for DesktopControls {
             .get_webview_window(MAIN_WINDOW)
             .and_then(|w| w.is_visible().ok())
     }
+
+    fn update(&self) -> Option<AppUpdate> {
+        Some(self.0.try_state::<Arc<Updates>>()?.status())
+    }
+
+    fn check_for_update(&self) -> Result<(), String> {
+        self.0
+            .try_state::<Arc<Updates>>()
+            .ok_or_else(|| NO_UPDATES.to_owned())?
+            .ask();
+        Ok(())
+    }
+
+    fn install_update(&self) -> Result<(), String> {
+        self.0
+            .try_state::<Arc<Updates>>()
+            .ok_or_else(|| NO_UPDATES.to_owned())?
+            .install_soon()
+    }
 }
+
+/// Why this app has no updates.
+const NO_UPDATES: &str = "This copy of oxbot doesn't update itself (a local build).";
 
 /// Posts the server's notifications to Notification Center as oxbot.
 struct AppNotifier(AppHandle);
@@ -144,6 +168,7 @@ pub fn run() -> anyhow::Result<()> {
             None,
         ))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let port = port();
             app.manage(AutostartItem(std::sync::Mutex::new(None)));
@@ -151,9 +176,15 @@ pub fn run() -> anyhow::Result<()> {
             let notifier: Arc<dyn Notifier> = Arc::new(AppNotifier(app.handle().clone()));
             let (server, url) =
                 tauri::async_runtime::block_on(start_or_attach(relay, port, controls, notifier))?;
+            let own_server = server.is_some();
             app.manage(Oxbot {
                 server: tokio::sync::Mutex::new(server),
             });
+            // Updates only for our own server: an `oxbot serve` running
+            // already is someone's development copy.
+            if own_server && let Some(updates) = Updates::start(app.handle()) {
+                app.manage(updates);
+            }
             // A normal quit signal (e.g. `kill`) quits cleanly too, so no Chrome is left behind.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

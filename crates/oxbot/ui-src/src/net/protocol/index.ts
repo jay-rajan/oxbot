@@ -2,6 +2,7 @@
 export type { AllowRule } from "./AllowRule";
 export type { Answer } from "./Answer";
 export type { AppSettings } from "./AppSettings";
+export type { AppUpdate } from "./AppUpdate";
 export type { Approval } from "./Approval";
 export type { ApprovalKind } from "./ApprovalKind";
 export type { Attachment } from "./Attachment";
@@ -74,4 +75,5 @@ export type { TestCaseInfo } from "./TestCaseInfo";
 export type { TrialIntent } from "./TrialIntent";
 export type { TrialNetwork } from "./TrialNetwork";
 export type { TrialReport } from "./TrialReport";
+export type { UpdateState } from "./UpdateState";
 export type { UsageAlert } from "./UsageAlert";

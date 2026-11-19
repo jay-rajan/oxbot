@@ -447,6 +447,10 @@ impl BuiltIn {
         use crate::packs::{BROWSER, CODEX, NODE};
         let (found, missing) =
             crate::packs::locate_all(list, &data.join("tools"), &resources.join("tools"));
+        if missing.is_empty() {
+            // This version has all it needs: other versions' packs can go.
+            crate::update::tidy(list, &data.join("tools"));
+        }
         for pack in missing {
             tracing::error!(pack = %pack.name, version = %pack.version, "a pack this oxbot runs with is missing; reinstall oxbot");
         }

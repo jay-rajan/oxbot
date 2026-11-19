@@ -209,6 +209,19 @@ impl Store {
             .query_row("SELECT MIN(next_run_ms) FROM schedules", [], |r| r.get(0))?)
     }
 
+    /// The soonest run still to come at or after `now_ms`, paused schedules
+    /// left out.
+    ///
+    /// # Errors
+    /// Fails if SQLite fails.
+    pub fn next_active_run(&self, now_ms: i64) -> Result<Option<i64>, StoreError> {
+        Ok(self.conn().query_row(
+            "SELECT MIN(next_run_ms) FROM schedules WHERE paused = 0 AND next_run_ms >= ?1",
+            [now_ms],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Sets when schedule `id` runs next (and, if given, when it last ran).
     ///
     /// # Errors

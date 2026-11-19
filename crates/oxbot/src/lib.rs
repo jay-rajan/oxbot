@@ -13,6 +13,7 @@
 //! - [`notify`]: Mac notifications for usage alerts and waiting bots
 //! - [`runtime`]: starts and stops a whole server (CLI and desktop app)
 //! - [`setup`]: what oxbot needs on the Mac, and where to find it
+//! - [`update`]: an app update's packs: copied, downloaded, checked, tidied
 
 pub mod awake;
 pub mod chat;
@@ -29,6 +30,7 @@ pub mod runtime;
 pub mod secret;
 pub mod server;
 pub mod setup;
+pub mod update;
 
 /// Default port for `oxbot serve` and `oxbot chat`.
 pub const DEFAULT_PORT: u16 = 7878;

@@ -408,7 +408,7 @@ on: boolean, } | { "type": "set_keep_awake",
 /**
  * On or off.
  */
-on: boolean, } | { "type": "open_sign_in", 
+on: boolean, } | { "type": "check_for_update" } | { "type": "install_update" } | { "type": "open_sign_in", 
 /**
  * The request's id.
  */

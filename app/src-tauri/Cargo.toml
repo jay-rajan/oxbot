@@ -26,12 +26,19 @@ tracing.workspace = true
 # The Mac app: the home computer. None of this is built for a phone.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 oxbot.workspace = true
+oxbot-core.workspace = true
 oxbot-protocol.workspace = true
+# tauri.conf.json's plugin settings are read into the app as JSON.
+serde_json.workspace = true
 tauri = { version = "2.12.5", features = ["tray-icon", "image-png"] }
 tauri-plugin-autostart = "2.7.0"
 # Posts usage alerts to Notification Center, locally (its Rust API only;
 # the page gets no permission to use it).
 tauri-plugin-notification = "2.8.0"
+# oxbot's own updates: checks the signed feed on GitHub Releases, downloads
+# the new app and checks its signature with the update key's public half.
+tauri-plugin-updater = { version = "=2.14.1", default-features = false, features = ["rustls-tls", "zip"] }
+chrono.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
 

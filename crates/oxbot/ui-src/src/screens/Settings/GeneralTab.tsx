@@ -241,6 +241,7 @@ function AboutSection() {
           ) : null}
         </span>
       </p>
+      <UpdateRow />
       <p className="field-hint mono" id="aboutData" hidden={!settings?.home_computer}>
         {settings ? settings.data_dir : "…"}
       </p>
@@ -252,5 +253,52 @@ function AboutSection() {
         </div>
       ) : null}
     </Section>
+  );
+}
+
+/** The app's own update, at the home computer: where it stands, "Check for
+ *  updates", and "Restart to update" once one is downloaded. */
+function UpdateRow() {
+  const { send } = useApp();
+  const update = useSel((s) => s.connection.settings?.update);
+  if (!update) return null;
+  const busy = update.state === "checking" || update.state === "downloading" || update.state === "installing";
+  const line =
+    update.state === "checking"
+      ? "Checking for updates…"
+      : update.state === "downloading"
+        ? `Downloading version ${update.version}…`
+        : update.state === "ready"
+          ? `Version ${update.version} is ready.`
+          : update.state === "installing"
+            ? `Installing version ${update.version}…`
+            : update.state === "failed"
+              ? "Couldn't update."
+              : update.checked_ms
+                ? "oxbot is up to date."
+                : "oxbot checks for updates on its own.";
+  return (
+    <div className="update-row" id="updateRow" data-state={update.state}>
+      <p className="about-line">
+        {line}{" "}
+        {update.notes_url && update.version ? (
+          <a href={update.notes_url} target="_blank" rel="noreferrer">
+            What's new
+          </a>
+        ) : null}
+      </p>
+      {update.message ? <p className="field-hint">{update.message}</p> : null}
+      <div className="btn-row">
+        {update.state === "ready" ? (
+          <Button size="sm" kind="primary" id="installUpdate" onClick={() => send({ type: "install_update" })}>
+            Restart to update
+          </Button>
+        ) : (
+          <Button size="sm" kind="quiet" id="checkUpdate" disabled={busy} onClick={() => send({ type: "check_for_update" })}>
+            Check for updates
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

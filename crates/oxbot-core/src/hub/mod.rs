@@ -32,6 +32,7 @@ mod elements;
 mod engine_prefs;
 mod engines;
 mod home;
+mod idle;
 mod looped;
 mod meals;
 mod net_log;

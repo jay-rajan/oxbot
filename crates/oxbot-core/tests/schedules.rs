@@ -354,3 +354,45 @@ async fn a_task_carries_what_its_person_lets_bots_know_but_not_their_name() {
     );
     hub.shutdown().await;
 }
+
+#[tokio::test]
+async fn an_update_waits_for_a_working_bot_and_a_schedule_about_to_run() {
+    if codex().await.is_none() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let (hub, _fake) = hub(tmp.path(), vec![schedule_call()], false).await;
+    let home_computer = hub.home_computer_viewer("Jay");
+    let now = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+    assert_eq!(hub.restart_waits_for(now).await, None, "a quiet home");
+
+    let mut updates = hub.subscribe();
+    hub.send_as("prep", "every weekday at 8:15 send me today's prep plan", &home_computer)
+        .await
+        .unwrap();
+    // Its card waits for Jay mid-turn.
+    let card = next_card(&mut updates).await;
+    assert_eq!(hub.restart_waits_for(now).await.as_deref(), Some("prep is working"));
+    hub.answer_as(card.id, Answer::AllowOnce, &home_computer)
+        .unwrap();
+    turn_done(&mut updates, "prep").await;
+
+    let next = hub.schedules_for(&home_computer, None).unwrap()[0].clone();
+    let at = next.next_run_ms.unwrap();
+    assert_eq!(hub.restart_waits_for(at - 20 * 60 * 1000).await, None);
+    assert_eq!(
+        hub.restart_waits_for(at - 5 * 60 * 1000).await.as_deref(),
+        Some("a schedule is about to run")
+    );
+    // A paused schedule doesn't hold it up.
+    hub.pause_schedule_as(next.id, true, &home_computer)
+        .unwrap();
+    assert_eq!(hub.restart_waits_for(at - 5 * 60 * 1000).await, None);
+    hub.shutdown().await;
+}

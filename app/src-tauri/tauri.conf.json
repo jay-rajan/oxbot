@@ -13,7 +13,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": [
+      "app"
+    ],
     "category": "Productivity",
     "shortDescription": "Always-on Claude bots on your Mac",
     "icon": [
@@ -25,6 +27,12 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY0RjAyMzIwOEYyNkIxNUEKUldSYXNTYVBJQ1B3WkoramNjdk9rNlgrNGR3SFRZMTVIYStOK3NMc0RUQmI0dWFoSWo0QUR1LysK",
+      "requireSignedVersion": true
     }
   }
 }

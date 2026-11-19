@@ -551,6 +551,13 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
+    /// Home computer only: ask now whether a newer oxbot is out (it also
+    /// asks on its own every few hours). Progress comes as
+    /// [`ServerMsg::Settings`].
+    CheckForUpdate,
+    /// Home computer only: install the downloaded update as soon as no bot
+    /// is busy, instead of waiting for the night.
+    InstallUpdate,
     /// Open the sign-in window for a [`SignInRequest`].
     OpenSignIn {
         /// The request's id.
@@ -1541,7 +1548,7 @@ pub struct UsageAlert {
 }
 
 /// The app-wide settings shown in the Settings panel.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[allow(
     clippy::struct_excessive_bools,
@@ -1597,6 +1604,46 @@ pub struct AppSettings {
     /// doesn't apply: not the home computer, or not a Mac.
     #[serde(default)]
     pub keep_awake: Option<bool>,
+    /// The oxbot app's own update, for the home computer; `None` when it
+    /// doesn't apply (`oxbot serve`, a build without updates, a device).
+    #[serde(default)]
+    pub update: Option<AppUpdate>,
+}
+
+/// Where the oxbot app's update stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateState {
+    /// Nothing newer (or not checked yet).
+    UpToDate,
+    /// Asking for the latest version.
+    Checking,
+    /// Fetching a newer version in the background.
+    Downloading,
+    /// A newer version is here, waiting to be installed.
+    Ready,
+    /// Stopping, replacing the app and starting again.
+    Installing,
+    /// The last check or download failed ([`AppUpdate::message`] says why).
+    Failed,
+}
+
+/// The oxbot app's update, as Settings shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AppUpdate {
+    /// Where it stands.
+    pub state: UpdateState,
+    /// The newer version, once one is found.
+    pub version: Option<String>,
+    /// That version's release notes, on the web.
+    pub notes_url: Option<String>,
+    /// A plain-word line: what it waits for, or what went wrong.
+    pub message: Option<String>,
+    /// When it last asked for the latest version.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub checked_ms: Option<i64>,
 }
 
 fn yes() -> bool {
@@ -3293,6 +3340,7 @@ mod tests {
             openrouter_ready: false,
             keychain_waiting: false,
             keep_awake: None,
+            update: None,
         }))
         .unwrap();
         assert!(json.contains(r#""launch_at_login":null"#));
