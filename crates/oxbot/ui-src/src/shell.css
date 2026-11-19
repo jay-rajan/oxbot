@@ -40,7 +40,7 @@
   }
   .phone-tab {
     display: grid; justify-items: center; align-content: center; gap: 2px; min-width: 0;
-    border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--text-xs, 11px); padding: 0; cursor: pointer;
+    border: 0; background: none; color: var(--muted); font-family: inherit; font-size: var(--text-xs); padding: 0; cursor: pointer;
   }
   .phone-tab > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .phone-tab[aria-current="true"] { color: var(--ink); font-weight: var(--weight-mid); }
