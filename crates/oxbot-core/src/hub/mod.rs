@@ -1344,6 +1344,24 @@ mod tests {
             anna.id
         );
         assert_eq!(names(&hub).len(), 6);
+
+        // Someone taken off the list gives up their name to whoever wants it.
+        let bo = hub.store.person_by_name("Bo").unwrap().unwrap();
+        hub.remove_household_person("Bo").unwrap();
+        hub.rename_household_person("Cy", "Bo").unwrap();
+        assert!(names(&hub).contains(&"Bo".to_owned()));
+        assert_eq!(
+            hub.store
+                .person_by_name("Bo (removed)")
+                .unwrap()
+                .unwrap()
+                .id,
+            bo.id
+        );
+        assert!(
+            hub.rename_household_person("Di", "Bo").is_err(),
+            "still refused for someone on the list"
+        );
     }
 
     #[tokio::test]

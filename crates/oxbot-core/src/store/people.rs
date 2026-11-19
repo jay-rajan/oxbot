@@ -359,19 +359,39 @@ impl Store {
     }
 
     /// Changes a person's name. Returns `false` (and changes nothing) if
-    /// someone else has that name.
+    /// someone on the household list has that name. Someone taken off the
+    /// list gives it up: they're renamed "NAME (removed)" so the name is free.
     ///
     /// # Errors
     /// Fails if SQLite fails.
     pub fn rename_person(&self, id: &PersonId, name: &str) -> Result<bool, StoreError> {
-        let conn = self.conn();
-        if find_person(&conn, "name", name)?.is_some_and(|p| &p.id != id) {
-            return Ok(false);
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        if let Some(holder) = find_person(&tx, "name", name)?.filter(|p| &p.id != id) {
+            let removed: bool = tx.query_row(
+                "SELECT removed_ms IS NOT NULL FROM people WHERE id = ?1",
+                [holder.id.as_str()],
+                |r| r.get(0),
+            )?;
+            if !removed {
+                return Ok(false);
+            }
+            let mut spare = format!("{name} (removed)");
+            let mut n = 2;
+            while find_person(&tx, "name", &spare)?.is_some() {
+                spare = format!("{name} (removed {n})");
+                n += 1;
+            }
+            tx.execute(
+                "UPDATE people SET name = ?2 WHERE id = ?1",
+                params![holder.id.as_str(), spare],
+            )?;
         }
-        conn.execute(
+        tx.execute(
             "UPDATE people SET name = ?2 WHERE id = ?1",
             params![id.as_str(), name],
         )?;
+        tx.commit()?;
         Ok(true)
     }
 
