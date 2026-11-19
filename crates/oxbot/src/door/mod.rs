@@ -188,6 +188,8 @@ impl Door {
     /// serving `router` (the page and WebSocket) to paired devices.
     pub async fn start(self: &Arc<Self>, router: Router) {
         *lock(&self.router) = Some(router);
+        // Homes paired before one device per person: only the newest stays.
+        self.forget_older_devices();
         self.refresh().await;
         let door: Weak<Self> = Arc::downgrade(self);
         let watcher = tokio::spawn(async move {
@@ -516,6 +518,8 @@ impl Door {
         }
         .map_err(|e| PairError::HomeComputer(e.to_string()))?;
         tracing::info!(device = device.id, "a device paired");
+        // One device per person: this one replaces their older ones.
+        self.forget_older_devices();
         self.hub.announce(ServerMsg::PairingClosed);
         self.announce_devices();
         Ok(PairReply {
@@ -525,6 +529,23 @@ impl Door {
             home_computer: self.name(),
             key,
         })
+    }
+
+    /// Unpairs every device that isn't its person's newest, closing their
+    /// connections.
+    fn forget_older_devices(&self) {
+        match self.hub.keep_newest_devices() {
+            Ok(gone) => {
+                for id in gone {
+                    tracing::info!(
+                        device = id,
+                        "an older device of the same person was removed"
+                    );
+                    let _ = self.removed.send(id);
+                }
+            }
+            Err(e) => tracing::warn!(%e, "couldn't remove older devices"),
+        }
     }
 
     /// The paired device holding `key`, if any.

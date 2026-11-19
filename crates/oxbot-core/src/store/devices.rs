@@ -136,6 +136,30 @@ impl Store {
         Ok(devices)
     }
 
+    /// Keeps only each person's newest device: the others are forgotten
+    /// (their keys stop working). Returns the ids forgotten.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn keep_newest_devices(&self) -> Result<Vec<String>, StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let older: Vec<String> = {
+            let mut stmt = tx.prepare(
+                "SELECT d.id FROM devices d WHERE EXISTS (
+                     SELECT 1 FROM devices n WHERE n.person_id = d.person_id
+                     AND (n.paired_ms > d.paired_ms OR (n.paired_ms = d.paired_ms AND n.id > d.id)))",
+            )?;
+            stmt.query_map([], |r| r.get(0))?
+                .collect::<Result<_, _>>()?
+        };
+        for id in &older {
+            tx.execute("DELETE FROM devices WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(older)
+    }
+
     /// Forgets a device; its key stops working. Returns whether it was paired.
     ///
     /// # Errors

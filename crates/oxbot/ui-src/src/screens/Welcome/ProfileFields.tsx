@@ -1,10 +1,9 @@
 // The profile fields, shared by the welcome screen and Settings → People:
-// name, color and photo (never sent to bots). The home's area is a home
+// name and color (never sent to bots). The home's area is a home
 // setting (Settings → General); what bots should know about a person is
 // their memory list (Settings → Memory).
 import { useEffect, useRef, useState } from "react";
-import { useApp } from "../../app/context";
-import { Button, Checkbox, Field, Input, vars } from "../../components/ui";
+import { Checkbox, Field, Input, vars } from "../../components/ui";
 import type { ProfileView } from "../../net/protocol";
 import { type ProfileDraft, draftFrom } from "./profile";
 import "./welcome.css";
@@ -23,27 +22,6 @@ export function useProfileDraft(view: ProfileView | null) {
 
 type TextKey = "name";
 
-/** A photo, made small (96 px, JPEG) in the page before it's sent. */
-function shrinkPhoto(file: File, done: (url: string) => void, fail: () => void) {
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.onload = () => {
-    const n = 96;
-    const c = document.createElement("canvas");
-    c.width = n;
-    c.height = n;
-    const side = Math.min(img.width, img.height);
-    c.getContext("2d")?.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, n, n);
-    URL.revokeObjectURL(url);
-    done(c.toDataURL("image/jpeg", 0.8));
-  };
-  img.onerror = () => {
-    URL.revokeObjectURL(url);
-    fail();
-  };
-  img.src = url;
-}
-
 /** `boxId` is the fields' box id ("welcomeFields", "meFields"): the colour
  *  radios and the photo picker are named after it. */
 export function ProfileFields({
@@ -57,8 +35,6 @@ export function ProfileFields({
   draft: ProfileDraft;
   onChange: (d: ProfileDraft) => void;
 }) {
-  const { toast } = useApp();
-  const pickRef = useRef<HTMLInputElement>(null);
   const set = (patch: Partial<ProfileDraft>) => onChange({ ...draft, ...patch });
 
   const field = (label: string, key: TextKey, max: number, hint: string, placeholder?: string) => (
@@ -70,7 +46,7 @@ export function ProfileFields({
   return (
     <div id={boxId} className="profile-fields">
       {field("Name", "name", 40, "Bots never see your name.")}
-      {/* Color and photo: shown with your messages, never sent to bots. */}
+      {/* Color: shown with your messages, never sent to bots. */}
       <div className="pf">
         <div className="swatches">
           {view.colors.map((c) => (
@@ -78,26 +54,6 @@ export function ProfileFields({
               <input type="radio" name={`${boxId}Color`} value={c} checked={c === draft.color} aria-label={c} onChange={() => set({ color: c })} />
             </label>
           ))}
-        </div>
-        <div className="photo-row">
-          <img className="photo" alt="Your photo" hidden={!draft.photo} src={draft.photo ?? undefined} />
-          <Button size="sm" onClick={() => pickRef.current?.click()}>
-            {draft.photo ? "Change photo" : "Add a photo"}
-          </Button>
-          <Button kind="quiet" size="sm" hidden={!draft.photo} onClick={() => set({ photo: null })}>
-            Remove
-          </Button>
-          <input
-            type="file"
-            accept="image/*"
-            className="file-input"
-            id={`${boxId}Photo`}
-            ref={pickRef}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) shrinkPhoto(f, (url) => set({ photo: url }), () => toast("That picture can't be read; pick another.", true));
-            }}
-          />
         </div>
       </div>
       {view.owner_confirm ? (

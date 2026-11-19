@@ -140,6 +140,19 @@ fn a_removed_device_s_key_stops_working() {
 }
 
 #[test]
+fn each_person_keeps_only_their_newest_device() {
+    let store = Store::open_in_memory().unwrap();
+    store.add_device("g1", "Jay", "Pixel", "hash-1").unwrap();
+    store.add_device("g2", "Sam", "Laptop", "hash-2").unwrap();
+    store.add_device("g3", "Jay", "Pixel", "hash-3").unwrap();
+    assert_eq!(store.keep_newest_devices().unwrap(), ["g1"]);
+    let left: Vec<String> = store.devices().unwrap().into_iter().map(|d| d.id).collect();
+    assert_eq!(left, ["g2", "g3"]);
+    assert!(store.device_by_key("hash-1").unwrap().is_none());
+    assert_eq!(store.keep_newest_devices().unwrap(), Vec::<String>::new());
+}
+
+#[test]
 fn a_deleted_bot_leaves_nothing_behind() {
     let store = Store::open_in_memory().unwrap();
     let a = bot("a");

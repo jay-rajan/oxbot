@@ -1,6 +1,6 @@
 /* Settings: one fixed size, tabs down the side (across the top on phones),
    only the panes scroll. Layout only; the look comes from the pieces. */
-.dlg.settings-dlg { height: min(640px, calc(100dvh - var(--s-6))); }
+.dlg.settings-dlg { height: min(640px, calc(var(--usable-h) - var(--s-6))); }
 .settings-body.dlg-body {
   display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 0;
   padding: 0; overflow: hidden; align-content: stretch;
@@ -13,7 +13,7 @@
 /* A phone: a menu of the parts first, then each as its own page; a grey
    page with each section on a white card, like a phone's own settings. */
 @media (max-width: 600px) {
-  .dlg.settings-dlg { height: calc(100dvh - var(--s-6)); }
+  .dlg.settings-dlg { height: calc(var(--usable-h) - var(--s-3)); }
   .settings-body.dlg-body {
     grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
     background: var(--sunken);

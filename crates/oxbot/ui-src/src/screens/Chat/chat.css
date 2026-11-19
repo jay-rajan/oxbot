@@ -165,13 +165,20 @@
 .composer-field:focus-within { border-color: var(--ink); box-shadow: 0 0 0 3px var(--sunken); }
 .composer-input {
   flex: 1; min-width: 0; max-height: 40vh; resize: none;
-  min-height: var(--control); padding: var(--s-2) var(--s-1);
+  /* One line sits level with the buttons beside it, at any button size. */
+  min-height: var(--control); padding: calc((var(--control) - var(--leading) * var(--text-md)) / 2) var(--s-1);
   border: 0; background: transparent; color: var(--ink);
   font-size: var(--text-md); line-height: var(--leading);
 }
 .composer-input:focus-visible { outline: none; }
 .composer-input:disabled { color: var(--muted); }
-.composer > .btn { min-height: calc(var(--control) + 2 * var(--s-1) + 2px); border-radius: var(--r-lg); }
+.composer-field .round-btn { border-radius: 50%; }
+.composer-field .send-btn { background: var(--accent); color: var(--accent-ink); }
+.composer-field .send-btn:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-ink); }
+.composer-field .send-btn:active:not(:disabled) { background: var(--accent-pressed); }
+.composer-field .send-btn:disabled { background: var(--sunken); color: var(--muted); opacity: 1; }
+.composer-field .stop-btn { background: var(--ink); color: var(--surface); }
+.composer-field .stop-btn:hover:not(:disabled) { background: var(--ink); color: var(--surface); filter: brightness(1.2); }
 .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 
 /* A file going up: a tiny turning board */
@@ -204,7 +211,7 @@
 }
 
 /* ---------- the report viewer: tall over the chat, full screen on a phone */
-.dlg.report-view { width: min(900px, 100%); height: min(100dvh, 100%); max-height: 100dvh; }
+.dlg.report-view { width: min(900px, 100%); height: min(var(--app-h, 100dvh), 100%); max-height: var(--app-h, 100dvh); }
 .report-head {
   display: flex; align-items: center; gap: var(--s-3); min-width: 0;
   padding: max(var(--s-3), env(safe-area-inset-top)) var(--s-4) var(--s-3);
@@ -220,7 +227,7 @@
   .log { padding-left: var(--s-3); padding-right: var(--s-3); }
   .composer { padding-left: var(--s-3); padding-right: var(--s-3); }
   .msg, .mine { max-width: 92%; }
-  .dlg.report-view { width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
+  .dlg.report-view { width: 100%; height: var(--app-h, 100dvh); max-height: var(--app-h, 100dvh); margin: 0; border-radius: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

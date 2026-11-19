@@ -1,5 +1,5 @@
 // The sidebar: brand and New bot, the server line, search, group by, the bot
-// list, and the bottom row (Settings, People, Signed-in websites). On a
+// list, and the bottom row (Settings, People). On a
 // phone it's a drawer over the chat, with a scrim behind it.
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
@@ -25,7 +25,6 @@ export function Sidebar() {
   const everConnected = useSel((s) => s.connection.everConnected);
   const serverName = useSel((s) => s.connection.serverName);
   const homeComputer = useSel((s) => !!s.connection.settings?.home_computer);
-  const signedIn = useSel((s) => s.home.homeSites.length + (s.connection.settings?.owner ? s.home.mySites.length : 0));
   const warnings = useSel((s) => s.sidebar.warnings);
   const query = useSel((s) => s.sidebar.query);
   const seen = useSel((s) => s.sidebar.seen);
@@ -150,6 +149,9 @@ export function Sidebar() {
     dispatch(local("ui/page", { page: h.page }));
   };
 
+  const [finding, setFinding] = useState(false);
+  const findBox = useRef<HTMLInputElement>(null);
+
   const toSettings = (tab?: string) => {
     dispatch(local("ui/side", { open: false }));
     dispatch(local("ui/open", tab ? { dialog: "settings", arg: tab } : { dialog: "settings" }));
@@ -165,6 +167,9 @@ export function Sidebar() {
     } else if (ev.key === "Escape" && ev.currentTarget.value) {
       ev.stopPropagation();
       dispatch(local("sidebar/query", { query: "" }));
+    } else if (ev.key === "Escape") {
+      ev.stopPropagation();
+      setFinding(false);
     }
   };
 
@@ -190,10 +195,43 @@ export function Sidebar() {
               <PlusIcon />
               New bot
             </Button>
+            <IconButton
+              className="find-btn"
+              id="findBtn"
+              label="Search"
+              title="Search bots"
+              pressed={finding}
+              // Keeps the box focused, so a tap closes it rather than the box
+              // closing itself on blur and the tap opening it again.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (finding && !query) setFinding(false);
+                else { setFinding(true); requestAnimationFrame(() => findBox.current?.focus()); }
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+            </IconButton>
           </div>
           <div className="server" id="server">
             {server}
           </div>
+        </div>
+        {/* Search opens from its button, and folds away again when empty. */}
+        <div className="side-find" hidden={!finding && !query}>
+          <Input
+            ref={findBox}
+            type="search"
+            className="bot-search"
+            id="botSearch"
+            placeholder="Search bots"
+            aria-label="Search bots"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
+            onKeyDown={searchKey}
+            onBlur={(e) => { if (!e.currentTarget.value) setFinding(false); }}
+          />
         </div>
         <nav className="side-home" aria-label="Home">
           {HOME_LEADS.map((h) => {
@@ -251,20 +289,6 @@ export function Sidebar() {
             );
           })}
         </nav>
-        <div className="side-find">
-          <Input
-            type="search"
-            className="bot-search"
-            id="botSearch"
-            placeholder="Search bots"
-            aria-label="Search bots"
-            autoComplete="off"
-            spellCheck={false}
-            value={query}
-            onChange={(e) => dispatch(local("sidebar/query", { query: e.target.value }))}
-            onKeyDown={searchKey}
-          />
-        </div>
         <BotList openMenu={openMenu} closeMenu={closeMenu} askName={askName} />
         <div className="side-foot">
           <IconButton className="gear" id="settingsBtn" label="Settings" onClick={() => toSettings()}>
@@ -298,25 +322,6 @@ export function Sidebar() {
             }
           >
             <span className="label">People</span>
-          </Button>
-          <Button
-            kind="quiet"
-            className="foot-btn end reveal"
-            id="signedInBtn"
-            aria-label="Signed-in websites"
-            title="Signed-in websites: the ones your bots are signed in to (Settings → Websites)"
-            onClick={() => toSettings("setSignins")}
-            icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <circle cx="12" cy="12" r="8.5" />
-                <path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z" strokeLinejoin="round" />
-              </svg>
-            }
-          >
-            <span className="label">Signed-in websites</span>
-            <span className="count" id="signedInCount" hidden={signedIn === 0}>
-              <Pill>{String(signedIn)}</Pill>
-            </span>
           </Button>
         </div>
       </aside>

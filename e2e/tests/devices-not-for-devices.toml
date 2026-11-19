@@ -1,5 +1,5 @@
 name = "A device can't connect other devices"
-about = "Someone on a device (Ann) has no Connect a device button, no Devices tab and no Add a device in Settings → People: only the home computer pairs phones. Their bottom row is Settings and Websites."
+about = "Someone on a device (Ann) has no Connect a device button, no Devices tab and no Add a device in Settings → People: only the home computer pairs phones. Their bottom row is only Settings."
 covers = ["crates/oxbot/ui-src/**", "crates/oxbot/src/server.rs", "crates/oxbot/src/door/**"]
 as = "Ann"
 
@@ -26,11 +26,5 @@ shot = "people-on-device"
 [[step]]
 key = "Escape"
 [[step]]
-expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn,signedInBtn'"
-note = "Two items: Settings and Websites"
-[[step]]
-click = "Websites"
-[[step]]
-expect_js = "document.querySelector('[data-tab=\"setSignins\"]').getAttribute('aria-selected') === 'true'"
-[[step]]
-key = "Escape"
+expect_js = "[...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden).map((b) => b.id).join() === 'settingsBtn'"
+note = "Only Settings"

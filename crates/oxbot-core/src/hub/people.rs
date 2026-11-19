@@ -861,6 +861,15 @@ impl Hub {
         Ok(self.store.devices()?)
     }
 
+    /// Keeps only each person's newest device (a phone set up again, or a
+    /// new phone, replaces the old one). Returns the ids forgotten.
+    ///
+    /// # Errors
+    /// Fails if the database does.
+    pub fn keep_newest_devices(&self) -> Result<Vec<String>, HubError> {
+        Ok(self.store.keep_newest_devices()?)
+    }
+
     /// Forgets a device. Returns whether it was paired.
     ///
     /// # Errors

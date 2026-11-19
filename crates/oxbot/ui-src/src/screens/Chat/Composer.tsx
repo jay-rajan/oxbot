@@ -3,7 +3,7 @@
 // the bot works: a message then goes into its task.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
-import { Button, Chip as ChipPiece, IconButton } from "../../components/ui";
+import { Chip as ChipPiece, IconButton } from "../../components/ui";
 import type { BotInfo } from "../../net/protocol";
 import type { Chip } from "../../state/chat";
 import { HOME_LEADS } from "../../state/sidebar";
@@ -120,7 +120,7 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
             disabled={known && locked}
             onClick={() => { if (app.phone) { app.toast(PHONE_FILES, true); return; } fileInput.current?.click(); }}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.5 11.5 12.6 19.4a5 5 0 0 1-7.1-7.1l8.3-8.3a3.4 3.4 0 0 1 4.8 4.8l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6" /></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </IconButton>
           <input
             type="file"
@@ -166,9 +166,15 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
           </IconButton>
+          {/* Round buttons at the end of the box, like most chat apps: a
+              square stops the bot, an arrow sends. */}
+          <IconButton className="round-btn stop-btn" id="stop" label="Stop" hidden={!known || !busy || locked} onClick={() => current && app.send({ type: "cancel", bot: current })}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" /></svg>
+          </IconButton>
+          <IconButton className="round-btn send-btn" id="send" label="Send" type="submit" disabled={known && (locked || !connected || uploadingNow)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 6.5 15.5 12 10 17.5" /></svg>
+          </IconButton>
         </div>
-        <Button kind="secondary" id="stop" hidden={!known || !busy || locked} onClick={() => current && app.send({ type: "cancel", bot: current })}>Stop</Button>
-        <Button kind="primary" id="send" type="submit" disabled={known && (locked || !connected || uploadingNow)}>Send</Button>
       </form>
       {current === NOTES_BOT ? <FileDialog bot={current} /> : null}
     </>

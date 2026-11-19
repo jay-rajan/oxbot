@@ -29,6 +29,8 @@ expect_js = "(window.__dragged || (window.__dragged = (() => { const dt = new Da
 note = "Dragging Journal onto the Kitchen header files it there too"
 shot = "kitchen"
 [[step]]
+click = "Search"
+[[step]]
 type = { into = "Search bots", text = "reci" }
 [[step]]
 expect = "Recipes"

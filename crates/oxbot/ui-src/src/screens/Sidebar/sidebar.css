@@ -26,8 +26,10 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* Search, below the Home's views */
+/* Search, under the header when opened */
 .side-find { display: grid; gap: var(--s-2); }
+.side-find[hidden] { display: none; }
+.brand .find-btn { flex: none; }
 .side .bot-search { background: var(--surface); }
 
 /* The list */
@@ -115,7 +117,7 @@
   .bot-item .avatar.working svg { animation: avatar-fade 1.6s ease-in-out infinite; }
 }
 
-/* The bottom row: Settings, Connect a device, Websites */
+/* The bottom row: Settings, People */
 .side-foot { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
 .side-foot .gear { position: relative; }
 .side-foot .gear .badge { position: absolute; top: 0; right: -2px; line-height: 0; }
@@ -125,17 +127,15 @@
 .side-foot .foot-btn.end { margin-left: auto; }
 /* No box behind them on hover: the name sliding out (or the text darkening) is enough. */
 .side-foot .foot-btn.btn-quiet:hover:not(:disabled), .side-foot .foot-btn.btn-quiet:active:not(:disabled) { background: transparent; }
-/* Signed-in websites shows only its icon; the name slides out on hover (not on
+/* Buttons that show only their icon; the name slides out on hover (not on
    focus: closing Settings hands focus back to it, which kept it open). */
 .foot-btn.reveal { gap: 0; transition: gap var(--slow) var(--ease); }
 .foot-btn.reveal:hover { gap: var(--s-1); }
 .foot-btn.reveal .label { max-width: 0; opacity: 0; white-space: nowrap; transition: max-width var(--slow) var(--ease), opacity var(--slow) var(--ease); }
 .foot-btn.reveal:hover .label { max-width: 14em; opacity: 1; }
-/* People keeps its name showing, and folds away while Signed-in websites
-   opens, to make room. */
+/* People keeps its name showing. */
 #deviceBtn { gap: var(--s-1); max-width: 12em; overflow: hidden; transition: max-width var(--slow) var(--ease), opacity var(--slow) var(--ease), padding var(--slow) var(--ease); }
 #deviceBtn .label { max-width: 10em; opacity: 1; }
-.side-foot:has(#signedInBtn:hover) #deviceBtn { max-width: 0; padding: 0; opacity: 0; }
 
 /* The Home's views, above the bots. */
 /* Keeps the same scrollbar room as the bot list, so their rows (and

@@ -99,6 +99,9 @@
   --control: 36px;        /* buttons and fields */
   --control-sm: 28px;
   --icon: 20px;
+  /* The height a page or window may use: what's visible (--app-h, kept by
+     web/viewport.ts) less the phone's status bar. */
+  --usable-h: calc(var(--app-h, 100dvh) - env(safe-area-inset-top, 0px));
   --side-width: 272px;
 
   /* Motion */

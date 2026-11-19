@@ -7,8 +7,8 @@ viewport = { width = 390, height = 844 }
 [[step]]
 click = "Show bots"
 [[step]]
-expect_js = "__e2e.shown(document.getElementById('botSearch')) && __e2e.shown(document.getElementById('newBot')) && !document.getElementById('groupBy')"
-note = "New bot and the search are in the drawer; bots are grouped by section only"
+expect_js = "__e2e.shown(document.getElementById('findBtn')) && !__e2e.shown(document.getElementById('botSearch')) && __e2e.shown(document.getElementById('newBot')) && !document.getElementById('groupBy')"
+note = "New bot and the search button are in the drawer (the box opens from it); bots are grouped by section only"
 [[step]]
 expect_js = "(() => { const side = document.getElementById('side').getBoundingClientRect(); const items = [...document.querySelectorAll('.side-foot > button')].filter((b) => !b.hidden); return items.length === 2 && items.every((b) => b.getBoundingClientRect().right <= side.right + 0.5); })()"
 note = "A device's bottom row: Settings and Websites, inside the drawer"

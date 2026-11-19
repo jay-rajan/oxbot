@@ -22,8 +22,6 @@
 .profile-fields .swatches label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 5px; }
 .profile-fields .swatches input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 
-.profile-fields .photo-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
-.profile-fields .photo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--sunken); }
 .profile-fields .file-input { display: none; }
 .profile-fields .confirms { display: grid; gap: var(--s-2); }
 @media (pointer: coarse) { .profile-fields .swatches label { width: 36px; height: 36px; } }
