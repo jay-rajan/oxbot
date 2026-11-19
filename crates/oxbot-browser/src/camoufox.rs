@@ -425,6 +425,11 @@ pub(crate) struct Camoufox {
     stopping: AtomicBool,
     courtesy: Arc<Courtesy>,
     requests: Mutex<HashMap<String, CancellationToken>>,
+    /// The downloads folder of the bot using the browser, told again to each
+    /// new run of it: the bot's tools only work in that bot's folder, and a
+    /// browser that starts over mid-task (after a sign-in, or to change its
+    /// window) would otherwise refuse them.
+    downloads: StdMutex<Option<PathBuf>>,
 }
 impl Camoufox {
     pub(crate) fn new(
@@ -466,6 +471,7 @@ impl Camoufox {
             stopping: AtomicBool::new(false),
             courtesy,
             requests: Mutex::default(),
+            downloads: StdMutex::default(),
         }))
     }
     pub(crate) fn endpoint(&self) -> &str {
@@ -485,10 +491,14 @@ impl Camoufox {
             .clone()
             .filter(|rpc| rpc.alive.load(Ordering::SeqCst))
     }
-    /// Whether a run asked to be hidden (or not) starts without a window:
-    /// a browser made for tests always does.
-    fn runs_hidden(&self, hidden: bool) -> bool {
-        hidden || self.tool.as_ref().is_some_and(|t| t.headless)
+    /// Whether a run starts without a window: only a browser made for
+    /// tests. A real one always has a window, kept minimized while bots use
+    /// it ("hidden" means just that), so a sign-in brings it forward and
+    /// "I'm signed in" minimizes it again, with no restart in between. A
+    /// windowless one would have to start over to show a sign-in, and
+    /// whatever the bot had open would go with it.
+    fn runs_hidden(&self, _hidden: bool) -> bool {
+        self.tool.as_ref().is_some_and(|t| t.headless)
     }
     /// Whether the browser should run hidden when it next starts.
     pub(crate) fn set_hidden(&self, hidden: bool) {
@@ -583,12 +593,33 @@ impl Camoufox {
             }
         });
         self.paused.store(false, Ordering::SeqCst);
+        // The bot using the browser keeps its folder in the new run.
+        let downloads = self
+            .downloads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(dir) = downloads
+            && let Err(err) = rpc.call("downloads", json!({ "dir": dir }), None).await
+        {
+            tracing::warn!(%err, "couldn't give the restarted browser its downloads folder");
+        }
         *self
             .rpc
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rpc);
         self.status.send_replace(BrowserStatus::Ready);
         Ok(restarted)
+    }
+    /// Sends downloads to `dir` from now on, in this run and every later one.
+    pub(crate) async fn set_downloads(self: &Arc<Self>, dir: &Path) -> Result<(), String> {
+        *self
+            .downloads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(dir.to_path_buf());
+        self.call("downloads", json!({ "dir": dir }))
+            .await
+            .map(|_| ())
     }
     pub(crate) async fn call(
         self: &Arc<Self>,

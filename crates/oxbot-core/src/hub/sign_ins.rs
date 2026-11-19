@@ -405,8 +405,8 @@ impl Hub {
                 true,
                 format!(
                     "The user finished with the sign-in window for {site} (they pressed I'm \
-                     signed in, or closed the window). Chrome restarted, so list or open pages \
-                     again, then check you're really signed in. If you're still signed out, say \
+                     signed in, or closed the window). The browser is yours again: reload or \
+                     open the page, then check you're really signed in. If you're still signed out, say \
                      so plainly and don't ask to sign in again until the user asks you to."
                 ),
             ),

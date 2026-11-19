@@ -284,7 +284,7 @@ impl Browser {
     /// Sends downloads to `dir` from now on (the folder of the bot using the
     /// browser). The bot's tool may only touch files in `dir`'s parent.
     pub async fn set_downloads(&self, dir: &Path) {
-        if let Err(err) = self.native.call("downloads", json!({ "dir": dir })).await {
+        if let Err(err) = self.native.set_downloads(dir).await {
             tracing::warn!(browser = self.label, %err, "couldn't set the downloads folder");
         }
     }
@@ -670,36 +670,32 @@ done
     }
 
     #[tokio::test]
-    async fn a_hidden_browser_comes_forward_for_a_sign_in_and_hides_again() {
+    async fn a_sign_in_brings_the_browser_forward_without_starting_it_over() {
         let tmp = tempfile::tempdir().unwrap();
         let tool = stand_in(tmp.path());
         let starts = || std::fs::read_to_string(tool.bundle.join("starts")).unwrap_or_default();
         let mut config = ToolsConfig::in_home(tmp.path());
         config.camoufox = Some(tool.clone());
         let browser = Browser::new(&Tools::new(config), spec(tmp.path())).unwrap();
+        // "Hidden" is a minimized window: the browser has one either way.
         browser.set_hidden(true);
         browser.ensure_running().await.unwrap();
-        assert!(!browser.use_mode().await.unwrap(), "already hidden");
-        assert_eq!(starts(), "true\n");
-        // A sign-in (or robot check) brings it forward as a window.
+        assert!(!browser.use_mode().await.unwrap(), "already running");
+        assert_eq!(starts(), "false\n");
+        // A sign-in (or robot check) brings that window forward...
         browser
             .open_window("https://example.test/login")
             .await
             .unwrap();
-        assert_eq!(starts(), "true\nfalse\n");
         assert_eq!(*browser.status().borrow(), BrowserStatus::SigningIn);
-        // Never hidden away mid sign-in.
         assert!(!browser.use_mode().await.unwrap());
+        // ...and "I'm signed in" minimizes it again: the bot's pages stay.
         browser.close_window().await;
-        // The next turn hides it again; the run it replaced doesn't mark it off.
-        assert!(browser.use_mode().await.unwrap());
-        assert_eq!(starts(), "true\nfalse\ntrue\n");
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        assert_eq!(*browser.status().borrow(), BrowserStatus::Ready);
-        // A bot that browses with a window gets one.
+        assert!(!browser.use_mode().await.unwrap());
         browser.set_hidden(false);
-        assert!(browser.use_mode().await.unwrap());
-        assert_eq!(starts(), "true\nfalse\ntrue\nfalse\n");
+        assert!(!browser.use_mode().await.unwrap());
+        assert_eq!(starts(), "false\n", "never started over");
+        assert_eq!(*browser.status().borrow(), BrowserStatus::Ready);
         browser.shutdown().await;
         assert_eq!(*browser.status().borrow(), BrowserStatus::Off);
     }
