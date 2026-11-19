@@ -10,6 +10,7 @@ import { type Group, fold, groupBots, HOME_LEADS, isUnread } from "../../state/s
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
 import { type MenuFor, menuKey } from "./BotMenu";
+import { NEW_SECTIONS } from "./sections";
 
 const DRAG_TYPE = "application/x-oxbot-bot";
 
@@ -234,7 +235,7 @@ export function BotList({
         );
       })}
       {searching && groups.length === 0 ? <Note>{`No bot called “${side.query.trim()}”.`}</Note> : null}
-      {side.groupBy === "sections" && !searching ? (
+      {NEW_SECTIONS && side.groupBy === "sections" && !searching ? (
         <Button
           kind="quiet"
           size="sm"

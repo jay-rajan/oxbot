@@ -25,7 +25,7 @@ import {
 import type { BotInfo, ModelList, Person, Sharing } from "../../net/protocol";
 import { local } from "../../state/store";
 import { ScheduleList } from "./ScheduleList";
-import { mayKeepPrivate, sharingOf } from "./sharing";
+import { mayKeepPrivate, ownsHome, sharingOf } from "./sharing";
 import "./botSettings.css";
 
 export function BotSettingsDialog() {
@@ -60,9 +60,9 @@ function BotForm({ info: live, onClose }: { info: BotInfo; onClose: () => void }
   const busy = b.busy;
   const central = b.central;
   const bdList = modelsOf(b);
-  // Only the owner picks who sees their own bots; everyone else's are
-  // shared with the whole home.
-  const picks = mayKeepPrivate(b, settings) || sharingOf(b) !== "everyone";
+  // Only administrators pick who sees a bot: their own, or one already
+  // kept from everyone. Everyone else's are shared with the whole home.
+  const picks = mayKeepPrivate(b, settings) || (ownsHome(settings) && sharingOf(b) !== "everyone");
 
   const [name, setName] = useState(b.name || b.id);
   const [purpose, setPurpose] = useState((b.instructions || "").trim());

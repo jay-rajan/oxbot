@@ -9,7 +9,8 @@ import { useApp, useSel } from "../../app/context";
 import { HOME_LEADS } from "../../state/sidebar";
 import { local } from "../../state/store";
 import type { NameAsk as AskName } from "../Welcome/NameDialog";
-import { mayKeepPrivate } from "../BotSettings/sharing";
+import { mayKeepPrivate, ownsHome } from "../BotSettings/sharing";
+import { NEW_SECTIONS } from "./sections";
 
 export type MenuFor = { bot: string; section?: undefined } | { section: string; bot?: undefined };
 export interface MenuAt {
@@ -146,7 +147,7 @@ export function BotMenu({
         });
         const busy = !!(busyNow[id] ?? b.busy);
         const wait = "Wait until it's done working";
-        if (b.private) {
+        if (b.private && ownsHome(settings)) {
           items.push({
             label: "Make shared",
             confirm: "Yes, share with everyone",
@@ -171,8 +172,8 @@ export function BotMenu({
           });
         }
       }
-      items.push({ label: "Move to section", sub: true, expanded: openSub, act: () => setOpenSub((o) => !o) });
-      if (openSub) {
+      if (sections.length || NEW_SECTIONS) items.push({ label: "Move to section", sub: true, expanded: openSub, act: () => setOpenSub((o) => !o) });
+      if (openSub && (sections.length || NEW_SECTIONS)) {
         for (const sec of sections)
           items.push({
             label: sec.name,
@@ -192,7 +193,7 @@ export function BotMenu({
             if (placed[id]) send({ type: "move_bot", bot: id, section: null });
           },
         });
-        items.push({
+        if (NEW_SECTIONS) items.push({
           label: "New section…",
           indent: true,
           act: () => {
