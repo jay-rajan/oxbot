@@ -3177,7 +3177,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3215,7 +3215,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-browser"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "futures-util",
@@ -3237,7 +3237,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-codex"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "calamine",
@@ -3294,7 +3294,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-desktop"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3319,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-device"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3343,7 +3343,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-e2e"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3366,7 +3366,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-engine"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "serde",
@@ -3377,7 +3377,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-llm"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3397,7 +3397,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-loop"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "oxbot-engine",
@@ -3416,7 +3416,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-protocol"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3426,7 +3426,7 @@ dependencies = [
 
 [[package]]
 name = "oxbot-relay"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "bytes",
