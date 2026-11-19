@@ -21,7 +21,7 @@ use oxbot_core::id::BrowserOwner;
 use oxbot_core::store::Replay;
 use oxbot_core::{Hub, Viewer};
 use oxbot_protocol::{
-    AppSettings, ClientMsg, DEFAULT_PAGE, EnginesView, KeyLimits, LogLine, MAX_PAGE, ModelRow,
+    AppSettings, AppUpdate, ClientMsg, DEFAULT_PAGE, EnginesView, KeyLimits, LogLine, MAX_PAGE, ModelRow,
     OpenRouterView, ServerHello, ServerMsg, SetupReport,
 };
 use tokio::net::TcpListener;
@@ -98,6 +98,41 @@ pub trait AppControls: Send + Sync + std::fmt::Debug {
     fn window_visible(&self) -> Option<bool> {
         None
     }
+    /// Where the app's own update stands; `None` when this app has no
+    /// updates (a build without an update key).
+    fn update(&self) -> Option<AppUpdate> {
+        None
+    }
+    /// Asks now whether a newer oxbot is out.
+    ///
+    /// # Errors
+    /// Says why it can't.
+    fn check_for_update(&self) -> Result<(), String> {
+        Err(NO_UPDATES.to_owned())
+    }
+    /// Installs the downloaded update as soon as the home is quiet.
+    ///
+    /// # Errors
+    /// Says why it can't.
+    fn install_update(&self) -> Result<(), String> {
+        Err(NO_UPDATES.to_owned())
+    }
+}
+
+/// Why a server outside the oxbot app has no updates.
+const NO_UPDATES: &str = "Updates are only in the oxbot app.";
+
+/// Settings' "Check for updates" (or, with `install`, "Restart to update").
+fn update_request(state: &AppState, install: bool) -> Vec<ServerMsg> {
+    let asked = match &state.app {
+        None => Err(NO_UPDATES.to_owned()),
+        Some(app) if install => app.install_update(),
+        Some(app) => app.check_for_update(),
+    };
+    match asked {
+        Ok(()) => vec![ServerMsg::Settings(state.settings())],
+        Err(message) => vec![ServerMsg::Error { message }],
+    }
 }
 
 impl AppState {
@@ -134,6 +169,12 @@ impl AppState {
                 .as_ref()
                 .filter(|_| viewer.home_computer)
                 .map(|_| self.hub.keep_awake_on()),
+            // The app's own update: the home computer's alone.
+            update: self
+                .app
+                .as_ref()
+                .filter(|_| viewer.home_computer)
+                .and_then(|a| a.update()),
         }
     }
 
@@ -2049,6 +2090,8 @@ async fn handle_home_computer(
                 Err(e) => error(&e),
             }
         }
+        ClientMsg::CheckForUpdate => update_request(state, false),
+        ClientMsg::InstallUpdate => update_request(state, true),
         ClientMsg::SetUsageAlerts { on } => match state.hub.set_usage_alerts(on) {
             Ok(()) => vec![ServerMsg::Settings(state.settings())],
             Err(e) => error(&e),
@@ -2196,6 +2239,9 @@ fn home_computer_only(msg: &ClientMsg) -> bool {
             | ClientMsg::SetUsageAlerts { .. }
             // The Mac's own sleep.
             | ClientMsg::SetKeepAwake { .. }
+            // The app's own updates.
+            | ClientMsg::CheckForUpdate
+            | ClientMsg::InstallUpdate
             // The household's OpenRouter account and settings.
             | ClientMsg::OpenRouterSignIn
             | ClientMsg::OpenRouterSignOut

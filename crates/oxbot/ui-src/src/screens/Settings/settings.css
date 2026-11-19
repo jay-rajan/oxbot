@@ -68,6 +68,8 @@
 .cap-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-2); }
 .cap-form .field { flex: 0 1 240px; }
 .about-line { overflow-wrap: anywhere; }
+.update-row { display: grid; gap: var(--s-2); margin-top: var(--s-2); }
+.update-row .about-line, .update-row .field-hint { margin: 0; }
 #aboutYou { display: inline-flex; align-items: center; gap: var(--s-1); }
 
 /* Websites and People: a field with its button */

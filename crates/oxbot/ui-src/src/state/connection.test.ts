@@ -19,6 +19,7 @@ const settings: AppSettings = {
   codex_ready: false,
   keychain_waiting: false,
   keep_awake: null,
+  update: null,
 };
 
 describe("connection reducer", () => {

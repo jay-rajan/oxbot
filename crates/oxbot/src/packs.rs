@@ -69,12 +69,21 @@ pub fn read_list(resources: &Path) -> Result<Option<Vec<Pack>>, String> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(format!("{}: {err}", file.display())),
     };
-    let list: List =
-        serde_json::from_str(&text).map_err(|err| format!("{}: {err}", file.display()))?;
+    parse_list(&text)
+        .map(Some)
+        .map_err(|err| format!("{}: {err}", file.display()))
+}
+
+/// A pack list's text, read.
+///
+/// # Errors
+/// It isn't a pack list this version knows.
+pub fn parse_list(text: &str) -> Result<Vec<Pack>, String> {
+    let list: List = serde_json::from_str(text).map_err(|err| err.to_string())?;
     if list.schema != 1 {
-        return Err(format!("{}: a newer kind of pack list", file.display()));
+        return Err("a newer kind of pack list".to_owned());
     }
-    Ok(Some(list.packs))
+    Ok(list.packs)
 }
 
 /// Writes what `dir` holds, so oxbot can tell it's `pack`.
@@ -92,7 +101,9 @@ pub fn mark(dir: &Path, pack: &Pack) -> std::io::Result<()> {
     )
 }
 
-fn is(dir: &Path, pack: &Pack) -> bool {
+/// Whether `dir` holds `pack` (by its mark).
+#[must_use]
+pub fn is_marked(dir: &Path, pack: &Pack) -> bool {
     std::fs::read(dir.join(MARK))
         .ok()
         .and_then(|b| serde_json::from_slice::<Mark>(&b).ok())
@@ -106,7 +117,7 @@ fn is(dir: &Path, pack: &Pack) -> bool {
 pub fn locate(pack: &Pack, own: &Path, inside: &Path) -> Option<PathBuf> {
     [own.join(pack.folder()), inside.join(&pack.name)]
         .into_iter()
-        .find(|dir| is(dir, pack))
+        .find(|dir| is_marked(dir, pack))
 }
 
 /// Where the app's packs are, by name, and the ones it can't find.
