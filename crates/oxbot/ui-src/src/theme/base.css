@@ -2,7 +2,9 @@
    form controls inheriting the font. Everything from theme/tokens.css. */
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; }
+/* The page fills what's visible (above a phone's keyboard: --app-h, set in
+   main.tsx) and never scrolls as a whole, so headers stay at the top. */
+html, body { height: var(--app-h, 100%); margin: 0; overflow: hidden; }
 body {
   background: var(--bg);
   color: var(--ink);

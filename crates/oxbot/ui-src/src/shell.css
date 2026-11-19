@@ -48,6 +48,9 @@
   .phone-tab .avatar svg, .phone-tab-icon svg { width: 100%; height: 100%; }
   .phone-tab:not([aria-current="true"]) .avatar { opacity: .6; }
   .phone-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  /* Typing: the keyboard is up, so the bar steps aside for the message box. */
+  body:has(.composer :focus) .phone-tabs { display: none; }
+  body:has(.composer :focus) .app { padding-bottom: 0; }
 }
 :root { --tabs-h: 56px; }
 @keyframes scrim-in { from { opacity: 0; } }

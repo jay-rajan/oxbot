@@ -10,6 +10,7 @@ import { createStore, local } from "./state/store";
 import { deviceBridge, sessionStore, takeKey } from "./web/address";
 import { LOGO } from "./components/brand";
 import { enableTestBridge, expose, exposeFn } from "./web/testBridge";
+import { fitToVisible } from "./web/viewport";
 import "./theme/tokens.css";
 import "./theme/base.css";
 import "./components/ui/index";
@@ -19,6 +20,8 @@ const key = takeKey(location, sessionStore(), (url) => history.replaceState(null
 const as = new URLSearchParams(location.search).get("as");
 const url = socketUrl({ host: location.host, secure: location.protocol === "https:", key, as });
 const device = deviceBridge(window);
+
+fitToVisible();
 
 const store = createStore();
 const socket = connect({
