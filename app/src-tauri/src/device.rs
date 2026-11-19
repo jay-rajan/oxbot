@@ -40,6 +40,9 @@ struct Device {
     copy: std::sync::Mutex<Option<ChatCopy>>,
     /// Held while the Records copies are brought up to date: one at a time.
     syncing: Mutex<()>,
+    /// Whether the page now open has been given the phone's copy of the
+    /// chats (once per page: a reconnect asks only for what's newer).
+    chats_shown: std::sync::atomic::AtomicBool,
 }
 
 /// The phone's copies of the family's Records ([`oxbot_device::records`]).
@@ -377,6 +380,10 @@ async fn device_page(app: AppHandle, device: State<'_, Arc<Device>>) -> Result<P
     let Some(paired) = paired(&app, &device).await? else {
         return Err("unpaired".to_owned());
     };
+    // A new page: it starts from the phone's copy of the chats again.
+    device
+        .chats_shown
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     match oxbot_device::fetch(&paired, "/").await {
         Ok((host, page)) => {
             remember_host(&app, &device, &host).await;
@@ -401,6 +408,25 @@ async fn device_page(app: AppHandle, device: State<'_, Arc<Device>>) -> Result<P
 
 /// Opens the link to the home computer; what arrives goes to `events`. Replaces any
 /// link already open.
+/// The chats kept on the phone, shown at once (once per page): the page
+/// then asks the home computer only for what came after them.
+fn show_kept_chats(app: &AppHandle, device: &Device, person: &str, events: &Channel<Wire>) {
+    if device
+        .chats_shown
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
+    let mut kept = Vec::new();
+    with_copy(app, device, person, |copy| {
+        kept = copy.chats()?;
+        Ok(())
+    });
+    for text in kept {
+        let _ = events.send(Wire::Msg { text });
+    }
+}
+
 #[tauri::command]
 async fn device_open(
     app: AppHandle,
@@ -417,6 +443,7 @@ async fn device_open(
     };
     let (tx, mut outgoing) = mpsc::channel::<String>(64);
     *device.link.lock().await = Some(tx.clone());
+    show_kept_chats(&app, &device, &paired.person, &events);
     tauri::async_runtime::spawn(async move {
         let socket = match oxbot_device::connect(&paired).await {
             Ok((host, socket)) => {
@@ -435,10 +462,11 @@ async fn device_open(
                 if unpaired {
                     forget(&app, &device).await;
                 } else {
-                    // Away from the home computer: show the chats from the phone's copy.
+                    // Away from the home computer: the bots and settings
+                    // from last time, to go with the chats shown already.
                     let mut kept = Vec::new();
                     with_copy(&app, &device, &paired.person, |copy| {
-                        kept = copy.replay()?;
+                        kept = copy.latest()?;
                         Ok(())
                     });
                     for text in kept {

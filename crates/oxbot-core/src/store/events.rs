@@ -196,14 +196,16 @@ impl Store {
 
     /// What a client that has `bot`'s events up to `since` needs to catch
     /// up: the rest, if there are at most `limit`; otherwise only the latest
-    /// page of `limit` (it asks for older pages as it needs them).
+    /// page of `limit` (it asks for older pages as it needs them). A client
+    /// that has more than the bot holds (it was deleted and made again
+    /// under the same id while a phone was away) gets the latest page too.
     ///
     /// # Errors
     /// Fails if SQLite fails.
     pub fn replay(&self, bot: &BotId, since: u64, limit: usize) -> Result<Replay, StoreError> {
         // One more than allowed, to know whether there are too many.
         let rows = self.rows_after(bot, since, Some(limit.saturating_add(1)))?;
-        if rows.len() > limit {
+        if rows.len() > limit || (rows.is_empty() && since > self.last_seq(bot)?) {
             return Ok(Replay::Page(self.history_page(bot, None, limit)?));
         }
         Ok(Replay::Events(parse_rows(bot, rows)))

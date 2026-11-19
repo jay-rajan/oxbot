@@ -89,7 +89,7 @@ impl ChatCopy {
         };
         match msg {
             ServerMsg::Event(e) => self.keep_event(&e, text, now_ms)?,
-            ServerMsg::History { events, .. } => self.keep_page(&events, now_ms)?,
+            ServerMsg::History { bot, events, .. } => self.keep_page(&bot, &events, now_ms)?,
             ServerMsg::Bots { bots } => {
                 self.keep_latest("bots", text)?;
                 self.drop_hidden(&bots)?;
@@ -124,9 +124,24 @@ impl ChatCopy {
     /// the same way however the chat arrived), in one write, then tidies:
     /// a page can hold hundreds. Events older than [`KEEP_DAYS`] days are
     /// skipped rather than written and deleted.
-    fn keep_page(&mut self, events: &[BotEvent], now_ms: i64) -> Result<(), CopyError> {
+    ///
+    /// A page that starts after what's kept, with a gap between (the phone
+    /// was away for more than a page, and the home computer sent its latest
+    /// instead), replaces the bot's copy: the copy is always one unbroken
+    /// stretch of the chat, so the page can ask for what's after it.
+    fn keep_page(&mut self, bot: &str, events: &[BotEvent], now_ms: i64) -> Result<(), CopyError> {
         let oldest = oldest_kept(now_ms);
         let tx = self.conn.transaction()?;
+        if let Some(first) = events.first() {
+            let newest: Option<i64> =
+                tx.query_row("SELECT MAX(seq) FROM events WHERE bot = ?1", [bot], |r| {
+                    r.get(0)
+                })?;
+            let first = i64::try_from(first.seq).unwrap_or(i64::MAX);
+            if newest.is_some_and(|n| first > n + 1) {
+                tx.execute("DELETE FROM events WHERE bot = ?1", [bot])?;
+            }
+        }
         for e in events.iter().filter(|e| e.ts_ms >= oldest) {
             if let Ok(json) = serde_json::to_string(&ServerMsg::Event(e.clone())) {
                 insert_event(&tx, e, &json)?;
@@ -270,6 +285,17 @@ impl ChatCopy {
     /// # Errors
     /// The file can't be read.
     pub fn replay(&self) -> Result<Vec<String>, CopyError> {
+        let mut out = self.latest()?;
+        out.extend(self.chats()?);
+        Ok(out)
+    }
+
+    /// The latest hello, settings, people, sections and bot list, in the
+    /// order the page expects them.
+    ///
+    /// # Errors
+    /// The file can't be read.
+    pub fn latest(&self) -> Result<Vec<String>, CopyError> {
         let mut out = Vec::new();
         for kind in ["hello", "settings", "people", "sections", "bots"] {
             let json: Option<String> = self
@@ -280,6 +306,16 @@ impl ChatCopy {
                 .optional()?;
             out.extend(json);
         }
+        Ok(out)
+    }
+
+    /// Each bot's kept events, then the kept reports: shown the moment the
+    /// app opens, so the page asks the home computer only for what's newer.
+    ///
+    /// # Errors
+    /// The file can't be read.
+    pub fn chats(&self) -> Result<Vec<String>, CopyError> {
+        let mut out = Vec::new();
         let mut stmt = self
             .conn
             .prepare("SELECT json FROM events ORDER BY bot, seq")?;
@@ -459,6 +495,59 @@ mod tests {
             };
             assert_eq!(e.seq, u64::try_from(i).unwrap() + 1);
         }
+    }
+
+    #[test]
+    fn the_copy_stays_one_unbroken_stretch_of_each_chat() {
+        let (_dir, mut copy) = copy();
+        let page = |seqs: std::ops::RangeInclusive<u64>| {
+            serde_json::to_string(&ServerMsg::History {
+                bot: "recipes".into(),
+                events: seqs
+                    .map(|seq| BotEvent {
+                        bot: "recipes".into(),
+                        seq,
+                        ts_ms: NOW,
+                        kind: EventKind::AssistantMessage {
+                            text: format!("reply {seq}"),
+                        },
+                    })
+                    .collect(),
+                first_seq: 1,
+                has_older: false,
+            })
+            .unwrap()
+        };
+        let seqs = |copy: &ChatCopy| -> Vec<u64> {
+            copy.chats()
+                .unwrap()
+                .iter()
+                .filter_map(|j| match serde_json::from_str(j) {
+                    Ok(ServerMsg::Event(e)) => Some(e.seq),
+                    _ => None,
+                })
+                .collect()
+        };
+        copy.record(&page(1..=3), NOW).unwrap();
+        // Overlapping or right after: added on.
+        copy.record(&page(3..=5), NOW).unwrap();
+        assert_eq!(seqs(&copy), [1, 2, 3, 4, 5]);
+        // Away too long: the latest page, after a gap, takes over.
+        copy.record(&page(900..=901), NOW).unwrap();
+        assert_eq!(seqs(&copy), [900, 901]);
+        // An older page goes in front.
+        copy.record(&page(898..=899), NOW).unwrap();
+        assert_eq!(seqs(&copy), [898, 899, 900, 901]);
+        // Chats alone: no hello, settings or bot list.
+        copy.record(&bots(&[("recipes", false, None)]), NOW)
+            .unwrap();
+        assert!(
+            copy.chats()
+                .unwrap()
+                .iter()
+                .all(|j| !j.contains("\"bots\""))
+        );
+        assert!(copy.latest().unwrap()[0].contains("\"bots\""));
     }
 
     #[test]

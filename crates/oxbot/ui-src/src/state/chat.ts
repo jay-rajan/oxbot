@@ -228,8 +228,11 @@ function onHistory(state: ChatState, m: Extract<ServerMsg, { type: "history" }>)
   b = { ...b, loadingOlder: false };
   // An earlier page nobody asked for can't be placed: ignore it.
   if (olderShaped && ev.length && !askedOlder) return withBot(state, m.bot, b);
-  // A page that starts after what we have, with a gap between: start afresh.
-  if (b.events.length && ev[0] && ev[0].seq > b.lastSeq + 1) b = { ...b, events: [], lastSeq: 0, meters: [] };
+  // A page that starts after what we have, with a gap between, or a latest
+  // page that ends before it (the bot was made again under its id, or has
+  // nothing now): start afresh.
+  const stale = !askedOlder && b.events.length > 0 && (lastNew ? lastNew.seq < b.lastSeq : !olderShaped && m.first_seq === 0);
+  if (b.events.length && ((ev[0] && ev[0].seq > b.lastSeq + 1) || stale)) b = { ...b, events: [], lastSeq: 0, meters: [] };
   const head = b.events[0];
   if (head && lastNew && lastNew.seq < head.seq) {
     // An earlier page goes in front.

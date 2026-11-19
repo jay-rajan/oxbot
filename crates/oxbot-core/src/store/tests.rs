@@ -884,6 +884,15 @@ fn catching_up_sends_the_events_missed_or_only_the_latest_page() {
     );
     // Nothing missed.
     assert_eq!(store.replay(&a, 25, 10).unwrap(), Replay::Events(vec![]));
+    // More than the bot has (it was made again): its latest page.
+    let Replay::Page(page) = store.replay(&a, 300, 10).unwrap() else {
+        panic!("expected a page");
+    };
+    assert_eq!(page.last_seq, 25);
+    let Replay::Page(page) = store.replay(&bot("new"), 300, 10).unwrap() else {
+        panic!("expected a page");
+    };
+    assert!(page.events.is_empty() && page.first_seq == 0);
 }
 
 fn rule(site: &str, label: &str) -> RuleKey {

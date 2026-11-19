@@ -94,6 +94,18 @@ describe("chat", () => {
     expect(s.bots.b!.lastSeq).toBe(520);
   });
 
+  it("a latest page that ends before what's kept replaces it", () => {
+    // The phone's copy had 1..300; the bot was made again and has 5.
+    let s = run([history(range(1, 300), 1, false)]);
+    s = run([history(range(1, 5), 1, false)], s);
+    expect(s.bots.b!.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]);
+    expect(s.bots.b!.lastSeq).toBe(5);
+    // And one with nothing in it now.
+    s = run([history([], 0, false)], s);
+    expect(s.bots.b!.events).toEqual([]);
+    expect(s.bots.b!.lastSeq).toBe(0);
+  });
+
   it("a reconnect voids pending older asks of followed chats", () => {
     let s = run([local("chat/subscribed", { bot: "b" }), local("chat/olderAsked", { bot: "b" })]);
     s = run([{ kind: "status", status: "open" }], s);
