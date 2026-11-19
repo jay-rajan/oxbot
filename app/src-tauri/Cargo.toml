@@ -24,7 +24,7 @@ anyhow.workspace = true
 tracing.workspace = true
 
 # The Mac app: the home computer. None of this is built for a phone.
-[target.'cfg(not(target_os = "android"))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 oxbot.workspace = true
 oxbot-core.workspace = true
 oxbot-protocol.workspace = true
@@ -42,8 +42,8 @@ chrono.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
 
-# The phone app: a device only.
-[target.'cfg(target_os = "android")'.dependencies]
+# The phone app (Android and iPhone): a device only.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 futures-util.workspace = true
 oxbot-device.workspace = true
 serde.workspace = true
@@ -52,10 +52,17 @@ tauri = { version = "2.12.5", features = [] }
 # Reads the pairing QR code on the phone itself (pure Rust): no Google
 # Play services or ML Kit, which would talk to Google.
 rqrr = { version = "0.11.0", default-features = false }
+tokio.workspace = true
+
 # Opens web links in the phone's browser (an Android intent). Already in the
 # build through Tauri's webview; no new crate.
+[target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
-tokio.workspace = true
+
+# Opens web links in Safari: Tauri's own plugin (its Swift side calls
+# UIApplication.open), since oxbot's Rust has no unsafe code.
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-opener = "=2.7.2"
 
 [lints]
 workspace = true

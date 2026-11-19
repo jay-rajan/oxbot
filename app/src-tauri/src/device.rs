@@ -447,8 +447,19 @@ async fn device_close(device: State<'_, Arc<Device>>) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens `url` (an http(s) address) in Safari, so the app's window stays on
+/// oxbot's page.
+#[cfg(target_os = "ios")]
+fn open_outside(app: &AppHandle, url: String) {
+    use tauri_plugin_opener::OpenerExt;
+    if let Err(err) = app.opener().open_url(url, None::<&str>) {
+        tracing::warn!(%err, "couldn't open a link in Safari");
+    }
+}
+
 /// Opens `url` (an http(s) address) in the phone's browser, with an
 /// Android "view" intent, so the app's window stays on oxbot's page.
+#[cfg(target_os = "android")]
 fn open_outside(app: &AppHandle, url: String) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -464,6 +475,7 @@ fn open_outside(app: &AppHandle, url: String) {
 
 /// `activity.startActivity(new Intent(ACTION_VIEW, Uri.parse(url)))`, in a
 /// new task.
+#[cfg(target_os = "android")]
 fn view_intent(
     env: &mut jni::JNIEnv<'_>,
     activity: &jni::objects::JObject<'_>,
@@ -504,7 +516,11 @@ fn view_intent(
 
 /// Opens the device window.
 pub fn run() -> anyhow::Result<()> {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Safari opens web links on an iPhone (see `open_outside`).
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_opener::init());
+    builder
         .manage(Arc::new(Device::default()))
         // The window is made here, not in the config, to keep it on
         // oxbot's page: web links (a report's sources, links in a chat)
@@ -519,8 +535,11 @@ pub fn run() -> anyhow::Result<()> {
             )
             .title("oxbot")
             .on_navigation(move |to| {
-                // The app's own pages come from tauri.localhost (http or https).
-                if to.host_str() == Some("tauri.localhost") {
+                // The app's own pages: tauri.localhost on Android (http or
+                // https), tauri://localhost on an iPhone.
+                if to.host_str() == Some("tauri.localhost")
+                    || (to.scheme() == "tauri" && to.host_str() == Some("localhost"))
+                {
                     return true;
                 }
                 match links::decide(to, &own) {

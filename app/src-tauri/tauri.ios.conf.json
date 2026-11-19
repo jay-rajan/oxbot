@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "dev.oxbot.gate",
+  "app": {
+    "withGlobalTauri": true,
+    "windows": []
+  },
+  "bundle": {
+    "iOS": {
+      "developmentTeam": "3P46AD5J2K",
+      "minimumSystemVersion": "16.0"
+    }
+  }
+}

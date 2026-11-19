@@ -1,0 +1,473 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0202D8A6026EC4609081D4B2 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = E6FC1FF1BB0D3165C7E095A4 /* assets */; };
+		1382116B3F26BDDE9385B178 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42807DE23B5123E700DBF1A2 /* MetalKit.framework */; };
+		59AEBFE8BFCA60C397A6296A /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = BF6BA1E63ABAFAAD3B3DEC20 /* main.mm */; };
+		5DD699FEB642BE640BCD4833 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 205D4840F2EA15A979196284 /* Security.framework */; };
+		71AF1DD8BF7729C42D67DD76 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74962CA8C7E29CC75F97B58C /* CoreGraphics.framework */; };
+		75491386407E14FDC9125B62 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25E5EEDB3E7917E6B989B3D7 /* UIKit.framework */; };
+		7BA2F13E1C737EF529C51FF5 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1DF194BBF4F78855E15137E /* libapp.a */; };
+		867C3F05B4B0784426A6181A /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AC7FDC915014A349872AF367 /* Metal.framework */; };
+		91E487ADEA6CAB06E1CBA8F6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 971BE2E7A5ABF718BA6B5C1A /* Assets.xcassets */; };
+		D9D1C4D2F681E95FCC0372EF /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FF5A195EFB0835B16B713257 /* WebKit.framework */; };
+		DB8C321431AA2AB1E7B0C7E7 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F33B768CCD8BC8C9130A8E2E /* QuartzCore.framework */; };
+		EECF22E210B3B01E78E0221A /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 2CC9099A9B8512AFB3B6280D /* LaunchScreen.storyboard */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		06942B101F2281D3D13A06DD /* oxbot-desktop_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "oxbot-desktop_iOS.entitlements"; sourceTree = "<group>"; };
+		19434B9C5910161E22A78870 /* device.rs */ = {isa = PBXFileReference; path = device.rs; sourceTree = "<group>"; };
+		205D4840F2EA15A979196284 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		25E5EEDB3E7917E6B989B3D7 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		2CC9099A9B8512AFB3B6280D /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		42807DE23B5123E700DBF1A2 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		74962CA8C7E29CC75F97B58C /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		8B14314FAB9660C5BE30D861 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		971BE2E7A5ABF718BA6B5C1A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1A822A2C0C8C0AFC753823D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		AC7FDC915014A349872AF367 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		B7B746F4A23287F5F601150E /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		BC3E40A2010F5D1449C8FD3D /* update.rs */ = {isa = PBXFileReference; path = update.rs; sourceTree = "<group>"; };
+		BD9879DF8B9403DCD284A76C /* desktop.rs */ = {isa = PBXFileReference; path = desktop.rs; sourceTree = "<group>"; };
+		BF6BA1E63ABAFAAD3B3DEC20 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		CB4FD3967F0398D28ED5CAD0 /* links.rs */ = {isa = PBXFileReference; path = links.rs; sourceTree = "<group>"; };
+		E1DF194BBF4F78855E15137E /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		E6FC1FF1BB0D3165C7E095A4 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		E824A6D7DB4C1A3C3F8E7F28 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		F33B768CCD8BC8C9130A8E2E /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		FAD1073BD944D4549A73B78A /* oxbot-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "oxbot-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF5A195EFB0835B16B713257 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		CDC120D64EA4FD030A561F3B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7BA2F13E1C737EF529C51FF5 /* libapp.a in Frameworks */,
+				71AF1DD8BF7729C42D67DD76 /* CoreGraphics.framework in Frameworks */,
+				867C3F05B4B0784426A6181A /* Metal.framework in Frameworks */,
+				1382116B3F26BDDE9385B178 /* MetalKit.framework in Frameworks */,
+				DB8C321431AA2AB1E7B0C7E7 /* QuartzCore.framework in Frameworks */,
+				5DD699FEB642BE640BCD4833 /* Security.framework in Frameworks */,
+				75491386407E14FDC9125B62 /* UIKit.framework in Frameworks */,
+				D9D1C4D2F681E95FCC0372EF /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		22EAB4796CFF43BA01752A11 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FAD1073BD944D4549A73B78A /* oxbot-desktop_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		40794742AB0E6FB4F2765144 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				BD9879DF8B9403DCD284A76C /* desktop.rs */,
+				19434B9C5910161E22A78870 /* device.rs */,
+				E824A6D7DB4C1A3C3F8E7F28 /* lib.rs */,
+				CB4FD3967F0398D28ED5CAD0 /* links.rs */,
+				8B14314FAB9660C5BE30D861 /* main.rs */,
+				BC3E40A2010F5D1449C8FD3D /* update.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		49A1F712D888AC647F021434 /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				B7B746F4A23287F5F601150E /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		6A8B70DE9B5F0019254FD3FF /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		6B58873550F859E74CD915EF /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				F044C958E8E3F9F2FF340F4B /* oxbot-desktop */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		88571C7E37A9BA559882C8B1 = {
+			isa = PBXGroup;
+			children = (
+				E6FC1FF1BB0D3165C7E095A4 /* assets */,
+				971BE2E7A5ABF718BA6B5C1A /* Assets.xcassets */,
+				2CC9099A9B8512AFB3B6280D /* LaunchScreen.storyboard */,
+				6A8B70DE9B5F0019254FD3FF /* Externals */,
+				9AD339D865A9AA223379C130 /* oxbot-desktop_iOS */,
+				6B58873550F859E74CD915EF /* Sources */,
+				40794742AB0E6FB4F2765144 /* src */,
+				E729EB6079256A428E9C1150 /* Frameworks */,
+				22EAB4796CFF43BA01752A11 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9AD339D865A9AA223379C130 /* oxbot-desktop_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				A1A822A2C0C8C0AFC753823D /* Info.plist */,
+				06942B101F2281D3D13A06DD /* oxbot-desktop_iOS.entitlements */,
+			);
+			path = "oxbot-desktop_iOS";
+			sourceTree = "<group>";
+		};
+		E729EB6079256A428E9C1150 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				74962CA8C7E29CC75F97B58C /* CoreGraphics.framework */,
+				E1DF194BBF4F78855E15137E /* libapp.a */,
+				AC7FDC915014A349872AF367 /* Metal.framework */,
+				42807DE23B5123E700DBF1A2 /* MetalKit.framework */,
+				F33B768CCD8BC8C9130A8E2E /* QuartzCore.framework */,
+				205D4840F2EA15A979196284 /* Security.framework */,
+				25E5EEDB3E7917E6B989B3D7 /* UIKit.framework */,
+				FF5A195EFB0835B16B713257 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		F044C958E8E3F9F2FF340F4B /* oxbot-desktop */ = {
+			isa = PBXGroup;
+			children = (
+				BF6BA1E63ABAFAAD3B3DEC20 /* main.mm */,
+				49A1F712D888AC647F021434 /* bindings */,
+			);
+			path = "oxbot-desktop";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D3C69D43E7F88871C5EE4B61 /* oxbot-desktop_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8AA334CE10AA626132A93F95 /* Build configuration list for PBXNativeTarget "oxbot-desktop_iOS" */;
+			buildPhases = (
+				87FC9E1AB6D082FB36CBE563 /* Build Rust Code */,
+				E5104D1574CC74C7355F8C1E /* Sources */,
+				7E64553100DFA0C312A49656 /* Resources */,
+				CDC120D64EA4FD030A561F3B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "oxbot-desktop_iOS";
+			packageProductDependencies = (
+			);
+			productName = "oxbot-desktop_iOS";
+			productReference = FAD1073BD944D4549A73B78A /* oxbot-desktop_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		783E103CA6B2BE9D13AAF417 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					D3C69D43E7F88871C5EE4B61 = {
+						DevelopmentTeam = 3P46AD5J2K;
+					};
+				};
+			};
+			buildConfigurationList = 1AAF830241770F5D529E81F7 /* Build configuration list for PBXProject "oxbot-desktop" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 88571C7E37A9BA559882C8B1;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 22EAB4796CFF43BA01752A11 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D3C69D43E7F88871C5EE4B61 /* oxbot-desktop_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7E64553100DFA0C312A49656 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				91E487ADEA6CAB06E1CBA8F6 /* Assets.xcassets in Resources */,
+				EECF22E210B3B01E78E0221A /* LaunchScreen.storyboard in Resources */,
+				0202D8A6026EC4609081D4B2 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		87FC9E1AB6D082FB36CBE563 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cargo tauri ios xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root \"${SDKROOT:?}\" --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration \"${CONFIGURATION:?}\" ${FORCE_COLOR} ${ARCHS:?}\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E5104D1574CC74C7355F8C1E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				59AEBFE8BFCA60C397A6296A /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		470F681200F555D4518A0A52 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "oxbot-desktop_iOS/oxbot-desktop_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "3P46AD5J2K";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "oxbot-desktop_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.oxbot.gate;
+				PRODUCT_NAME = "oxbot";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		57090C52919B1E1D80E7CE26 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		5FA9EC46C4141D8995AB706B /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		EBBAF1EAEA9755C2223B674F /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "oxbot-desktop_iOS/oxbot-desktop_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "3P46AD5J2K";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "oxbot-desktop_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.oxbot.gate;
+				PRODUCT_NAME = "oxbot";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1AAF830241770F5D529E81F7 /* Build configuration list for PBXProject "oxbot-desktop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5FA9EC46C4141D8995AB706B /* debug */,
+				57090C52919B1E1D80E7CE26 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		8AA334CE10AA626132A93F95 /* Build configuration list for PBXNativeTarget "oxbot-desktop_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				470F681200F555D4518A0A52 /* debug */,
+				EBBAF1EAEA9755C2223B674F /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 783E103CA6B2BE9D13AAF417 /* Project object */;
+}
