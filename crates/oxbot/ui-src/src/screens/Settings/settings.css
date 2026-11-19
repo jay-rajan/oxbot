@@ -153,3 +153,5 @@
 }
 .memory-list li > span { min-width: 0; overflow-wrap: anywhere; padding: var(--s-1) 0; }
 .memory-x { flex: none; }
+.home-area { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s-2); }
+.home-area > :first-child { flex: 1 1 260px; min-width: 0; }

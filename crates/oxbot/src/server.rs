@@ -155,6 +155,7 @@ impl AppState {
             home_computer: viewer.home_computer,
             admin: viewer.sees_all(),
             usage_alerts: self.hub.usage_alerts_on(),
+            home_area: self.hub.home_area_text(),
             // The Mac's own microphone: the home computer's alone.
             dictation: viewer.home_computer && self.dictation.available(),
             owner: self.hub.is_owner_viewer(viewer),
@@ -2120,6 +2121,10 @@ async fn handle_home_computer(
         }
         ClientMsg::CheckForUpdate => update_request(state, viewer, false),
         ClientMsg::InstallUpdate => update_request(state, viewer, true),
+        ClientMsg::SetHomeArea { area } => match state.hub.set_home_area(&area) {
+            Ok(()) => vec![ServerMsg::Settings(state.settings_for(viewer))],
+            Err(e) => error(&e),
+        },
         ClientMsg::SetUsageAlerts { on } => match state.hub.set_usage_alerts(on) {
             Ok(()) => vec![ServerMsg::Settings(state.settings_for(viewer))],
             Err(e) => error(&e),
@@ -2282,6 +2287,7 @@ fn admin_only(msg: &ClientMsg) -> bool {
             | ClientMsg::RemovePerson { .. }
             | ClientMsg::SetAdmin { .. }
             | ClientMsg::SetUsageAlerts { .. }
+            | ClientMsg::SetHomeArea { .. }
             // The Mac's own sleep.
             | ClientMsg::SetKeepAwake { .. }
             // The app's own updates.

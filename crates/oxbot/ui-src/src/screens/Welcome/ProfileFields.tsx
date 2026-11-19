@@ -1,11 +1,12 @@
 // The profile fields, shared by the welcome screen and Settings → People:
-// name, color and photo (never sent to bots), and the home's area. What bots
-// should know about a person is their memory list (Settings → People).
+// name, color and photo (never sent to bots). The home's area is a home
+// setting (Settings → General); what bots should know about a person is
+// their memory list (Settings → Memory).
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../app/context";
-import { Button, Checkbox, Field, Hint, Input, vars } from "../../components/ui";
+import { Button, Checkbox, Field, Input, vars } from "../../components/ui";
 import type { ProfileView } from "../../net/protocol";
-import { type ProfileDraft, ROLES, draftFrom } from "./profile";
+import { type ProfileDraft, draftFrom } from "./profile";
 import "./welcome.css";
 
 /** A draft that follows the server's view, except while the form is in use. */
@@ -20,7 +21,7 @@ export function useProfileDraft(view: ProfileView | null) {
   return { formRef, draft, setDraft };
 }
 
-type TextKey = "name" | "home_area";
+type TextKey = "name";
 
 /** A photo, made small (96 px, JPEG) in the page before it's sent. */
 function shrinkPhoto(file: File, done: (url: string) => void, fail: () => void) {
@@ -71,7 +72,6 @@ export function ProfileFields({
       {field("Name", "name", 40, "Bots never see your name.")}
       {/* Color and photo: shown with your messages, never sent to bots. */}
       <div className="pf">
-        <span className="pf-label">Color and photo</span>
         <div className="swatches">
           {view.colors.map((c) => (
             <label key={c} style={vars({ person: c })} title={c}>
@@ -99,14 +99,7 @@ export function ProfileFields({
             }}
           />
         </div>
-        <p className="use">Shown with your messages; bots never see them.</p>
       </div>
-      <p className="role">{`In the home: ${ROLES[view.role] || view.role}`}</p>
-      {view.can_edit_area ? (
-        field("Home area", "home_area", 100, "The whole home's: bots use it for local results.", "City, region")
-      ) : view.home_area ? (
-        <Hint>{`Home area: ${view.home_area} (the owner sets it)`}</Hint>
-      ) : null}
       {view.owner_confirm ? (
         <div className="confirms">
           <Checkbox data-confirm="adult" checked={draft.adult} onChange={(e) => set({ adult: e.target.checked })}>

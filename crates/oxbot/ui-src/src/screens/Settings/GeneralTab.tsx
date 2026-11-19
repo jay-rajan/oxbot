@@ -1,6 +1,6 @@
 // Settings → General: what's missing on the home computer, notifications,
 // the home's AI account, startup, and about.
-import { type FormEvent, type ReactNode, useEffect, useRef } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { useApp, useSel } from "../../app/context";
 import { Banner, Button, cx, Field, Hint, Input, pct, Section, Switch, vars } from "../../components/ui";
 import { local } from "../../state/store";
@@ -13,6 +13,7 @@ export function GeneralTab({ hidden }: { hidden: boolean }) {
   return (
     <div id="setGeneral" className="settings-pane" role="tabpanel" hidden={hidden}>
       <SetupSection />
+      <HomeSection />
       <NotifySection />
       <AiSection />
       <LoginSection />
@@ -60,6 +61,37 @@ function SetupSection() {
           ))}
         </ul>
       </Banner>
+    </Section>
+  );
+}
+
+// The home's area: one for the whole home, which bots use for local results
+// (weather, shops, events). Administrators change it; everyone sees it.
+function HomeSection() {
+  const { send } = useApp();
+  const settings = useSel((s) => s.connection.settings);
+  const area = settings?.home_area ?? "";
+  const [draft, setDraft] = useState(area);
+  useEffect(() => setDraft(area), [area]);
+  if (!settings) return null;
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    send({ type: "set_home_area", area: draft.trim() });
+  };
+  return (
+    <Section id="homeSection" title="Home">
+      {settings.admin ? (
+        <form className="home-area" onSubmit={save}>
+          <Field label="Home area" hint="Bots use it for local results, like weather and nearby shops.">
+            <Input id="homeArea" maxLength={100} autoComplete="off" placeholder="City, region" value={draft} onChange={(e) => setDraft(e.target.value)} />
+          </Field>
+          <Button size="sm" type="submit" id="homeAreaSave" hidden={draft.trim() === area}>
+            Save
+          </Button>
+        </form>
+      ) : (
+        <Hint id="homeAreaView">{area ? `Home area: ${area}. Set by the home's administrators.` : "No home area yet. The home's administrators set it."}</Hint>
+      )}
     </Section>
   );
 }

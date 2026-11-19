@@ -13,7 +13,7 @@ describe("profile", () => {
     const d = { ...draftFrom(view), food: "vegetarian" };
     expect(profileEdit(d, view)).toEqual({ error: CONFIRM_ERROR });
     const r = profileEdit({ ...d, adult: true, terms: true, name: " Jay " }, view);
-    expect(r).toMatchObject({ edit: { name: "Jay", food: "vegetarian", owner_confirmed: true, home_area: "" } });
+    expect(r).toMatchObject({ edit: { name: "Jay", food: "vegetarian", owner_confirmed: true, home_area: null } });
   });
 
   it("someone else: no confirmation, no home area", () => {

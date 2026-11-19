@@ -551,6 +551,13 @@ pub enum ClientMsg {
         /// On or off.
         on: bool,
     },
+    /// Administrators only: set the home's area (city, region), which bots
+    /// use for local results; empty clears it. The asker gets the new
+    /// [`ServerMsg::Settings`].
+    SetHomeArea {
+        /// The area, at most 100 characters.
+        area: String,
+    },
     /// Administrators only: make someone on the household list an
     /// administrator, or not (a home keeps at least one). Everyone gets the
     /// new [`ServerMsg::People`].
@@ -1583,6 +1590,10 @@ pub struct AppSettings {
     /// bot, the people and the home's settings.
     #[serde(default)]
     pub admin: bool,
+    /// The home's area (city, region) that bots use for local results;
+    /// empty when nobody has set it. Administrators change it.
+    #[serde(default)]
+    pub home_area: String,
     /// Whether oxbot tells the user when use passes 50% and 80% of the
     /// household's `OpenRouter` limits.
     #[serde(default = "yes")]
@@ -3351,6 +3362,7 @@ mod tests {
             you: "Jay".into(),
             home_computer: true,
             admin: true,
+            home_area: String::new(),
             usage_alerts: true,
             dictation: false,
             owner: true,

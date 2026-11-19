@@ -121,6 +121,25 @@ impl Hub {
         }
     }
 
+    /// The home's area as Settings → General shows it ("" when unset).
+    #[must_use]
+    pub fn home_area_text(&self) -> String {
+        self.home_area().0
+    }
+
+    /// Sets the home's area for everyone (bots then use it); empty clears it.
+    ///
+    /// # Errors
+    /// The area is too long, or the database failed.
+    pub fn set_home_area(&self, area: &str) -> Result<(), HubError> {
+        let area = field(area, MAX_AREA, "The home area")?;
+        self.store.set_pref(PREF_HOME_AREA, &area)?;
+        self.store.set_pref(PREF_HOME_AREA_USE, "1")?;
+        tracing::info!("set the home area");
+        let _ = self.updates.send(ServerMsg::ProfilesChanged);
+        Ok(())
+    }
+
     /// The home area, and whether bots may use it.
     fn home_area(&self) -> (String, bool) {
         let area = self
@@ -177,7 +196,7 @@ impl Hub {
             notes_use: p.notes_use,
             home_area,
             home_area_use,
-            can_edit_area: self.is_home_computer_side(&viewer),
+            can_edit_area: self.resolve(&viewer).sees_all(),
             welcome: rec.as_ref().is_some_and(|r| r.welcome_due),
             owner_confirm: role == Role::Owner
                 && rec.as_ref().is_none_or(|r| r.owner_ok_ms.is_none()),
@@ -246,8 +265,8 @@ impl Hub {
             tracing::info!(person = %id, "a person changed their name");
         }
         self.store.set_person_color(&id, color)?;
-        // Only the owner sets the household's area.
-        if self.is_home_computer_side(&viewer) {
+        // Only the administrators set the household's area.
+        if self.resolve(&viewer).sees_all() {
             if let Some(area) = area {
                 self.store.set_pref(PREF_HOME_AREA, &area)?;
             }
@@ -432,6 +451,21 @@ mod tests {
         // From then on, saving needs no confirming again.
         let home_computer = hub.home_computer_viewer("Jay");
         assert!(hub.set_profile(&home_computer, &edit("Jayadev")).is_ok());
+    }
+
+    #[tokio::test]
+    async fn the_home_area_is_one_setting_for_the_whole_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = hub(tmp.path());
+        let jay = hub.home_computer_viewer("Jay");
+        assert_eq!(hub.home_area_text(), "");
+        hub.set_home_area("  Lorne Park,   Mississauga ").unwrap();
+        assert_eq!(hub.home_area_text(), "Lorne Park, Mississauga");
+        let view = hub.profile_for(&jay).unwrap().unwrap();
+        assert_eq!(view.home_area, "Lorne Park, Mississauga");
+        assert!(hub.set_home_area(&"x".repeat(101)).is_err());
+        hub.set_home_area("").unwrap();
+        assert_eq!(hub.home_area_text(), "");
     }
 
     #[tokio::test]

@@ -408,7 +408,11 @@ on: boolean, } | { "type": "set_keep_awake",
 /**
  * On or off.
  */
-on: boolean, } | { "type": "set_admin", 
+on: boolean, } | { "type": "set_home_area", 
+/**
+ * The area, at most 100 characters.
+ */
+area: string, } | { "type": "set_admin", 
 /**
  * Who, by name.
  */

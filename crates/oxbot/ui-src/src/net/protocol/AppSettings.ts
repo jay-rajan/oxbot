@@ -34,6 +34,11 @@ home_computer: boolean,
  */
 admin: boolean, 
 /**
+ * The home's area (city, region) that bots use for local results;
+ * empty when nobody has set it. Administrators change it.
+ */
+home_area: string, 
+/**
  * Whether oxbot tells the user when use passes 50% and 80% of the
  * household's `OpenRouter` limits.
  */

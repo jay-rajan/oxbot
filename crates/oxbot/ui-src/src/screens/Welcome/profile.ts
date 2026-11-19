@@ -2,12 +2,6 @@
 // a draft made from what the server sent, and the edit saved from it.
 import type { ProfileEdit, ProfileView } from "../../net/protocol";
 
-export const ROLES: Record<string, string> = {
-  owner: "Owner: you installed oxbot and connect the home's AI account",
-  adult: "Adult",
-  kid: "Kid (a parent approves what's risky)",
-};
-
 export interface ProfileDraft {
   name: string;
   color: string;
@@ -60,9 +54,9 @@ export function profileEdit(draft: ProfileDraft, view: ProfileView): { edit: Pro
       languages_use: draft.languages_use,
       notes: draft.notes,
       notes_use: draft.notes_use,
-      home_area: view.can_edit_area ? draft.home_area : null,
-      // No switch any more: an area set is an area bots use.
-      home_area_use: view.can_edit_area ? true : null,
+      // The home's area is set in Settings → General.
+      home_area: null,
+      home_area_use: null,
       owner_confirmed,
     },
   };

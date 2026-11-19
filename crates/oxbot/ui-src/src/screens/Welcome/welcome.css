@@ -8,11 +8,7 @@
 .profile-fields { display: grid; gap: var(--s-5); min-width: 0; }
 /* A detail and, under it, whether bots may use it */
 .profile-fields .pf { display: grid; gap: var(--s-2); min-width: 0; }
-.profile-fields .pf-label { font-size: var(--text-sm); font-weight: var(--weight-mid); }
-.profile-fields .use { margin: 0; font-size: var(--text-sm); color: var(--muted); }
-.profile-fields .check.use { min-height: 0; }
 .profile-fields .textarea { min-height: 72px; }
-.profile-fields .role { font-size: var(--text-sm); color: var(--muted); }
 
 /* Color swatches: a person's color each (vars({ person })) */
 .profile-fields .swatches { display: flex; flex-wrap: wrap; gap: var(--s-2); }
