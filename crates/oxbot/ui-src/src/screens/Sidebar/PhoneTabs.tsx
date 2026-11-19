@@ -1,13 +1,12 @@
-// A phone's tab bar, at the bottom within the thumb's reach: Bots (the bot
-// list, as the drawer) and the family Home's views. Wider screens have the
-// sidebar instead, so it's hidden there (shell.css).
+// A phone's tab bar, at the bottom within the thumb's reach: the family
+// Home's views. The bot list stays behind the menu button at the top. Wider
+// screens have the sidebar instead, so it's hidden there (shell.css).
 import { useApp, useSel } from "../../app/context";
-import { MenuIcon } from "../../components/ui";
 import { HOME_LEADS } from "../../state/sidebar";
 import { local } from "../../state/store";
 import { HomeIcon } from "./HomeIcon";
 
-/** Shorter names than the sidebar's, to fit five across a phone. */
+/** Shorter names than the sidebar's, to fit four across a phone. */
 const SHORT: Record<string, string> = { "home-meals": "Meals" };
 
 export function PhoneTabs() {
@@ -22,16 +21,6 @@ export function PhoneTabs() {
   };
   return (
     <nav className="phone-tabs" aria-label="Views">
-      <button
-        type="button"
-        className="phone-tab"
-        id="tabBots"
-        aria-current={String(page === "chat" || sideOpen) as "true" | "false"}
-        onClick={() => dispatch(local("ui/side", { open: !sideOpen }))}
-      >
-        <span className="phone-tab-icon"><MenuIcon /></span>
-        <span>Bots</span>
-      </button>
       {HOME_LEADS.map((h) =>
         h.page !== "calendar" && !hasBot[h.id] ? null : (
           <button
