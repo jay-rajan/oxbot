@@ -320,6 +320,13 @@ impl Hub {
         let names = self.person_names();
         let mut people = Vec::new();
         for name in &input.people {
+            if looks_like_stand_in(name) {
+                return Err(HubError::Store(StoreError::Invalid(format!(
+                    "\"{name}\" is a stand-in for someone's name, not a name. Write it exactly as you \
+                     were given it, with its square brackets ([person 1]), and oxbot puts the real \
+                     name back."
+                ))));
+            }
             let known = names
                 .iter()
                 .find(|(_, n)| n.eq_ignore_ascii_case(name.trim()))
@@ -427,6 +434,27 @@ fn with_added(text: String, added: &[String]) -> String {
         "{text} New in this home's people (so the family can pick them on events): {}.",
         added.join(", ")
     )
+}
+
+/// Whether `name` is one of the relay's stand-ins for a personal detail
+/// ("person 1", "[email 2]"), which a model sometimes copies without its
+/// brackets: then oxbot can't put the real name back, and a person called
+/// "person 1" must not join the home.
+fn looks_like_stand_in(name: &str) -> bool {
+    let name = name
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
+    let Some((words, number)) = name.rsplit_once(' ') else {
+        return false;
+    };
+    !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+        && matches!(
+            words.to_ascii_lowercase().as_str(),
+            "person" | "name" | "email" | "phone" | "address" | "place" | "postal code"
+        )
 }
 
 #[cfg(test)]
@@ -598,6 +626,29 @@ mod tests {
             text.contains("New in this home's people") && text.contains("Akhila"),
             "{text}"
         );
+        // A stand-in the model copied without its brackets never becomes a
+        // person: the bot is told to write it as given.
+        for stand_in in ["person 1", "[Person 2", "email 3"] {
+            let (ok, text) = hub.calendar_tool(
+                &cal,
+                tools::ADD_EVENT_TOOL,
+                &json!({"title": "Dentist", "starts": "2026-11-25", "people": [stand_in]}),
+            );
+            assert!(!ok && text.contains("square brackets"), "{text}");
+        }
+        assert!(
+            !hub.person_names()
+                .iter()
+                .any(|(_, n)| n.starts_with("person"))
+        );
+        // Any bot at home may add to the calendar: the family's Calendar.
+        let school = BotId::new("school-plan").unwrap();
+        let (ok, text) = hub.calendar_tool(
+            &school,
+            tools::ADD_EVENT_TOOL,
+            &json!({"title": "Parent meeting", "starts": "2026-11-26T18:00"}),
+        );
+        assert!(ok, "{text}");
         assert!(hub.person_names().values().any(|n| n == "Akhila"));
 
         let (ok, _) = hub.calendar_tool(

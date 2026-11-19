@@ -139,6 +139,9 @@ pub struct HostTools {
     pub browser: bool,
     /// It's the Home's Calendar bot: the calendar tools.
     pub calendar: bool,
+    /// It may add events to the family Calendar (`add_event`): every bot
+    /// at home, never a trial run.
+    pub add_event: bool,
     /// It's the Home's Records bot: the notes tools.
     pub notes: bool,
     /// It's the Home's Meal Plan bot: the meal plan and grocery tools.

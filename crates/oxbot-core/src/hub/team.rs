@@ -43,6 +43,7 @@ impl Hub {
                 .get(&bot)
                 .is_some_and(|r| r.browser.is_some()),
             calendar: bot.as_str() == crate::bot::HOME_LEADS[0].0,
+            add_event: true,
             notes: bot.as_str() == crate::bot::HOME_LEADS[2].0,
             meals: bot.as_str() == crate::bot::HOME_LEADS[1].0,
             groceries: bot.as_str() == crate::bot::HOME_LEADS[3].0,

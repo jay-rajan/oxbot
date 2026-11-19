@@ -401,6 +401,8 @@ impl Hub {
             central: self.run_bot(key.as_str()).is_ok_and(|b| b.is_central()),
             browser: self.trial_browser(&key).is_some(),
             calendar: false,
+            // A trial never writes to the family's real calendar.
+            add_event: false,
             notes: false,
             meals: false,
             groceries: false,
