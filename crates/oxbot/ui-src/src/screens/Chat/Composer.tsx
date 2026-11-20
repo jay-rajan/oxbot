@@ -204,6 +204,9 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
               stopDictation(app);
               app.dispatch(local("chat/input", { text: ev.currentTarget.value }));
             }}
+            // Typing done (the keyboard goes): a phone's tab bar comes back.
+            onBlur={() => { if (!app.store.getState().ui.tabsUp) app.dispatch(local("ui/tabsUp", { up: true })); }}
+            onFocus={() => { if (app.store.getState().ui.tabsUp) app.dispatch(local("ui/tabsUp", { up: false })); }}
             onPaste={(ev) => {
               const files = ev.clipboardData?.files;
               if (files?.length) { ev.preventDefault(); addFiles(app, files); }

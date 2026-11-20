@@ -27,8 +27,8 @@ export function App() {
   const page = useSel((s) => s.ui.page);
   const mode = useHomeMode();
   useSavedHomeMode();
-  // In a chat the phone's tab bar steps away (shell.css), unless Chat was
-  // tapped again to bring it back.
+  // In a chat the phone's tab bar steps away (shell.css), until a swipe
+  // back through the chat or the end of typing brings it up.
   const tabsUp = useSel((s) => s.ui.tabsUp);
   const away = (page === "chat" || mode === "chat") && !tabsUp;
   useEffect(() => {

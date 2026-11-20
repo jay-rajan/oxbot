@@ -37,8 +37,8 @@ export interface UiState {
   page: "chat" | "calendar" | "notes" | "meals" | "groceries";
   /** How a Home view and its bot's chat share the screen. Each view keeps its own (none yet: Split). */
   homeMode: Record<string, HomeMode>;
-  /** In a chat on a phone the tab bar steps away; tapping Chat again
-   *  brings it back (until the view changes). */
+  /** In a chat on a phone the tab bar steps away; swiping back through the
+   *  chat, or finishing typing, brings it back (until the view changes). */
   tabsUp: boolean;
 }
 
@@ -91,7 +91,7 @@ export function uiReducer(state: UiState, action: Action): UiState {
     case "ui/homeMode":
       return { ...state, homeMode: { ...state.homeMode, [action.page as string]: action.mode as HomeMode }, tabsUp: false };
     case "ui/tabsUp":
-      return { ...state, tabsUp: !state.tabsUp };
+      return { ...state, tabsUp: Boolean(action.up) };
     default:
       return state;
   }

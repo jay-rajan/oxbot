@@ -68,5 +68,5 @@ export function HomeMode({ where, view }: { where: string; view: string }) {
     ["full", view],
     ["chat", "Chat"],
   ];
-  return <Segmented className="home-mode" name={`homeMode-${where}`} label="Show" options={options} value={mode} onChange={choose} onReselect={(m) => { if (m === "chat") dispatch(local("ui/tabsUp", {})); }} />;
+  return <Segmented className="home-mode" name={`homeMode-${where}`} label="Show" options={options} value={mode} onChange={choose} />;
 }
