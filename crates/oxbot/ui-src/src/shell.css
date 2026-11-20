@@ -52,7 +52,8 @@
   .kb-open .app { padding-bottom: 0; }
   /* In a chat the bar slides away (a tap on the chat, or the end of typing,
      brings it up); the message box then keeps clear of the home indicator. */
-  .phone-tabs { transition: transform var(--slow) var(--ease); }
+  /* A calm slide, twice the usual pace, so the bar never seems to flicker. */
+  .phone-tabs { transition: transform calc(var(--slow) * 2) var(--ease); }
   .tabs-away .phone-tabs { transform: translateY(100%); pointer-events: none; }
   .tabs-away .app { padding-bottom: 0; }
   .tabs-away .app .composer { padding-bottom: max(var(--s-3), env(safe-area-inset-bottom)); }
