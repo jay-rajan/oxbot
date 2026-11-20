@@ -405,9 +405,14 @@ impl Hub {
                 true,
                 format!(
                     "The user finished with the sign-in window for {site} (they pressed I'm \
-                     signed in, or closed the window). The browser is yours again: reload or \
-                     open the page, then check you're really signed in. If you're still signed out, say \
-                     so plainly and don't ask to sign in again until the user asks you to."
+                     signed in, or closed the window). The browser is yours again: open the page \
+                     you need (don't reload: the sign-in page is closed), then check you're really \
+                     signed in. If the site still shows you signed out, click its own Sign in link \
+                     once: many sites sign in on a separate account site (Crave on \
+                     account.bellmedia.ca, others with Google or Microsoft) and only learn you're \
+                     signed in when it sends you back, which it now does at once. If you're still \
+                     signed out after that, say so plainly (sign-ins are kept across restarts, so \
+                     don't blame one) and don't ask to sign in again until the user asks you to."
                 ),
             ),
             SignInOutcome::Cancelled => (

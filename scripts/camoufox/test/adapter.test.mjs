@@ -181,3 +181,87 @@ test(
     await assert.rejects(adapter.tool("save_file", { url: "file:///etc/hosts" }, workspace), /Only web addresses/);
   },
 );
+
+test(
+  "\"I'm signed in\" right after submitting lets the site finish signing in",
+  { skip: !bundle, timeout: 90000 },
+  async (t) => {
+    const root = await mkdtemp(resolve(tmpdir(), "oxbot-signin-test-"));
+    // A site whose login takes two seconds, then sets its cookie and
+    // redirects, as real sites do.
+    const server = createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/login") {
+        setTimeout(() => {
+          res.writeHead(303, {
+            "Set-Cookie": "session=signed-in; Max-Age=31536000; Path=/; HttpOnly",
+            Location: "/home",
+          });
+          res.end();
+        }, 2000);
+        return;
+      }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(
+        req.url === "/home"
+          ? "<!doctype html><title>Home</title><p>Welcome back</p>"
+          : `<!doctype html><title>Sign in</title><form method="post" action="/login"><input name="email" autofocus><button>Sign in</button></form>`,
+      );
+    });
+    await new Promise((done) => server.listen(0, "127.0.0.1", done));
+    t.after(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const adapter = await Adapter.start({
+      bundle,
+      profile: resolve(root, "profile"),
+      headless: true,
+    });
+    t.after(async () => {
+      await adapter.runtime.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    await adapter.admin("open_window", { url: origin + "/signin" });
+    await adapter.admin("signin_input", { input: { kind: "text", text: "me@example.com" } });
+    await adapter.admin("signin_input", { input: { kind: "key", key: "Enter" } });
+    // The person presses "I'm signed in" at once, mid-login.
+    await adapter.admin("close_window");
+    const cookies = await adapter.admin("cookies");
+    assert.ok(
+      JSON.stringify(cookies).includes("signed-in"),
+      "the sign-in cookie was kept",
+    );
+  },
+);
+
+test(
+  "opening the sign-in window twice keeps one sign-in page",
+  { skip: !bundle, timeout: 90000 },
+  async (t) => {
+    const root = await mkdtemp(resolve(tmpdir(), "oxbot-signin-twice-"));
+    const server = createServer((req, res) => {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end("<!doctype html><title>Sign in</title><input>");
+    });
+    await new Promise((done) => server.listen(0, "127.0.0.1", done));
+    t.after(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const adapter = await Adapter.start({
+      bundle,
+      profile: resolve(root, "profile"),
+      headless: true,
+    });
+    t.after(async () => {
+      await adapter.runtime.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    await adapter.admin("open_window", { url: origin + "/signin" });
+    await adapter.admin("open_window", { url: origin + "/signin" });
+    assert.equal(adapter.signInPages.length, 1);
+    await adapter.admin("close_window");
+  },
+);

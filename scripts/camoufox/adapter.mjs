@@ -656,11 +656,16 @@ export class Adapter {
       return true;
     }
     if (method === "open_window") {
+      // Already open (the Mac opened it, then the person tapped Sign in on
+      // their phone): the same window, not another tab brought forward.
+      const open = this.signInPages.filter((page) => !page.isClosed());
+      if (this.paused && open.length) return true;
       this.paused = true;
       this.refs.clear();
       const page = await this.runtime.newPage();
+      // (track counts it as a sign-in page already, as paused.)
       this.track(page);
-      this.signInPages.push(page);
+      if (!this.signInPages.includes(page)) this.signInPages.push(page);
       await this.runtime.showForUser();
       await page.bringToFront();
       await page
@@ -706,6 +711,17 @@ export class Adapter {
     if (method === "close_window") {
       const pages = this.signInPages;
       this.signInPages = [];
+      // "I'm signed in" often comes right after the person submitted the
+      // form, while the site is still logging them in (a few redirects that
+      // set the sign-in cookies). Closing the page then would cut that off,
+      // so each page first gets to go quiet (or 8 seconds).
+      await Promise.all(
+        pages
+          .filter((page) => !page.isClosed())
+          .map((page) =>
+            page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {}),
+          ),
+      );
       for (const page of pages) {
         if (this.pages.size === 1) this.track(await this.runtime.newPage());
         await page.close().catch(() => {});

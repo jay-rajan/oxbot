@@ -670,6 +670,41 @@ done
     }
 
     #[tokio::test]
+    async fn a_stuck_browser_starts_over_to_open_the_sign_in() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tool = stand_in(tmp.path());
+        // This browser's first run never answers "open_window", as one stuck
+        // on a page that stopped responding; its next run does.
+        std::fs::write(
+            tool.bundle.join("service.mjs"),
+            r#"echo "$6" >> "$(dirname "$0")/starts"
+runs=$(wc -l < "$(dirname "$0")/starts")
+echo '{"event":"ready"}'
+while read -r line; do
+  case "$line" in *'"shutdown"'*) exit 0;; esac
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in *'"open_window"'*) [ "$runs" -eq 1 ] && continue;; esac
+  [ -n "$id" ] && echo "{\"id\":$id,\"result\":true}"
+done
+"#,
+        )
+        .unwrap();
+        let starts = || std::fs::read_to_string(tool.bundle.join("starts")).unwrap_or_default();
+        let mut config = ToolsConfig::in_home(tmp.path());
+        config.camoufox = Some(tool.clone());
+        let browser = Browser::new(&Tools::new(config), spec(tmp.path())).unwrap();
+        browser.set_hidden(true);
+        browser.ensure_running().await.unwrap();
+        browser
+            .open_window("https://example.test/login")
+            .await
+            .expect("opened on the second try");
+        assert_eq!(starts().lines().count(), 2, "started over once");
+        assert_eq!(*browser.status().borrow(), BrowserStatus::SigningIn);
+        browser.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn a_sign_in_brings_the_browser_forward_without_starting_it_over() {
         let tmp = tempfile::tempdir().unwrap();
         let tool = stand_in(tmp.path());

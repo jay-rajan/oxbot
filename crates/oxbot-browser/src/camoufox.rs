@@ -27,6 +27,12 @@ use crate::{BrowserError, BrowserSpec, BrowserStatus};
 
 /// How often idle visits are checked for.
 const VISIT_TICK: Duration = Duration::from_secs(15);
+/// How long the sign-in window may take to open before the browser starts
+/// over (a sign-in page opens in a few seconds).
+#[cfg(not(test))]
+const OPEN_WAIT: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const OPEN_WAIT: Duration = Duration::from_secs(2);
 
 /// Visits under way, and where finished ones go.
 #[derive(Default)]
@@ -633,14 +639,31 @@ impl Camoufox {
             .await
     }
     pub(crate) async fn open(self: &Arc<Self>, url: &str) -> Result<(), BrowserError> {
+        // A browser stuck on a page that stopped answering can't open the
+        // window either, and the person's Sign in would seem to do nothing:
+        // it starts over (sign-ins stay: they're in the profile) and tries
+        // once more.
+        let first = self.try_open(url).await;
+        let Err(err) = first else { return Ok(()) };
+        tracing::warn!(%err, "the sign-in window didn't open; the browser starts over");
+        self.stop().await;
+        let again = self.try_open(url).await;
+        if again.is_err() {
+            self.paused.store(false, Ordering::SeqCst);
+            self.status.send_replace(BrowserStatus::Ready);
+        }
+        again
+    }
+    async fn try_open(self: &Arc<Self>, url: &str) -> Result<(), BrowserError> {
         // A sign-in or robot check needs the person: a hidden browser comes
         // forward as a window.
         self.ensure_as(Some(false)).await?;
         self.paused.store(true, Ordering::SeqCst);
         self.status.send_replace(BrowserStatus::SigningIn);
-        self.call("open_window", json!({"url":url}))
-            .await
-            .map_err(BrowserError::Browser)?;
+        match tokio::time::timeout(OPEN_WAIT, self.call("open_window", json!({"url":url}))).await {
+            Ok(done) => done.map_err(BrowserError::Browser)?,
+            Err(_) => return Err(BrowserError::Browser("The sign-in window took too long to open".into())),
+        };
         tracing::info!("the browser is in front for a sign-in");
         Ok(())
     }
