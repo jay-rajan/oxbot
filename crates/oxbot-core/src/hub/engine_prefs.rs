@@ -282,7 +282,9 @@ pub fn checked_models(models: Vec<String>) -> Result<Vec<String>, HubError> {
 /// `prefs` with ids trimmed, or why it can't be kept.
 fn checked_prefs(mut prefs: EnginePrefs) -> Result<EnginePrefs, HubError> {
     let refuse = |why: String| Err(HubError::NotAllowed(why));
-    if !(1..=MAX_DAILY_REQUESTS).contains(&prefs.bot_daily_requests)
+    if prefs
+        .bot_daily_requests
+        .is_some_and(|n| !(1..=MAX_DAILY_REQUESTS).contains(&n))
         || prefs
             .person_daily_requests
             .is_some_and(|n| !(1..=MAX_DAILY_REQUESTS).contains(&n))
@@ -381,7 +383,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let hub = hub(tmp.path());
         assert_eq!(hub.engine_prefs(), EnginePrefs::default());
-        assert_eq!(hub.engine_prefs().bot_daily_requests, 200);
+        assert_eq!(hub.engine_prefs().bot_daily_requests, None, "no cap");
         let kept = hub
             .set_engine_prefs(EnginePrefs {
                 paid_fallback: true,
@@ -395,7 +397,7 @@ mod tests {
         assert_eq!(hub.engine_prefs(), kept);
         for bad in [
             EnginePrefs {
-                bot_daily_requests: 0,
+                bot_daily_requests: Some(0),
                 ..EnginePrefs::default()
             },
             EnginePrefs {

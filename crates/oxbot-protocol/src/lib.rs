@@ -1102,8 +1102,10 @@ pub struct EnginePrefs {
     /// 1000: $10.00). Settings saved with the old daily cap load with this
     /// default.
     pub paid_monthly_cents: u32,
-    /// Each bot's model requests a day, unless it has its own (200).
-    pub bot_daily_requests: u32,
+    /// Each bot's model requests a day, unless it has its own (`None`: no
+    /// cap). Settings saved with the old built-in 200 load with no cap.
+    #[serde(deserialize_with = "no_old_bot_cap")]
+    pub bot_daily_requests: Option<u32>,
     /// Each person's model requests a day (`None`: no cap).
     pub person_daily_requests: Option<u32>,
     /// The model people's own Assistants use (`None`: Auto). Settings saved
@@ -1112,13 +1114,19 @@ pub struct EnginePrefs {
     pub assistant_model: Option<String>,
 }
 
+/// A bot cap of 200 was the built-in default, never one an owner chose (no
+/// screen sets it): it loads as no cap.
+fn no_old_bot_cap<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
+    Ok(Option::<u32>::deserialize(d)?.filter(|&n| n != 200))
+}
+
 impl Default for EnginePrefs {
     fn default() -> Self {
         Self {
             paid_fallback: true,
             paid_models: Vec::new(),
             paid_monthly_cents: 1000,
-            bot_daily_requests: 200,
+            bot_daily_requests: None,
             person_daily_requests: None,
             assistant_model: None,
         }
@@ -2783,6 +2791,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bots_have_no_daily_cap_unless_one_was_chosen() {
+        let saved = |json: &str| serde_json::from_str::<EnginePrefs>(json).unwrap();
+        assert_eq!(EnginePrefs::default().bot_daily_requests, None);
+        // The old built-in 200, as homes saved it: no cap now.
+        assert_eq!(saved(r#"{"bot_daily_requests":200}"#).bot_daily_requests, None);
+        assert_eq!(saved(r#"{"bot_daily_requests":50}"#).bot_daily_requests, Some(50));
+        assert_eq!(saved(r#"{"bot_daily_requests":null}"#).bot_daily_requests, None);
+        assert_eq!(saved("{}").bot_daily_requests, None);
+    }
+
+    #[test]
     fn activity_messages_have_the_shape_the_page_reads() {
         let ask: ClientMsg = serde_json::from_str(r#"{"type":"list_net_log"}"#).unwrap();
         assert_eq!(
@@ -2993,7 +3012,7 @@ mod tests {
         assert!(!off.paid_fallback, "an owner's explicit off stays");
         assert_eq!(
             (prefs.bot_daily_requests, prefs.paid_monthly_cents),
-            (200, 1000)
+            (None, 1000)
         );
         // Settings saved before the monthly budget (a daily cap) still
         // load, with the monthly default.

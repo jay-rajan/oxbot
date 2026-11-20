@@ -178,9 +178,11 @@ impl UsageGuard for HubGuard {
             } else {
                 bot.loop_settings
                     .daily_requests
-                    .unwrap_or(prefs.bot_daily_requests)
+                    .or(prefs.bot_daily_requests)
             };
-            if read(store.bot_requests(&day, q.bot)) >= cap {
+            if let Some(cap) = cap
+                && read(store.bot_requests(&day, q.bot)) >= cap
+            {
                 return Err(LimitHit(format!(
                     "{} has used its {cap} AI questions for today. It can go on tomorrow.",
                     bot.name
@@ -469,14 +471,17 @@ impl Hub {
             } else {
                 b.loop_settings
                     .daily_requests
-                    .unwrap_or(prefs.bot_daily_requests)
+                    .or(prefs.bot_daily_requests)
             };
-            let used = self.store.bot_requests(&day, bot.as_str()).unwrap_or(0);
-            out.push(window(
-                format!("openrouter_bot_daily:{bot}"),
-                share(f64::from(used), f64::from(cap)),
-                midnight,
-            ));
+            // No cap: nothing to fill up.
+            if let Some(cap) = cap {
+                let used = self.store.bot_requests(&day, bot.as_str()).unwrap_or(0);
+                out.push(window(
+                    format!("openrouter_bot_daily:{bot}"),
+                    share(f64::from(used), f64::from(cap)),
+                    midnight,
+                ));
+            }
         }
         out
     }

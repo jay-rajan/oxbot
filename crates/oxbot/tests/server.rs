@@ -662,7 +662,7 @@ async fn start_alerting(
     hub.set_model_catalog(&testing::catalog(), 1).unwrap();
     hub.start_codex().await;
     hub.set_engine_prefs(oxbot_protocol::EnginePrefs {
-        bot_daily_requests: 5,
+        bot_daily_requests: Some(5),
         ..oxbot_protocol::EnginePrefs::default()
     })
     .unwrap();

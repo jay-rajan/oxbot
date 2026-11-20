@@ -21,9 +21,10 @@ paid_models: Array<string>,
  */
 paid_monthly_cents: number, 
 /**
- * Each bot's model requests a day, unless it has its own (200).
+ * Each bot's model requests a day, unless it has its own (`None`: no
+ * cap). Settings saved with the old built-in 200 load with no cap.
  */
-bot_daily_requests: number, 
+bot_daily_requests: number | null, 
 /**
  * Each person's model requests a day (`None`: no cap).
  */
