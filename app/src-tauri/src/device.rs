@@ -234,36 +234,25 @@ async fn record_open(
 }
 
 /// A file the page attached, sent to the home computer over the phone's
-/// link. The file comes as the request's body; which bot and its name in
-/// the `x-upload` header (`bot=…&name=…`). The answer is the home
-/// computer's (the file as an attachment, JSON) for the page.
+/// link: for bot `bot`, named `name`, its bytes as base64 `data` (Android's
+/// bridge carries text, not raw bytes). The answer is the home computer's
+/// (the file as an attachment, JSON) for the page.
 #[tauri::command]
 async fn device_upload(
     app: AppHandle,
     device: State<'_, Arc<Device>>,
-    request: tauri::ipc::Request<'_>,
+    bot: String,
+    name: String,
+    data: String,
 ) -> Result<String, String> {
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("The file didn't come through.".to_owned());
-    };
-    let header = request
-        .headers()
-        .get("x-upload")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    let url = tauri::Url::parse(&format!("oxbot:?{header}")).map_err(|e| e.to_string())?;
-    let (mut bot, mut name) = (String::new(), String::new());
-    for (k, v) in url.query_pairs() {
-        match k.as_ref() {
-            "bot" => bot = v.into_owned(),
-            "name" => name = v.into_owned(),
-            _ => {}
-        }
-    }
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|_| "The file didn't come through.".to_owned())?;
     let Some(paired) = paired(&app, &device).await? else {
         return Err("This phone isn't paired.".to_owned());
     };
-    let answer = oxbot_device::upload(&paired, &bot, &name, bytes)
+    let answer = oxbot_device::upload(&paired, &bot, &name, &bytes)
         .await
         .map_err(|e| match e {
             DeviceError::Refused(why) => why,

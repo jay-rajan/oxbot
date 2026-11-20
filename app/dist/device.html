@@ -128,9 +128,14 @@ function installDevice(homeComputer, person) {
     // A file attached on the phone, sent over its link; the answer is the
     // home computer's (the attachment, JSON text).
     upload: async (bot, name, file) => {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const q = new URLSearchParams({ bot, name }).toString();
-      return T.invoke("device_upload", bytes, { headers: { "x-upload": q } });
+      // As base64 text: Android's bridge can't carry raw bytes.
+      const data = await new Promise((ok, fail) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result).slice(String(r.result).indexOf(",") + 1));
+        r.onerror = () => fail(r.error);
+        r.readAsDataURL(file);
+      });
+      return T.invoke("device_upload", { bot, name, data });
     },
   };
   // A home computer not yet updated reads the bridge by its old name.

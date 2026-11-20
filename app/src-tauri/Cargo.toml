@@ -44,6 +44,9 @@ tracing-subscriber.workspace = true
 
 # The phone app (Android and iPhone): a device only.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+# Files sent from the phone cross from its page as base64 text: Android's
+# bridge can't carry raw bytes. Already in the build; no new crate.
+base64 = "0.22.1"
 futures-util.workspace = true
 oxbot-device.workspace = true
 serde.workspace = true

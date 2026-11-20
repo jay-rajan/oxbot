@@ -3327,6 +3327,7 @@ name = "oxbot-desktop"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "futures-util",
  "jni 0.21.1",
