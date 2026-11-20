@@ -184,18 +184,6 @@ export function Sidebar() {
         <div className="side-head">
           <div className="brand">
             <BrandMark />
-            <Button
-              kind="secondary"
-              size="sm"
-              className="new-bot"
-              id="newBot"
-              aria-label="New bot"
-              title="Make a new bot: say what it should do, in your own words"
-              onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}
-            >
-              <PlusIcon />
-              New bot
-            </Button>
             <IconButton
               className="find-btn"
               id="findBtn"
@@ -211,6 +199,15 @@ export function Sidebar() {
               }}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+            </IconButton>
+            <IconButton
+              className="new-bot"
+              id="newBot"
+              label="New bot"
+              title="New bot: say what it should do, in your own words"
+              onClick={() => dispatch(local("ui/open", { dialog: "newBot" }))}
+            >
+              <PlusIcon />
             </IconButton>
           </div>
           <div className="server" id="server">

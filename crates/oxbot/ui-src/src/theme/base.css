@@ -4,7 +4,9 @@
 [hidden] { display: none !important; }
 /* The page fills what's visible (above a phone's keyboard: --app-h, set in
    main.tsx) and never scrolls as a whole, so headers stay at the top. */
-html, body { height: var(--app-h, 100%); margin: 0; overflow: hidden; }
+/* The page itself never moves (no rubber-band drag on a phone): only its
+   lists and chats scroll. */
+html, body { height: var(--app-h, 100%); margin: 0; overflow: hidden; overscroll-behavior: none; }
 body {
   background: var(--bg);
   color: var(--ink);

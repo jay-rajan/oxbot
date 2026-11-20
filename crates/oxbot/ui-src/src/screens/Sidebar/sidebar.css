@@ -19,8 +19,11 @@
 .mark-o { stroke: var(--mark-o); }
 .wm-red { stroke: var(--accent); }
 @media (prefers-color-scheme: dark) { .brand .mark { box-shadow: 0 0 0 1px var(--line); } }
-.brand .new-bot { margin-left: auto; flex: none; gap: var(--s-1); padding-left: var(--s-2); padding-right: var(--s-3); }
-.brand .new-bot svg { width: 16px; height: 16px; }
+/* Search and New bot: round icons at the end of the row. */
+.brand .find-btn { margin-left: auto; }
+.brand .new-bot { flex: none; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
+.brand .new-bot:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-ink); }
+.brand .new-bot:active:not(:disabled) { background: var(--accent-pressed); }
 .server {
   padding-left: var(--s-2); font-size: var(--text-xs); color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

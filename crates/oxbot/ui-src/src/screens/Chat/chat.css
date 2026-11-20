@@ -5,6 +5,8 @@
 
 /* ---------- header */
 .chat-head {
+  /* Never squeezed by a long chat or tall banners below it. */
+  flex: none;
   display: flex; align-items: center; gap: var(--s-3); min-width: 0;
   padding: max(var(--s-3), env(safe-area-inset-top)) max(var(--s-5), env(safe-area-inset-right)) var(--s-3) var(--s-5);
   border-bottom: 1px solid var(--line); background: var(--surface);
@@ -172,7 +174,11 @@
 }
 .composer-input:focus-visible { outline: none; }
 .composer-input:disabled { color: var(--muted); }
+.composer-field { position: relative; }
 .composer-field .round-btn { border-radius: 50%; }
+/* The phone's + menu: just above the box, at its left. */
+.composer-field .attach-menu { position: absolute; left: 0; bottom: calc(100% + var(--s-2)); min-width: 200px; }
+.attach-menu .menu-item { min-height: var(--control); padding-left: var(--s-3); }
 .composer-field .send-btn { background: var(--accent); color: var(--accent-ink); }
 .composer-field .send-btn:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-ink); }
 .composer-field .send-btn:active:not(:disabled) { background: var(--accent-pressed); }

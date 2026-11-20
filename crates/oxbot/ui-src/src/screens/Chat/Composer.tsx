@@ -99,6 +99,22 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
   }, [hints, input]);
   const idle = hints ? hints[roll % hints.length] : current === NOTES_BOT ? "Ask, or attach a file" : "Message";
 
+  // On a phone, + opens a small menu: Photos, Take a photo, or Files.
+  const touch = typeof matchMedia === "function" && matchMedia("(hover: none)").matches;
+  const [attachMenu, setAttachMenu] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const galleryInput = useRef<HTMLInputElement>(null);
+  const attachPop = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!attachMenu) return;
+    const away = (ev: PointerEvent) => {
+      const t = ev.target as Node;
+      if (!attachPop.current?.contains(t) && !document.getElementById("attach")?.contains(t)) setAttachMenu(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [attachMenu]);
+
   const known = !!info;
   return (
     <>
@@ -118,7 +134,14 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
             label="Attach files"
             title="Attach files (you can also drop or paste them)"
             disabled={known && locked}
-            onClick={() => { if (!canAttach(app)) { app.toast(PHONE_FILES, true); return; } fileInput.current?.click(); }}
+            aria-haspopup={touch ? "menu" : undefined}
+            aria-expanded={touch ? attachMenu : undefined}
+            onClick={() => {
+              if (!canAttach(app)) { app.toast(PHONE_FILES, true); return; }
+              // A phone offers a file or a new photo; a computer picks files.
+              if (touch) setAttachMenu((o) => !o);
+              else fileInput.current?.click();
+            }}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </IconButton>
@@ -132,6 +155,41 @@ export function Composer({ info, busy, uploadingNow }: { info: BotInfo | undefin
             ref={fileInput}
             onChange={(ev) => { addFiles(app, ev.currentTarget.files); ev.currentTarget.value = ""; }}
           />
+          <input
+            type="file"
+            id="galleryInput"
+            className="file-input"
+            accept="image/*,video/*"
+            multiple
+            tabIndex={-1}
+            aria-hidden="true"
+            ref={galleryInput}
+            onChange={(ev) => { addFiles(app, ev.currentTarget.files); ev.currentTarget.value = ""; }}
+          />
+          <input
+            type="file"
+            id="photoInput"
+            className="file-input"
+            accept="image/*"
+            capture="environment"
+            tabIndex={-1}
+            aria-hidden="true"
+            ref={photoInput}
+            onChange={(ev) => { addFiles(app, ev.currentTarget.files); ev.currentTarget.value = ""; }}
+          />
+          {attachMenu ? (
+            <div className="menu-pop attach-menu" role="menu" ref={attachPop}>
+              <button type="button" className="menu-item" role="menuitem" onClick={() => { setAttachMenu(false); galleryInput.current?.click(); }}>
+                Photos
+              </button>
+              <button type="button" className="menu-item" role="menuitem" onClick={() => { setAttachMenu(false); photoInput.current?.click(); }}>
+                Take a photo
+              </button>
+              <button type="button" className="menu-item" role="menuitem" onClick={() => { setAttachMenu(false); fileInput.current?.click(); }}>
+                Files
+              </button>
+            </div>
+          ) : null}
           <textarea
             id="input"
             className="composer-input"
