@@ -3140,3 +3140,86 @@ async fn the_meal_plan_and_grocery_list_are_shared_by_the_home() {
         1
     );
 }
+
+#[tokio::test]
+async fn a_kids_files_and_messages_wait_for_an_administrator() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let (hub, fake) = listening_hub(tmp.path()).await;
+    // Jay runs the home; Leo is under 18.
+    hub.owner_person("Jay").unwrap();
+    hub.add_household_person("Leo").unwrap();
+    assert!(hub.set_household_kid("Jay", true).is_err(), "an administrator can't be a kid");
+    hub.set_household_kid("Leo", true).unwrap();
+    assert!(hub.set_household_admin("Leo", true).is_err(), "a kid can't be an administrator");
+    let (jay, leo) = (
+        hub.resolve(&Viewer::device("Jay")).into_owned(),
+        hub.resolve(&Viewer::device("Leo")).into_owned(),
+    );
+
+    // A photo: held, and the bot gets nothing until an administrator says yes.
+    let photo = upload(&hub, "other", &leo, "bug.txt", b"a green beetle").await.unwrap();
+    hub.send_files_as("other", "what bug is this?", std::slice::from_ref(&photo.id), &leo)
+        .await
+        .unwrap();
+    let held = held_card(&hub).await;
+    assert_eq!(held.kind, ApprovalKind::KidMessage);
+    assert!(held.detail.as_deref().unwrap().contains("bug.txt"));
+    assert!(held.kid && held.asker.as_deref() == Some("Leo"));
+    assert!(oxbot_core::hub::answers(&held, &jay), "the administrator answers it");
+    assert!(!oxbot_core::hub::answers(&held, &leo), "the kid doesn't");
+    assert!(!hub.approval_visible(held.id, &leo));
+    assert!(
+        !fake.requests().iter().any(|r| r.contains("what bug is this?")),
+        "the bot saw nothing yet"
+    );
+    assert!(hub.answer(held.id, Answer::AllowOnce));
+    let asked = request_with(&fake, "what bug is this?").await;
+    assert!(asked.contains("This message is from a child"), "{asked}");
+
+    // A curious question goes straight through, with the kid rules.
+    hub.send_files_as("other", "why is the sky blue?", &[], &leo)
+        .await
+        .unwrap();
+    let asked = request_with(&fake, "why is the sky blue?").await;
+    assert!(asked.contains("This message is from a child"), "{asked}");
+
+    // One the check holds waits for an administrator; no means the bot
+    // never gets it.
+    hub.send_files_as("other", "can I keep a secret from mom?", &[], &leo)
+        .await
+        .unwrap();
+    let held = held_card(&hub).await;
+    assert_eq!(held.target, "keeping a secret from parents");
+    assert!(hub.answer(held.id, Answer::Deny));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!fake.requests().iter().any(|r| r.contains("secret from mom")));
+    let notes: Vec<String> = hub
+        .history("other", 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::Note { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert!(notes.contains(&"A parent said no to Leo's message.".to_owned()), "{notes:?}");
+    hub.shutdown().await;
+}
+
+/// The kid's message waiting for an administrator.
+async fn held_card(hub: &Arc<Hub>) -> Approval {
+    for _ in 0..400 {
+        if let Some(card) = hub
+            .pending_approvals()
+            .into_iter()
+            .find(|a| a.kind == ApprovalKind::KidMessage)
+        {
+            return card;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("no kid's message waited")
+}

@@ -567,6 +567,16 @@ pub enum ClientMsg {
         /// Administrator or not.
         on: bool,
     },
+    /// Administrators only: mark someone on the household list as under
+    /// 18 (a kid account), or not. A kid's messages are checked, their
+    /// files wait for an administrator, and every card from their chats
+    /// goes to the administrators. An administrator can't be a kid.
+    SetKid {
+        /// Who, by name.
+        name: String,
+        /// Under 18 or not.
+        on: bool,
+    },
     /// Home computer only: ask now whether a newer oxbot is out (it also
     /// asks on its own every few hours). Progress comes as
     /// [`ServerMsg::Settings`].
@@ -2317,6 +2327,10 @@ pub enum ApprovalKind {
     /// unless the person presses Stop (a deny) within the seconds in
     /// [`Approval::detail`] ("60").
     Checkpoint,
+    /// A kid's message waits for an administrator: it has files (in
+    /// [`Approval::detail`]), or oxbot's check held it (why, in
+    /// [`Approval::target`]). Allow sends it to the bot; Don't drops it.
+    KidMessage,
 }
 
 /// Something a bot wants to do that needs the user's yes.
@@ -2368,6 +2382,10 @@ pub struct Approval {
     /// (person ids), besides its asker and the home computer.
     #[serde(skip)]
     pub also: Vec<String>,
+    /// Server only, never sent: it came from a kid's chat, so every
+    /// administrator sees and answers it (and the kid doesn't).
+    #[serde(skip)]
+    pub kid: bool,
 }
 
 #[allow(
@@ -3210,6 +3228,7 @@ mod tests {
             rule: Some("button \"Buy\"".into()),
             schedule: None,
             also: Vec::new(),
+            kid: false,
         };
         let json = serde_json::to_string(&card).unwrap();
         assert!(

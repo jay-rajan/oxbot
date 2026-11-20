@@ -241,6 +241,38 @@ impl LoopEngine {
         ToolService::open(Arc::clone(&self.shared), spec, events, own).await
     }
 
+    /// One question to a model with no tools, for oxbot's own checks (a
+    /// kid's message): routed, limited and metered as `bot`'s requests for
+    /// `person`. The answer's text.
+    ///
+    /// # Errors
+    /// No model answered.
+    pub async fn ask(
+        &self,
+        bot: &str,
+        person: Option<&str>,
+        messages: Vec<oxbot_llm::Message>,
+        max_tokens: u32,
+    ) -> Result<String, oxbot_llm::LlmError> {
+        use runner::ModelCaller as _;
+        let cancel = tokio_util::sync::CancellationToken::new();
+        runner::HelperCaller {
+            shared: &self.shared,
+            bot,
+            person,
+            session: None,
+            turn: None,
+            step: 0,
+            privacy: oxbot_engine::Privacy::Private,
+            lane: Lane::Live,
+            choice: oxbot_engine::ModelChoice::Auto,
+            cancel: &cancel,
+            meter: None,
+        }
+        .call(oxbot_engine::CallKind::Judge, messages, max_tokens)
+        .await
+    }
+
     /// Records how a turn's final answer was checked (`loop_checks`).
     ///
     /// # Errors

@@ -176,7 +176,8 @@ impl Hub {
             return Ok(Decision::Allow);
         }
         let mut ask = policy::script_ask(&bot.name, program);
-        ask.answerer = asker.as_ref().and_then(|p| self.answerer_for(p));
+        // A kid's goes to the administrators (see `open_card`).
+        ask.answerer.clone_from(&asker);
         if let Some(read) = taint {
             // The card says why an Always rule didn't apply.
             ask.detail = Some(format!(

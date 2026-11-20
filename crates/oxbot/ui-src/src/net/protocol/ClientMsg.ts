@@ -420,6 +420,14 @@ name: string,
 /**
  * Administrator or not.
  */
+on: boolean, } | { "type": "set_kid", 
+/**
+ * Who, by name.
+ */
+name: string, 
+/**
+ * Under 18 or not.
+ */
 on: boolean, } | { "type": "check_for_update" } | { "type": "install_update" } | { "type": "open_sign_in", 
 /**
  * The request's id.

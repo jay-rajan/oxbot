@@ -424,6 +424,15 @@ impl FakeBots {
 
     /// The next step for `conv`.
     fn answer(&self, conv: &Conversation) -> Answer {
+        // oxbot's check of a kid's message: anything about a secret waits
+        // for a parent; the rest is fine.
+        if conv.system.starts_with("You check messages a child") {
+            let held = conv.messages.iter().any(|m| m.text.contains("secret"));
+            return Answer {
+                text: if held { "HOLD: keeping a secret from parents" } else { "OK" }.to_owned(),
+                call: None,
+            };
+        }
         let bot = bot_name(&conv.system);
         let persons: Vec<usize> = conv
             .messages

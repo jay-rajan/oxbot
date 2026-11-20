@@ -121,24 +121,72 @@ impl Hub {
         viewer: &Viewer,
     ) -> Result<(), HubError> {
         let viewer = self.resolve(viewer).into_owned();
-        let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
         let origin = ChainOrigin::from_viewer(&viewer, entry_of(&viewer));
         // Only a bot they may open (as the bot list says): one hidden from
         // them answers as if it didn't exist.
         let target = self.bot_for(bot, &viewer)?;
-        let mut kept = Vec::new();
-        let files = if files.is_empty() {
+        let claimed = if files.is_empty() {
             Vec::new()
         } else {
             // Refused before its files are taken: they stay for another try.
             may_task(&origin)?;
-            let mut claimed = self.claim_uploads(&target.id, viewer.id.as_ref(), files)?;
-            if let Err(err) = self.place_uploads(&target, &mut claimed, ai) {
+            self.claim_uploads(&target.id, viewer.id.as_ref(), files)?
+        };
+        // A kid's message with files, or one the check holds, waits for an
+        // administrator (see `kids`); its files stay out of the bot's reach.
+        if self.is_kid(viewer.id.as_ref()) {
+            let why = if claimed.is_empty() {
+                self.kid_check(&target, viewer.id.as_ref(), text).await
+            } else {
+                Some(super::kids::files_wait(claimed.len()))
+            };
+            if let Some(why) = why {
+                self.hold_kid_message(
+                    target,
+                    text.to_owned(),
+                    claimed,
+                    ai.to_vec(),
+                    notes.to_vec(),
+                    viewer.clone(),
+                    origin,
+                    why,
+                );
+                return Ok(());
+            }
+        }
+        self.finish_send(&target, text, claimed, ai, notes, &viewer, &origin)
+            .await
+    }
+
+    /// The rest of [`Hub::send_with_notes`] once its files are claimed:
+    /// puts them where the bot (or only the person) can read them, files
+    /// them on Records, and sends.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a send's parts, as a held kid's message keeps them"
+    )]
+    pub(super) async fn finish_send(
+        self: &Arc<Self>,
+        target: &Bot,
+        text: &str,
+        claimed: Vec<Attachment>,
+        ai: &[String],
+        notes: &[oxbot_protocol::NoteUpload],
+        viewer: &Viewer,
+        origin: &ChainOrigin,
+    ) -> Result<(), HubError> {
+        let from = Some(viewer.name.as_str()).filter(|n| !n.is_empty());
+        let mut kept = Vec::new();
+        let files = if claimed.is_empty() {
+            Vec::new()
+        } else {
+            let mut claimed = claimed;
+            if let Err(err) = self.place_uploads(target, &mut claimed, ai) {
                 self.uploads_not_sent(&claimed);
                 return Err(err);
             }
             if target.id.as_str() == super::notes::NOTES_BOT {
-                match self.file_notes(&target, &mut claimed, notes, &viewer) {
+                match self.file_notes(target, &mut claimed, notes, viewer) {
                     Ok(notes) => kept = notes,
                     Err(err) => {
                         self.uploads_not_sent(&claimed);
@@ -157,14 +205,16 @@ impl Hub {
                 text,
                 files: &files,
                 from,
-                origin: &origin,
+                origin,
                 relayed: false,
             };
             self.record_message(&target.id, &sent)?;
             self.note_cards(&target.id, &kept);
             return Ok(());
         }
-        let sent = self.send_for(bot, text, &files, from, &origin, false).await;
+        let sent = self
+            .send_for(target.id.as_str(), text, &files, from, origin, false)
+            .await;
         // Not sent (busy, say): the files wait to be sent again.
         if sent.is_err() {
             self.uploads_not_sent(&files);
@@ -510,8 +560,9 @@ impl Hub {
         if left_off {
             message.push_str(super::checkpoints::LEFT_OFF);
         }
-        // What the person lets bots know about them (never their name).
-        if let Some(line) = origin.asker().and_then(|p| self.about_line(p)) {
+        // What the person lets bots know about them (never their name),
+        // and for a kid, how to answer them.
+        for line in self.asker_lines(origin.asker()) {
             message.push_str("\n\n");
             message.push_str(&line);
         }

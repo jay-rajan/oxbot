@@ -551,7 +551,8 @@ impl Hub {
         };
         let ask = policy::Ask {
             // A kid's schedule is a parent's to approve.
-            answerer: self.answerer_for(&proposal.person),
+            // A kid's goes to the administrators (see `open_card`).
+            answerer: Some(proposal.person.clone()),
             detail: Some(format!(
                 "First run: {}",
                 schedule::when(proposal.next, &*zone)

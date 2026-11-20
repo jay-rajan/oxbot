@@ -721,6 +721,12 @@ impl Hub {
         if !on && self.store.admin_count()? <= 1 {
             return Err(HubError::NotAllowed(LAST_ADMIN.to_owned()));
         }
+        if on && self.role_of(&person.id) == crate::store::Role::Kid {
+            return Err(HubError::NotAllowed(format!(
+                "{} is under 18: a kid can't be an administrator.",
+                person.name
+            )));
+        }
         self.store.set_admin(&person.id, on)?;
         tracing::info!(person = %person.id, admin = on, "changed who administers the home");
         if !on
@@ -736,6 +742,38 @@ impl Hub {
         {
             rt.spawn(async move { hub.announce_bots().await });
         }
+        Ok(())
+    }
+
+    /// Marks someone on the household list as under 18 (a kid account), or
+    /// back to an adult. The owner and administrators can't be kids.
+    ///
+    /// # Errors
+    /// They aren't listed, they're the owner or an administrator, or the
+    /// database failed.
+    pub fn set_household_kid(&self, name: &str, on: bool) -> Result<(), HubError> {
+        use crate::store::Role;
+        let person = self
+            .store
+            .person_by_name(name.trim())?
+            .filter(|p| !self.store.is_removed(&p.id).unwrap_or(true))
+            .ok_or_else(|| HubError::NotAllowed(format!("{} isn't in the home.", name.trim())))?;
+        let role = self.role_of(&person.id);
+        if (role == Role::Kid) == on {
+            return Ok(());
+        }
+        if on && (role == Role::Owner || self.store.is_admin(&person.id)?) {
+            return Err(HubError::NotAllowed(format!(
+                "{} is an administrator: make someone else an administrator first, then \
+                 mark them under 18.",
+                person.name
+            )));
+        }
+        self.store
+            .set_role(&person.id, if on { Role::Kid } else { Role::Adult })?;
+        tracing::info!(person = %person.id, kid = on, "changed whether someone is a kid account");
+        self.announce_people();
+        let _ = self.updates.send(ServerMsg::ProfilesChanged);
         Ok(())
     }
 

@@ -32,6 +32,7 @@ mod elements;
 mod engine_prefs;
 mod engines;
 mod home;
+mod kids;
 mod idle;
 mod looped;
 mod meals;
@@ -649,6 +650,7 @@ mod tests {
             rule: None,
             schedule: None,
             also: Vec::new(),
+            kid: false,
         };
         assert!(answers(&card(Some("Jay")), &Viewer::device("Jay")));
         assert!(!answers(&card(Some("Jay")), &Viewer::device("Sam")));
@@ -1492,6 +1494,7 @@ mod tests {
             rule: None,
             schedule: None,
             also: Vec::new(),
+            kid: false,
         };
         assert!(answers(
             &card,

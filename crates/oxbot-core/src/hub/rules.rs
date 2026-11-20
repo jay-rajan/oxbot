@@ -293,6 +293,7 @@ mod tests {
             rule: Some("button \"Save\"".into()),
             schedule: None,
             also: Vec::new(),
+            kid: false,
         }
     }
 

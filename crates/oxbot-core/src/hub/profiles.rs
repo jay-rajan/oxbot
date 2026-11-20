@@ -110,17 +110,6 @@ impl Hub {
         Ok(())
     }
 
-    /// Who answers a card meant for `person`: themselves, or for a kid
-    /// account a parent (the owner, until kid accounts name their
-    /// parents). Every person is an adult until kid accounts come.
-    pub(super) fn answerer_for(&self, person: &PersonId) -> Option<PersonId> {
-        if self.role_of(person) == Role::Kid {
-            self.owner_person_id()
-        } else {
-            Some(person.clone())
-        }
-    }
-
     /// The home's area as Settings → General shows it ("" when unset).
     #[must_use]
     pub fn home_area_text(&self) -> String {

@@ -2160,6 +2160,10 @@ async fn handle_home_computer(
             Ok(()) => Vec::new(),
             Err(e) => error(&e),
         },
+        ClientMsg::SetKid { name, on } => match state.hub.set_household_kid(&name, on) {
+            Ok(()) => Vec::new(),
+            Err(e) => error(&e),
+        },
         ClientMsg::AddPerson { name } => match state.hub.add_household_person(&name) {
             Ok(()) => Vec::new(),
             Err(e) => error(&e),
@@ -2361,6 +2365,7 @@ fn admin_only(msg: &ClientMsg) -> bool {
             | ClientMsg::RenamePerson { .. }
             | ClientMsg::RemovePerson { .. }
             | ClientMsg::SetAdmin { .. }
+            | ClientMsg::SetKid { .. }
             | ClientMsg::SetUsageAlerts { .. }
             | ClientMsg::SetHomeArea { .. }
             // The Mac's own sleep.
@@ -3214,6 +3219,7 @@ mod tests {
             rule: None,
             schedule: None,
             also: Vec::new(),
+            kid: false,
         })
     }
 

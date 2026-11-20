@@ -945,6 +945,7 @@ mod tests {
             rule: None,
             schedule: None,
             also: Vec::new(),
+            kid: false,
         };
         assert!(!answers(&card, &sam));
         card.also = bot

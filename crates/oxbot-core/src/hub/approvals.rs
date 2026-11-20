@@ -26,11 +26,13 @@ impl Hub {
     pub fn approval_visible(&self, id: u64, viewer: &Viewer) -> bool {
         let card = lock(&self.approvals)
             .get(&id)
-            .map(|(a, asker, _)| (a.bot.clone(), asker.clone(), a.also.clone()));
+            .map(|(a, asker, _)| (a.bot.clone(), asker.clone(), a.also.clone(), a.kid));
         let viewer = self.resolve(viewer);
-        card.is_some_and(|(bot, asker, also)| {
+        card.is_some_and(|(bot, asker, also, kid)| {
             let theirs = asker.is_some() && viewer.id == asker;
-            (viewer.home_computer || theirs || viewer.is_member(&also))
+            // A kid's card: every administrator, never the kid.
+            let parent = kid && viewer.admin;
+            (viewer.home_computer || theirs || parent || viewer.is_member(&also))
                 && self.bot_for(&bot, &viewer).is_ok()
         })
     }
@@ -110,7 +112,7 @@ impl Hub {
     pub(super) fn deny_for_message(&self, bot: &BotId) {
         let ids: Vec<u64> = lock(&self.approvals)
             .iter()
-            .filter(|(_, (a, _, _))| a.bot == bot.as_str())
+            .filter(|(_, (a, _, _))| a.bot == bot.as_str() && a.kind != ApprovalKind::KidMessage)
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -125,7 +127,8 @@ impl Hub {
     pub(super) fn deny_open_approvals(&self, bot: &BotId) {
         let ids: Vec<(u64, bool)> = lock(&self.approvals)
             .iter()
-            .filter(|(_, (a, _, _))| a.bot == bot.as_str())
+            // A kid's message waiting for an administrator isn't the turn's.
+            .filter(|(_, (a, _, _))| a.bot == bot.as_str() && a.kind != ApprovalKind::KidMessage)
             .map(|(id, (a, _, _))| (*id, is_notice(a.kind)))
             .collect();
         for (id, notice) in ids {
@@ -655,6 +658,7 @@ impl Hub {
                     | ApprovalKind::Plan
                     | ApprovalKind::HomeArea
                     | ApprovalKind::Checkpoint
+                    | ApprovalKind::KidMessage
             ) =>
             {
                 None
@@ -675,6 +679,12 @@ impl Hub {
                 .get(bot_id)
                 .and_then(|r| r.origin.asker().cloned()),
         };
+        // A kid's request: the administrators answer it, the kid doesn't.
+        let kid = asker
+            .as_ref()
+            .is_some_and(|p| self.role_of(p) == crate::store::Role::Kid);
+        let shown = asker.as_ref().and_then(|id| self.person_name(id));
+        let asker = asker.filter(|_| !kid);
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let approval = Approval {
             id,
@@ -687,7 +697,7 @@ impl Hub {
             detail: ask.detail.clone(),
             screenshot,
             // Their name, for showing; who gets it is decided by id.
-            asker: asker.as_ref().and_then(|id| self.person_name(id)),
+            asker: shown,
             asker_id: asker.as_ref().map(ToString::to_string),
             // Who's offered Always is decided for each client.
             always: false,
@@ -698,7 +708,7 @@ impl Hub {
             schedule: ask.schedule.as_deref().cloned(),
             // A bot shared with picked people: any of them, and its owner,
             // may answer what it asks.
-            also: if bot.effective_sharing() == crate::bot::Sharing::People {
+            also: if !kid && bot.effective_sharing() == crate::bot::Sharing::People {
                 bot.owner
                     .iter()
                     .map(ToString::to_string)
@@ -707,6 +717,7 @@ impl Hub {
             } else {
                 Vec::new()
             },
+            kid,
         };
         let (tx, rx) = oneshot::channel();
         lock(&self.approvals).insert(id, (approval.clone(), asker, tx));
@@ -770,6 +781,10 @@ fn click_label<'a>(
 /// asked for (no person) is the home computer's.
 #[must_use]
 pub fn answers(card: &Approval, viewer: &Viewer) -> bool {
+    if card.kid {
+        // A kid's card: every administrator, never the kid.
+        return viewer.home_computer || viewer.admin;
+    }
     viewer.home_computer
         || viewer.is_person(card.asker_id.as_deref(), card.asker.as_deref())
         || viewer.is_member(&card.also)
