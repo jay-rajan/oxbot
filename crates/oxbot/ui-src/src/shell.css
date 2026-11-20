@@ -50,6 +50,12 @@
   /* Typing: the keyboard is up, so the bar steps aside for the message box. */
   .kb-open .phone-tabs { display: none; }
   .kb-open .app { padding-bottom: 0; }
+  /* In a chat the bar slides away (tap Chat again for it); the message box
+     then keeps clear of the home indicator itself. */
+  .phone-tabs { transition: transform var(--slow) var(--ease); }
+  .tabs-away .phone-tabs { transform: translateY(100%); pointer-events: none; }
+  .tabs-away .app { padding-bottom: 0; }
+  .tabs-away .app .composer { padding-bottom: max(var(--s-3), env(safe-area-inset-bottom)); }
   /* Settings, People and Signed-in websites: easy to see and tap. */
   .side-foot { gap: var(--s-2); padding-block: var(--s-1); }
   .side-foot .gear { width: 48px; height: 48px; }

@@ -37,6 +37,9 @@ export interface UiState {
   page: "chat" | "calendar" | "notes" | "meals" | "groceries";
   /** How a Home view and its bot's chat share the screen. Each view keeps its own (none yet: Split). */
   homeMode: Record<string, HomeMode>;
+  /** In a chat on a phone the tab bar steps away; tapping Chat again
+   *  brings it back (until the view changes). */
+  tabsUp: boolean;
 }
 
 /** Split: the view and the chat side by side (stacked on a phone); full:
@@ -54,6 +57,7 @@ export const initialUi: UiState = {
   sideOpen: false,
   page: "chat",
   homeMode: {},
+  tabsUp: false,
 };
 
 export function uiReducer(state: UiState, action: Action): UiState {
@@ -69,9 +73,9 @@ export function uiReducer(state: UiState, action: Action): UiState {
   if (action.kind !== "local") return state;
   switch (action.type) {
     case "ui/select":
-      return { ...state, current: action.bot as string | null, pendingSelect: null, sideOpen: false, page: action.keepPage ? state.page : pageFor(action.bot as string | null) };
+      return { ...state, current: action.bot as string | null, pendingSelect: null, sideOpen: false, tabsUp: false, page: action.keepPage ? state.page : pageFor(action.bot as string | null) };
     case "ui/page":
-      return { ...state, page: action.page as UiState["page"], sideOpen: false };
+      return { ...state, page: action.page as UiState["page"], sideOpen: false, tabsUp: false };
     case "ui/pendingSelect":
       return { ...state, pendingSelect: action.bot as string | null };
     case "ui/open":
@@ -85,7 +89,9 @@ export function uiReducer(state: UiState, action: Action): UiState {
     case "ui/side":
       return { ...state, sideOpen: Boolean(action.open) };
     case "ui/homeMode":
-      return { ...state, homeMode: { ...state.homeMode, [action.page as string]: action.mode as HomeMode } };
+      return { ...state, homeMode: { ...state.homeMode, [action.page as string]: action.mode as HomeMode }, tabsUp: false };
+    case "ui/tabsUp":
+      return { ...state, tabsUp: !state.tabsUp };
     default:
       return state;
   }

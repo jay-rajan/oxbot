@@ -1,6 +1,7 @@
 // The page: the sidebar and the open bot's chat, the dialogs, and the toast.
 // Same structure, ids and classes as the hand-written page, so the
 // end-to-end tests apply as they are. The frame's layout is in shell.css.
+import { useEffect } from "react";
 import { useSel } from "./app/context";
 import { Toast } from "./components/ui";
 import { CalendarView } from "./screens/Calendar/CalendarView";
@@ -26,6 +27,13 @@ export function App() {
   const page = useSel((s) => s.ui.page);
   const mode = useHomeMode();
   useSavedHomeMode();
+  // In a chat the phone's tab bar steps away (shell.css), unless Chat was
+  // tapped again to bring it back.
+  const tabsUp = useSel((s) => s.ui.tabsUp);
+  const away = (page === "chat" || mode === "chat") && !tabsUp;
+  useEffect(() => {
+    document.documentElement.classList.toggle("tabs-away", away);
+  }, [away]);
   return (
     <>
       {/* A Home view sits beside the chat on a wide screen (calendar.css). */}

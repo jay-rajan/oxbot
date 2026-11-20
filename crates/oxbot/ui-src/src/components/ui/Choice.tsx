@@ -14,6 +14,7 @@ export function Segmented<T extends string>({
   disabled,
   id,
   className,
+  onReselect,
 }: {
   name: string;
   label: string;
@@ -23,12 +24,14 @@ export function Segmented<T extends string>({
   disabled?: boolean;
   id?: string;
   className?: string;
+  /** The option already chosen, tapped again. */
+  onReselect?: (v: T) => void;
 }) {
   return (
     <div className={cx("segmented", className)} role="radiogroup" aria-label={label} id={id}>
       {options.map(([v, text]) => (
         <label key={v} className="seg-option">
-          <input type="radio" name={name} value={v} checked={value === v} disabled={disabled} onChange={() => onChange(v)} />
+          <input type="radio" name={name} value={v} checked={value === v} disabled={disabled} onChange={() => onChange(v)} onClick={() => { if (value === v) onReselect?.(v); }} />
           <span>{text}</span>
         </label>
       ))}
