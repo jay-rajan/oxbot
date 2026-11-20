@@ -25,10 +25,23 @@ sign() { # path [extra flags…]
   fi
 }
 
-# Loose libraries and programs first, deepest first. A bundle's own
-# program is signed again with its bundle below.
+# Whether file $1 is its app's own program (CFBundleExecutable): that's
+# signed with its app below, once everything inside the app is signed.
+# Signing it on its own first fails when a helper app beside it isn't
+# signed yet (the Intel browser comes with nothing signed).
+main_program() {
+  case "$1" in *.app/Contents/MacOS/*) ;; *) return 1 ;; esac
+  bundle=$(dirname "$(dirname "$(dirname "$1")")")
+  [ "$(dirname "$1")" = "$bundle/Contents/MacOS" ] || return 1
+  exe=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$bundle/Contents/Info.plist" 2>/dev/null) || return 1
+  [ "$(basename "$1")" = "$exe" ]
+}
+
+# Loose libraries and programs first. Each app's own program is signed
+# with its app below.
 find "$app" -depth -type f | while IFS= read -r f; do
   case "$f" in *.app/Contents/Info.plist | */_CodeSignature/*) continue ;; esac
+  main_program "$f" && continue
   file -b "$f" | grep -q Mach-O || continue
   if [ -x "$f" ] && ! printf %s "$f" | grep -q '\.dylib$'; then
     sign "$f" --entitlements "$entitlements"
