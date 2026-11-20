@@ -1,7 +1,7 @@
 // The chat log: every stored event as the hand-written page drew it, the
 // reply streaming in, the "Working…" line, meters, report cards, the owner's
 // thumbs, and the blurred picture of someone else's private bot.
-import { Fragment, type ReactNode, type TouchEvent, memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { Fragment, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useApp, useSel } from "../../app/context";
 import type { BotEvent, BotInfo } from "../../net/protocol";
 import { type BotChat, type Meter, type Ratings, newBotChat } from "../../state/chat";
@@ -306,21 +306,9 @@ export function Log() {
     return () => ro.disconnect();
   }, [scrollDown]);
 
-  // A phone's tab bar: a swipe back through the chat brings it up, a swipe
-  // on toward the latest puts it away (only the person's own swipes count,
-  // not the chat jumping to a new message).
-  const touchY = useRef<number | null>(null);
-  const tabs = (up: boolean) => {
-    if (app.store.getState().ui.tabsUp !== up) app.dispatch(local("ui/tabsUp", { up }));
-  };
-  const onTouchStart = (ev: TouchEvent) => { touchY.current = ev.touches[0]?.clientY ?? null; };
-  const onTouchMove = (ev: TouchEvent) => {
-    const y = ev.touches[0]?.clientY;
-    if (y === undefined || touchY.current === null) return;
-    const dy = y - touchY.current;
-    if (Math.abs(dy) < 24) return;
-    tabs(dy > 0);
-    touchY.current = y;
+  // A phone's tab bar: away when the chat opens, back with a tap on the chat.
+  const showTabs = () => {
+    if (!app.store.getState().ui.tabsUp) app.dispatch(local("ui/tabsUp", { up: true }));
   };
 
   const onScroll = () => {
@@ -375,7 +363,7 @@ export function Log() {
 
   return (
     // biome-ignore lint: a picture finishing loading scrolls the chat (load doesn't bubble)
-    <div className="log" id="log" aria-live="polite" ref={ref} onScroll={onScroll} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onLoadCapture={() => scrollDown()}>
+    <div className="log" id="log" aria-live="polite" ref={ref} onScroll={onScroll} onClick={showTabs} onLoadCapture={() => scrollDown()}>
       {body}
     </div>
   );

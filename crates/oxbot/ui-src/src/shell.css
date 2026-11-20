@@ -50,7 +50,7 @@
   /* Typing: the keyboard is up, so the bar steps aside for the message box. */
   .kb-open .phone-tabs { display: none; }
   .kb-open .app { padding-bottom: 0; }
-  /* In a chat the bar slides away (a swipe back, or the end of typing,
+  /* In a chat the bar slides away (a tap on the chat, or the end of typing,
      brings it up); the message box then keeps clear of the home indicator. */
   .phone-tabs { transition: transform var(--slow) var(--ease); }
   .tabs-away .phone-tabs { transform: translateY(100%); pointer-events: none; }

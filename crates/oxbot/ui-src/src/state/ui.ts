@@ -37,8 +37,8 @@ export interface UiState {
   page: "chat" | "calendar" | "notes" | "meals" | "groceries";
   /** How a Home view and its bot's chat share the screen. Each view keeps its own (none yet: Split). */
   homeMode: Record<string, HomeMode>;
-  /** In a chat on a phone the tab bar steps away; swiping back through the
-   *  chat, or finishing typing, brings it back (until the view changes). */
+  /** In a chat on a phone the tab bar steps away; a tap on the chat, or
+   *  finishing typing, brings it back (until the view changes). */
   tabsUp: boolean;
 }
 
