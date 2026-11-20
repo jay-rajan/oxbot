@@ -14,6 +14,7 @@ import { avatarColor, avatarSvg } from "../../components/brand";
 import { BrandMark } from "./BrandMark";
 import { HomeIcon } from "./HomeIcon";
 import { keep, keptJson } from "./storage";
+import { useBackCloses } from "../../web/back";
 import "./sidebar.css";
 
 export function Sidebar() {
@@ -99,6 +100,9 @@ export function Sidebar() {
     if (created.id in store.getState().sidebar.busy) dispatch(local("ui/select", { bot: created.id }));
     else dispatch(local("ui/pendingSelect", { bot: created.id }));
   }, [created, store, dispatch]);
+
+  // On a phone the sidebar covers the chat: Back closes it, not the app.
+  useBackCloses(sideOpen, () => dispatch(local("ui/side", { open: false })));
 
   // On a phone the sidebar covers the chat: Escape closes it (after the
   // menu, the search and any dialog).

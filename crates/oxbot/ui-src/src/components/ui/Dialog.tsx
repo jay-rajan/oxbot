@@ -9,6 +9,7 @@ import { type FormEvent, forwardRef, type ReactNode, useEffect, useRef } from "r
 import { cx } from "./cx";
 import { IconButton } from "./Button";
 import { CloseIcon } from "./icons";
+import { useBackCloses } from "../../web/back";
 import "./dialog.css";
 
 export function Dialog({
@@ -30,6 +31,8 @@ export function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // The phone's Back closes it, not the app.
+  useBackCloses(open, onClose);
   useEffect(() => {
     const d = ref.current;
     if (!d) return;

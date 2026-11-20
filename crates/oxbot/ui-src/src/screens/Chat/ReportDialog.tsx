@@ -3,6 +3,7 @@
 // to this page), set as the frame's srcdoc, never as HTML here. The frame
 // stays in the page while closed (empty), as the tests read it.
 import { useEffect, useRef } from "react";
+import { useBackCloses } from "../../web/back";
 import { useApp, useSel } from "../../app/context";
 import { Button } from "../../components/ui";
 import { splitReportKey } from "../../state/chat";
@@ -34,6 +35,9 @@ export function ReportDialog() {
     const k = splitReportKey(arg);
     if (k) openReport(app, k.bot, k.id);
   }, [dialog, arg, report, app, dispatch]);
+
+  // The phone's Back closes the report, not the app.
+  useBackCloses(open, () => ref.current?.close());
 
   useEffect(() => {
     const d = ref.current;
