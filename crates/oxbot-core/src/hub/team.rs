@@ -177,6 +177,7 @@ impl Hub {
                 self.delete_schedule_tool(bot, &asker, &origin, args).await
             }
             t if tools::CALENDAR_TOOLS.contains(&t) => self.calendar_tool(bot, t, args),
+            tools::EVENTS_I_ADDED_TOOL => self.events_i_added(bot),
             t if tools::NOTES_TOOLS.contains(&t) => self.notes_tool(bot, t, args),
             t if tools::MEALS_TOOLS.contains(&t) => self.meals_tool(bot, t, args),
             _ => (false, "unknown tool".to_owned()),
@@ -648,6 +649,7 @@ pub(super) fn team_label(name: &str) -> Option<&'static str> {
         tools::DELETE_SCHEDULE_TOOL => "deleting a schedule",
         tools::CALENDAR_EVENTS_TOOL => "looking at the calendar",
         tools::ADD_EVENT_TOOL => "adding to the calendar",
+        tools::EVENTS_I_ADDED_TOOL => "checking what it added to the calendar",
         tools::FIND_NOTES_TOOL => "looking in Records",
         tools::FILE_NOTE_TOOL => "filing a note",
         tools::SHOW_NOTE_TOOL => "showing a note",

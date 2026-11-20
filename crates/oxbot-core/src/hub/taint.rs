@@ -29,7 +29,7 @@ use crate::engine::trust::is_trusted_tool;
 use crate::id::BotId;
 #[cfg(test)]
 use crate::tools::{
-    self, ADD_EVENT_TOOL, ADD_GROCERIES_TOOL, CALENDAR_EVENTS_TOOL, CHANGE_EVENT_TOOL,
+    self, ADD_EVENT_TOOL, ADD_GROCERIES_TOOL, EVENTS_I_ADDED_TOOL, CALENDAR_EVENTS_TOOL, CHANGE_EVENT_TOOL,
     CHANGE_MEAL_TOOL, CREATE_BOT_TOOL, DELETE_EVENT_TOOL, DELETE_SCHEDULE_TOOL, FILE_NOTE_TOOL,
     FIND_NOTES_TOOL, GIVE_TASK_TOOL, GROCERY_LIST_TOOL, LIST_BOTS_TOOL, LIST_SCHEDULES_TOOL,
     MEAL_PLAN_TOOL, PAUSE_SCHEDULE_TOOL, PLAN_MEAL_TOOL, PLAN_TASK_TOOL, READ_REPLY_TOOL,
@@ -40,7 +40,7 @@ use crate::tools::{
 /// oxbot's own tools: their results never taint a session (the same list
 /// every engine uses, [`crate::engine::trust::TRUSTED_HOST_TOOLS`]).
 #[cfg(test)]
-const TRUSTED_TOOLS: [&str; 27] = [
+const TRUSTED_TOOLS: [&str; 28] = [
     LIST_BOTS_TOOL,
     CREATE_BOT_TOOL,
     GIVE_TASK_TOOL,
@@ -55,6 +55,7 @@ const TRUSTED_TOOLS: [&str; 27] = [
     SAVE_HOME_AREA_TOOL,
     CALENDAR_EVENTS_TOOL,
     ADD_EVENT_TOOL,
+    EVENTS_I_ADDED_TOOL,
     CHANGE_EVENT_TOOL,
     DELETE_EVENT_TOOL,
     FIND_NOTES_TOOL,

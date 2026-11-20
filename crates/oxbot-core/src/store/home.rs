@@ -507,6 +507,21 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// The events `by` added that aren't deleted, soonest first.
+    ///
+    /// # Errors
+    /// SQLite fails.
+    pub fn events_made_by(&self, by: &Actor) -> Result<Vec<HomeEvent>, StoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM home_events
+             WHERE deleted_ms IS NULL AND made_by = ?1
+             ORDER BY starts, id"
+        ))?;
+        let rows = stmt.query_map(params![by.to_text()], event_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Recently deleted: events deleted in the last [`KEEP_DELETED_DAYS`],
     /// latest first.
     ///

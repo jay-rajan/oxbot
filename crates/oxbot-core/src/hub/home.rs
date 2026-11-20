@@ -233,6 +233,19 @@ impl Hub {
         }
     }
 
+    /// `events_i_added`: the family calendar's events `bot` added itself.
+    pub(super) fn events_i_added(&self, bot: &BotId) -> (bool, String) {
+        match self.store.events_made_by(&Actor::Bot(bot.clone())) {
+            Ok(events) if events.is_empty() => (
+                true,
+                "You haven't added any events to the family calendar (or they were deleted)."
+                    .to_owned(),
+            ),
+            Ok(events) => (true, self.events_text(events)),
+            Err(err) => (false, format!("Couldn't read the calendar: {err}")),
+        }
+    }
+
     /// A tool call's event, as the page would send it.
     fn tool_event(&self, args: &Value, added: &mut Vec<String>) -> Result<EventFields, HubError> {
         let text = |k: &str| tools::text_arg(args, k).trim().to_owned();
@@ -478,6 +491,37 @@ mod tests {
             people: people.iter().map(|p| (*p).to_owned()).collect(),
             ..EventInput::default()
         }
+    }
+
+    #[tokio::test]
+    async fn a_bot_checks_the_events_it_added_and_sees_no_others() {
+        use serde_json::json;
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = plain_hub(tmp.path());
+        let school = BotId::new("school-action-plan").unwrap();
+        let other = BotId::new("movie-finder").unwrap();
+        let (_, none) = hub.events_i_added(&school);
+        assert!(none.contains("haven't added any"), "{none}");
+        let (ok, text) = hub.calendar_tool(
+            &school,
+            tools::ADD_EVENT_TOOL,
+            &json!({"title": "Hearing and Vision Clinic", "starts": "2026-11-23"}),
+        );
+        assert!(ok, "{text}");
+        let (_, theirs) = hub.calendar_tool(
+            &other,
+            tools::ADD_EVENT_TOOL,
+            &json!({"title": "Movie night", "starts": "2026-11-21T19:00"}),
+        );
+        assert!(theirs.starts_with("Added"));
+        let (ok, mine) = hub.events_i_added(&school);
+        assert!(ok);
+        assert!(mine.contains("Hearing and Vision Clinic · 2026-11-23"), "{mine}");
+        assert!(!mine.contains("Movie night"), "another bot's event stays private");
+        // Only bots that may add events have it.
+        let set = tools::ToolSet { add_event: true, ..tools::ToolSet::default() };
+        assert!(set.has(tools::EVENTS_I_ADDED_TOOL));
+        assert!(!tools::ToolSet::default().has(tools::EVENTS_I_ADDED_TOOL));
     }
 
     #[tokio::test]
