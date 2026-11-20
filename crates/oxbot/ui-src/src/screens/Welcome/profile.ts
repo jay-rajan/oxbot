@@ -37,7 +37,7 @@ export function draftFrom(view: ProfileView): ProfileDraft {
   };
 }
 
-export const CONFIRM_ERROR = "To finish, confirm you're 18 or older and accept OpenRouter's terms.";
+export const CONFIRM_ERROR = "To finish, confirm you're 18 or older and accept oxbot's and OpenRouter's terms.";
 
 /** The edit to send, or why it can't go yet. */
 export function profileEdit(draft: ProfileDraft, view: ProfileView): { edit: ProfileEdit } | { error: string } {

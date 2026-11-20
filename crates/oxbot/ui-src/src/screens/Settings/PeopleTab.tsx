@@ -326,7 +326,9 @@ function KidSwitch({ person }: { person: Person }) {
         Under 18
       </Switch>
       <small className="field-hint">
-        Their messages are checked first, and anything a parent should see waits for an administrator. Photos and files always wait for an administrator's OK.
+        Every message they send is checked by AI first; anything a parent should see, and every photo or file, waits for an administrator. Their requests go to the administrators, and
+        bots answer them as a child. Their messages still go to AI models through the home's OpenRouter account, whose terms require users to be 18 or older: you supervise their use.
+        See Settings → Terms &amp; privacy.
       </small>
     </div>
   );

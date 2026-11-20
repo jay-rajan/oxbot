@@ -1,0 +1,10 @@
+/* Terms of use and Privacy policy: plain reading text. */
+.legal-text { display: grid; gap: var(--s-2); max-width: 68ch; }
+.legal-text h3 { margin: var(--s-3) 0 0; font-size: var(--text-lg); }
+.legal-text h4 { margin: var(--s-2) 0 0; font-size: var(--text-md); }
+.legal-text p, .legal-text ul { margin: 0; line-height: var(--leading); }
+.legal-text ul { padding-left: 1.2em; display: grid; gap: 4px; }
+.legal-date { color: var(--muted); font-size: var(--text-sm); }
+.legal-read { margin-top: var(--s-2); }
+.legal-read summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }
+.legal-read .legal-text { margin-top: var(--s-2); max-height: 50vh; overflow-y: auto; }

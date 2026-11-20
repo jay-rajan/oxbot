@@ -3,6 +3,7 @@
 // setting (Settings → General); what bots should know about a person is
 // their memory list (Settings → Memory).
 import { useEffect, useRef, useState } from "react";
+import { PrivacyText, TermsText } from "../Settings/Legal";
 import { Checkbox, Field, Input, vars } from "../../components/ui";
 import type { ProfileView } from "../../net/protocol";
 import { type ProfileDraft, draftFrom } from "./profile";
@@ -62,8 +63,14 @@ export function ProfileFields({
             I'm 18 or older.
           </Checkbox>
           <Checkbox data-confirm="terms" checked={draft.terms} onChange={(e) => set({ terms: e.target.checked })}>
-            I accept OpenRouter's terms of service (openrouter.ai/terms), for the home's AI account.
+            I accept oxbot's Terms of use and Privacy policy (below, and in Settings → Terms &amp; privacy), including how kid accounts work, and OpenRouter's terms (openrouter.ai/terms) for the
+            home's AI account.
           </Checkbox>
+          <details className="legal-read">
+            <summary>Read oxbot's Terms of use and Privacy policy</summary>
+            <TermsText />
+            <PrivacyText />
+          </details>
         </div>
       ) : null}
     </div>

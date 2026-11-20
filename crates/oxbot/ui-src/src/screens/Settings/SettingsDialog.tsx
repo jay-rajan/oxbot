@@ -17,6 +17,7 @@ import { MemoryTab } from "./MemoryTab";
 import { PeopleTab } from "./PeopleTab";
 import { SchedulesTab } from "./SchedulesTab";
 import { WebsitesTab } from "./WebsitesTab";
+import { PrivacyText, TermsText } from "./Legal";
 import "./settings.css";
 
 const TABS: (readonly [SettingsTab, string, string?])[] = [
@@ -26,6 +27,7 @@ const TABS: (readonly [SettingsTab, string, string?])[] = [
   ["setMemory", "Memory", "memoryTab"],
   ["setSchedules", "Schedules", "schedulesTab"],
   ["setActivity", "Activity", "activityTab"],
+  ["setLegal", "Terms & privacy", "legalTab"],
 ];
 
 const PHONE = "(max-width: 600px)";
@@ -68,6 +70,12 @@ const ICONS: Record<SettingsTab, ReactNode> = {
       <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
     </svg>
   ),
+  setLegal: (
+    <svg {...line}>
+      <path d="M7 3.5h7l4 4v13H7z" />
+      <path d="M14 3.5v4h4M10 12h5M10 15.5h5" />
+    </svg>
+  ),
 };
 
 /** The phone's first page: each part of Settings, with a word on what's in it. */
@@ -85,6 +93,7 @@ function SettingsMenu({ go }: { go: (tab: SettingsTab) => void }) {
     setMemory: "What bots remember about each person",
     setSchedules: schedules ? `${schedules} repeating` : "What bots do on their own",
     setActivity: "What went in and out today",
+    setLegal: "Your data, and kid accounts",
   };
   return (
     <div className="settings-menu">
@@ -197,6 +206,10 @@ export function SettingsDialog() {
           <MemoryTab hidden={!open || tab !== "setMemory"} />
           <SchedulesTab hidden={!open || tab !== "setSchedules"} />
           <ActivityTab hidden={tab !== "setActivity"} />
+          <div id="setLegal" className="settings-pane" role="tabpanel" hidden={tab !== "setLegal"}>
+            <TermsText />
+            <PrivacyText />
+          </div>
         </div>
       </DialogFrame>
     </Dialog>
