@@ -2595,6 +2595,13 @@ async fn a_bot_shows_its_plan_and_starts_and_a_follow_up_keeps_it() {
     );
     assert_eq!(fake.ran(), ["take_snapshot"]);
     assert!(fake.heard().iter().any(|r| r.contains("can see your plan")));
+    // It's told today's date with its plan, to check "recent" against.
+    assert!(
+        fake.heard()
+            .iter()
+            .any(|r| r.contains("can see your plan") && r.contains("Today is ")),
+        "the plan's answer gives today's date"
+    );
     assert!(hub.pending_approvals().is_empty(), "nothing to answer");
     assert_eq!(approvals_in(&hub, "poster"), 0);
 

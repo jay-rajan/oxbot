@@ -55,6 +55,20 @@ fn card_text(text: &str) -> String {
 }
 
 impl Hub {
+    /// Today's date, and to check the plan against it: a model plans
+    /// "recent" from the year it was trained in unless told.
+    fn date_check(&self) -> String {
+        let now = self.schedule_now();
+        let local = now + i64::from(self.config.zone.offset_at(now)) * 1000;
+        let today = chrono::DateTime::from_timestamp_millis(local)
+            .map(|t| t.naive_utc().format("%A, %B %-d, %Y").to_string())
+            .unwrap_or_default();
+        format!(
+            "Today is {today}. If your plan names years or dates, check them against today \
+             (\"recent\" or \"latest\" includes this year) and search with the right ones."
+        )
+    }
+
     /// Why `bot` may not browse yet, if it may not: a live browser call
     /// (`browses`, in `mode`), plans are on, it isn't a schedule's own
     /// run, and the person pressed Stop or no plan was shown.
@@ -116,7 +130,7 @@ impl Hub {
             tracing::warn!(%err, "couldn't note the plan");
         }
         tracing::info!(bot = %bot_id, "showed its plan");
-        (true, PLAN_SHOWN.to_owned())
+        (true, format!("{PLAN_SHOWN} {}", self.date_check()))
     }
 
     /// `save_home_area`: the owner's card, then the home's area.

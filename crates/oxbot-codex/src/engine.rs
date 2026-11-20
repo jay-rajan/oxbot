@@ -1226,12 +1226,18 @@ async fn steer_turn(
 /// The date line at the end of each turn's message (after the person's
 /// words, like oxbot's other notes), in the Mac's own time
 /// zone, so a task's "Nov 14" means this year. Codex's own environment block
-/// stays off: it would also send the bot's folder path.
+/// stays off: it would also send the bot's folder path. Models lean on the
+/// year they were trained in, so it says to count from this date.
 fn date_line<Tz: chrono::TimeZone>(now: &chrono::DateTime<Tz>) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    format!("[oxbot] Today is {}.", now.format("%A, %B %-d, %Y"))
+    format!(
+        "[oxbot] Today is {}. Work from this date, not from what year you think it is: \
+         \"recent\", \"latest\", \"new\", \"this week\" and \"upcoming\" count from it, \
+         and recent includes this year.",
+        now.format("%A, %B %-d, %Y")
+    )
 }
 
 /// Declines what Codex asks to approve: oxbot never lets it run commands,
@@ -1782,9 +1788,10 @@ mod tests {
         let toronto = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
         // 9 PM in Toronto is already the next day in UTC; the bot gets the local day.
         let now = toronto.with_ymd_and_hms(2026, 11, 4, 21, 0, 0).unwrap();
-        assert_eq!(
-            date_line(&now),
-            "[oxbot] Today is Wednesday, November 4, 2026."
+        let line = date_line(&now);
+        assert!(
+            line.starts_with("[oxbot] Today is Wednesday, November 4, 2026. Work from this date"),
+            "{line}"
         );
     }
 
