@@ -54,6 +54,12 @@
 
 /* The sign-in page, live from the home computer. */
 .signin-view { display: grid; gap: 8px; margin-top: 8px; }
-.signin-page { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
-.signin-keys { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.signin-keys input { flex: 1 1 180px; min-width: 0; }
+/* The live page: a box the picture zooms and moves inside. */
+.signin-box { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.signin-box.zoomed { touch-action: none; cursor: grab; }
+.signin-page { display: block; width: 100%; height: auto; transform-origin: 0 0; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transition: transform var(--fast, 150ms) var(--ease, ease-out); }
+.signin-page.dragging { transition: none; }
+.signin-hint { font-size: var(--text-xs); color: var(--muted); text-align: center; }
+.signin-type { display: flex; gap: 6px; align-items: center; }
+.signin-type input { flex: 1 1 auto; min-width: 0; }
+.signin-keys { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }

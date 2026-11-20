@@ -4,8 +4,9 @@
 // sits right above the message box; other bots waiting for an answer get one
 // line above them (Waiting), with Open to go there.
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FLAT, panFrom, toggleAt, toPage, type View } from "./zoom";
 import { useApp, useSel } from "../../app/context";
-import { Banner, Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea } from "../../components/ui";
+import { Banner, Button, type ButtonKind, Card, Checkbox, Field, Input, Select, TextArea, vars } from "../../components/ui";
 import type { Answer, ClientMsg, ScheduleEdit, SignInInput } from "../../net/protocol";
 import {
   type CardApproval,
@@ -52,65 +53,144 @@ function CheckIn({ who, steps, seconds, onGo, onStop }: { who: string; steps: st
 
 /** How often the sign-in picture refreshes, in ms. */
 const FRAME_MS = 500;
+/** Two taps this close together are a double tap (zoom), in ms. */
+const DOUBLE_MS = 280;
 
 /** The sign-in page, live from the home computer: tap it, type into it.
- * Works on any device; the home computer does the browsing. */
+ * Works on any device; the home computer does the browsing. On a phone the
+ * picture is small, so a double tap zooms in on that spot (drag to move,
+ * double tap again to zoom out); a single tap clicks there. */
 function SignInView({ id, frame, send }: { id: number; frame: SignInFrame | undefined; send: (m: ClientMsg) => void }) {
   const [text, setText] = useState("");
+  const [view, setView] = useState<View>(FLAT);
+  const [dragging, setDragging] = useState(false);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const box = useRef<HTMLDivElement>(null);
+  const press = useRef<{ x: number; y: number; start: View; moved: boolean } | null>(null);
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const ask = () => {
       if (!document.hidden) send({ type: "sign_in_frame", id });
     };
     ask();
     const tick = setInterval(ask, FRAME_MS);
-    return () => clearInterval(tick);
+    return () => {
+      clearInterval(tick);
+      if (pending.current) clearTimeout(pending.current);
+    };
   }, [id, send]);
   const input = (input: SignInInput) => send({ type: "sign_in_input", id, input });
-  const tap = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!frame) return;
-    const box = e.currentTarget.getBoundingClientRect();
-    input({
-      kind: "tap",
-      x: Math.round(((e.clientX - box.left) / box.width) * frame.width),
-      y: Math.round(((e.clientY - box.top) / box.height) * frame.height),
-    });
+  const where = (e: React.PointerEvent) => {
+    const r = box.current!.getBoundingClientRect();
+    return { px: e.clientX - r.left, py: e.clientY - r.top, w: r.width, h: r.height };
   };
-  const type = () => {
+  const down = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!frame || !box.current) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    press.current = { x: e.clientX, y: e.clientY, start: viewRef.current, moved: false };
+  };
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = press.current;
+    if (!p || !box.current) return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    if (!p.moved && Math.hypot(dx, dy) < 8) return;
+    p.moved = true;
+    if (p.start.s > 1) {
+      setDragging(true);
+      const { w, h } = where(e);
+      setView(panFrom(p.start, dx, dy, w, h));
+    }
+  };
+  const up = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = press.current;
+    press.current = null;
+    setDragging(false);
+    if (!p || p.moved || !frame || !box.current) return;
+    const { px, py, w, h } = where(e);
+    const now = Date.now();
+    const last = lastTap.current;
+    if (last && now - last.t < DOUBLE_MS && Math.hypot(px - last.x, py - last.y) < 40) {
+      // A double tap: zoom, and the first tap doesn't click.
+      if (pending.current) clearTimeout(pending.current);
+      pending.current = null;
+      lastTap.current = null;
+      setView(toggleAt(viewRef.current, px, py, w, h));
+      return;
+    }
+    lastTap.current = { t: now, x: px, y: py };
+    const at = toPage(viewRef.current, px, py, w, h, frame.width, frame.height);
+    pending.current = setTimeout(() => {
+      pending.current = null;
+      input({ kind: "tap", ...at });
+    }, DOUBLE_MS);
+  };
+  const typeOnly = () => {
     if (!text) return;
     input({ kind: "text", text });
     setText("");
   };
+  // Types what's in the box (if anything), then presses Enter.
+  const sendText = () => {
+    if (text) input({ kind: "text", text });
+    input({ kind: "key", key: "Enter" });
+    setText("");
+  };
+  const zoomed = view.s > 1;
   return (
     <div className="signin-view">
       {frame ? (
         <>
           <div className="where">{frame.url}</div>
-          <img className="signin-page" alt="The sign-in page" src={`data:image/jpeg;base64,${frame.image}`} onClick={tap} />
+          <div
+            ref={box}
+            className={`signin-box${zoomed ? " zoomed" : ""}`}
+            onPointerDown={down}
+            onPointerMove={move}
+            onPointerUp={up}
+            onPointerCancel={() => {
+              press.current = null;
+              setDragging(false);
+            }}
+          >
+            <img
+              className={`signin-page${dragging ? " dragging" : ""}`}
+              alt="The sign-in page"
+              draggable={false}
+              src={`data:image/jpeg;base64,${frame.image}`}
+              style={vars({ zx: `${view.x}px`, zy: `${view.y}px`, zs: view.s })}
+            />
+          </div>
+          <div className="signin-hint">{zoomed ? "Drag to move · double-tap to zoom out" : "Tap to click · double-tap to zoom in"}</div>
         </>
       ) : (
         <div className="where">Opening the sign-in page…</div>
       )}
-      <div className="signin-keys">
+      <div className="signin-type">
         <Input
           id={`signin-text-${id}`}
           value={text}
           placeholder="Tap a field above, then type here"
           autoComplete="off"
+          enterKeyHint="send"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              if (text) type();
-              else input({ kind: "key", key: "Enter" });
+              sendText();
             }
           }}
         />
-        <Btn label="Type" kind="secondary" onClick={type} />
-        <Btn label="Enter" kind="secondary" onClick={() => input({ kind: "key", key: "Enter" })} />
-        <Btn label="Tab" kind="secondary" onClick={() => input({ kind: "key", key: "Tab" })} />
-        <Btn label="⌫" kind="secondary" onClick={() => input({ kind: "key", key: "Backspace" })} />
-        <Btn label="▲" kind="secondary" onClick={() => input({ kind: "scroll", dy: -400 })} />
-        <Btn label="▼" kind="secondary" onClick={() => input({ kind: "scroll", dy: 400 })} />
+        <Btn label="Send" kind="primary" onClick={sendText} />
+      </div>
+      <div className="signin-keys">
+        <Btn label="Type only" kind="quiet" onClick={typeOnly} />
+        <Btn label="Tab" kind="quiet" onClick={() => input({ kind: "key", key: "Tab" })} />
+        <Btn label="⌫" kind="quiet" onClick={() => input({ kind: "key", key: "Backspace" })} />
+        <Btn label="▲" kind="quiet" onClick={() => input({ kind: "scroll", dy: -400 })} />
+        <Btn label="▼" kind="quiet" onClick={() => input({ kind: "scroll", dy: 400 })} />
       </div>
     </div>
   );
