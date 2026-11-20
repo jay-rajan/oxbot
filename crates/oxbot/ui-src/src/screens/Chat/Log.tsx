@@ -306,11 +306,6 @@ export function Log() {
     return () => ro.disconnect();
   }, [scrollDown]);
 
-  // A phone's tab bar: away when the chat opens, back with a tap on the chat.
-  const showTabs = () => {
-    if (!app.store.getState().ui.tabsUp) app.dispatch(local("ui/tabsUp", { up: true }));
-  };
-
   const onScroll = () => {
     const log = ref.current;
     if (!log) return;
@@ -363,7 +358,7 @@ export function Log() {
 
   return (
     // biome-ignore lint: a picture finishing loading scrolls the chat (load doesn't bubble)
-    <div className="log" id="log" aria-live="polite" ref={ref} onScroll={onScroll} onClick={showTabs} onLoadCapture={() => scrollDown()}>
+    <div className="log" id="log" aria-live="polite" ref={ref} onScroll={onScroll} onLoadCapture={() => scrollDown()}>
       {body}
     </div>
   );
