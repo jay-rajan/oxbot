@@ -451,8 +451,9 @@ impl Hub {
             origin,
             relayed,
         } = *sent;
-        // A check-in waiting for an answer goes: this is the next turn.
-        self.close_checkpoints(&bot.id);
+        // A check-in waiting for an answer goes: this is the next turn. The
+        // task it paused isn't done, so the bot is told to finish it too.
+        let left_off = self.close_checkpoints(&bot.id);
         let scheduled = self.note_scheduled(bot, origin, relayed)?;
         let user_seq = match recorded {
             Some(seq) => seq,
@@ -505,6 +506,9 @@ impl Hub {
                 message.push_str("\n\n");
             }
             message.push_str(&crate::attach::note(from, files, &bot.work_dir()));
+        }
+        if left_off {
+            message.push_str(super::checkpoints::LEFT_OFF);
         }
         // What the person lets bots know about them (never their name).
         if let Some(line) = origin.asker().and_then(|p| self.about_line(p)) {

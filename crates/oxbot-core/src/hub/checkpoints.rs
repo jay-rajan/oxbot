@@ -19,6 +19,13 @@ use crate::policy;
 pub(super) const CARRY_ON: &str = "(oxbot: the person let you carry on. Go on with the task \
      where you left off, and when it's done, give your full answer, briefly.)";
 
+/// What a bot is told when the person's next message came while a
+/// check-in was still counting down: the task it paused isn't done
+/// (added after the message).
+pub(super) const LEFT_OFF: &str = "\n\n(oxbot: your last task paused at a check-in before it was \
+     done, and this message came before it carried on. Answer this message, then finish what was \
+     left of that task, unless this message changes or cancels it.)";
+
 impl Hub {
     /// `bot_id` stopped to check in after `steps` steps of a task for
     /// `origin`: shows the card and, unless the person stops it, carries
@@ -82,18 +89,23 @@ impl Hub {
         }
     }
 
-    /// Closes `bot`'s open check-in cards: a new turn started.
-    pub(super) fn close_checkpoints(&self, bot: &BotId) {
+    /// Closes `bot`'s open check-in cards: a new turn started. Whether
+    /// there was one (a task left unfinished).
+    pub(super) fn close_checkpoints(&self, bot: &BotId) -> bool {
         let ids: Vec<u64> = lock(&self.approvals)
             .iter()
             .filter(|(_, (a, _, _))| a.bot == bot.as_str() && a.kind == ApprovalKind::Checkpoint)
             .map(|(id, _)| *id)
             .collect();
+        let mut closed = false;
         for id in ids {
             lock(&self.notices_closed).insert(id);
-            if !self.answer(id, Answer::Deny) {
+            if self.answer(id, Answer::Deny) {
+                closed = true;
+            } else {
                 lock(&self.notices_closed).remove(&id);
             }
         }
+        closed
     }
 }

@@ -2695,6 +2695,57 @@ async fn a_long_task_checks_in_carries_on_by_itself_and_stops_when_asked() {
 }
 
 #[tokio::test]
+async fn a_message_during_a_check_in_keeps_the_paused_task_going() {
+    let tmp = tempfile::tempdir().unwrap();
+    if codex().await.is_none() {
+        return;
+    }
+    let bots = tmp.path().join("bots");
+    let all = testing::bots(&bots, &["poster"]);
+    let fake = Arc::new(FakeBots::new(&bots, Tool::None));
+    let config = HubConfig {
+        max_steps: 1,
+        // Long enough that the person's next message comes first.
+        checkpoint_wait: std::time::Duration::from_secs(30),
+        ..testing::config(
+            &bots,
+            &tmp.path().join("home"),
+            &fake,
+            Some(program().await),
+        )
+    };
+    let hub = Hub::new(all, Store::open_in_memory().unwrap(), config);
+    hub.set_model_catalog(&testing::catalog(), 1).unwrap();
+    hub.start_codex().await;
+    let mut updates = hub.subscribe();
+    hub.send("poster", "find the times and set up a schedule", Some("Jay"))
+        .await
+        .unwrap();
+    let card = next_card(&mut updates).await;
+    assert_eq!(card.kind, ApprovalKind::Checkpoint);
+
+    // A new message before the card carries on: the bot hears it, and
+    // that its paused task is still to finish.
+    hub.send("poster", "show me the report card too", Some("Jay"))
+        .await
+        .unwrap();
+    request_with(&fake, "show me the report card too").await;
+    let asked = fake
+        .requests()
+        .into_iter()
+        .rfind(|r| r.contains("show me the report card too"))
+        .unwrap();
+    assert!(asked.contains("finish what was left of that task"), "{asked}");
+    assert!(
+        !hub.pending_approvals()
+            .iter()
+            .any(|a| a.kind == ApprovalKind::Checkpoint && a.id == card.id),
+        "the check-in card went"
+    );
+    hub.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_bot_that_skips_its_plan_is_told_to_make_one() {
     let tmp = tempfile::tempdir().unwrap();
     if codex().await.is_none() {
