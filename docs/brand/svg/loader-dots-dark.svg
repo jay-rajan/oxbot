@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 24" role="img" aria-label="Thinking">
+<style>
+.x{stroke:#E0242A}.o{stroke:#F2F2F0}
+.p{fill:none;stroke-width:3.5;stroke-linecap:round}
+.q{transform-box:fill-box;transform-origin:center;animation:bob 1.2s ease-in-out infinite both}
+@keyframes bob{0%,60%,100%{opacity:.35;transform:none}30%{opacity:1;transform:translateY(-3px) scale(1.12)}}
+@media (prefers-reduced-motion:reduce){.q{animation:none;opacity:.8}}
+</style>
+<g class="p x" transform="translate(0 2)"><g class="q" style="animation-delay:0.00s"><path d="M5 5 15 15M15 5 5 15"/></g></g><g class="p o" transform="translate(26 2)"><g class="q" style="animation-delay:0.18s"><circle cx="10" cy="10" r="5.5"/></g></g><g class="p x" transform="translate(52 2)"><g class="q" style="animation-delay:0.36s"><path d="M5 5 15 15M15 5 5 15"/></g></g></svg>

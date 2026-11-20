@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 40" role="img" aria-label="Working"><style>
+.x{stroke:#E0242A}.o{stroke:#141414}
+g.m{fill:none;stroke-width:6;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:1.6s cubic-bezier(.65,0,.35,1) infinite both}
+g.m.a{animation-name:sa}g.m.b{animation-name:sb}
+@keyframes sa{0%,38%{opacity:1;transform:none}50%,88%{opacity:0;transform:scale(.3) rotate(90deg)}100%{opacity:1;transform:none}}
+@keyframes sb{0%,38%{opacity:0;transform:scale(.3) rotate(-90deg)}50%,88%{opacity:1;transform:none}100%{opacity:0;transform:scale(.3) rotate(-90deg)}}
+@media (prefers-reduced-motion:reduce){g.m{animation-duration:4.0s}}
+</style><g transform="translate(0 0)"><g class="m a x"><path d="M11 11 29 29M29 11 11 29"/></g><g class="m b o"><circle cx="20" cy="20" r="10.5"/></g></g><g transform="translate(44 0)"><g class="m a o"><circle cx="20" cy="20" r="10.5"/></g><g class="m b x"><path d="M11 11 29 29M29 11 11 29"/></g></g></svg>
