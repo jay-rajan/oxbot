@@ -440,6 +440,21 @@ export function Cards() {
         />
       );
     }
+    if (a.kind === "kid_message") {
+      // A kid's message waiting for an administrator: why, and the message
+      // (and its files) word for word. Allow sends it to the bot.
+      return (
+        <Card tone="warn" className="kid-message" key={key} title={`${a.action} ${who}`}>
+          <div className="where">{`Why it waits: ${a.target}.`}</div>
+          {a.detail ? <pre>{a.detail}</pre> : null}
+          <div className="btn-row btns">
+            <Btn label="Allow" kind="primary" onClick={() => answer(a.id, "allow_once")} />
+            <Btn label="Don't" kind="secondary" cls="deny" onClick={() => answer(a.id, "deny")} />
+          </div>
+          <div className="hint">Allow sends it to the bot as it was written. Don't drops it, and their chat says a parent said no.</div>
+        </Card>
+      );
+    }
     if (a.kind === "home_area") {
       // The household's area: every bot uses it, for everyone in the home.
       return (

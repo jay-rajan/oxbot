@@ -270,7 +270,8 @@ function PeopleRows() {
             {isOpen ? (
               <div className="person-edit">
                 {mine ? <MeForm /> : admin && !owner ? <RenameForm name={p.name} /> : null}
-                {admin ? <AdminSwitch person={p} last={p.admin && admins <= 1} /> : null}
+                {admin && p.role !== "kid" ? <AdminSwitch person={p} last={p.admin && admins <= 1} /> : null}
+                {admin && !owner && !p.admin ? <KidSwitch person={p} /> : null}
                 {admin && devs.length ? (
                   <List className="device-list">
                     {devs.map((g) => (
@@ -312,6 +313,21 @@ function AdminSwitch({ person, last }: { person: Person; last: boolean }) {
         Administrator
       </Switch>
       <small className="field-hint">{last ? "A home needs at least one administrator. Make someone else one first." : "Sees every bot, private ones too, and manages the people and the home's settings from any device."}</small>
+    </div>
+  );
+}
+
+/** Under 18 (a kid account) or not. Administrators can't be kids. */
+function KidSwitch({ person }: { person: Person }) {
+  const { send } = useApp();
+  return (
+    <div className="admin-switch">
+      <Switch id={`kid-${person.name}`} checked={person.role === "kid"} onChange={(e) => send({ type: "set_kid", name: person.name, on: e.target.checked })}>
+        Under 18
+      </Switch>
+      <small className="field-hint">
+        Their messages are checked first, and anything a parent should see waits for an administrator. Photos and files always wait for an administrator's OK.
+      </small>
     </div>
   );
 }
