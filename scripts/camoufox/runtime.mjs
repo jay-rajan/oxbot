@@ -53,6 +53,11 @@ export function nativeOptions({
       "browser.sessionstore.resume_from_crash": false,
       "browser.sessionstore.resume_session_once": false,
       "browser.sessionstore.max_resumed_crashes": 0,
+      // Silent: bots browse in the background, and a page's sound (a
+      // Netflix trailer) would play out of the Mac. Every page's volume is
+      // zero, and sites can't start sound on their own.
+      "media.volume_scale": "0.0",
+      "media.autoplay.default": 1,
     },
   };
 }

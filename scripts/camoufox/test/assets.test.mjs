@@ -94,6 +94,9 @@ test("native options reject inherited synthetic identity and do not weaken TLS",
     options.firefoxUserPrefs["browser.sessionstore.resume_from_crash"],
     false,
   );
+  // The browser makes no sound.
+  assert.equal(options.firefoxUserPrefs["media.volume_scale"], "0.0");
+  assert.equal(options.firefoxUserPrefs["media.autoplay.default"], 1);
 });
 
 test(
